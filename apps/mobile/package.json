@@ -1,0 +1,30 @@
+{
+  "name": "@hcm/mobile",
+  "private": true,
+  "version": "0.0.0",
+  "main": "expo-router/entry",
+  "scripts": {
+    "dev": "expo start",
+    "build": "expo export",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@clerk/expo": "^3.3.1",
+    "@hcm/shared": "workspace:*",
+    "expo": "~56.0.9",
+    "expo-constants": "~56.0.17",
+    "expo-linking": "~56.0.13",
+    "expo-router": "~56.2.9",
+    "expo-secure-store": "~56.0.4",
+    "expo-status-bar": "~56.0.4",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.85.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.25.2"
+  },
+  "devDependencies": {
+    "@types/react": "latest",
+    "typescript": "latest"
+  }
+}

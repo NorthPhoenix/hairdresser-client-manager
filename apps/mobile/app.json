@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "Hairdresser Client Manager",
+    "slug": "hairdresser-client-manager",
+    "scheme": "hcm",
+    "platforms": ["ios", "android"],
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "plugins": ["expo-router", "expo-secure-store", "@clerk/expo"]
+  }
+}

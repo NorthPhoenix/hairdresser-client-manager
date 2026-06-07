@@ -1,0 +1,19 @@
+{
+  "name": "@hcm/db",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "DATABASE_URL=postgresql://hcm:hcm@localhost:5432/hcm prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "lint": "DATABASE_URL=postgresql://hcm:hcm@localhost:5432/hcm prisma validate"
+  },
+  "dependencies": {
+    "@prisma/client": "latest"
+  },
+  "devDependencies": {
+    "dotenv": "latest",
+    "prisma": "latest"
+  }
+}
