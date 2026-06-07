@@ -1,0 +1,47 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Language {
+  ru
+  en
+}
+
+model Stylist {
+  id        String   @id @default(cuid())
+  clerkId   String   @unique
+  language  Language @default(ru)
+  timezone  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clients Client[]
+}
+
+model Client {
+  id        String   @id @default(cuid())
+  stylistId String
+  name      String
+  language  Language @default(ru)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stylist       Stylist        @relation(fields: [stylistId], references: [id], onDelete: Cascade)
+  profileShares ProfileShare[]
+}
+
+model ProfileShare {
+  id        String   @id @default(cuid())
+  clientId  String
+  token     String   @unique
+  language  Language @default(ru)
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
