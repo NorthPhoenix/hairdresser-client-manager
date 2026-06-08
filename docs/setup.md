@@ -76,12 +76,14 @@ Run these steps locally when you are ready to wire providers:
    DATABASE_URL=
    ```
 
-8. Validate and run the initial Prisma migration:
+8. Validate and push the Prisma schema:
 
    ```sh
    pnpm --filter @hcm/db lint
-   pnpm --filter @hcm/db db:migrate
+   pnpm --filter @hcm/db db:push
    ```
+
+   `db:push` is the v1 schema-application path instead of committed migrations. Run it yourself for shared databases after reviewing the schema change; agents should only run it against local or throwaway databases.
 
 9. Run the apps:
 

@@ -5,7 +5,6 @@
   "type": "module",
   "scripts": {
     "build": "DATABASE_URL=postgresql://hcm:hcm@localhost:5432/hcm prisma generate",
-    "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "lint": "DATABASE_URL=postgresql://hcm:hcm@localhost:5432/hcm prisma validate"
   },

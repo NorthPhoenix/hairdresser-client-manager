@@ -12,12 +12,14 @@ enum Language {
 }
 
 model Stylist {
-  id        String   @id @default(cuid())
-  clerkId   String   @unique
-  language  Language @default(ru)
-  timezone  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                    String    @id @default(cuid())
+  clerkId               String    @unique
+  language              Language  @default(ru)
+  timezone              String
+  salonAddress          String?
+  onboardingCompletedAt DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   clients Client[]
 }

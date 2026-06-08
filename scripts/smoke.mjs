@@ -7,7 +7,21 @@ const checks = [
   },
   {
     file: "apps/mobile/app/(app)/home.tsx",
-    includes: ["useUser", "isSignedIn", "protectedHomeTitle"]
+    includes: [
+      "useUser",
+      "isSignedIn",
+      "protectedHomeTitle",
+      "getDeviceLocale",
+      "getDeviceTimezone",
+      "SecureStore.getItemAsync",
+      "SecureStore.setItemAsync",
+      "onboardingCompletedAt",
+      "timezoneRequired",
+      "salonAddress",
+      "optionalSetupBody",
+      "updateSettings({ language: \"ru\" })",
+      "updateSettings({ language: \"en\" })"
+    ]
   },
   {
     file: "apps/mobile/app/(auth)/sign-in.tsx",
@@ -23,15 +37,32 @@ const checks = [
   },
   {
     file: "packages/shared/src/index.ts",
-    includes: ["ru", "en", "profileSharePlaceholder"]
+    includes: [
+      "ru",
+      "en",
+      "normalizeLocale",
+      "onboardingTitle",
+      "settingsTitle",
+      "languageLabel",
+      "timezoneLabel",
+      "addressLabel",
+      "optionalSetupBody",
+      "profileSharePlaceholder"
+    ]
   },
   {
     file: "packages/db/prisma/schema.prisma",
-    includes: ["datasource db", "provider = \"postgresql\"", "model ProfileShare"]
+    includes: [
+      "datasource db",
+      "provider = \"postgresql\"",
+      "model ProfileShare",
+      "salonAddress",
+      "onboardingCompletedAt"
+    ]
   },
   {
     file: "packages/db/prisma.config.ts",
-    includes: ["defineConfig", "env(\"DATABASE_URL\")", "prisma/migrations"]
+    includes: ["defineConfig", "env(\"DATABASE_URL\")"]
   }
 ];
 
