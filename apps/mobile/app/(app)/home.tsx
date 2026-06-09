@@ -21,7 +21,7 @@ type StylistSettings = {
   onboardingCompletedAt: string | null;
 };
 
-const settingsKey = (userId: string) => `stylist-settings:${userId}`;
+const settingsKey = (userId: string) => `stylist-settings_${userId}`;
 
 function getDeviceLocale(): SupportedLocale {
   return normalizeLocale(Intl.DateTimeFormat().resolvedOptions().locale);
