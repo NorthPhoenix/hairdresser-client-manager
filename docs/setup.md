@@ -100,17 +100,19 @@ The Expo app intentionally renders a clear setup screen when no Clerk publishabl
 
 The web app currently exposes only public Profile Share placeholder routes. Clerk is installed for future shared auth/provider compatibility, but the v1 web app does not create a Stylist management surface.
 
-## Smoke verification
+## Verification
 
-Before installing dependencies, this dependency-free check verifies the scaffolded protected mobile route and public web route exist:
-
-```sh
-pnpm smoke
-```
-
-After dependencies are installed, use:
+After dependencies are installed, run the durable verification commands:
 
 ```sh
 pnpm lint
+pnpm build
+```
+
+These commands typecheck the mobile auth and localization wiring, validate the Prisma schema, build the shared package, and build the public Profile Share web route.
+
+For a faster web-only build check while working on Profile Share pages, use:
+
+```sh
 pnpm --filter @hcm/web build
 ```

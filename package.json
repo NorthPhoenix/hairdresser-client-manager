@@ -9,8 +9,7 @@
     "build": "turbo build",
     "dev": "turbo dev",
     "lint": "turbo lint",
-    "smoke": "node scripts/smoke.mjs",
-    "test": "pnpm smoke"
+    "test": "pnpm lint && pnpm build"
   },
   "devDependencies": {
     "turbo": "latest",
