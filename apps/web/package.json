@@ -8,8 +8,10 @@
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@hcm/api": "workspace:*",
     "@hcm/shared": "workspace:*",
     "@clerk/nextjs": "latest",
+    "@trpc/server": "latest",
     "next": "latest",
     "react": "latest",
     "react-dom": "latest"
@@ -18,6 +20,7 @@
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
+    "tailwindcss": "^3.4.17",
     "typescript": "latest"
   }
 }
