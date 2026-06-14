@@ -2,6 +2,9 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "paths": {
+      "@hcm/api": [
+        "../../packages/api/src"
+      ],
       "@hcm/shared": [
         "../../packages/shared/src"
       ]
@@ -10,6 +13,7 @@
   },
   "include": [
     "app",
-    "src"
+    "src",
+    "nativewind-env.d.ts"
   ]
 }

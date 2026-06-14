@@ -3,16 +3,27 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
   "scripts": {
-    "build": "DATABASE_URL=postgresql://hcm:hcm@localhost:5432/hcm prisma generate",
+    "build": "prisma generate && tsc -p tsconfig.json",
     "db:push": "prisma db push",
-    "lint": "DATABASE_URL=postgresql://hcm:hcm@localhost:5432/hcm prisma validate"
+    "lint": "prisma validate"
   },
   "dependencies": {
-    "@prisma/client": "latest"
+    "@prisma/adapter-pg": "latest",
+    "@prisma/client": "latest",
+    "dotenv": "latest"
   },
   "devDependencies": {
-    "dotenv": "latest",
-    "prisma": "latest"
+    "@types/node": "latest",
+    "prisma": "latest",
+    "typescript": "latest"
   }
 }

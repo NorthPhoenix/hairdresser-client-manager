@@ -7,6 +7,7 @@
   },
   "scripts": {
     "build": "turbo build",
+    "db:push": "pnpm --filter @hcm/db db:push",
     "dev": "turbo dev",
     "lint": "turbo lint",
     "test": "pnpm lint && pnpm build"

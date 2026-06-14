@@ -11,6 +11,18 @@ enum Language {
   en
 }
 
+enum AppointmentStatus {
+  scheduled
+  completed
+  canceled
+  noShow
+}
+
+enum AppointmentLocationType {
+  inSalon
+  atHome
+}
+
 model Stylist {
   id                    String    @id @default(cuid())
   clerkId               String    @unique
@@ -22,18 +34,55 @@ model Stylist {
   updatedAt             DateTime  @updatedAt
 
   clients Client[]
+  appointments Appointment[]
 }
 
 model Client {
-  id        String   @id @default(cuid())
-  stylistId String
-  name      String
-  language  Language @default(ru)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(cuid())
+  stylistId    String
+  name         String
+  language     Language @default(ru)
+  phone        String?
+  email        String?
+  address      String?
+  note         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   stylist       Stylist        @relation(fields: [stylistId], references: [id], onDelete: Cascade)
+  primaryAppointments Appointment[] @relation("AppointmentPrimaryClient")
+  appointmentParticipants AppointmentParticipant[]
   profileShares ProfileShare[]
+}
+
+model Appointment {
+  id           String                  @id @default(cuid())
+  stylistId    String
+  primaryClientId String
+  startsAt     DateTime
+  endsAt       DateTime?
+  status       AppointmentStatus       @default(scheduled)
+  locationType AppointmentLocationType @default(inSalon)
+  locationAddress String?
+  note         String?
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+
+  stylist       Stylist @relation(fields: [stylistId], references: [id], onDelete: Cascade)
+  primaryClient Client  @relation("AppointmentPrimaryClient", fields: [primaryClientId], references: [id], onDelete: Restrict)
+  participants  AppointmentParticipant[]
+}
+
+model AppointmentParticipant {
+  id            String      @id @default(cuid())
+  appointmentId String
+  clientId      String
+  createdAt     DateTime    @default(now())
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  client      Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([appointmentId, clientId])
 }
 
 model ProfileShare {

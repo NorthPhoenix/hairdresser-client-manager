@@ -4,6 +4,8 @@ This repo starts as a Turborepo with an Expo mobile app, a Profile Share-only Ne
 
 Because this is a new application, use current stable APIs and package names by default. Do not add legacy or compatibility APIs unless a current API is blocked and the reason plus removal path are documented.
 
+Before extending the mobile/API stack, read ADRs `0010`, `0011`, and `0012`. They define the Next.js-hosted tRPC backend, lazy Clerk-to-Stylist identity model, and v1 Tailwind/NativeWind stack.
+
 ## Human setup checkpoints
 
 Run these steps locally when you are ready to wire providers:
@@ -70,7 +72,7 @@ Run these steps locally when you are ready to wire providers:
 
    Clerk CLI writes `CLERK_PUBLISHABLE_KEY`. Expo client code needs `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`, so mirror the publishable key into `apps/mobile/.env.local` with that name when testing the mobile app.
 
-7. Create a Prisma Postgres database and fill in:
+7. Create a Prisma Postgres database and fill in `packages/db/.env`:
 
    ```sh
    DATABASE_URL=
@@ -80,7 +82,7 @@ Run these steps locally when you are ready to wire providers:
 
    ```sh
    pnpm --filter @hcm/db lint
-   pnpm --filter @hcm/db db:push
+   pnpm db:push
    ```
 
    `db:push` is the v1 schema-application path instead of committed migrations. Run it yourself for shared databases after reviewing the schema change; agents should only run it against local or throwaway databases.
