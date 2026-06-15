@@ -794,6 +794,416 @@ describe("appointment router", () => {
     });
   });
 
+  it("adds, edits, and deletes multiple Color Formulas on a Service", async () => {
+    const startsAt = new Date("2026-06-13T15:00:00.000Z");
+    const colorFormulaCreate = vi.fn().mockResolvedValue({
+      id: "formula_2"
+    });
+    const colorFormulaUpdate = vi.fn().mockResolvedValue({
+      id: "formula_1"
+    });
+    const colorFormulaDelete = vi.fn().mockResolvedValue({
+      id: "formula_1"
+    });
+    const appointmentFindUniqueOrThrow = vi.fn().mockResolvedValue({
+      id: "appointment_1",
+      stylistId: "stylist_1",
+      primaryClientId: "client_1",
+      startsAt,
+      endsAt: null,
+      status: "completed",
+      locationType: "inSalon",
+      locationAddress: "500 Salon Ave",
+      note: "",
+      finalTotalCentsOverride: null,
+      primaryClient: {
+        id: "client_1",
+        name: "Anna",
+        address: ""
+      },
+      participants: [
+        {
+          client: {
+            id: "client_1",
+            name: "Anna",
+            address: ""
+          }
+        }
+      ],
+      services: [
+        {
+          id: "appointment_service_1",
+          appointmentId: "appointment_1",
+          clientId: "client_1",
+          menuItemId: null,
+          name: "Color",
+          priceCents: 12000,
+          note: "",
+          createdAt: startsAt,
+          colorFormulas: [
+            {
+              id: "formula_1",
+              appointmentServiceId: "appointment_service_1",
+              formula: "7N + 20 vol",
+              placement: "Roots",
+              createdAt: startsAt
+            },
+            {
+              id: "formula_2",
+              appointmentServiceId: "appointment_service_1",
+              formula: "Gloss",
+              placement: "",
+              createdAt: startsAt
+            }
+          ]
+        }
+      ]
+    });
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: {
+          upsert: vi.fn().mockResolvedValue(stylist)
+        },
+        appointment: {
+          findUniqueOrThrow: appointmentFindUniqueOrThrow
+        },
+        appointmentService: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: "appointment_service_1",
+            appointmentId: "appointment_1"
+          })
+        },
+        colorFormula: {
+          create: colorFormulaCreate,
+          findFirst: vi.fn().mockResolvedValue({
+            id: "formula_1",
+            appointmentService: {
+              appointmentId: "appointment_1"
+            }
+          }),
+          update: colorFormulaUpdate,
+          delete: colorFormulaDelete
+        }
+      } as unknown as TRPCContext["db"])
+    );
+
+    await expect(
+      caller.appointment.addColorFormula({
+        appointmentServiceId: "appointment_service_1",
+        formula: "Gloss"
+      })
+    ).resolves.toMatchObject({
+      services: [
+        {
+          colorFormulas: [
+            {
+              formula: "7N + 20 vol",
+              placement: "Roots"
+            },
+            {
+              formula: "Gloss",
+              placement: ""
+            }
+          ]
+        }
+      ]
+    });
+    await caller.appointment.updateColorFormula({
+      id: "formula_1",
+      formula: "8N + 20 vol",
+      placement: "Roots"
+    });
+    await caller.appointment.deleteColorFormula({
+      id: "formula_1"
+    });
+
+    expect(colorFormulaCreate).toHaveBeenCalledWith({
+      data: {
+        appointmentServiceId: "appointment_service_1",
+        formula: "Gloss",
+        placement: ""
+      }
+    });
+    expect(colorFormulaUpdate).toHaveBeenCalledWith({
+      where: {
+        id: "formula_1"
+      },
+      data: {
+        formula: "8N + 20 vol",
+        placement: "Roots"
+      }
+    });
+    expect(colorFormulaDelete).toHaveBeenCalledWith({
+      where: {
+        id: "formula_1"
+      }
+    });
+  });
+
+  it("copies Services and Color Formulas from the last completed Appointment by default", async () => {
+    const startsAt = new Date("2026-06-13T15:00:00.000Z");
+    const appointmentFindFirst = vi.fn()
+      .mockResolvedValueOnce({
+        id: "target_1",
+        participants: [
+          {
+            clientId: "client_1"
+          }
+        ]
+      })
+      .mockResolvedValueOnce({
+        id: "source_last",
+        participants: [
+          {
+            clientId: "client_1"
+          }
+        ],
+        services: [
+          {
+            clientId: "client_1",
+            menuItemId: "menu_1",
+            name: "Color",
+            priceCents: 12000,
+            note: "Copy me",
+            colorFormulas: [
+              {
+                formula: "7N",
+                placement: "Roots"
+              }
+            ]
+          }
+        ]
+      });
+    const appointmentServiceCreate = vi.fn();
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: {
+          upsert: vi.fn().mockResolvedValue(stylist)
+        },
+        appointment: {
+          findFirst: appointmentFindFirst,
+          findUniqueOrThrow: vi.fn().mockResolvedValue({
+            id: "target_1",
+            stylistId: "stylist_1",
+            primaryClientId: "client_1",
+            startsAt,
+            endsAt: null,
+            status: "scheduled",
+            locationType: "inSalon",
+            locationAddress: "500 Salon Ave",
+            note: "",
+            finalTotalCentsOverride: null,
+            primaryClient: {
+              id: "client_1",
+              name: "Anna",
+              address: ""
+            },
+            participants: [
+              {
+                client: {
+                  id: "client_1",
+                  name: "Anna",
+                  address: ""
+                }
+              }
+            ],
+            services: []
+          })
+        },
+        appointmentService: {
+          create: appointmentServiceCreate
+        }
+      } as unknown as TRPCContext["db"])
+    );
+
+    await caller.appointment.copyServices({
+      targetAppointmentId: "target_1"
+    });
+
+    expect(appointmentFindFirst).toHaveBeenNthCalledWith(2, {
+      where: {
+        stylistId: "stylist_1",
+        status: "completed",
+        id: {
+          not: "target_1"
+        }
+      },
+      include: expect.any(Object),
+      orderBy: {
+        startsAt: "desc"
+      }
+    });
+    expect(appointmentServiceCreate).toHaveBeenCalledWith({
+      data: {
+        appointmentId: "target_1",
+        clientId: "client_1",
+        menuItemId: "menu_1",
+        name: "Color",
+        priceCents: 12000,
+        note: "Copy me",
+        colorFormulas: {
+          create: [
+            {
+              formula: "7N",
+              placement: "Roots"
+            }
+          ]
+        }
+      }
+    });
+  });
+
+  it("copies from an explicitly selected older completed Appointment", async () => {
+    const appointmentFindFirst = vi.fn()
+      .mockResolvedValueOnce({
+        id: "target_1",
+        participants: [
+          {
+            clientId: "client_1"
+          }
+        ]
+      })
+      .mockResolvedValueOnce({
+        id: "older_source",
+        participants: [
+          {
+            clientId: "client_1"
+          }
+        ],
+        services: []
+      });
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: {
+          upsert: vi.fn().mockResolvedValue(stylist)
+        },
+        appointment: {
+          findFirst: appointmentFindFirst,
+          findUniqueOrThrow: vi.fn().mockResolvedValue({
+            id: "target_1",
+            stylistId: "stylist_1",
+            primaryClientId: "client_1",
+            startsAt: new Date("2026-06-13T15:00:00.000Z"),
+            endsAt: null,
+            status: "scheduled",
+            locationType: "inSalon",
+            locationAddress: "500 Salon Ave",
+            note: "",
+            finalTotalCentsOverride: null,
+            primaryClient: {
+              id: "client_1",
+              name: "Anna",
+              address: ""
+            },
+            services: []
+          })
+        },
+        appointmentService: {
+          create: vi.fn()
+        }
+      } as unknown as TRPCContext["db"])
+    );
+
+    await caller.appointment.copyServices({
+      targetAppointmentId: "target_1",
+      sourceAppointmentId: "older_source"
+    });
+
+    expect(appointmentFindFirst).toHaveBeenNthCalledWith(2, {
+      where: {
+        id: "older_source",
+        stylistId: "stylist_1",
+        status: "completed"
+      },
+      include: expect.any(Object)
+    });
+  });
+
+  it("copies group Appointment Services only for Clients attached to both Appointments", async () => {
+    const appointmentServiceCreate = vi.fn();
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: {
+          upsert: vi.fn().mockResolvedValue(stylist)
+        },
+        appointment: {
+          findFirst: vi.fn()
+            .mockResolvedValueOnce({
+              id: "target_1",
+              participants: [
+                {
+                  clientId: "client_1"
+                }
+              ]
+            })
+            .mockResolvedValueOnce({
+              id: "source_1",
+              participants: [
+                {
+                  clientId: "client_1"
+                },
+                {
+                  clientId: "client_2"
+                }
+              ],
+              services: [
+                {
+                  clientId: "client_1",
+                  menuItemId: null,
+                  name: "Shared client service",
+                  priceCents: 5000,
+                  note: "",
+                  colorFormulas: []
+                },
+                {
+                  clientId: "client_2",
+                  menuItemId: null,
+                  name: "Excluded service",
+                  priceCents: 9000,
+                  note: "",
+                  colorFormulas: []
+                }
+              ]
+            }),
+          findUniqueOrThrow: vi.fn().mockResolvedValue({
+            id: "target_1",
+            stylistId: "stylist_1",
+            primaryClientId: "client_1",
+            startsAt: new Date("2026-06-13T15:00:00.000Z"),
+            endsAt: null,
+            status: "scheduled",
+            locationType: "inSalon",
+            locationAddress: "500 Salon Ave",
+            note: "",
+            finalTotalCentsOverride: null,
+            primaryClient: {
+              id: "client_1",
+              name: "Anna",
+              address: ""
+            },
+            services: []
+          })
+        },
+        appointmentService: {
+          create: appointmentServiceCreate
+        }
+      } as unknown as TRPCContext["db"])
+    );
+
+    await caller.appointment.copyServices({
+      targetAppointmentId: "target_1",
+      sourceAppointmentId: "source_1"
+    });
+
+    expect(appointmentServiceCreate).toHaveBeenCalledTimes(1);
+    expect(appointmentServiceCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        clientId: "client_1",
+        name: "Shared client service"
+      })
+    });
+  });
+
   it("changes primary Client only to an attached participant", async () => {
     const participantFindFirst = vi.fn().mockResolvedValue({
       appointmentId: "appointment_1",

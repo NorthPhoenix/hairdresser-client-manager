@@ -114,6 +114,13 @@ export const clientRouter = createTRPCRouter({
           }
         },
         services: {
+          include: {
+            colorFormulas: {
+              orderBy: {
+                createdAt: "asc"
+              }
+            }
+          },
           orderBy: {
             createdAt: "asc"
           }
@@ -137,7 +144,12 @@ export const clientRouter = createTRPCRouter({
         menuItemId: service.menuItemId,
         name: service.name,
         priceCents: service.priceCents,
-        note: service.note ?? ""
+        note: service.note ?? "",
+        colorFormulas: service.colorFormulas.map((formula) => ({
+          id: formula.id,
+          formula: formula.formula,
+          placement: formula.placement ?? ""
+        }))
       }))
     }));
   }),
