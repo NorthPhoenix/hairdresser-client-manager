@@ -7,7 +7,7 @@ import { useState, type ReactNode } from "react";
 
 export const trpc = createTRPCReact<AppRouter>();
 
-function getBaseUrl() {
+export function getBaseUrl() {
   const configuredUrl = process.env.EXPO_PUBLIC_TRPC_URL;
 
   if (configuredUrl) {
