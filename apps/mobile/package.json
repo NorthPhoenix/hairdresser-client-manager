@@ -10,7 +10,11 @@
   },
   "dependencies": {
     "@clerk/expo": "^3.3.1",
+    "@hcm/api": "workspace:*",
     "@hcm/shared": "workspace:*",
+    "@tanstack/react-query": "latest",
+    "@trpc/client": "latest",
+    "@trpc/react-query": "latest",
     "expo": "~56.0.9",
     "expo-constants": "~56.0.17",
     "expo-linking": "~56.0.13",
@@ -20,11 +24,14 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.85.3",
+    "react-native-css-interop": "latest",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.25.2"
   },
   "devDependencies": {
     "@types/react": "latest",
+    "nativewind": "latest",
+    "tailwindcss": "^3.4.17",
     "typescript": "latest"
   }
 }

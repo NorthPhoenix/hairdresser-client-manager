@@ -8,6 +8,8 @@
     "module": "esnext",
     "noEmit": true,
     "paths": {
+      "@hcm/api": ["../../packages/api/src"],
+      "@hcm/db": ["../../packages/db/src"],
       "@hcm/shared": ["../../packages/shared/src"]
     },
     "plugins": [

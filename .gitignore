@@ -7,6 +7,8 @@ node_modules
 dist
 .next
 .expo
+apps/mobile/android
+apps/mobile/ios
 coverage
 *.tsbuildinfo
 temp

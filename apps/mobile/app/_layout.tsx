@@ -1,12 +1,16 @@
 import { ClerkProvider } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
 import { Slot } from "expo-router";
-import { StyleSheet, Text, View } from "react-native";
+import { LogBox, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { defaultLocale, t } from "@hcm/shared";
+import { TRPCProvider } from "../src/trpc/client";
+import "../global.css";
 
 const clerkPublishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
+
+LogBox.ignoreLogs(["Clerk has been loaded with development keys"]);
 
 function MissingEnvironmentScreen() {
   return (
@@ -29,7 +33,9 @@ export default function RootLayout() {
 
   return (
     <ClerkProvider publishableKey={clerkPublishableKey} tokenCache={tokenCache}>
-      <Slot />
+      <TRPCProvider>
+        <Slot />
+      </TRPCProvider>
     </ClerkProvider>
   );
 }
