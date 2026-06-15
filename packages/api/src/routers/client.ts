@@ -112,6 +112,11 @@ export const clientRouter = createTRPCRouter({
           orderBy: {
             createdAt: "asc"
           }
+        },
+        services: {
+          orderBy: {
+            createdAt: "asc"
+          }
         }
       },
       orderBy: {
@@ -125,7 +130,15 @@ export const clientRouter = createTRPCRouter({
       primaryClientName: appointment.primaryClient.name,
       startsAt: appointment.startsAt.toISOString(),
       status: appointment.status,
-      participantClientIds: appointment.participants.map((participant) => participant.clientId)
+      participantClientIds: appointment.participants.map((participant) => participant.clientId),
+      services: appointment.services.map((service) => ({
+        id: service.id,
+        clientId: service.clientId,
+        menuItemId: service.menuItemId,
+        name: service.name,
+        priceCents: service.priceCents,
+        note: service.note ?? ""
+      }))
     }));
   }),
   save: stylistProcedure.input(clientSaveInput).mutation(async ({ ctx, input }) => {

@@ -98,6 +98,7 @@ describe("appointment router", () => {
         locationType: "inSalon",
         locationAddress: "500 Salon Ave",
         note: "",
+        finalTotalCentsOverride: null,
         participants: {
           create: [
             {
@@ -522,6 +523,277 @@ describe("appointment router", () => {
     });
   });
 
+  it("adds a Service from a menu default as an appointment-specific snapshot", async () => {
+    const startsAt = new Date("2026-06-13T15:00:00.000Z");
+    const appointmentServiceCreate = vi.fn().mockResolvedValue({
+      id: "appointment_service_1"
+    });
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: {
+          upsert: vi.fn().mockResolvedValue(stylist)
+        },
+        appointment: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: "appointment_1",
+            participants: [
+              {
+                clientId: "client_1"
+              }
+            ]
+          }),
+          findUniqueOrThrow: vi.fn().mockResolvedValue({
+            id: "appointment_1",
+            stylistId: "stylist_1",
+            primaryClientId: "client_1",
+            startsAt,
+            endsAt: null,
+            status: "scheduled",
+            locationType: "inSalon",
+            locationAddress: "500 Salon Ave",
+            note: "",
+            finalTotalCentsOverride: null,
+            primaryClient: {
+              id: "client_1",
+              name: "Anna",
+              address: ""
+            },
+            participants: [
+              {
+                client: {
+                  id: "client_1",
+                  name: "Anna",
+                  address: ""
+                }
+              }
+            ],
+            services: [
+              {
+                id: "appointment_service_1",
+                appointmentId: "appointment_1",
+                clientId: "client_1",
+                menuItemId: "menu_1",
+                name: "Haircut",
+                priceCents: 8500,
+                note: "",
+                createdAt: startsAt
+              }
+            ]
+          })
+        },
+        appointmentService: {
+          create: appointmentServiceCreate
+        },
+        serviceMenuItem: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: "menu_1",
+            name: "Haircut",
+            defaultPriceCents: 8500
+          })
+        }
+      } as unknown as TRPCContext["db"])
+    );
+
+    await expect(
+      caller.appointment.addService({
+        appointmentId: "appointment_1",
+        clientId: "client_1",
+        menuItemId: "menu_1"
+      })
+    ).resolves.toMatchObject({
+      services: [
+        {
+          id: "appointment_service_1",
+          menuItemId: "menu_1",
+          name: "Haircut",
+          priceCents: 8500
+        }
+      ],
+      serviceTotalCents: 8500,
+      finalTotalCents: 8500
+    });
+    expect(appointmentServiceCreate).toHaveBeenCalledWith({
+      data: {
+        appointmentId: "appointment_1",
+        clientId: "client_1",
+        menuItemId: "menu_1",
+        name: "Haircut",
+        priceCents: 8500,
+        note: ""
+      }
+    });
+  });
+
+  it("adds ad hoc Services and derives per-Client subtotals", async () => {
+    const startsAt = new Date("2026-06-13T15:00:00.000Z");
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: {
+          upsert: vi.fn().mockResolvedValue(stylist)
+        },
+        appointment: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: "appointment_1",
+            participants: [
+              {
+                clientId: "client_1"
+              },
+              {
+                clientId: "client_2"
+              }
+            ]
+          }),
+          findUniqueOrThrow: vi.fn().mockResolvedValue({
+            id: "appointment_1",
+            stylistId: "stylist_1",
+            primaryClientId: "client_1",
+            startsAt,
+            endsAt: null,
+            status: "scheduled",
+            locationType: "inSalon",
+            locationAddress: "500 Salon Ave",
+            note: "",
+            finalTotalCentsOverride: null,
+            primaryClient: {
+              id: "client_1",
+              name: "Anna",
+              address: ""
+            },
+            participants: [
+              {
+                client: {
+                  id: "client_1",
+                  name: "Anna",
+                  address: ""
+                }
+              },
+              {
+                client: {
+                  id: "client_2",
+                  name: "Mila",
+                  address: ""
+                }
+              }
+            ],
+            services: [
+              {
+                id: "appointment_service_1",
+                appointmentId: "appointment_1",
+                clientId: "client_1",
+                menuItemId: null,
+                name: "Color",
+                priceCents: 12000,
+                note: "Roots",
+                createdAt: startsAt
+              },
+              {
+                id: "appointment_service_2",
+                appointmentId: "appointment_1",
+                clientId: "client_2",
+                menuItemId: null,
+                name: "Cut",
+                priceCents: 8000,
+                note: "",
+                createdAt: startsAt
+              }
+            ]
+          })
+        },
+        appointmentService: {
+          create: vi.fn().mockResolvedValue({
+            id: "appointment_service_1"
+          })
+        }
+      } as unknown as TRPCContext["db"])
+    );
+
+    await expect(
+      caller.appointment.addService({
+        appointmentId: "appointment_1",
+        clientId: "client_1",
+        name: "Color",
+        priceCents: 12000,
+        note: "Roots"
+      })
+    ).resolves.toMatchObject({
+      participants: [
+        {
+          clientId: "client_1",
+          subtotalCents: 12000
+        },
+        {
+          clientId: "client_2",
+          subtotalCents: 8000
+        }
+      ],
+      serviceTotalCents: 20000,
+      finalTotalCents: 20000
+    });
+  });
+
+  it("lets the final total override the sum of Services", async () => {
+    const findFirst = vi.fn().mockResolvedValue({
+      id: "appointment_1"
+    });
+    const update = vi.fn().mockResolvedValue({
+      id: "appointment_1",
+      stylistId: "stylist_1",
+      primaryClientId: "client_1",
+      startsAt: new Date("2026-06-13T15:00:00.000Z"),
+      endsAt: null,
+      status: "completed",
+      locationType: "inSalon",
+      locationAddress: "500 Salon Ave",
+      note: "",
+      finalTotalCentsOverride: 17500,
+      primaryClient: {
+        id: "client_1",
+        name: "Anna",
+        address: ""
+      },
+      services: [
+        {
+          id: "appointment_service_1",
+          appointmentId: "appointment_1",
+          clientId: "client_1",
+          menuItemId: null,
+          name: "Color",
+          priceCents: 20000,
+          note: "",
+          createdAt: new Date("2026-06-13T15:00:00.000Z")
+        }
+      ]
+    });
+    const caller = appRouter.createCaller(
+      createContext(
+        createDb({
+          findFirst,
+          update
+        })
+      )
+    );
+
+    await expect(
+      caller.appointment.update({
+        id: "appointment_1",
+        finalTotalCentsOverride: 17500
+      })
+    ).resolves.toMatchObject({
+      serviceTotalCents: 20000,
+      finalTotalCents: 17500,
+      finalTotalCentsOverride: 17500
+    });
+    expect(update).toHaveBeenCalledWith({
+      where: {
+        id: "appointment_1"
+      },
+      data: {
+        finalTotalCentsOverride: 17500
+      },
+      include: expect.any(Object)
+    });
+  });
+
   it("changes primary Client only to an attached participant", async () => {
     const participantFindFirst = vi.fn().mockResolvedValue({
       appointmentId: "appointment_1",
@@ -601,6 +873,7 @@ describe("appointment router", () => {
   it("promotes another Client when removing the primary participant", async () => {
     const appointmentUpdate = vi.fn();
     const participantDeleteMany = vi.fn();
+    const serviceCount = vi.fn().mockResolvedValue(0);
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
@@ -623,6 +896,9 @@ describe("appointment router", () => {
         },
         appointmentParticipant: {
           deleteMany: participantDeleteMany
+        },
+        appointmentService: {
+          count: serviceCount
         }
       } as unknown as TRPCContext["db"])
     );
@@ -646,6 +922,58 @@ describe("appointment router", () => {
         clientId: "client_1"
       }
     });
+    expect(serviceCount).toHaveBeenCalledWith({
+      where: {
+        appointmentId: "appointment_1",
+        clientId: "client_1"
+      }
+    });
+  });
+
+  it("blocks removing a participant with Services", async () => {
+    const appointmentUpdate = vi.fn();
+    const participantDeleteMany = vi.fn();
+    const serviceCount = vi.fn().mockResolvedValue(1);
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: {
+          upsert: vi.fn().mockResolvedValue(stylist)
+        },
+        appointment: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: "appointment_1",
+            primaryClientId: "client_1",
+            participants: [
+              {
+                clientId: "client_1"
+              },
+              {
+                clientId: "client_2"
+              }
+            ]
+          }),
+          update: appointmentUpdate
+        },
+        appointmentParticipant: {
+          deleteMany: participantDeleteMany
+        },
+        appointmentService: {
+          count: serviceCount
+        }
+      } as unknown as TRPCContext["db"])
+    );
+
+    await expect(
+      caller.appointment.removeParticipant({
+        appointmentId: "appointment_1",
+        clientId: "client_1"
+      })
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST"
+    });
+
+    expect(appointmentUpdate).not.toHaveBeenCalled();
+    expect(participantDeleteMany).not.toHaveBeenCalled();
   });
 
   it("deletes an owned Appointment", async () => {
