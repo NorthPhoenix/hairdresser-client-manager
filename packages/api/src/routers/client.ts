@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { buildShareImageSvg } from "../shareImage";
 import { createTRPCRouter, stylistProcedure } from "../trpc";
 
 const clientListInput = z.object({
@@ -26,6 +27,11 @@ const clientAppointmentHistoryInput = z.object({
 
 const clientProfileShareInput = z.object({
   clientId: z.string()
+});
+
+const clientProfileShareImageInput = z.object({
+  clientId: z.string(),
+  language: z.enum(["ru", "en"])
 });
 
 function createProfileShareToken(): string {
@@ -321,6 +327,80 @@ export const clientRouter = createTRPCRouter({
 
     return {
       clientId: client.id
+    };
+  }),
+  buildProfileShareImage: stylistProcedure.input(clientProfileShareImageInput).mutation(async ({ ctx, input }) => {
+    const client = await ctx.db.client.findFirst({
+      where: {
+        id: input.clientId,
+        stylistId: ctx.stylist.id
+      }
+    });
+
+    if (!client) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Client not found."
+      });
+    }
+
+    const nextAppointment = await ctx.db.appointment.findFirst({
+      where: {
+        stylistId: ctx.stylist.id,
+        status: "scheduled",
+        startsAt: {
+          gte: new Date()
+        },
+        participants: {
+          some: {
+            clientId: client.id
+          }
+        }
+      },
+      orderBy: {
+        startsAt: "asc"
+      }
+    });
+    const lastCompletedAppointment = await ctx.db.appointment.findFirst({
+      where: {
+        stylistId: ctx.stylist.id,
+        status: "completed",
+        participants: {
+          some: {
+            clientId: client.id
+          }
+        }
+      },
+      include: {
+        services: {
+          where: {
+            clientId: client.id
+          },
+          include: {
+            colorFormulas: {
+              orderBy: {
+                createdAt: "asc"
+              }
+            }
+          },
+          orderBy: {
+            createdAt: "asc"
+          }
+        }
+      },
+      orderBy: {
+        startsAt: "desc"
+      }
+    });
+
+    return {
+      svg: buildShareImageSvg({
+        clientName: client.name,
+        locale: input.language,
+        nextAppointment,
+        lastCompletedAppointment,
+        services: lastCompletedAppointment?.services ?? []
+      })
     };
   }),
   delete: stylistProcedure.input(clientDeleteInput).mutation(async ({ ctx, input }) => {

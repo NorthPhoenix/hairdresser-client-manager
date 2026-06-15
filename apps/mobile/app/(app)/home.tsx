@@ -245,6 +245,10 @@ function getProfileShareUrl(token: string): string {
   return `${webUrl}/profile-shares/${token}`;
 }
 
+function getShareImageDataUrl(svg: string): string {
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
 function formatAppointmentTime(appointment: Appointment): string {
   const start = new Date(appointment.startsAt).toLocaleString();
   const end = appointment.endsAt ? new Date(appointment.endsAt).toLocaleTimeString() : "";
@@ -271,6 +275,7 @@ export default function HomeScreen() {
   const [colorFormulaForms, setColorFormulaForms] = useState<Record<string, ColorFormulaForm>>({});
   const [appointmentFinalTotals, setAppointmentFinalTotals] = useState<Record<string, string>>({});
   const [copySourceAppointmentIds, setCopySourceAppointmentIds] = useState<Record<string, string>>({});
+  const [shareImageLocales, setShareImageLocales] = useState<Record<string, SupportedLocale>>({});
   const [calendarDate, setCalendarDate] = useState(() => toDateInputValue(new Date()));
   const utils = trpc.useUtils();
   const deviceBootstrapDefaults = useMemo(
@@ -337,6 +342,11 @@ export default function HomeScreen() {
     onSuccess() {
       void utils.clientProfile.list.invalidate();
     },
+    onError(error) {
+      Alert.alert("Profile Share", error.message);
+    }
+  });
+  const buildProfileShareImageMutation = trpc.clientProfile.buildProfileShareImage.useMutation({
     onError(error) {
       Alert.alert("Profile Share", error.message);
     }
@@ -723,6 +733,20 @@ export default function HomeScreen() {
     }
 
     await Linking.openURL(getProfileShareUrl(editingClient.activeProfileShare.token));
+  }
+
+  async function openShareImage() {
+    if (!editingClient?.activeProfileShare) {
+      return;
+    }
+
+    const language = shareImageLocales[editingClient.id] ?? editingClient.language;
+    const result = await buildProfileShareImageMutation.mutateAsync({
+      clientId: editingClient.id,
+      language
+    });
+
+    await Linking.openURL(getShareImageDataUrl(result.svg));
   }
 
   function revokeProfileShare() {
@@ -1815,6 +1839,44 @@ export default function HomeScreen() {
                           <Text style={styles.secondaryButtonText}>{t(locale, "revokeProfileShare")}</Text>
                         </Pressable>
                       </View>
+                      <Text style={styles.label}>{t(locale, "shareImageLanguageLabel")}</Text>
+                      <View style={styles.segmentedControl}>
+                        <Pressable
+                          onPress={() => setShareImageLocales((currentLocales) => ({ ...currentLocales, [editingClient.id]: "ru" }))}
+                          style={[
+                            styles.segment,
+                            (shareImageLocales[editingClient.id] ?? editingClient.language) === "ru" ? styles.selectedSegment : null
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.segmentText,
+                              (shareImageLocales[editingClient.id] ?? editingClient.language) === "ru" ? styles.selectedSegmentText : null
+                            ]}
+                          >
+                            {t(locale, "languageRussian")}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => setShareImageLocales((currentLocales) => ({ ...currentLocales, [editingClient.id]: "en" }))}
+                          style={[
+                            styles.segment,
+                            (shareImageLocales[editingClient.id] ?? editingClient.language) === "en" ? styles.selectedSegment : null
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.segmentText,
+                              (shareImageLocales[editingClient.id] ?? editingClient.language) === "en" ? styles.selectedSegmentText : null
+                            ]}
+                          >
+                            {t(locale, "languageEnglish")}
+                          </Text>
+                        </Pressable>
+                      </View>
+                      <Pressable onPress={openShareImage} style={styles.secondaryButton}>
+                        <Text style={styles.secondaryButtonText}>{t(locale, "generateShareImage")}</Text>
+                      </Pressable>
                     </>
                   ) : (
                     <Pressable onPress={createProfileShare} style={styles.secondaryButton}>
