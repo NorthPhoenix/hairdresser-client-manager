@@ -92,15 +92,6 @@ export default async function ProfileSharePage({ params, searchParams }: Profile
         orderBy: {
           createdAt: "asc"
         }
-      },
-      photos: {
-        where: {
-          clientId: share.clientId,
-          status: "stored"
-        },
-        orderBy: {
-          createdAt: "asc"
-        }
       }
     },
     orderBy: {
@@ -108,6 +99,7 @@ export default async function ProfileSharePage({ params, searchParams }: Profile
     }
   });
   const lastCompletedServices = lastCompletedAppointment?.services ?? [];
+  const sharedPhotos: { id: string; thumbnailUrl: string | null; url: string | null }[] = [];
 
   return (
     <main style={styles.shell}>
@@ -173,9 +165,9 @@ export default async function ProfileSharePage({ params, searchParams }: Profile
               )}
 
               <h3 style={styles.subsectionTitle}>{t(locale, "profileSharePhotosTitle")}</h3>
-              {lastCompletedAppointment.photos.length > 0 ? (
+              {sharedPhotos.length > 0 ? (
                 <div style={styles.photoGrid}>
-                  {lastCompletedAppointment.photos.map((photo) => (
+                  {sharedPhotos.map((photo) => (
                     <img
                       key={photo.id}
                       alt=""

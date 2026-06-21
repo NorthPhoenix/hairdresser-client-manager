@@ -91,15 +91,14 @@ Run these steps locally when you are ready to wire providers:
 
 9. Configure UploadThing when Appointment Photos should be stored.
 
-   Create an UploadThing app for Appointment Photos and set:
+   Create an UploadThing app for Appointment Photos and set this in `apps/web/.env.local`:
 
    ```sh
    UPLOADTHING_TOKEN=
-   EXPO_PUBLIC_UPLOADTHING_APP_ID=
-   EXPO_PUBLIC_UPLOADTHING_URL=
+   UPLOADTHING_CALLBACK_URL=http://127.0.0.1:3000/api/uploadthing
    ```
 
-   Keep `UPLOADTHING_TOKEN` server-only. Expo may only receive public UploadThing app/url configuration. When these values are missing, the mobile app records a clear failed photo state and keeps retry/remove controls visible instead of pretending the photo was stored.
+   Keep `UPLOADTHING_TOKEN` server-only. `UPLOADTHING_CALLBACK_URL` is not secret; it is needed for local Android emulator testing because the device calls the web app through `10.0.2.2`, while UploadThing's local dev callback must reach the host Next.js server. The Expo app uploads through the web app's `/api/uploadthing` endpoint, using the same base URL as `EXPO_PUBLIC_TRPC_URL`.
 
 10. Run the apps:
 

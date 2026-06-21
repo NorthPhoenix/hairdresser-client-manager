@@ -8,14 +8,17 @@
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@clerk/nextjs": "latest",
     "@hcm/api": "workspace:*",
     "@hcm/db": "workspace:*",
     "@hcm/shared": "workspace:*",
-    "@clerk/nextjs": "latest",
     "@trpc/server": "latest",
+    "@uploadthing/react": "^7.3.3",
     "next": "latest",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "uploadthing": "^7.7.4",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "latest",

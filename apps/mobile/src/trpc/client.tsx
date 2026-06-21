@@ -3,7 +3,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createTRPCReact, httpBatchLink } from "@trpc/react-query";
 import type { AppRouter } from "@hcm/api";
 import Constants from "expo-constants";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { setUploadThingTokenGetter } from "../uploadthing";
 
 export const trpc = createTRPCReact<AppRouter>();
 
@@ -45,6 +46,10 @@ export function TRPCProvider({ children }: { children: ReactNode }) {
       ]
     })
   );
+
+  useEffect(() => {
+    setUploadThingTokenGetter(getToken);
+  }, [getToken]);
 
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>

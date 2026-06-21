@@ -1,8 +1,7 @@
 import { useUser } from "@clerk/expo";
 import * as Contacts from "expo-contacts";
-import * as ImagePicker from "expo-image-picker";
 import { Link } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Image,
@@ -28,6 +27,7 @@ import {
   t
 } from "@hcm/shared";
 import { getBaseUrl, trpc } from "../../src/trpc/client";
+import { useImageUploader } from "../../src/uploadthing";
 
 type StylistSettings = {
   language: SupportedLocale;
@@ -159,6 +159,12 @@ type ColorFormulaForm = {
   id: string | null;
   formula: string;
   placement: string;
+};
+
+type PendingAppointmentPhotoUpload = {
+  appointmentId: string;
+  clientId: string;
+  category: Appointment["photos"][number]["category"];
 };
 
 function getDeviceLocale(): SupportedLocale {
@@ -316,6 +322,7 @@ export default function HomeScreen() {
   const [copySourceAppointmentIds, setCopySourceAppointmentIds] = useState<Record<string, string>>({});
   const [shareImageLocales, setShareImageLocales] = useState<Record<string, SupportedLocale>>({});
   const [calendarDate, setCalendarDate] = useState(() => toDateInputValue(new Date()));
+  const pendingAppointmentPhotoUpload = useRef<PendingAppointmentPhotoUpload | null>(null);
   const utils = trpc.useUtils();
   const deviceBootstrapDefaults = useMemo(
     () => ({
@@ -521,6 +528,41 @@ export default function HomeScreen() {
       void utils.appointment.list.invalidate();
     },
     onError(error) {
+      Alert.alert("Photos", error.message);
+    }
+  });
+  const { openImagePicker: openAppointmentPhotoPicker, isUploading: isUploadingAppointmentPhoto } = useImageUploader("appointmentPhoto", {
+    onClientUploadComplete(uploadedFiles) {
+      const pendingUpload = pendingAppointmentPhotoUpload.current;
+      pendingAppointmentPhotoUpload.current = null;
+
+      if (!pendingUpload) {
+        return;
+      }
+
+      for (const uploadedFile of uploadedFiles) {
+        const serverData = uploadedFile.serverData as {
+          appointmentId?: string;
+          clientId?: string;
+          category?: Appointment["photos"][number]["category"];
+          fileKey?: string;
+          url?: string;
+          thumbnailUrl?: string;
+        };
+
+        addAppointmentPhotoMutation.mutate({
+          appointmentId: serverData.appointmentId ?? pendingUpload.appointmentId,
+          clientId: serverData.clientId ?? pendingUpload.clientId,
+          category: serverData.category ?? pendingUpload.category,
+          status: "stored",
+          fileKey: serverData.fileKey ?? uploadedFile.key,
+          url: serverData.url ?? uploadedFile.ufsUrl,
+          thumbnailUrl: serverData.thumbnailUrl ?? uploadedFile.ufsUrl
+        });
+      }
+    },
+    onUploadError(error) {
+      pendingAppointmentPhotoUpload.current = null;
       Alert.alert("Photos", error.message);
     }
   });
@@ -1154,62 +1196,38 @@ export default function HomeScreen() {
     clientId: string,
     source: "camera" | "gallery"
   ) {
-    const permission =
-      source === "camera"
-        ? await ImagePicker.requestCameraPermissionsAsync()
-        : await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-    if (!permission.granted) {
-      Alert.alert("Photos", t(locale, "appointmentPhotoPermissionDenied"));
+    if (isUploadingAppointmentPhoto) {
       return;
     }
 
-    const result =
-      source === "camera"
-        ? await ImagePicker.launchCameraAsync({
-            mediaTypes: ["images"],
-            quality: 0.85
-          })
-        : await ImagePicker.launchImageLibraryAsync({
-            allowsMultipleSelection: true,
-            mediaTypes: ["images"],
-            quality: 0.85
-          });
+    pendingAppointmentPhotoUpload.current = {
+      appointmentId: appointment.id,
+      clientId,
+      category: "after"
+    };
 
-    if (result.canceled) {
-      return;
-    }
-
-    const uploadThingConfigured = Boolean(
-      process.env.EXPO_PUBLIC_UPLOADTHING_APP_ID || process.env.EXPO_PUBLIC_UPLOADTHING_URL
-    );
-
-    for (const asset of result.assets) {
-      addAppointmentPhotoMutation.mutate({
+    await openAppointmentPhotoPicker({
+      input: {
         appointmentId: appointment.id,
         clientId,
-        category: "after",
-        status: "failed",
-        uploadError: uploadThingConfigured
-          ? t(locale, "appointmentPhotoUploadFailed")
-          : t(locale, "appointmentPhotoUploadThingMissing"),
-        width: asset.width,
-        height: asset.height
-      });
-    }
-
-    if (!uploadThingConfigured) {
-      Alert.alert("Photos", t(locale, "appointmentPhotoUploadThingMissing"));
-    }
+        category: "after"
+      },
+      source: source === "camera" ? "camera" : "library",
+      quality: 0.85,
+      onCancel() {
+        pendingAppointmentPhotoUpload.current = null;
+      },
+      onInsufficientPermissions() {
+        pendingAppointmentPhotoUpload.current = null;
+        Alert.alert("Photos", t(locale, "appointmentPhotoPermissionDenied"));
+      }
+    } as Parameters<typeof openAppointmentPhotoPicker>[0] & {
+      input: PendingAppointmentPhotoUpload;
+    });
   }
 
   function retryAppointmentPhoto(photo: Appointment["photos"][number]) {
-    updateAppointmentPhotoMutation.mutate({
-      id: photo.id,
-      status: "pendingUpload",
-      uploadError: null
-    });
-    Alert.alert("Photos", t(locale, "appointmentPhotoUploadThingMissing"));
+    Alert.alert("Photos", t(locale, "appointmentPhotoUploadFailed"));
   }
 
   function updateAppointmentPhotoCategory(
