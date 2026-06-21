@@ -1,9 +1,11 @@
 import { useUser } from "@clerk/expo";
 import * as Contacts from "expo-contacts";
+import * as ImagePicker from "expo-image-picker";
 import { Link } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Image,
   Linking,
   Pressable,
   ScrollView,
@@ -92,6 +94,21 @@ type Appointment = {
       placement: string;
       createdAt: string;
     }[];
+  }[];
+  photos: {
+    id: string;
+    appointmentId: string;
+    clientId: string;
+    category: "before" | "after" | "other";
+    status: "pendingUpload" | "stored" | "failed";
+    provider: string;
+    fileKey: string;
+    url: string;
+    thumbnailUrl: string;
+    width: number | null;
+    height: number | null;
+    uploadError: string;
+    createdAt: string;
   }[];
   serviceTotalCents: number;
   finalTotalCents: number;
@@ -277,6 +294,12 @@ const appointmentStatusMessageKey: Record<Appointment["status"], MessageKey> = {
   completed: "appointmentStatus_completed",
   canceled: "appointmentStatus_canceled",
   noShow: "appointmentStatus_noShow"
+};
+
+const appointmentPhotoCategoryMessageKey: Record<Appointment["photos"][number]["category"], MessageKey> = {
+  before: "appointmentPhotoBefore",
+  after: "appointmentPhotoAfter",
+  other: "appointmentPhotoOther"
 };
 
 export default function HomeScreen() {
@@ -472,6 +495,33 @@ export default function HomeScreen() {
     },
     onError(error) {
       Alert.alert("Services", error.message);
+    }
+  });
+  const addAppointmentPhotoMutation = trpc.appointment.addPhoto.useMutation({
+    onSuccess() {
+      void utils.appointment.home.invalidate();
+      void utils.appointment.list.invalidate();
+    },
+    onError(error) {
+      Alert.alert("Photos", error.message);
+    }
+  });
+  const updateAppointmentPhotoMutation = trpc.appointment.updatePhoto.useMutation({
+    onSuccess() {
+      void utils.appointment.home.invalidate();
+      void utils.appointment.list.invalidate();
+    },
+    onError(error) {
+      Alert.alert("Photos", error.message);
+    }
+  });
+  const deleteAppointmentPhotoMutation = trpc.appointment.deletePhoto.useMutation({
+    onSuccess() {
+      void utils.appointment.home.invalidate();
+      void utils.appointment.list.invalidate();
+    },
+    onError(error) {
+      Alert.alert("Photos", error.message);
     }
   });
   const addColorFormulaMutation = trpc.appointment.addColorFormula.useMutation({
@@ -1099,6 +1149,85 @@ export default function HomeScreen() {
     });
   }
 
+  async function addAppointmentPhoto(
+    appointment: Appointment,
+    clientId: string,
+    source: "camera" | "gallery"
+  ) {
+    const permission =
+      source === "camera"
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      Alert.alert("Photos", t(locale, "appointmentPhotoPermissionDenied"));
+      return;
+    }
+
+    const result =
+      source === "camera"
+        ? await ImagePicker.launchCameraAsync({
+            mediaTypes: ["images"],
+            quality: 0.85
+          })
+        : await ImagePicker.launchImageLibraryAsync({
+            allowsMultipleSelection: true,
+            mediaTypes: ["images"],
+            quality: 0.85
+          });
+
+    if (result.canceled) {
+      return;
+    }
+
+    const uploadThingConfigured = Boolean(
+      process.env.EXPO_PUBLIC_UPLOADTHING_APP_ID || process.env.EXPO_PUBLIC_UPLOADTHING_URL
+    );
+
+    for (const asset of result.assets) {
+      addAppointmentPhotoMutation.mutate({
+        appointmentId: appointment.id,
+        clientId,
+        category: "after",
+        status: "failed",
+        uploadError: uploadThingConfigured
+          ? t(locale, "appointmentPhotoUploadFailed")
+          : t(locale, "appointmentPhotoUploadThingMissing"),
+        width: asset.width,
+        height: asset.height
+      });
+    }
+
+    if (!uploadThingConfigured) {
+      Alert.alert("Photos", t(locale, "appointmentPhotoUploadThingMissing"));
+    }
+  }
+
+  function retryAppointmentPhoto(photo: Appointment["photos"][number]) {
+    updateAppointmentPhotoMutation.mutate({
+      id: photo.id,
+      status: "pendingUpload",
+      uploadError: null
+    });
+    Alert.alert("Photos", t(locale, "appointmentPhotoUploadThingMissing"));
+  }
+
+  function updateAppointmentPhotoCategory(
+    photo: Appointment["photos"][number],
+    category: Appointment["photos"][number]["category"]
+  ) {
+    updateAppointmentPhotoMutation.mutate({
+      id: photo.id,
+      category
+    });
+  }
+
+  function removeAppointmentPhoto(photo: Appointment["photos"][number]) {
+    deleteAppointmentPhotoMutation.mutate({
+      id: photo.id
+    });
+  }
+
   function toggleAdditionalClient(clientId: string) {
     setAppointmentForm((currentForm) => ({
       ...currentForm,
@@ -1373,6 +1502,63 @@ export default function HomeScreen() {
               </Pressable>
             </View>
           </View>
+        </View>
+        <View style={styles.serviceBox}>
+          <Text style={styles.optionalTitle}>{t(locale, "appointmentPhotosTitle")}</Text>
+          {appointment.participants.map((participant) => (
+            <View key={participant.clientId} style={styles.participantRow}>
+              <Text style={styles.clientMeta}>
+                {t(locale, "appointmentPhotoClientLabel")}: {participant.name}
+              </Text>
+              <View style={styles.buttonRow}>
+                <Pressable onPress={() => addAppointmentPhoto(appointment, participant.clientId, "camera")} style={[styles.secondaryButton, styles.flexButton]}>
+                  <Text style={styles.secondaryButtonText}>{t(locale, "addPhotoFromCamera")}</Text>
+                </Pressable>
+                <Pressable onPress={() => addAppointmentPhoto(appointment, participant.clientId, "gallery")} style={[styles.secondaryButton, styles.flexButton]}>
+                  <Text style={styles.secondaryButtonText}>{t(locale, "addPhotoFromGallery")}</Text>
+                </Pressable>
+              </View>
+            </View>
+          ))}
+          {appointment.photos.map((photo) => {
+            const photoClient = appointment.participants.find((participant) => participant.clientId === photo.clientId);
+
+            return (
+              <View key={photo.id} style={styles.participantRow}>
+                {photo.url ? <Image source={{ uri: photo.thumbnailUrl || photo.url }} style={styles.photoPreview} /> : null}
+                <Text style={styles.clientMeta}>
+                  {photoClient?.name ?? ""} · {t(locale, appointmentPhotoCategoryMessageKey[photo.category])} · {photo.status}
+                </Text>
+                {photo.uploadError ? <Text style={styles.clientMeta}>{photo.uploadError}</Text> : null}
+                <View style={styles.buttonRow}>
+                  {(["before", "after", "other"] as const).map((category) => (
+                    <Pressable
+                      key={category}
+                      onPress={() => updateAppointmentPhotoCategory(photo, category)}
+                      style={[
+                        styles.statusButton,
+                        photo.category === category ? styles.selectedClientRow : null
+                      ]}
+                    >
+                      <Text style={styles.statusButtonText}>
+                        {t(locale, appointmentPhotoCategoryMessageKey[category])}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <View style={styles.buttonRow}>
+                  {photo.status === "failed" || photo.status === "pendingUpload" ? (
+                    <Pressable onPress={() => retryAppointmentPhoto(photo)} style={[styles.secondaryButton, styles.flexButton]}>
+                      <Text style={styles.secondaryButtonText}>{t(locale, "retryAppointmentPhoto")}</Text>
+                    </Pressable>
+                  ) : null}
+                  <Pressable onPress={() => removeAppointmentPhoto(photo)} style={[styles.secondaryButton, styles.flexButton]}>
+                    <Text style={styles.secondaryButtonText}>{t(locale, "removeAppointmentPhoto")}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            );
+          })}
         </View>
         <View style={styles.buttonRow}>
           <Pressable onPress={() => saveAppointmentNote(appointment)} style={[styles.secondaryButton, styles.flexButton]}>
@@ -2162,6 +2348,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 8,
     padding: 10
+  },
+  photoPreview: {
+    backgroundColor: "#fffaf3",
+    borderRadius: 6,
+    height: 140,
+    width: "100%"
   },
   clientName: {
     color: "#111111",

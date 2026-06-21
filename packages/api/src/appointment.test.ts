@@ -1284,6 +1284,7 @@ describe("appointment router", () => {
     const appointmentUpdate = vi.fn();
     const participantDeleteMany = vi.fn();
     const serviceCount = vi.fn().mockResolvedValue(0);
+    const photoDeleteMany = vi.fn();
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
@@ -1309,6 +1310,9 @@ describe("appointment router", () => {
         },
         appointmentService: {
           count: serviceCount
+        },
+        appointmentPhoto: {
+          deleteMany: photoDeleteMany
         }
       } as unknown as TRPCContext["db"])
     );
@@ -1336,6 +1340,157 @@ describe("appointment router", () => {
       where: {
         appointmentId: "appointment_1",
         clientId: "client_1"
+      }
+    });
+    expect(photoDeleteMany).toHaveBeenCalledWith({
+      where: {
+        appointmentId: "appointment_1",
+        clientId: "client_1"
+      }
+    });
+  });
+
+  it("adds, updates, and deletes Appointment Photos with UploadThing metadata", async () => {
+    const createdAt = new Date("2026-06-13T12:00:00.000Z");
+    const appointmentOutput = {
+      id: "appointment_1",
+      stylistId: "stylist_1",
+      primaryClientId: "client_1",
+      startsAt: new Date("2026-06-13T15:00:00.000Z"),
+      endsAt: null,
+      status: "scheduled",
+      locationType: "inSalon",
+      locationAddress: "500 Salon Ave",
+      note: "",
+      finalTotalCentsOverride: null,
+      primaryClient: {
+        id: "client_1",
+        name: "Anna",
+        address: ""
+      },
+      participants: [
+        {
+          clientId: "client_1",
+          client: {
+            id: "client_1",
+            name: "Anna",
+            address: ""
+          }
+        }
+      ],
+      services: [],
+      photos: [
+        {
+          id: "photo_1",
+          appointmentId: "appointment_1",
+          clientId: "client_1",
+          category: "after",
+          status: "stored",
+          provider: "uploadthing",
+          fileKey: "ut_file_1",
+          url: "https://utfs.io/f/ut_file_1",
+          thumbnailUrl: "https://utfs.io/f/ut_file_1-thumb",
+          width: 1200,
+          height: 900,
+          uploadError: null,
+          createdAt
+        }
+      ]
+    };
+    const photoCreate = vi.fn().mockResolvedValue({
+      id: "photo_1"
+    });
+    const photoUpdate = vi.fn();
+    const photoDelete = vi.fn();
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: {
+          upsert: vi.fn().mockResolvedValue(stylist)
+        },
+        appointment: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: "appointment_1",
+            participants: [
+              {
+                clientId: "client_1"
+              }
+            ]
+          }),
+          findUniqueOrThrow: vi.fn().mockResolvedValue(appointmentOutput)
+        },
+        appointmentPhoto: {
+          create: photoCreate,
+          findFirst: vi.fn().mockResolvedValue({
+            id: "photo_1",
+            appointmentId: "appointment_1"
+          }),
+          update: photoUpdate,
+          delete: photoDelete
+        }
+      } as unknown as TRPCContext["db"])
+    );
+
+    await expect(
+      caller.appointment.addPhoto({
+        appointmentId: "appointment_1",
+        clientId: "client_1",
+        category: "after",
+        fileKey: "ut_file_1",
+        url: "https://utfs.io/f/ut_file_1",
+        thumbnailUrl: "https://utfs.io/f/ut_file_1-thumb",
+        width: 1200,
+        height: 900
+      })
+    ).resolves.toMatchObject({
+      photos: [
+        {
+          id: "photo_1",
+          clientId: "client_1",
+          category: "after",
+          status: "stored",
+          url: "https://utfs.io/f/ut_file_1"
+        }
+      ]
+    });
+    expect(photoCreate).toHaveBeenCalledWith({
+      data: {
+        appointmentId: "appointment_1",
+        clientId: "client_1",
+        category: "after",
+        status: "stored",
+        provider: "uploadthing",
+        fileKey: "ut_file_1",
+        url: "https://utfs.io/f/ut_file_1",
+        thumbnailUrl: "https://utfs.io/f/ut_file_1-thumb",
+        width: 1200,
+        height: 900,
+        uploadError: null
+      }
+    });
+
+    await caller.appointment.updatePhoto({
+      id: "photo_1",
+      category: "before",
+      status: "pendingUpload",
+      uploadError: null
+    });
+    expect(photoUpdate).toHaveBeenCalledWith({
+      where: {
+        id: "photo_1"
+      },
+      data: {
+        category: "before",
+        status: "pendingUpload",
+        uploadError: null
+      }
+    });
+
+    await caller.appointment.deletePhoto({
+      id: "photo_1"
+    });
+    expect(photoDelete).toHaveBeenCalledWith({
+      where: {
+        id: "photo_1"
       }
     });
   });

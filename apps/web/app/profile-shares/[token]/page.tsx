@@ -92,6 +92,15 @@ export default async function ProfileSharePage({ params, searchParams }: Profile
         orderBy: {
           createdAt: "asc"
         }
+      },
+      photos: {
+        where: {
+          clientId: share.clientId,
+          status: "stored"
+        },
+        orderBy: {
+          createdAt: "asc"
+        }
       }
     },
     orderBy: {
@@ -164,7 +173,20 @@ export default async function ProfileSharePage({ params, searchParams }: Profile
               )}
 
               <h3 style={styles.subsectionTitle}>{t(locale, "profileSharePhotosTitle")}</h3>
-              <p style={styles.body}>{t(locale, "profileSharePhotosEmpty")}</p>
+              {lastCompletedAppointment.photos.length > 0 ? (
+                <div style={styles.photoGrid}>
+                  {lastCompletedAppointment.photos.map((photo) => (
+                    <img
+                      key={photo.id}
+                      alt=""
+                      src={photo.thumbnailUrl ?? photo.url ?? ""}
+                      style={styles.photo}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p style={styles.body}>{t(locale, "profileSharePhotosEmpty")}</p>
+              )}
             </div>
           ) : (
             <p style={styles.body}>{t(locale, "profileShareNoCompleted")}</p>
@@ -243,6 +265,17 @@ const styles = {
     border: "1px solid #d8c5ad",
     borderRadius: 6,
     padding: 12
+  },
+  photoGrid: {
+    display: "grid",
+    gap: 12,
+    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))"
+  },
+  photo: {
+    aspectRatio: "4 / 3",
+    borderRadius: 6,
+    objectFit: "cover",
+    width: "100%"
   },
   itemTitle: {
     color: "#17130f",

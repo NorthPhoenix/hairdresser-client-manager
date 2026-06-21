@@ -23,6 +23,18 @@ enum AppointmentLocationType {
   atHome
 }
 
+enum AppointmentPhotoCategory {
+  before
+  after
+  other
+}
+
+enum AppointmentPhotoStatus {
+  pendingUpload
+  stored
+  failed
+}
+
 model Stylist {
   id                    String    @id @default(cuid())
   clerkId               String    @unique
@@ -54,6 +66,7 @@ model Client {
   primaryAppointments Appointment[] @relation("AppointmentPrimaryClient")
   appointmentParticipants AppointmentParticipant[]
   appointmentServices AppointmentService[]
+  appointmentPhotos AppointmentPhoto[]
   profileShares ProfileShare[]
 }
 
@@ -75,6 +88,7 @@ model Appointment {
   primaryClient Client  @relation("AppointmentPrimaryClient", fields: [primaryClientId], references: [id], onDelete: Restrict)
   participants  AppointmentParticipant[]
   services      AppointmentService[]
+  photos        AppointmentPhoto[]
 }
 
 model AppointmentParticipant {
@@ -125,6 +139,26 @@ model ColorFormula {
   updatedAt            DateTime @updatedAt
 
   appointmentService AppointmentService @relation(fields: [appointmentServiceId], references: [id], onDelete: Cascade)
+}
+
+model AppointmentPhoto {
+  id            String                  @id @default(cuid())
+  appointmentId String
+  clientId      String
+  category      AppointmentPhotoCategory @default(other)
+  status        AppointmentPhotoStatus   @default(pendingUpload)
+  provider      String                  @default("uploadthing")
+  fileKey       String?
+  url           String?
+  thumbnailUrl  String?
+  width         Int?
+  height        Int?
+  uploadError   String?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  client      Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
 }
 
 model ProfileShare {

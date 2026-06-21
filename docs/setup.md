@@ -89,7 +89,19 @@ Run these steps locally when you are ready to wire providers:
 
    `db:push` is the v1 schema-application path instead of committed migrations. Run it yourself for shared databases after reviewing the schema change; agents should only run it against local or throwaway databases.
 
-9. Run the apps:
+9. Configure UploadThing when Appointment Photos should be stored.
+
+   Create an UploadThing app for Appointment Photos and set:
+
+   ```sh
+   UPLOADTHING_TOKEN=
+   EXPO_PUBLIC_UPLOADTHING_APP_ID=
+   EXPO_PUBLIC_UPLOADTHING_URL=
+   ```
+
+   Keep `UPLOADTHING_TOKEN` server-only. Expo may only receive public UploadThing app/url configuration. When these values are missing, the mobile app records a clear failed photo state and keeps retry/remove controls visible instead of pretending the photo was stored.
+
+10. Run the apps:
 
    ```sh
    pnpm --filter @hcm/mobile dev

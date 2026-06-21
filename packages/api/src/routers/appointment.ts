@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import type { TRPCContext } from "../context";
 import { createTRPCRouter, stylistProcedure } from "../trpc";
 
 const dateRangeInput = z.object({
@@ -78,6 +79,30 @@ const appointmentDeleteInput = z.object({
   id: z.string()
 });
 
+const appointmentPhotoInput = z.object({
+  appointmentId: z.string(),
+  clientId: z.string(),
+  category: z.enum(["before", "after", "other"]),
+  fileKey: z.string().trim().optional(),
+  url: z.string().trim().url().optional(),
+  thumbnailUrl: z.string().trim().url().optional(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  status: z.enum(["pendingUpload", "stored", "failed"]).default("stored"),
+  uploadError: z.string().trim().optional()
+});
+
+const appointmentPhotoUpdateInput = z.object({
+  id: z.string(),
+  category: z.enum(["before", "after", "other"]).optional(),
+  status: z.enum(["pendingUpload", "stored", "failed"]).optional(),
+  uploadError: z.string().trim().nullable().optional()
+});
+
+const appointmentPhotoDeleteInput = z.object({
+  id: z.string()
+});
+
 function addMinutes(date: Date, minutes: number) {
   return new Date(date.getTime() + minutes * 60 * 1000);
 }
@@ -132,6 +157,21 @@ function toAppointmentOutput(appointment: {
       placement: string | null;
       createdAt: Date;
     }[];
+  }[];
+  photos?: {
+    id: string;
+    appointmentId: string;
+    clientId: string;
+    category: "before" | "after" | "other";
+    status: "pendingUpload" | "stored" | "failed";
+    provider: string;
+    fileKey: string | null;
+    url: string | null;
+    thumbnailUrl: string | null;
+    width: number | null;
+    height: number | null;
+    uploadError: string | null;
+    createdAt: Date;
   }[];
 }) {
   const services = appointment.services ?? [];
@@ -190,6 +230,21 @@ function toAppointmentOutput(appointment: {
         createdAt: formula.createdAt.toISOString()
       })) ?? []
     })),
+    photos: appointment.photos?.map((photo) => ({
+      id: photo.id,
+      appointmentId: photo.appointmentId,
+      clientId: photo.clientId,
+      category: photo.category,
+      status: photo.status,
+      provider: photo.provider,
+      fileKey: photo.fileKey ?? "",
+      url: photo.url ?? "",
+      thumbnailUrl: photo.thumbnailUrl ?? "",
+      width: photo.width,
+      height: photo.height,
+      uploadError: photo.uploadError ?? "",
+      createdAt: photo.createdAt.toISOString()
+    })) ?? [],
     serviceTotalCents,
     finalTotalCents: appointment.finalTotalCentsOverride ?? serviceTotalCents,
     finalTotalCentsOverride: appointment.finalTotalCentsOverride,
@@ -197,6 +252,60 @@ function toAppointmentOutput(appointment: {
       ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(appointment.locationAddress)}`
       : null
   };
+}
+
+async function getAppointmentOutput(ctx: Pick<TRPCContext, "db">, appointmentId: string) {
+  const appointment = await ctx.db.appointment.findUniqueOrThrow({
+    where: {
+      id: appointmentId
+    },
+    include: {
+      primaryClient: {
+        select: {
+          id: true,
+          name: true,
+          address: true,
+          phone: true,
+          language: true
+        }
+      },
+      participants: {
+        include: {
+          client: {
+            select: {
+              id: true,
+              name: true,
+              address: true,
+              phone: true,
+              language: true
+            }
+          }
+        },
+        orderBy: {
+          createdAt: "asc"
+        }
+      },
+      services: {
+        include: {
+          colorFormulas: {
+            orderBy: {
+              createdAt: "asc"
+            }
+          }
+        },
+        orderBy: {
+          createdAt: "asc"
+        }
+      },
+      photos: {
+        orderBy: {
+          createdAt: "asc"
+        }
+      }
+    }
+  });
+
+  return toAppointmentOutput(appointment);
 }
 
 export const appointmentRouter = createTRPCRouter({
@@ -243,6 +352,11 @@ export const appointmentRouter = createTRPCRouter({
               }
             }
           },
+          orderBy: {
+            createdAt: "asc"
+          }
+        },
+        photos: {
           orderBy: {
             createdAt: "asc"
           }
@@ -309,6 +423,11 @@ export const appointmentRouter = createTRPCRouter({
               }
             }
           },
+          orderBy: {
+            createdAt: "asc"
+          }
+        },
+        photos: {
           orderBy: {
             createdAt: "asc"
           }
@@ -872,6 +991,111 @@ export const appointmentRouter = createTRPCRouter({
 
     return toAppointmentOutput(updatedAppointment);
   }),
+  addPhoto: stylistProcedure.input(appointmentPhotoInput).mutation(async ({ ctx, input }) => {
+    const appointment = await ctx.db.appointment.findFirst({
+      where: {
+        id: input.appointmentId,
+        stylistId: ctx.stylist.id
+      },
+      include: {
+        participants: true
+      }
+    });
+
+    if (!appointment) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Appointment not found."
+      });
+    }
+
+    if (!appointment.participants.some((participant) => participant.clientId === input.clientId)) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Photo Client must be attached to the Appointment."
+      });
+    }
+
+    if (input.status === "stored" && (!input.fileKey || !input.url)) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Stored Appointment Photos require UploadThing file metadata."
+      });
+    }
+
+    await ctx.db.appointmentPhoto.create({
+      data: {
+        appointmentId: appointment.id,
+        clientId: input.clientId,
+        category: input.category,
+        status: input.status,
+        provider: "uploadthing",
+        fileKey: input.fileKey ?? null,
+        url: input.url ?? null,
+        thumbnailUrl: input.thumbnailUrl ?? null,
+        width: input.width ?? null,
+        height: input.height ?? null,
+        uploadError: input.uploadError ?? null
+      }
+    });
+
+    return getAppointmentOutput(ctx, appointment.id);
+  }),
+  updatePhoto: stylistProcedure.input(appointmentPhotoUpdateInput).mutation(async ({ ctx, input }) => {
+    const photo = await ctx.db.appointmentPhoto.findFirst({
+      where: {
+        id: input.id,
+        appointment: {
+          stylistId: ctx.stylist.id
+        }
+      }
+    });
+
+    if (!photo) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Appointment Photo not found."
+      });
+    }
+
+    await ctx.db.appointmentPhoto.update({
+      where: {
+        id: photo.id
+      },
+      data: {
+        ...(input.category ? { category: input.category } : {}),
+        ...(input.status ? { status: input.status } : {}),
+        ...(input.uploadError !== undefined ? { uploadError: input.uploadError } : {})
+      }
+    });
+
+    return getAppointmentOutput(ctx, photo.appointmentId);
+  }),
+  deletePhoto: stylistProcedure.input(appointmentPhotoDeleteInput).mutation(async ({ ctx, input }) => {
+    const photo = await ctx.db.appointmentPhoto.findFirst({
+      where: {
+        id: input.id,
+        appointment: {
+          stylistId: ctx.stylist.id
+        }
+      }
+    });
+
+    if (!photo) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Appointment Photo not found."
+      });
+    }
+
+    await ctx.db.appointmentPhoto.delete({
+      where: {
+        id: photo.id
+      }
+    });
+
+    return getAppointmentOutput(ctx, photo.appointmentId);
+  }),
   addColorFormula: stylistProcedure.input(colorFormulaInput).mutation(async ({ ctx, input }) => {
     const service = await ctx.db.appointmentService.findFirst({
       where: {
@@ -1339,6 +1563,12 @@ export const appointmentRouter = createTRPCRouter({
     }
 
     await ctx.db.appointmentParticipant.deleteMany({
+      where: {
+        appointmentId: appointment.id,
+        clientId: input.clientId
+      }
+    });
+    await ctx.db.appointmentPhoto.deleteMany({
       where: {
         appointmentId: appointment.id,
         clientId: input.clientId

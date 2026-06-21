@@ -175,6 +175,15 @@ export const clientRouter = createTRPCRouter({
           orderBy: {
             createdAt: "asc"
           }
+        },
+        photos: {
+          where: {
+            clientId: input.id,
+            status: "stored"
+          },
+          orderBy: {
+            createdAt: "asc"
+          }
         }
       },
       orderBy: {
@@ -201,6 +210,16 @@ export const clientRouter = createTRPCRouter({
           formula: formula.formula,
           placement: formula.placement ?? ""
         }))
+      })),
+      photos: appointment.photos.map((photo) => ({
+        id: photo.id,
+        clientId: photo.clientId,
+        category: photo.category,
+        url: photo.url ?? "",
+        thumbnailUrl: photo.thumbnailUrl ?? "",
+        width: photo.width,
+        height: photo.height,
+        createdAt: photo.createdAt.toISOString()
       }))
     }));
   }),

@@ -398,6 +398,18 @@ describe("client router", () => {
               }
             ]
           }
+        ],
+        photos: [
+          {
+            id: "photo_1",
+            clientId: "client_1",
+            category: "after",
+            url: "https://utfs.io/f/photo_1",
+            thumbnailUrl: "https://utfs.io/f/photo_1-thumb",
+            width: 1200,
+            height: 900,
+            createdAt: startsAt
+          }
         ]
       }
     ]);
@@ -442,6 +454,14 @@ describe("client router", () => {
                 placement: "Roots"
               }
             ]
+          }
+        ],
+        photos: [
+          {
+            id: "photo_1",
+            clientId: "client_1",
+            category: "after",
+            url: "https://utfs.io/f/photo_1"
           }
         ]
       }
