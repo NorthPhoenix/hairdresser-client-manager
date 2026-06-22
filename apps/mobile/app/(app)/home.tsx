@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { defaultLocale, normalizeLocale, type MessageKey, type SupportedLocale, t } from "@hcm/shared";
-import { trpc } from "../../src/trpc/client";
+import { getBaseUrl, trpc } from "../../src/trpc/client";
 
 type StylistSettings = {
   language: SupportedLocale;
@@ -33,6 +33,12 @@ type ClientProfile = {
   note: string;
   createdAt: string;
   updatedAt: string;
+  activeProfileShare: {
+    id: string;
+    token: string;
+    language: SupportedLocale;
+    createdAt: string;
+  } | null;
 };
 
 type ClientForm = {
@@ -233,6 +239,12 @@ function formatPrice(cents: number): string {
   return `$${centsToPrice(cents)}`;
 }
 
+function getProfileShareUrl(token: string): string {
+  const webUrl = (process.env.EXPO_PUBLIC_WEB_URL ?? getBaseUrl()).replace(/\/api\/trpc\/?$/, "").replace(/\/$/, "");
+
+  return `${webUrl}/profile-shares/${token}`;
+}
+
 function formatAppointmentTime(appointment: Appointment): string {
   const start = new Date(appointment.startsAt).toLocaleString();
   const end = appointment.endsAt ? new Date(appointment.endsAt).toLocaleTimeString() : "";
@@ -311,6 +323,22 @@ export default function HomeScreen() {
       void utils.clientProfile.list.invalidate();
       void utils.appointment.home.invalidate();
       void utils.appointment.list.invalidate();
+    }
+  });
+  const createProfileShareMutation = trpc.clientProfile.createProfileShare.useMutation({
+    onSuccess() {
+      void utils.clientProfile.list.invalidate();
+    },
+    onError(error) {
+      Alert.alert("Profile Share", error.message);
+    }
+  });
+  const revokeProfileShareMutation = trpc.clientProfile.revokeProfileShare.useMutation({
+    onSuccess() {
+      void utils.clientProfile.list.invalidate();
+    },
+    onError(error) {
+      Alert.alert("Profile Share", error.message);
     }
   });
   const loadingClients = clientListQuery.isLoading || saveClientMutation.isPending || deleteClientMutation.isPending;
@@ -679,6 +707,34 @@ export default function HomeScreen() {
     );
   }
 
+  function createProfileShare() {
+    if (!editingClient) {
+      return;
+    }
+
+    createProfileShareMutation.mutate({
+      clientId: editingClient.id
+    });
+  }
+
+  async function openProfileShare() {
+    if (!editingClient?.activeProfileShare) {
+      return;
+    }
+
+    await Linking.openURL(getProfileShareUrl(editingClient.activeProfileShare.token));
+  }
+
+  function revokeProfileShare() {
+    if (!editingClient) {
+      return;
+    }
+
+    revokeProfileShareMutation.mutate({
+      clientId: editingClient.id
+    });
+  }
+
   function saveServiceMenuItem() {
     const name = serviceMenuForm.name.trim();
 
@@ -954,7 +1010,7 @@ export default function HomeScreen() {
       const serviceForm = appointmentServiceForms[appointment.id] ?? createAppointmentServiceForm(appointment);
       const selectedMenuItem = serviceMenuItems.find((item) => item.id === serviceForm.menuItemId);
       const completedSourceAppointments =
-        completedSourcesQuery.data?.filter((sourceAppointment) => sourceAppointment.id !== appointment.id) ?? [];
+        completedSourcesQuery.data?.filter((sourceAppointment: Appointment) => sourceAppointment.id !== appointment.id) ?? [];
       const selectedCopySourceId = copySourceAppointmentIds[appointment.id] ?? "";
 
       return (
@@ -1083,7 +1139,7 @@ export default function HomeScreen() {
           })}
           {completedSourceAppointments.length > 0 ? (
             <View style={styles.buttonRow}>
-              {completedSourceAppointments.map((sourceAppointment) => (
+              {completedSourceAppointments.map((sourceAppointment: Appointment) => (
                 <Pressable
                   key={sourceAppointment.id}
                   onPress={() =>
@@ -1744,6 +1800,29 @@ export default function HomeScreen() {
                   </Pressable>
                 ) : null}
               </View>
+
+              {editingClient ? (
+                <View style={styles.serviceBox}>
+                  <Text style={styles.optionalTitle}>{t(locale, "profileShareTitle")}</Text>
+                  {editingClient.activeProfileShare ? (
+                    <>
+                      <Text style={styles.clientMeta}>{getProfileShareUrl(editingClient.activeProfileShare.token)}</Text>
+                      <View style={styles.buttonRow}>
+                        <Pressable onPress={openProfileShare} style={[styles.secondaryButton, styles.flexButton]}>
+                          <Text style={styles.secondaryButtonText}>{t(locale, "openProfileShare")}</Text>
+                        </Pressable>
+                        <Pressable onPress={revokeProfileShare} style={[styles.secondaryButton, styles.flexButton]}>
+                          <Text style={styles.secondaryButtonText}>{t(locale, "revokeProfileShare")}</Text>
+                        </Pressable>
+                      </View>
+                    </>
+                  ) : (
+                    <Pressable onPress={createProfileShare} style={styles.secondaryButton}>
+                      <Text style={styles.secondaryButtonText}>{t(locale, "createProfileShare")}</Text>
+                    </Pressable>
+                  )}
+                </View>
+              ) : null}
             </View>
           ) : null}
         </ScrollView>

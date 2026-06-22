@@ -24,6 +24,23 @@ const clientAppointmentHistoryInput = z.object({
   id: z.string()
 });
 
+const clientProfileShareInput = z.object({
+  clientId: z.string()
+});
+
+function createProfileShareToken(): string {
+  const bytes = new Uint8Array(32);
+  const webCrypto = (globalThis as unknown as {
+    crypto: {
+      getRandomValues: (array: Uint8Array) => Uint8Array;
+    };
+  }).crypto;
+
+  webCrypto.getRandomValues(bytes);
+
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 function toClientOutput(client: {
   id: string;
   stylistId: string;
@@ -35,7 +52,16 @@ function toClientOutput(client: {
   note: string | null;
   createdAt: Date;
   updatedAt: Date;
+  profileShares?: {
+    id: string;
+    token: string;
+    language: "ru" | "en";
+    revokedAt: Date | null;
+    createdAt: Date;
+  }[];
 }) {
+  const activeProfileShare = client.profileShares?.find((share) => !share.revokedAt);
+
   return {
     id: client.id,
     stylistId: client.stylistId,
@@ -46,7 +72,15 @@ function toClientOutput(client: {
     address: client.address ?? "",
     note: client.note ?? "",
     createdAt: client.createdAt.toISOString(),
-    updatedAt: client.updatedAt.toISOString()
+    updatedAt: client.updatedAt.toISOString(),
+    activeProfileShare: activeProfileShare
+      ? {
+          id: activeProfileShare.id,
+          token: activeProfileShare.token,
+          language: activeProfileShare.language,
+          createdAt: activeProfileShare.createdAt.toISOString()
+        }
+      : null
   };
 }
 
@@ -76,6 +110,17 @@ export const clientRouter = createTRPCRouter({
       },
       orderBy: {
         updatedAt: "desc"
+      },
+      include: {
+        profileShares: {
+          where: {
+            revokedAt: null
+          },
+          orderBy: {
+            createdAt: "desc"
+          },
+          take: 1
+        }
       }
     });
 
@@ -196,6 +241,87 @@ export const clientRouter = createTRPCRouter({
     });
 
     return toClientOutput(client);
+  }),
+  createProfileShare: stylistProcedure.input(clientProfileShareInput).mutation(async ({ ctx, input }) => {
+    const client = await ctx.db.client.findFirst({
+      where: {
+        id: input.clientId,
+        stylistId: ctx.stylist.id
+      },
+      include: {
+        profileShares: {
+          where: {
+            revokedAt: null
+          },
+          orderBy: {
+            createdAt: "desc"
+          },
+          take: 1
+        }
+      }
+    });
+
+    if (!client) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Client not found."
+      });
+    }
+
+    const existingShare = client.profileShares[0];
+
+    if (existingShare) {
+      return {
+        id: existingShare.id,
+        token: existingShare.token,
+        language: existingShare.language,
+        createdAt: existingShare.createdAt.toISOString()
+      };
+    }
+
+    const share = await ctx.db.profileShare.create({
+      data: {
+        clientId: client.id,
+        token: createProfileShareToken(),
+        language: client.language
+      }
+    });
+
+    return {
+      id: share.id,
+      token: share.token,
+      language: share.language,
+      createdAt: share.createdAt.toISOString()
+    };
+  }),
+  revokeProfileShare: stylistProcedure.input(clientProfileShareInput).mutation(async ({ ctx, input }) => {
+    const client = await ctx.db.client.findFirst({
+      where: {
+        id: input.clientId,
+        stylistId: ctx.stylist.id
+      }
+    });
+
+    if (!client) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Client not found."
+      });
+    }
+
+    await ctx.db.profileShare.updateMany({
+      where: {
+        clientId: client.id,
+        revokedAt: null
+      },
+      data: {
+        revokedAt: new Date()
+      }
+    });
+
+    return {
+      clientId: client.id
+    };
   }),
   delete: stylistProcedure.input(clientDeleteInput).mutation(async ({ ctx, input }) => {
     const appointments = await ctx.db.appointment.findMany({

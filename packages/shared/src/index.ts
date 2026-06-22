@@ -156,7 +156,20 @@ const messages = {
     missingEnvTitle: "Нужна настройка окружения",
     missingEnvBody: "Добавьте ключ Clerk перед запуском приложения.",
     profileShareTitle: "Профиль Клиента",
-    profileSharePlaceholder: "Публичная страница Profile Share готова к подключению данных."
+    profileSharePlaceholder: "Публичная страница Profile Share готова к подключению данных.",
+    createProfileShare: "Создать Profile Share",
+    openProfileShare: "Открыть Profile Share",
+    revokeProfileShare: "Отозвать Profile Share",
+    profileShareNotFound: "Profile Share недоступен.",
+    profileShareUpcomingTitle: "Будущие записи",
+    profileShareLastCompletedTitle: "Последняя завершённая запись",
+    profileShareNoUpcoming: "Будущих записей нет.",
+    profileShareNoCompleted: "Завершённых записей пока нет.",
+    profileShareServicesTitle: "Услуги и формулы",
+    profileSharePhotosTitle: "Фото",
+    profileSharePhotosEmpty: "Сохранённых фото для показа пока нет.",
+    switchToRussian: "Русский",
+    switchToEnglish: "English"
   },
   en: {
     protectedHomeTitle: "Stylist workspace",
@@ -280,7 +293,20 @@ const messages = {
     missingEnvTitle: "Environment setup required",
     missingEnvBody: "Add the Clerk key before running the app.",
     profileShareTitle: "Client Profile",
-    profileSharePlaceholder: "The public Profile Share page is ready for data wiring."
+    profileSharePlaceholder: "The public Profile Share page is ready for data wiring.",
+    createProfileShare: "Create Profile Share",
+    openProfileShare: "Open Profile Share",
+    revokeProfileShare: "Revoke Profile Share",
+    profileShareNotFound: "Profile Share is unavailable.",
+    profileShareUpcomingTitle: "Upcoming Appointments",
+    profileShareLastCompletedTitle: "Last completed Appointment",
+    profileShareNoUpcoming: "No upcoming Appointments.",
+    profileShareNoCompleted: "No completed Appointments yet.",
+    profileShareServicesTitle: "Services and formulas",
+    profileSharePhotosTitle: "Photos",
+    profileSharePhotosEmpty: "No stored photos are selected for sharing yet.",
+    switchToRussian: "Русский",
+    switchToEnglish: "English"
   }
 } as const;
 
