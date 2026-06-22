@@ -332,8 +332,23 @@ const messages = {
 
 export type MessageKey = keyof (typeof messages)["ru"];
 
+export const messageKeys = Object.keys(messages.ru) as MessageKey[];
+
 export function t(locale: SupportedLocale, key: MessageKey): string {
   return messages[locale][key];
+}
+
+export function getMissingLocalizationKeys(): Record<SupportedLocale, MessageKey[]> {
+  return supportedLocales.reduce(
+    (missingKeys, locale) => ({
+      ...missingKeys,
+      [locale]: messageKeys.filter((key) => !messages[locale][key]?.trim())
+    }),
+    {
+      ru: [],
+      en: []
+    } as Record<SupportedLocale, MessageKey[]>
+  );
 }
 
 export type ClientReminderMessageInput = {

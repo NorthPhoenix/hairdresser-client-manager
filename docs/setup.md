@@ -6,6 +6,8 @@ Because this is a new application, use current stable APIs and package names by 
 
 Before extending the mobile/API stack, read ADRs `0010`, `0011`, and `0012`. They define the Next.js-hosted tRPC backend, lazy Clerk-to-Stylist identity model, and v1 Tailwind/NativeWind stack.
 
+For v1 acceptance, Android QA, localization ownership, optional provider behavior, and future-agent entry points, read `docs/v1-acceptance.md`.
+
 ## Human setup checkpoints
 
 Run these steps locally when you are ready to wire providers:
@@ -101,6 +103,8 @@ Run these steps locally when you are ready to wire providers:
 The Expo app intentionally renders a clear setup screen when no Clerk publishable key is available.
 
 The web app currently exposes only public Profile Share placeholder routes. Clerk is installed for future shared auth/provider compatibility, but the v1 web app does not create a Stylist management surface.
+
+UploadThing, Google Calendar, and Stylist Reminder push notification credentials are optional provider setup points. Until those providers are configured, core Client, Appointment, Service, Color Formula, Contact Import, Profile Share, Share Image, and Client Reminder SMS compose flows should remain usable, while provider-specific controls should show clear setup or unavailable behavior.
 
 ## Verification
 
