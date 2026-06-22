@@ -6,6 +6,8 @@ Because this is a new application, use current stable APIs and package names by 
 
 Before extending the mobile/API stack, read ADRs `0010`, `0011`, and `0012`. They define the Next.js-hosted tRPC backend, lazy Clerk-to-Stylist identity model, and v1 Tailwind/NativeWind stack.
 
+For v1 acceptance, Android QA, localization ownership, optional provider behavior, and future-agent entry points, read `docs/v1-acceptance.md`.
+
 ## Human setup checkpoints
 
 Run these steps locally when you are ready to wire providers:
@@ -87,7 +89,18 @@ Run these steps locally when you are ready to wire providers:
 
    `db:push` is the v1 schema-application path instead of committed migrations. Run it yourself for shared databases after reviewing the schema change; agents should only run it against local or throwaway databases.
 
-9. Run the apps:
+9. Configure UploadThing when Appointment Photos should be stored.
+
+   Create an UploadThing app for Appointment Photos and set this in `apps/web/.env.local`:
+
+   ```sh
+   UPLOADTHING_TOKEN=
+   UPLOADTHING_CALLBACK_URL=http://127.0.0.1:3000/api/uploadthing
+   ```
+
+   Keep `UPLOADTHING_TOKEN` server-only. `UPLOADTHING_CALLBACK_URL` is not secret; it is needed for local Android emulator testing because the device calls the web app through `10.0.2.2`, while UploadThing's local dev callback must reach the host Next.js server. The Expo app uploads through the web app's `/api/uploadthing` endpoint, using the same base URL as `EXPO_PUBLIC_TRPC_URL`.
+
+10. Run the apps:
 
    ```sh
    pnpm --filter @hcm/mobile dev
@@ -101,6 +114,8 @@ Run these steps locally when you are ready to wire providers:
 The Expo app intentionally renders a clear setup screen when no Clerk publishable key is available.
 
 The web app currently exposes only public Profile Share placeholder routes. Clerk is installed for future shared auth/provider compatibility, but the v1 web app does not create a Stylist management surface.
+
+UploadThing, Google Calendar, and Stylist Reminder push notification credentials are optional provider setup points. Until those providers are configured, core Client, Appointment, Service, Color Formula, Contact Import, Profile Share, Share Image, and Client Reminder SMS compose flows should remain usable, while provider-specific controls should show clear setup or unavailable behavior.
 
 ## Verification
 

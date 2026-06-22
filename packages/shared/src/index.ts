@@ -65,6 +65,12 @@ const messages = {
     saveClient: "Сохранить Клиента",
     createClient: "Создать Клиента",
     clearClientForm: "Очистить форму",
+    importContact: "Импорт из контактов",
+    importContactPermissionDenied: "Разрешите доступ к контактам, чтобы импортировать Клиента.",
+    importContactEmpty: "В выбранном контакте нет имени, телефона, email или адреса.",
+    importContactConfirmTitle: "Обновить Client Profile?",
+    importContactConfirmBody: "Данные выбранного контакта заменят заполненные поля Клиента.",
+    importContactApply: "Импортировать",
     deleteClient: "Удалить Клиента",
     noClientsTitle: "Пока нет Клиентов",
     noClientsBody: "Создайте первого Клиента с одним именем, затем добавьте детали позже.",
@@ -107,11 +113,59 @@ const messages = {
     appointmentStatus_canceled: "Canceled",
     appointmentStatus_noShow: "No-show",
     appointmentNotePlaceholder: "Заметка к Записи",
+    serviceMenuTitle: "Меню услуг",
+    serviceMenuSubtitle: "Создавайте стандартные услуги с ценой по умолчанию.",
+    serviceMenuNameLabel: "Название услуги",
+    serviceMenuPriceLabel: "Цена по умолчанию",
+    serviceMenuEmptyTitle: "Меню услуг пустое",
+    serviceMenuEmptyBody: "Добавьте часто используемую услугу, чтобы быстрее заполнять Записи.",
+    saveServiceMenuItem: "Сохранить услугу",
+    createServiceMenuItem: "Создать услугу",
+    clearServiceMenuForm: "Очистить услугу",
+    deleteServiceMenuItem: "Удалить услугу",
+    serviceMenuItemSaved: "Услуга сохранена.",
+    serviceMenuItemDeleted: "Услуга удалена.",
+    serviceNameRequired: "Добавьте название услуги.",
+    appointmentServicesTitle: "Услуги",
+    appointmentServiceClientLabel: "Клиент для услуги",
+    appointmentServiceNameLabel: "Услуга",
+    appointmentServicePriceLabel: "Цена",
+    appointmentServiceNoteLabel: "Заметка к услуге",
+    appointmentServiceSaved: "Услуга добавлена.",
+    addAdHocService: "Добавить разовую услугу",
+    addMenuService: "Добавить из меню",
+    deleteAppointmentService: "Удалить услугу",
+    appointmentPhotosTitle: "Фото",
+    appointmentPhotoBefore: "До",
+    appointmentPhotoAfter: "После",
+    appointmentPhotoOther: "Другое",
+    appointmentPhotoClientLabel: "Клиент для фото",
+    addPhotoFromCamera: "Камера",
+    addPhotoFromGallery: "Галерея",
+    appointmentPhotoPermissionDenied: "Разрешите доступ к камере или галерее, чтобы добавить фото.",
+    appointmentPhotoUploadThingMissing: "Настройте UploadThing, чтобы сохранять Appointment Photos.",
+    appointmentPhotoUploadFailed: "Фото не сохранено. Проверьте UploadThing и повторите.",
+    retryAppointmentPhoto: "Повторить",
+    removeAppointmentPhoto: "Убрать фото",
+    colorFormulaLabel: "Формула цвета",
+    colorFormulaPlacementLabel: "Зона нанесения",
+    addColorFormula: "Добавить формулу",
+    saveColorFormula: "Сохранить формулу",
+    deleteColorFormula: "Удалить формулу",
+    colorFormulaRequired: "Добавьте текст формулы.",
+    copyCompletedServices: "Скопировать услуги из завершённой Записи",
+    appointmentServiceTotal: "Итого услуг",
+    appointmentFinalTotal: "Финальный итог",
+    appointmentFinalTotalOverride: "Переопределить финальный итог",
+    saveFinalTotal: "Сохранить итог",
+    clearFinalTotalOverride: "Сумма услуг",
     markCompleted: "Completed",
     markCanceled: "Canceled",
     markNoShow: "No-show",
     markScheduled: "Scheduled",
     saveAppointmentNote: "Сохранить заметку",
+    composeClientReminder: "SMS-напоминание",
+    clientReminderMissingPhone: "У основного Клиента нет телефона для SMS.",
     deleteAppointment: "Удалить Запись",
     makePrimary: "Сделать основным",
     removeClientFromAppointment: "Убрать Клиента",
@@ -122,7 +176,22 @@ const messages = {
     missingEnvTitle: "Нужна настройка окружения",
     missingEnvBody: "Добавьте ключ Clerk перед запуском приложения.",
     profileShareTitle: "Профиль Клиента",
-    profileSharePlaceholder: "Публичная страница Profile Share готова к подключению данных."
+    profileSharePlaceholder: "Публичная страница Profile Share готова к подключению данных.",
+    createProfileShare: "Создать Profile Share",
+    openProfileShare: "Открыть Profile Share",
+    revokeProfileShare: "Отозвать Profile Share",
+    shareImageLanguageLabel: "Язык Share Image",
+    generateShareImage: "Создать Share Image",
+    profileShareNotFound: "Profile Share недоступен.",
+    profileShareUpcomingTitle: "Будущие записи",
+    profileShareLastCompletedTitle: "Последняя завершённая запись",
+    profileShareNoUpcoming: "Будущих записей нет.",
+    profileShareNoCompleted: "Завершённых записей пока нет.",
+    profileShareServicesTitle: "Услуги и формулы",
+    profileSharePhotosTitle: "Фото",
+    profileSharePhotosEmpty: "Сохранённых фото для показа пока нет.",
+    switchToRussian: "Русский",
+    switchToEnglish: "English"
   },
   en: {
     protectedHomeTitle: "Stylist workspace",
@@ -155,6 +224,12 @@ const messages = {
     saveClient: "Save Client",
     createClient: "Create Client",
     clearClientForm: "Clear form",
+    importContact: "Import Contact",
+    importContactPermissionDenied: "Allow Contacts access to import a Client.",
+    importContactEmpty: "The selected contact has no name, phone, email, or address.",
+    importContactConfirmTitle: "Update Client Profile?",
+    importContactConfirmBody: "Selected contact details will replace filled Client fields.",
+    importContactApply: "Import",
     deleteClient: "Delete Client",
     noClientsTitle: "No Clients yet",
     noClientsBody: "Create the first Client with only a name, then add details later.",
@@ -197,11 +272,59 @@ const messages = {
     appointmentStatus_canceled: "Canceled",
     appointmentStatus_noShow: "No-show",
     appointmentNotePlaceholder: "Appointment note",
+    serviceMenuTitle: "Service Menu",
+    serviceMenuSubtitle: "Create standard services with default prices.",
+    serviceMenuNameLabel: "Service name",
+    serviceMenuPriceLabel: "Default price",
+    serviceMenuEmptyTitle: "No Service Menu Items",
+    serviceMenuEmptyBody: "Add a common service to fill Appointments faster.",
+    saveServiceMenuItem: "Save Service",
+    createServiceMenuItem: "Create Service",
+    clearServiceMenuForm: "Clear service",
+    deleteServiceMenuItem: "Delete Service",
+    serviceMenuItemSaved: "Service saved.",
+    serviceMenuItemDeleted: "Service deleted.",
+    serviceNameRequired: "Add a service name.",
+    appointmentServicesTitle: "Services",
+    appointmentServiceClientLabel: "Service Client",
+    appointmentServiceNameLabel: "Service",
+    appointmentServicePriceLabel: "Price",
+    appointmentServiceNoteLabel: "Service note",
+    appointmentServiceSaved: "Service added.",
+    addAdHocService: "Add ad hoc Service",
+    addMenuService: "Add from menu",
+    deleteAppointmentService: "Delete Service",
+    appointmentPhotosTitle: "Photos",
+    appointmentPhotoBefore: "Before",
+    appointmentPhotoAfter: "After",
+    appointmentPhotoOther: "Other",
+    appointmentPhotoClientLabel: "Photo Client",
+    addPhotoFromCamera: "Camera",
+    addPhotoFromGallery: "Gallery",
+    appointmentPhotoPermissionDenied: "Allow camera or gallery access to add photos.",
+    appointmentPhotoUploadThingMissing: "Configure UploadThing to store Appointment Photos.",
+    appointmentPhotoUploadFailed: "Photo was not stored. Check UploadThing and retry.",
+    retryAppointmentPhoto: "Retry",
+    removeAppointmentPhoto: "Remove photo",
+    colorFormulaLabel: "Color Formula",
+    colorFormulaPlacementLabel: "Placement",
+    addColorFormula: "Add Formula",
+    saveColorFormula: "Save Formula",
+    deleteColorFormula: "Delete Formula",
+    colorFormulaRequired: "Add formula text.",
+    copyCompletedServices: "Copy services from completed Appointment",
+    appointmentServiceTotal: "Services total",
+    appointmentFinalTotal: "Final total",
+    appointmentFinalTotalOverride: "Override final total",
+    saveFinalTotal: "Save total",
+    clearFinalTotalOverride: "Use services total",
     markCompleted: "Completed",
     markCanceled: "Canceled",
     markNoShow: "No-show",
     markScheduled: "Scheduled",
     saveAppointmentNote: "Save note",
+    composeClientReminder: "SMS reminder",
+    clientReminderMissingPhone: "The primary Client has no phone number for SMS.",
     deleteAppointment: "Delete Appointment",
     makePrimary: "Make primary",
     removeClientFromAppointment: "Remove Client",
@@ -212,12 +335,146 @@ const messages = {
     missingEnvTitle: "Environment setup required",
     missingEnvBody: "Add the Clerk key before running the app.",
     profileShareTitle: "Client Profile",
-    profileSharePlaceholder: "The public Profile Share page is ready for data wiring."
+    profileSharePlaceholder: "The public Profile Share page is ready for data wiring.",
+    createProfileShare: "Create Profile Share",
+    openProfileShare: "Open Profile Share",
+    revokeProfileShare: "Revoke Profile Share",
+    shareImageLanguageLabel: "Share Image language",
+    generateShareImage: "Generate Share Image",
+    profileShareNotFound: "Profile Share is unavailable.",
+    profileShareUpcomingTitle: "Upcoming Appointments",
+    profileShareLastCompletedTitle: "Last completed Appointment",
+    profileShareNoUpcoming: "No upcoming Appointments.",
+    profileShareNoCompleted: "No completed Appointments yet.",
+    profileShareServicesTitle: "Services and formulas",
+    profileSharePhotosTitle: "Photos",
+    profileSharePhotosEmpty: "No stored photos are selected for sharing yet.",
+    switchToRussian: "Русский",
+    switchToEnglish: "English"
   }
 } as const;
 
 export type MessageKey = keyof (typeof messages)["ru"];
 
+export const messageKeys = Object.keys(messages.ru) as MessageKey[];
+
 export function t(locale: SupportedLocale, key: MessageKey): string {
   return messages[locale][key];
+}
+
+export function getMissingLocalizationKeys(): Record<SupportedLocale, MessageKey[]> {
+  return supportedLocales.reduce(
+    (missingKeys, locale) => ({
+      ...missingKeys,
+      [locale]: messageKeys.filter((key) => !messages[locale][key]?.trim())
+    }),
+    {
+      ru: [],
+      en: []
+    } as Record<SupportedLocale, MessageKey[]>
+  );
+}
+
+export type ClientReminderMessageInput = {
+  locale: SupportedLocale;
+  appointmentTime: string;
+  location: string;
+};
+
+export function buildClientReminderMessage(input: ClientReminderMessageInput): string {
+  if (input.locale === "en") {
+    return `Reminder: your appointment is scheduled for ${input.appointmentTime}. Location: ${input.location}.`;
+  }
+
+  return `Напоминание: ваша запись назначена на ${input.appointmentTime}. Адрес: ${input.location}.`;
+}
+
+export function buildSmsComposerUrl(phone: string, body: string): string {
+  const recipient = phone.trim().replace(/[^\d+]/g, "");
+
+  return `sms:${recipient}?body=${encodeURIComponent(body)}`;
+}
+
+export type ImportedContactFields = {
+  name?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+};
+
+export type ImportedDeviceContact = {
+  fullName?: string | null;
+  givenName?: string | null;
+  familyName?: string | null;
+  phones?: { number?: string | null }[] | null;
+  emails?: { address?: string | null; email?: string | null }[] | null;
+  addresses?: {
+    street?: string | null;
+    city?: string | null;
+    state?: string | null;
+    postcode?: string | null;
+    region?: string | null;
+    country?: string | null;
+  }[] | null;
+};
+
+type ImportableClientFields = {
+  name: string;
+  phone: string;
+  email: string;
+  address: string;
+};
+
+function cleanImportedValue(value: string | null | undefined): string | undefined {
+  const trimmedValue = value?.trim();
+  return trimmedValue ? trimmedValue : undefined;
+}
+
+export function normalizeImportedContact(contact: ImportedDeviceContact): ImportedContactFields {
+  const name =
+    cleanImportedValue(contact.fullName) ??
+    cleanImportedValue([contact.givenName, contact.familyName].map((part) => part?.trim()).filter(Boolean).join(" "));
+  const phone = contact.phones?.map((phoneNumber) => cleanImportedValue(phoneNumber.number)).find(Boolean);
+  const email = contact.emails
+    ?.map((emailAddress) => cleanImportedValue(emailAddress.address ?? emailAddress.email))
+    .find(Boolean);
+  const address = contact.addresses
+    ?.map((contactAddress) =>
+      [
+        contactAddress.street,
+        contactAddress.city,
+        contactAddress.state ?? contactAddress.region,
+        contactAddress.postcode,
+        contactAddress.country
+      ]
+        .map(cleanImportedValue)
+        .filter(Boolean)
+        .join(", ")
+    )
+    .map(cleanImportedValue)
+    .find(Boolean);
+
+  return {
+    ...(name ? { name } : {}),
+    ...(phone ? { phone } : {}),
+    ...(email ? { email } : {}),
+    ...(address ? { address } : {})
+  };
+}
+
+export function hasImportedContactFields(contact: ImportedContactFields): boolean {
+  return Boolean(contact.name || contact.phone || contact.email || contact.address);
+}
+
+export function mergeImportedContactIntoClient<TClient extends ImportableClientFields>(
+  client: TClient,
+  importedContact: ImportedContactFields
+): TClient {
+  return {
+    ...client,
+    ...(importedContact.name ? { name: importedContact.name } : {}),
+    ...(importedContact.phone ? { phone: importedContact.phone } : {}),
+    ...(importedContact.email ? { email: importedContact.email } : {}),
+    ...(importedContact.address ? { address: importedContact.address } : {})
+  };
 }

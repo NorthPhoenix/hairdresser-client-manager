@@ -122,7 +122,8 @@ describe("client router", () => {
       },
       orderBy: {
         updatedAt: "desc"
-      }
+      },
+      include: expect.any(Object)
     });
   });
 
@@ -210,6 +211,146 @@ describe("client router", () => {
     });
   });
 
+  it("returns an existing active Profile Share instead of creating another one", async () => {
+    const createdAt = new Date("2026-06-13T12:00:00.000Z");
+    const profileShareCreate = vi.fn();
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: {
+          upsert: vi.fn().mockResolvedValue({
+            id: "stylist_1",
+            clerkId: "clerk_1",
+            language: "ru",
+            timezone: "America/Chicago",
+            salonAddress: null,
+            onboardingCompletedAt: new Date()
+          })
+        },
+        client: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: "client_1",
+            language: "ru",
+            profileShares: [
+              {
+                id: "share_1",
+                token: "existing-token",
+                language: "ru",
+                revokedAt: null,
+                createdAt
+              }
+            ]
+          })
+        },
+        profileShare: {
+          create: profileShareCreate
+        }
+      } as unknown as TRPCContext["db"])
+    );
+
+    await expect(
+      caller.clientProfile.createProfileShare({
+        clientId: "client_1"
+      })
+    ).resolves.toEqual({
+      id: "share_1",
+      token: "existing-token",
+      language: "ru",
+      createdAt: createdAt.toISOString()
+    });
+    expect(profileShareCreate).not.toHaveBeenCalled();
+  });
+
+  it("creates a new unguessable Profile Share token after prior shares were revoked", async () => {
+    const createdAt = new Date("2026-06-13T12:00:00.000Z");
+    const profileShareCreate = vi.fn().mockResolvedValue({
+      id: "share_2",
+      token: "new-token",
+      language: "en",
+      createdAt
+    });
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: {
+          upsert: vi.fn().mockResolvedValue({
+            id: "stylist_1",
+            clerkId: "clerk_1",
+            language: "ru",
+            timezone: "America/Chicago",
+            salonAddress: null,
+            onboardingCompletedAt: new Date()
+          })
+        },
+        client: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: "client_1",
+            language: "en",
+            profileShares: []
+          })
+        },
+        profileShare: {
+          create: profileShareCreate
+        }
+      } as unknown as TRPCContext["db"])
+    );
+
+    await caller.clientProfile.createProfileShare({
+      clientId: "client_1"
+    });
+
+    expect(profileShareCreate).toHaveBeenCalledWith({
+      data: {
+        clientId: "client_1",
+        token: expect.stringMatching(/^[A-Za-z0-9_-]{40,}$/),
+        language: "en"
+      }
+    });
+  });
+
+  it("revokes only the active Profile Share for an owned Client", async () => {
+    const updateMany = vi.fn().mockResolvedValue({
+      count: 1
+    });
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: {
+          upsert: vi.fn().mockResolvedValue({
+            id: "stylist_1",
+            clerkId: "clerk_1",
+            language: "ru",
+            timezone: "America/Chicago",
+            salonAddress: null,
+            onboardingCompletedAt: new Date()
+          })
+        },
+        client: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: "client_1"
+          })
+        },
+        profileShare: {
+          updateMany
+        }
+      } as unknown as TRPCContext["db"])
+    );
+
+    await expect(
+      caller.clientProfile.revokeProfileShare({
+        clientId: "client_1"
+      })
+    ).resolves.toEqual({
+      clientId: "client_1"
+    });
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        clientId: "client_1",
+        revokedAt: null
+      },
+      data: {
+        revokedAt: expect.any(Date)
+      }
+    });
+  });
+
   it("filters Appointment history to Appointments that include the Client", async () => {
     const startsAt = new Date("2026-06-13T15:00:00.000Z");
     const appointmentFindMany = vi.fn().mockResolvedValue([
@@ -240,6 +381,35 @@ describe("client router", () => {
               address: ""
             }
           }
+        ],
+        services: [
+          {
+            id: "appointment_service_1",
+            clientId: "client_1",
+            menuItemId: "menu_1",
+            name: "Old haircut name",
+            priceCents: 8500,
+            note: "History snapshot",
+            colorFormulas: [
+              {
+                id: "formula_1",
+                formula: "7N",
+                placement: "Roots"
+              }
+            ]
+          }
+        ],
+        photos: [
+          {
+            id: "photo_1",
+            clientId: "client_1",
+            category: "after",
+            url: "https://utfs.io/f/photo_1",
+            thumbnailUrl: "https://utfs.io/f/photo_1-thumb",
+            width: 1200,
+            height: 900,
+            createdAt: startsAt
+          }
         ]
       }
     ]);
@@ -268,7 +438,32 @@ describe("client router", () => {
     ).resolves.toMatchObject([
       {
         id: "appointment_1",
-        participantClientIds: ["client_1", "client_2"]
+        participantClientIds: ["client_1", "client_2"],
+        services: [
+          {
+            id: "appointment_service_1",
+            clientId: "client_1",
+            menuItemId: "menu_1",
+            name: "Old haircut name",
+            priceCents: 8500,
+            note: "History snapshot",
+            colorFormulas: [
+              {
+                id: "formula_1",
+                formula: "7N",
+                placement: "Roots"
+              }
+            ]
+          }
+        ],
+        photos: [
+          {
+            id: "photo_1",
+            clientId: "client_1",
+            category: "after",
+            url: "https://utfs.io/f/photo_1"
+          }
+        ]
       }
     ]);
     expect(appointmentFindMany).toHaveBeenCalledWith({

@@ -15,8 +15,12 @@
     "@tanstack/react-query": "latest",
     "@trpc/client": "latest",
     "@trpc/react-query": "latest",
+    "@uploadthing/expo": "^7.2.6",
     "expo": "~56.0.9",
     "expo-constants": "~56.0.17",
+    "expo-contacts": "^56.0.9",
+    "expo-file-system": "^56.0.8",
+    "expo-image-picker": "^56.0.17",
     "expo-linking": "~56.0.13",
     "expo-router": "~56.2.9",
     "expo-secure-store": "~56.0.4",
@@ -26,7 +30,8 @@
     "react-native": "0.85.3",
     "react-native-css-interop": "latest",
     "react-native-safe-area-context": "~5.7.0",
-    "react-native-screens": "~4.25.2"
+    "react-native-screens": "~4.25.2",
+    "uploadthing": "^7.7.4"
   },
   "devDependencies": {
     "@types/react": "latest",
