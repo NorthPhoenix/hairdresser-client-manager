@@ -104,12 +104,16 @@ function toAppointmentOutput(appointment: {
     id: string;
     name: string;
     address: string | null;
+    phone?: string | null;
+    language?: "ru" | "en";
   };
   participants?: {
     client: {
       id: string;
       name: string;
       address: string | null;
+      phone?: string | null;
+      language?: "ru" | "en";
     };
   }[];
   services?: {
@@ -141,6 +145,8 @@ function toAppointmentOutput(appointment: {
       clientId: participant.client.id,
       name: participant.client.name,
       address: participant.client.address ?? "",
+      phone: participant.client.phone ?? "",
+      language: participant.client.language ?? "ru",
       isPrimary: participant.client.id === appointment.primaryClientId,
       subtotalCents: clientSubtotals[participant.client.id] ?? 0
     })) ?? [
@@ -148,6 +154,8 @@ function toAppointmentOutput(appointment: {
         clientId: appointment.primaryClient.id,
         name: appointment.primaryClient.name,
         address: appointment.primaryClient.address ?? "",
+        phone: appointment.primaryClient.phone ?? "",
+        language: appointment.primaryClient.language ?? "ru",
         isPrimary: true,
         subtotalCents: clientSubtotals[appointment.primaryClient.id] ?? 0
       }
@@ -206,7 +214,9 @@ export const appointmentRouter = createTRPCRouter({
           select: {
             id: true,
             name: true,
-            address: true
+            address: true,
+            phone: true,
+            language: true
           }
         },
         participants: {
@@ -215,7 +225,9 @@ export const appointmentRouter = createTRPCRouter({
               select: {
                 id: true,
                 name: true,
-                address: true
+                address: true,
+                phone: true,
+                language: true
               }
             }
           },
@@ -268,7 +280,9 @@ export const appointmentRouter = createTRPCRouter({
           select: {
             id: true,
             name: true,
-            address: true
+            address: true,
+            phone: true,
+            language: true
           }
         },
         participants: {
@@ -277,7 +291,9 @@ export const appointmentRouter = createTRPCRouter({
               select: {
                 id: true,
                 name: true,
-                address: true
+                address: true,
+                phone: true,
+                language: true
               }
             }
           },
@@ -428,7 +444,9 @@ export const appointmentRouter = createTRPCRouter({
           select: {
             id: true,
             name: true,
-            address: true
+            address: true,
+            phone: true,
+            language: true
           }
         },
         participants: {
@@ -437,7 +455,9 @@ export const appointmentRouter = createTRPCRouter({
               select: {
                 id: true,
                 name: true,
-                address: true
+                address: true,
+                phone: true,
+                language: true
               }
             }
           },
@@ -476,7 +496,9 @@ export const appointmentRouter = createTRPCRouter({
           select: {
             id: true,
             name: true,
-            address: true
+            address: true,
+            phone: true,
+            language: true
           }
         },
         participants: {
@@ -485,7 +507,9 @@ export const appointmentRouter = createTRPCRouter({
               select: {
                 id: true,
                 name: true,
-                address: true
+                address: true,
+                phone: true,
+                language: true
               }
             }
           },
@@ -559,7 +583,9 @@ export const appointmentRouter = createTRPCRouter({
           select: {
             id: true,
             name: true,
-            address: true
+            address: true,
+            phone: true,
+            language: true
           }
         },
         participants: {
@@ -568,7 +594,9 @@ export const appointmentRouter = createTRPCRouter({
               select: {
                 id: true,
                 name: true,
-                address: true
+                address: true,
+                phone: true,
+                language: true
               }
             }
           },
@@ -661,7 +689,9 @@ export const appointmentRouter = createTRPCRouter({
           select: {
             id: true,
             name: true,
-            address: true
+            address: true,
+            phone: true,
+            language: true
           }
         },
         participants: {
@@ -670,7 +700,9 @@ export const appointmentRouter = createTRPCRouter({
               select: {
                 id: true,
                 name: true,
-                address: true
+                address: true,
+                phone: true,
+                language: true
               }
             }
           },
@@ -732,7 +764,9 @@ export const appointmentRouter = createTRPCRouter({
           select: {
             id: true,
             name: true,
-            address: true
+            address: true,
+            phone: true,
+            language: true
           }
         },
         participants: {
@@ -741,7 +775,9 @@ export const appointmentRouter = createTRPCRouter({
               select: {
                 id: true,
                 name: true,
-                address: true
+                address: true,
+                phone: true,
+                language: true
               }
             }
           },
@@ -798,7 +834,9 @@ export const appointmentRouter = createTRPCRouter({
           select: {
             id: true,
             name: true,
-            address: true
+            address: true,
+            phone: true,
+            language: true
           }
         },
         participants: {
@@ -807,7 +845,9 @@ export const appointmentRouter = createTRPCRouter({
               select: {
                 id: true,
                 name: true,
-                address: true
+                address: true,
+                phone: true,
+                language: true
               }
             }
           },
@@ -866,7 +906,9 @@ export const appointmentRouter = createTRPCRouter({
           select: {
             id: true,
             name: true,
-            address: true
+            address: true,
+            phone: true,
+            language: true
           }
         },
         participants: {
@@ -875,7 +917,9 @@ export const appointmentRouter = createTRPCRouter({
               select: {
                 id: true,
                 name: true,
-                address: true
+                address: true,
+                phone: true,
+                language: true
               }
             }
           },
@@ -941,7 +985,9 @@ export const appointmentRouter = createTRPCRouter({
           select: {
             id: true,
             name: true,
-            address: true
+            address: true,
+            phone: true,
+            language: true
           }
         },
         participants: {
@@ -950,7 +996,9 @@ export const appointmentRouter = createTRPCRouter({
               select: {
                 id: true,
                 name: true,
-                address: true
+                address: true,
+                phone: true,
+                language: true
               }
             }
           },
@@ -1012,7 +1060,9 @@ export const appointmentRouter = createTRPCRouter({
           select: {
             id: true,
             name: true,
-            address: true
+            address: true,
+            phone: true,
+            language: true
           }
         },
         participants: {
@@ -1021,7 +1071,9 @@ export const appointmentRouter = createTRPCRouter({
               select: {
                 id: true,
                 name: true,
-                address: true
+                address: true,
+                phone: true,
+                language: true
               }
             }
           },

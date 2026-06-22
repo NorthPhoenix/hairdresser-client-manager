@@ -146,6 +146,8 @@ const messages = {
     markNoShow: "No-show",
     markScheduled: "Scheduled",
     saveAppointmentNote: "Сохранить заметку",
+    composeClientReminder: "SMS-напоминание",
+    clientReminderMissingPhone: "У основного Клиента нет телефона для SMS.",
     deleteAppointment: "Удалить Запись",
     makePrimary: "Сделать основным",
     removeClientFromAppointment: "Убрать Клиента",
@@ -285,6 +287,8 @@ const messages = {
     markNoShow: "No-show",
     markScheduled: "Scheduled",
     saveAppointmentNote: "Save note",
+    composeClientReminder: "SMS reminder",
+    clientReminderMissingPhone: "The primary Client has no phone number for SMS.",
     deleteAppointment: "Delete Appointment",
     makePrimary: "Make primary",
     removeClientFromAppointment: "Remove Client",
@@ -318,4 +322,24 @@ export type MessageKey = keyof (typeof messages)["ru"];
 
 export function t(locale: SupportedLocale, key: MessageKey): string {
   return messages[locale][key];
+}
+
+export type ClientReminderMessageInput = {
+  locale: SupportedLocale;
+  appointmentTime: string;
+  location: string;
+};
+
+export function buildClientReminderMessage(input: ClientReminderMessageInput): string {
+  if (input.locale === "en") {
+    return `Reminder: your appointment is scheduled for ${input.appointmentTime}. Location: ${input.location}.`;
+  }
+
+  return `Напоминание: ваша запись назначена на ${input.appointmentTime}. Адрес: ${input.location}.`;
+}
+
+export function buildSmsComposerUrl(phone: string, body: string): string {
+  const recipient = phone.trim().replace(/[^\d+]/g, "");
+
+  return `sms:${recipient}?body=${encodeURIComponent(body)}`;
 }

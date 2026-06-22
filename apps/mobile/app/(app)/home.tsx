@@ -12,7 +12,15 @@ import {
   View
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { defaultLocale, normalizeLocale, type MessageKey, type SupportedLocale, t } from "@hcm/shared";
+import {
+  buildClientReminderMessage,
+  buildSmsComposerUrl,
+  defaultLocale,
+  normalizeLocale,
+  type MessageKey,
+  type SupportedLocale,
+  t
+} from "@hcm/shared";
 import { getBaseUrl, trpc } from "../../src/trpc/client";
 
 type StylistSettings = {
@@ -59,6 +67,8 @@ type Appointment = {
     clientId: string;
     name: string;
     address: string;
+    phone: string;
+    language: SupportedLocale;
     isPrimary: boolean;
     subtotalCents: number;
   }[];
@@ -249,9 +259,11 @@ function getShareImageDataUrl(svg: string): string {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
-function formatAppointmentTime(appointment: Appointment): string {
-  const start = new Date(appointment.startsAt).toLocaleString();
-  const end = appointment.endsAt ? new Date(appointment.endsAt).toLocaleTimeString() : "";
+function formatAppointmentTime(appointment: Appointment, language?: SupportedLocale, timezone?: string): string {
+  const dateLocale = language === "ru" ? "ru-RU" : language === "en" ? "en-US" : undefined;
+  const formatOptions = timezone ? { timeZone: timezone } : undefined;
+  const start = new Date(appointment.startsAt).toLocaleString(dateLocale, formatOptions);
+  const end = appointment.endsAt ? new Date(appointment.endsAt).toLocaleTimeString(dateLocale, formatOptions) : "";
 
   return [start, end].filter(Boolean).join(" - ");
 }
@@ -833,6 +845,25 @@ export default function HomeScreen() {
     await Linking.openURL(appointment.mapUrl);
   }
 
+  async function composeClientReminder(appointment: Appointment) {
+    const recipient = appointment.participants.find((participant) => participant.isPrimary);
+
+    if (!recipient?.phone) {
+      Alert.alert("Appointments", t(locale, "clientReminderMissingPhone"));
+      return;
+    }
+
+    const message = buildClientReminderMessage({
+      locale: recipient.language,
+      appointmentTime: formatAppointmentTime(appointment, recipient.language, settings.timezone),
+      location:
+        appointment.locationAddress ||
+        (appointment.locationType === "atHome" ? t(recipient.language, "appointmentAtHome") : t(recipient.language, "appointmentInSalon"))
+    });
+
+    await Linking.openURL(buildSmsComposerUrl(recipient.phone, message));
+  }
+
   function updateAppointmentStatus(appointment: Appointment, status: Appointment["status"]) {
     updateAppointmentMutation.mutate({
       id: appointment.id,
@@ -1289,6 +1320,9 @@ export default function HomeScreen() {
         <View style={styles.buttonRow}>
           <Pressable onPress={() => saveAppointmentNote(appointment)} style={[styles.secondaryButton, styles.flexButton]}>
             <Text style={styles.secondaryButtonText}>{t(locale, "saveAppointmentNote")}</Text>
+          </Pressable>
+          <Pressable onPress={() => composeClientReminder(appointment)} style={[styles.secondaryButton, styles.flexButton]}>
+            <Text style={styles.secondaryButtonText}>{t(locale, "composeClientReminder")}</Text>
           </Pressable>
           <Pressable onPress={() => deleteAppointment(appointment)} style={[styles.secondaryButton, styles.flexButton]}>
             <Text style={styles.secondaryButtonText}>{t(locale, "deleteAppointment")}</Text>
