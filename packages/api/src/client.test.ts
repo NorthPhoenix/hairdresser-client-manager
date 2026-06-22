@@ -248,7 +248,14 @@ describe("client router", () => {
             menuItemId: "menu_1",
             name: "Old haircut name",
             priceCents: 8500,
-            note: "History snapshot"
+            note: "History snapshot",
+            colorFormulas: [
+              {
+                id: "formula_1",
+                formula: "7N",
+                placement: "Roots"
+              }
+            ]
           }
         ]
       }
@@ -286,7 +293,14 @@ describe("client router", () => {
             menuItemId: "menu_1",
             name: "Old haircut name",
             priceCents: 8500,
-            note: "History snapshot"
+            note: "History snapshot",
+            colorFormulas: [
+              {
+                id: "formula_1",
+                formula: "7N",
+                placement: "Roots"
+              }
+            ]
           }
         ]
       }

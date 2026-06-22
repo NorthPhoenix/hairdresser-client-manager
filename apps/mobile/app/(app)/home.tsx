@@ -65,6 +65,13 @@ type Appointment = {
     priceCents: number;
     note: string;
     createdAt: string;
+    colorFormulas: {
+      id: string;
+      appointmentServiceId: string;
+      formula: string;
+      placement: string;
+      createdAt: string;
+    }[];
   }[];
   serviceTotalCents: number;
   finalTotalCents: number;
@@ -109,6 +116,12 @@ type AppointmentServiceForm = {
   name: string;
   price: string;
   note: string;
+};
+
+type ColorFormulaForm = {
+  id: string | null;
+  formula: string;
+  placement: string;
 };
 
 function getDeviceLocale(): SupportedLocale {
@@ -193,6 +206,14 @@ function createAppointmentServiceForm(appointment: Appointment): AppointmentServ
   };
 }
 
+function createColorFormulaForm(): ColorFormulaForm {
+  return {
+    id: null,
+    formula: "",
+    placement: ""
+  };
+}
+
 function centsToPrice(cents: number): string {
   return (cents / 100).toFixed(2);
 }
@@ -235,7 +256,9 @@ export default function HomeScreen() {
   const [appointmentForm, setAppointmentForm] = useState<AppointmentForm>(() => createAppointmentForm());
   const [appointmentNotes, setAppointmentNotes] = useState<Record<string, string>>({});
   const [appointmentServiceForms, setAppointmentServiceForms] = useState<Record<string, AppointmentServiceForm>>({});
+  const [colorFormulaForms, setColorFormulaForms] = useState<Record<string, ColorFormulaForm>>({});
   const [appointmentFinalTotals, setAppointmentFinalTotals] = useState<Record<string, string>>({});
+  const [copySourceAppointmentIds, setCopySourceAppointmentIds] = useState<Record<string, string>>({});
   const [calendarDate, setCalendarDate] = useState(() => toDateInputValue(new Date()));
   const utils = trpc.useUtils();
   const deviceBootstrapDefaults = useMemo(
@@ -324,6 +347,9 @@ export default function HomeScreen() {
   const calendarAppointmentsQuery = trpc.appointment.list.useQuery(calendarRange, {
     enabled: Boolean(isSignedIn && onboardingComplete)
   });
+  const completedSourcesQuery = trpc.appointment.completedSources.useQuery(undefined, {
+    enabled: Boolean(isSignedIn && onboardingComplete)
+  });
   const createAppointmentMutation = trpc.appointment.create.useMutation({
     onSuccess(result) {
       setAppointmentForm(createAppointmentForm());
@@ -386,6 +412,42 @@ export default function HomeScreen() {
     }
   });
   const deleteAppointmentServiceMutation = trpc.appointment.deleteService.useMutation({
+    onSuccess() {
+      void utils.appointment.home.invalidate();
+      void utils.appointment.list.invalidate();
+    },
+    onError(error) {
+      Alert.alert("Services", error.message);
+    }
+  });
+  const addColorFormulaMutation = trpc.appointment.addColorFormula.useMutation({
+    onSuccess() {
+      void utils.appointment.home.invalidate();
+      void utils.appointment.list.invalidate();
+    },
+    onError(error) {
+      Alert.alert("Formulas", error.message);
+    }
+  });
+  const updateColorFormulaMutation = trpc.appointment.updateColorFormula.useMutation({
+    onSuccess() {
+      void utils.appointment.home.invalidate();
+      void utils.appointment.list.invalidate();
+    },
+    onError(error) {
+      Alert.alert("Formulas", error.message);
+    }
+  });
+  const deleteColorFormulaMutation = trpc.appointment.deleteColorFormula.useMutation({
+    onSuccess() {
+      void utils.appointment.home.invalidate();
+      void utils.appointment.list.invalidate();
+    },
+    onError(error) {
+      Alert.alert("Formulas", error.message);
+    }
+  });
+  const copyAppointmentServicesMutation = trpc.appointment.copyServices.useMutation({
     onSuccess() {
       void utils.appointment.home.invalidate();
       void utils.appointment.list.invalidate();
@@ -786,6 +848,89 @@ export default function HomeScreen() {
     });
   }
 
+  function selectColorFormula(serviceId: string, formula: Appointment["services"][number]["colorFormulas"][number]) {
+    setColorFormulaForms((currentForms) => ({
+      ...currentForms,
+      [serviceId]: {
+        id: formula.id,
+        formula: formula.formula,
+        placement: formula.placement
+      }
+    }));
+  }
+
+  function updateColorFormulaForm(serviceId: string, nextForm: Partial<ColorFormulaForm>) {
+    setColorFormulaForms((currentForms) => ({
+      ...currentForms,
+      [serviceId]: {
+        ...(currentForms[serviceId] ?? createColorFormulaForm()),
+        ...nextForm
+      }
+    }));
+  }
+
+  function saveColorFormula(serviceId: string) {
+    const form = colorFormulaForms[serviceId] ?? createColorFormulaForm();
+    const formula = form.formula.trim();
+
+    if (!formula) {
+      Alert.alert("Formulas", t(locale, "colorFormulaRequired"));
+      return;
+    }
+
+    const mutationInput = {
+      formula,
+      placement: form.placement.trim() || undefined
+    };
+
+    if (form.id) {
+      updateColorFormulaMutation.mutate(
+        {
+          id: form.id,
+          ...mutationInput
+        },
+        {
+          onSuccess() {
+            setColorFormulaForms((currentForms) => ({
+              ...currentForms,
+              [serviceId]: createColorFormulaForm()
+            }));
+          }
+        }
+      );
+      return;
+    }
+
+    addColorFormulaMutation.mutate(
+      {
+        appointmentServiceId: serviceId,
+        ...mutationInput
+      },
+      {
+        onSuccess() {
+          setColorFormulaForms((currentForms) => ({
+            ...currentForms,
+            [serviceId]: createColorFormulaForm()
+          }));
+        }
+      }
+    );
+  }
+
+  function deleteColorFormula(id: string) {
+    deleteColorFormulaMutation.mutate({
+      id
+    });
+  }
+
+  function copyAppointmentServices(appointment: Appointment) {
+    const sourceAppointmentId = copySourceAppointmentIds[appointment.id];
+    copyAppointmentServicesMutation.mutate({
+      targetAppointmentId: appointment.id,
+      sourceAppointmentId: sourceAppointmentId || undefined
+    });
+  }
+
   function toggleAdditionalClient(clientId: string) {
     setAppointmentForm((currentForm) => ({
       ...currentForm,
@@ -808,6 +953,9 @@ export default function HomeScreen() {
     return appointments.map((appointment) => {
       const serviceForm = appointmentServiceForms[appointment.id] ?? createAppointmentServiceForm(appointment);
       const selectedMenuItem = serviceMenuItems.find((item) => item.id === serviceForm.menuItemId);
+      const completedSourceAppointments =
+        completedSourcesQuery.data?.filter((sourceAppointment) => sourceAppointment.id !== appointment.id) ?? [];
+      const selectedCopySourceId = copySourceAppointmentIds[appointment.id] ?? "";
 
       return (
       <View key={appointment.id} style={styles.clientRow}>
@@ -887,6 +1035,7 @@ export default function HomeScreen() {
           <Text style={styles.optionalTitle}>{t(locale, "appointmentServicesTitle")}</Text>
           {appointment.services.map((service) => {
             const serviceClient = appointment.participants.find((participant) => participant.clientId === service.clientId);
+            const colorFormulaForm = colorFormulaForms[service.id] ?? createColorFormulaForm();
 
             return (
               <View key={service.id} style={styles.participantRow}>
@@ -894,12 +1043,70 @@ export default function HomeScreen() {
                   {service.name} · {formatPrice(service.priceCents)} · {serviceClient?.name ?? ""}
                 </Text>
                 {service.note ? <Text style={styles.clientMeta}>{service.note}</Text> : null}
+                {service.colorFormulas.map((formula) => (
+                  <Pressable key={formula.id} onPress={() => selectColorFormula(service.id, formula)} style={styles.formulaRow}>
+                    <Text style={styles.clientMeta}>{formula.placement ? `${formula.placement}: ${formula.formula}` : formula.formula}</Text>
+                    <Pressable onPress={() => deleteColorFormula(formula.id)} style={styles.statusButton}>
+                      <Text style={styles.statusButtonText}>{t(locale, "deleteColorFormula")}</Text>
+                    </Pressable>
+                  </Pressable>
+                ))}
+                <View style={styles.field}>
+                  <Text style={styles.label}>{t(locale, "colorFormulaLabel")}</Text>
+                  <TextInput
+                    multiline
+                    onChangeText={(formula) => updateColorFormulaForm(service.id, { formula })}
+                    placeholder="7N + 20 vol"
+                    style={[styles.input, styles.addressInput]}
+                    value={colorFormulaForm.formula}
+                  />
+                </View>
+                <View style={styles.field}>
+                  <Text style={styles.label}>{t(locale, "colorFormulaPlacementLabel")}</Text>
+                  <TextInput
+                    onChangeText={(placement) => updateColorFormulaForm(service.id, { placement })}
+                    placeholder="Roots"
+                    style={styles.input}
+                    value={colorFormulaForm.placement}
+                  />
+                </View>
+                <Pressable onPress={() => saveColorFormula(service.id)} style={styles.statusButton}>
+                  <Text style={styles.statusButtonText}>
+                    {colorFormulaForm.id ? t(locale, "saveColorFormula") : t(locale, "addColorFormula")}
+                  </Text>
+                </Pressable>
                 <Pressable onPress={() => deleteAppointmentService(service.id)} style={styles.statusButton}>
                   <Text style={styles.statusButtonText}>{t(locale, "deleteAppointmentService")}</Text>
                 </Pressable>
               </View>
             );
           })}
+          {completedSourceAppointments.length > 0 ? (
+            <View style={styles.buttonRow}>
+              {completedSourceAppointments.map((sourceAppointment) => (
+                <Pressable
+                  key={sourceAppointment.id}
+                  onPress={() =>
+                    setCopySourceAppointmentIds((currentSources) => ({
+                      ...currentSources,
+                      [appointment.id]: sourceAppointment.id
+                    }))
+                  }
+                  style={[
+                    styles.statusButton,
+                    selectedCopySourceId === sourceAppointment.id ? styles.selectedClientRow : null
+                  ]}
+                >
+                  <Text style={styles.statusButtonText}>
+                    {sourceAppointment.primaryClientName} · {formatAppointmentTime(sourceAppointment)}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+          <Pressable onPress={() => copyAppointmentServices(appointment)} style={styles.secondaryButton}>
+            <Text style={styles.secondaryButtonText}>{t(locale, "copyCompletedServices")}</Text>
+          </Pressable>
           <View style={styles.field}>
             <Text style={styles.label}>{t(locale, "appointmentServiceClientLabel")}</Text>
             <View style={styles.buttonRow}>
@@ -1712,6 +1919,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 10,
     padding: 12
+  },
+  formulaRow: {
+    borderColor: "#d8c5ad",
+    borderRadius: 6,
+    borderWidth: 1,
+    gap: 8,
+    padding: 10
   },
   clientName: {
     color: "#111111",

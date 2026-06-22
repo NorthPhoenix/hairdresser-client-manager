@@ -113,6 +113,18 @@ model AppointmentService {
 
   appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
   client      Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  colorFormulas ColorFormula[]
+}
+
+model ColorFormula {
+  id                   String   @id @default(cuid())
+  appointmentServiceId String
+  formula              String
+  placement            String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  appointmentService AppointmentService @relation(fields: [appointmentServiceId], references: [id], onDelete: Cascade)
 }
 
 model ProfileShare {

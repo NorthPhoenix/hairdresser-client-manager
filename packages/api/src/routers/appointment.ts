@@ -53,6 +53,27 @@ const appointmentServiceDeleteInput = z.object({
   id: z.string()
 });
 
+const colorFormulaInput = z.object({
+  appointmentServiceId: z.string(),
+  formula: z.string().trim().min(1),
+  placement: z.string().trim().optional()
+});
+
+const colorFormulaUpdateInput = z.object({
+  id: z.string(),
+  formula: z.string().trim().min(1),
+  placement: z.string().trim().optional()
+});
+
+const colorFormulaDeleteInput = z.object({
+  id: z.string()
+});
+
+const appointmentCopyServicesInput = z.object({
+  targetAppointmentId: z.string(),
+  sourceAppointmentId: z.string().optional()
+});
+
 const appointmentDeleteInput = z.object({
   id: z.string()
 });
@@ -100,6 +121,13 @@ function toAppointmentOutput(appointment: {
     priceCents: number;
     note: string | null;
     createdAt: Date;
+    colorFormulas?: {
+      id: string;
+      appointmentServiceId: string;
+      formula: string;
+      placement: string | null;
+      createdAt: Date;
+    }[];
   }[];
 }) {
   const services = appointment.services ?? [];
@@ -145,7 +173,14 @@ function toAppointmentOutput(appointment: {
       name: service.name,
       priceCents: service.priceCents,
       note: service.note ?? "",
-      createdAt: service.createdAt.toISOString()
+      createdAt: service.createdAt.toISOString(),
+      colorFormulas: service.colorFormulas?.map((formula) => ({
+        id: formula.id,
+        appointmentServiceId: formula.appointmentServiceId,
+        formula: formula.formula,
+        placement: formula.placement ?? "",
+        createdAt: formula.createdAt.toISOString()
+      })) ?? []
     })),
     serviceTotalCents,
     finalTotalCents: appointment.finalTotalCentsOverride ?? serviceTotalCents,
@@ -189,6 +224,13 @@ export const appointmentRouter = createTRPCRouter({
           }
         },
         services: {
+          include: {
+            colorFormulas: {
+              orderBy: {
+                createdAt: "asc"
+              }
+            }
+          },
           orderBy: {
             createdAt: "asc"
           }
@@ -244,6 +286,13 @@ export const appointmentRouter = createTRPCRouter({
           }
         },
         services: {
+          include: {
+            colorFormulas: {
+              orderBy: {
+                createdAt: "asc"
+              }
+            }
+          },
           orderBy: {
             createdAt: "asc"
           }
@@ -251,6 +300,54 @@ export const appointmentRouter = createTRPCRouter({
       },
       orderBy: {
         startsAt: "asc"
+      }
+    });
+
+    return appointments.map(toAppointmentOutput);
+  }),
+  completedSources: stylistProcedure.query(async ({ ctx }) => {
+    const appointments = await ctx.db.appointment.findMany({
+      where: {
+        stylistId: ctx.stylist.id,
+        status: "completed"
+      },
+      include: {
+        primaryClient: {
+          select: {
+            id: true,
+            name: true,
+            address: true
+          }
+        },
+        participants: {
+          include: {
+            client: {
+              select: {
+                id: true,
+                name: true,
+                address: true
+              }
+            }
+          },
+          orderBy: {
+            createdAt: "asc"
+          }
+        },
+        services: {
+          include: {
+            colorFormulas: {
+              orderBy: {
+                createdAt: "asc"
+              }
+            }
+          },
+          orderBy: {
+            createdAt: "asc"
+          }
+        }
+      },
+      orderBy: {
+        startsAt: "desc"
       }
     });
 
@@ -397,6 +494,13 @@ export const appointmentRouter = createTRPCRouter({
           }
         },
         services: {
+          include: {
+            colorFormulas: {
+              orderBy: {
+                createdAt: "asc"
+              }
+            }
+          },
           orderBy: {
             createdAt: "asc"
           }
@@ -473,6 +577,13 @@ export const appointmentRouter = createTRPCRouter({
           }
         },
         services: {
+          include: {
+            colorFormulas: {
+              orderBy: {
+                createdAt: "asc"
+              }
+            }
+          },
           orderBy: {
             createdAt: "asc"
           }
@@ -568,6 +679,13 @@ export const appointmentRouter = createTRPCRouter({
           }
         },
         services: {
+          include: {
+            colorFormulas: {
+              orderBy: {
+                createdAt: "asc"
+              }
+            }
+          },
           orderBy: {
             createdAt: "asc"
           }
@@ -632,6 +750,13 @@ export const appointmentRouter = createTRPCRouter({
           }
         },
         services: {
+          include: {
+            colorFormulas: {
+              orderBy: {
+                createdAt: "asc"
+              }
+            }
+          },
           orderBy: {
             createdAt: "asc"
           }
@@ -691,6 +816,372 @@ export const appointmentRouter = createTRPCRouter({
           }
         },
         services: {
+          include: {
+            colorFormulas: {
+              orderBy: {
+                createdAt: "asc"
+              }
+            }
+          },
+          orderBy: {
+            createdAt: "asc"
+          }
+        }
+      }
+    });
+
+    return toAppointmentOutput(updatedAppointment);
+  }),
+  addColorFormula: stylistProcedure.input(colorFormulaInput).mutation(async ({ ctx, input }) => {
+    const service = await ctx.db.appointmentService.findFirst({
+      where: {
+        id: input.appointmentServiceId,
+        appointment: {
+          stylistId: ctx.stylist.id
+        }
+      }
+    });
+
+    if (!service) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Appointment Service not found."
+      });
+    }
+
+    await ctx.db.colorFormula.create({
+      data: {
+        appointmentServiceId: service.id,
+        formula: input.formula,
+        placement: input.placement ?? ""
+      }
+    });
+
+    const updatedAppointment = await ctx.db.appointment.findUniqueOrThrow({
+      where: {
+        id: service.appointmentId
+      },
+      include: {
+        primaryClient: {
+          select: {
+            id: true,
+            name: true,
+            address: true
+          }
+        },
+        participants: {
+          include: {
+            client: {
+              select: {
+                id: true,
+                name: true,
+                address: true
+              }
+            }
+          },
+          orderBy: {
+            createdAt: "asc"
+          }
+        },
+        services: {
+          include: {
+            colorFormulas: {
+              orderBy: {
+                createdAt: "asc"
+              }
+            }
+          },
+          orderBy: {
+            createdAt: "asc"
+          }
+        }
+      }
+    });
+
+    return toAppointmentOutput(updatedAppointment);
+  }),
+  updateColorFormula: stylistProcedure.input(colorFormulaUpdateInput).mutation(async ({ ctx, input }) => {
+    const colorFormula = await ctx.db.colorFormula.findFirst({
+      where: {
+        id: input.id,
+        appointmentService: {
+          appointment: {
+            stylistId: ctx.stylist.id
+          }
+        }
+      },
+      include: {
+        appointmentService: true
+      }
+    });
+
+    if (!colorFormula) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Color Formula not found."
+      });
+    }
+
+    await ctx.db.colorFormula.update({
+      where: {
+        id: colorFormula.id
+      },
+      data: {
+        formula: input.formula,
+        placement: input.placement ?? ""
+      }
+    });
+
+    const updatedAppointment = await ctx.db.appointment.findUniqueOrThrow({
+      where: {
+        id: colorFormula.appointmentService.appointmentId
+      },
+      include: {
+        primaryClient: {
+          select: {
+            id: true,
+            name: true,
+            address: true
+          }
+        },
+        participants: {
+          include: {
+            client: {
+              select: {
+                id: true,
+                name: true,
+                address: true
+              }
+            }
+          },
+          orderBy: {
+            createdAt: "asc"
+          }
+        },
+        services: {
+          include: {
+            colorFormulas: {
+              orderBy: {
+                createdAt: "asc"
+              }
+            }
+          },
+          orderBy: {
+            createdAt: "asc"
+          }
+        }
+      }
+    });
+
+    return toAppointmentOutput(updatedAppointment);
+  }),
+  deleteColorFormula: stylistProcedure.input(colorFormulaDeleteInput).mutation(async ({ ctx, input }) => {
+    const colorFormula = await ctx.db.colorFormula.findFirst({
+      where: {
+        id: input.id,
+        appointmentService: {
+          appointment: {
+            stylistId: ctx.stylist.id
+          }
+        }
+      },
+      include: {
+        appointmentService: true
+      }
+    });
+
+    if (!colorFormula) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Color Formula not found."
+      });
+    }
+
+    await ctx.db.colorFormula.delete({
+      where: {
+        id: colorFormula.id
+      }
+    });
+
+    const updatedAppointment = await ctx.db.appointment.findUniqueOrThrow({
+      where: {
+        id: colorFormula.appointmentService.appointmentId
+      },
+      include: {
+        primaryClient: {
+          select: {
+            id: true,
+            name: true,
+            address: true
+          }
+        },
+        participants: {
+          include: {
+            client: {
+              select: {
+                id: true,
+                name: true,
+                address: true
+              }
+            }
+          },
+          orderBy: {
+            createdAt: "asc"
+          }
+        },
+        services: {
+          include: {
+            colorFormulas: {
+              orderBy: {
+                createdAt: "asc"
+              }
+            }
+          },
+          orderBy: {
+            createdAt: "asc"
+          }
+        }
+      }
+    });
+
+    return toAppointmentOutput(updatedAppointment);
+  }),
+  copyServices: stylistProcedure.input(appointmentCopyServicesInput).mutation(async ({ ctx, input }) => {
+    const targetAppointment = await ctx.db.appointment.findFirst({
+      where: {
+        id: input.targetAppointmentId,
+        stylistId: ctx.stylist.id
+      },
+      include: {
+        participants: true
+      }
+    });
+
+    if (!targetAppointment) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Target Appointment not found."
+      });
+    }
+
+    const sourceAppointment = input.sourceAppointmentId
+      ? await ctx.db.appointment.findFirst({
+          where: {
+            id: input.sourceAppointmentId,
+            stylistId: ctx.stylist.id,
+            status: "completed"
+          },
+          include: {
+            participants: true,
+            services: {
+              include: {
+                colorFormulas: {
+                  orderBy: {
+                    createdAt: "asc"
+                  }
+                }
+              },
+              orderBy: {
+                createdAt: "asc"
+              }
+            }
+          }
+        })
+      : await ctx.db.appointment.findFirst({
+          where: {
+            stylistId: ctx.stylist.id,
+            status: "completed",
+            id: {
+              not: targetAppointment.id
+            }
+          },
+          include: {
+            participants: true,
+            services: {
+              include: {
+                colorFormulas: {
+                  orderBy: {
+                    createdAt: "asc"
+                  }
+                }
+              },
+              orderBy: {
+                createdAt: "asc"
+              }
+            }
+          },
+          orderBy: {
+            startsAt: "desc"
+          }
+        });
+
+    if (!sourceAppointment) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Completed source Appointment not found."
+      });
+    }
+
+    const sourceClientIds = new Set(sourceAppointment.participants.map((participant) => participant.clientId));
+    const targetClientIds = new Set(targetAppointment.participants.map((participant) => participant.clientId));
+    const sharedClientIds = new Set(
+      [...sourceClientIds].filter((clientId) => targetClientIds.has(clientId))
+    );
+    const servicesToCopy = sourceAppointment.services.filter((service) => sharedClientIds.has(service.clientId));
+
+    for (const service of servicesToCopy) {
+      await ctx.db.appointmentService.create({
+        data: {
+          appointmentId: targetAppointment.id,
+          clientId: service.clientId,
+          menuItemId: service.menuItemId,
+          name: service.name,
+          priceCents: service.priceCents,
+          note: service.note ?? "",
+          colorFormulas: {
+            create: service.colorFormulas.map((formula) => ({
+              formula: formula.formula,
+              placement: formula.placement ?? ""
+            }))
+          }
+        }
+      });
+    }
+
+    const updatedAppointment = await ctx.db.appointment.findUniqueOrThrow({
+      where: {
+        id: targetAppointment.id
+      },
+      include: {
+        primaryClient: {
+          select: {
+            id: true,
+            name: true,
+            address: true
+          }
+        },
+        participants: {
+          include: {
+            client: {
+              select: {
+                id: true,
+                name: true,
+                address: true
+              }
+            }
+          },
+          orderBy: {
+            createdAt: "asc"
+          }
+        },
+        services: {
+          include: {
+            colorFormulas: {
+              orderBy: {
+                createdAt: "asc"
+              }
+            }
+          },
           orderBy: {
             createdAt: "asc"
           }
