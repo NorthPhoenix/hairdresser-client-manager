@@ -1,4 +1,5 @@
 import { useUser } from "@clerk/expo";
+import * as Contacts from "expo-contacts";
 import { Link } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -16,7 +17,10 @@ import {
   buildClientReminderMessage,
   buildSmsComposerUrl,
   defaultLocale,
+  hasImportedContactFields,
+  mergeImportedContactIntoClient,
   normalizeLocale,
+  normalizeImportedContact,
   type MessageKey,
   type SupportedLocale,
   t
@@ -620,6 +624,59 @@ export default function HomeScreen() {
 
   function clearClientForm() {
     setClientForm(createClientForm(settings.language));
+  }
+
+  async function importContact() {
+    const permission = await Contacts.requestPermissionsAsync();
+
+    if (!permission.granted) {
+      Alert.alert("Clients", t(locale, "importContactPermissionDenied"));
+      return;
+    }
+
+    const selectedContact = await Contacts.Contact.presentPicker();
+
+    if (!selectedContact) {
+      return;
+    }
+
+    const contactDetails = await selectedContact.getDetails([
+      Contacts.ContactField.FULL_NAME,
+      Contacts.ContactField.GIVEN_NAME,
+      Contacts.ContactField.FAMILY_NAME,
+      Contacts.ContactField.PHONES,
+      Contacts.ContactField.EMAILS,
+      Contacts.ContactField.ADDRESSES
+    ]);
+    const importedContact = normalizeImportedContact(contactDetails);
+
+    if (!hasImportedContactFields(importedContact)) {
+      Alert.alert("Clients", t(locale, "importContactEmpty"));
+      return;
+    }
+
+    if (editingClient) {
+      Alert.alert(t(locale, "importContactConfirmTitle"), t(locale, "importContactConfirmBody"), [
+        { text: t(locale, "cancel"), style: "cancel" },
+        {
+          text: t(locale, "importContactApply"),
+          onPress: () => {
+            setClientForm((currentForm) => mergeImportedContactIntoClient(currentForm, importedContact));
+          }
+        }
+      ]);
+      return;
+    }
+
+    setClientForm((currentForm) =>
+      mergeImportedContactIntoClient(
+        {
+          ...createClientForm(settings.language),
+          language: currentForm.language
+        },
+        importedContact
+      )
+    );
   }
 
   function selectServiceMenuItem(item: ServiceMenuItem) {
@@ -1750,6 +1807,10 @@ export default function HomeScreen() {
                   <Text style={styles.inlineAction}>{t(locale, "clearClientForm")}</Text>
                 </Pressable>
               </View>
+
+              <Pressable onPress={importContact} style={styles.secondaryButton}>
+                <Text style={styles.secondaryButtonText}>{t(locale, "importContact")}</Text>
+              </Pressable>
 
               <View style={styles.field}>
                 <Text style={styles.label}>{t(locale, "clientNameLabel")}</Text>

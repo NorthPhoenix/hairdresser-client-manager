@@ -65,6 +65,12 @@ const messages = {
     saveClient: "Сохранить Клиента",
     createClient: "Создать Клиента",
     clearClientForm: "Очистить форму",
+    importContact: "Импорт из контактов",
+    importContactPermissionDenied: "Разрешите доступ к контактам, чтобы импортировать Клиента.",
+    importContactEmpty: "В выбранном контакте нет имени, телефона, email или адреса.",
+    importContactConfirmTitle: "Обновить Client Profile?",
+    importContactConfirmBody: "Данные выбранного контакта заменят заполненные поля Клиента.",
+    importContactApply: "Импортировать",
     deleteClient: "Удалить Клиента",
     noClientsTitle: "Пока нет Клиентов",
     noClientsBody: "Создайте первого Клиента с одним именем, затем добавьте детали позже.",
@@ -206,6 +212,12 @@ const messages = {
     saveClient: "Save Client",
     createClient: "Create Client",
     clearClientForm: "Clear form",
+    importContact: "Import Contact",
+    importContactPermissionDenied: "Allow Contacts access to import a Client.",
+    importContactEmpty: "The selected contact has no name, phone, email, or address.",
+    importContactConfirmTitle: "Update Client Profile?",
+    importContactConfirmBody: "Selected contact details will replace filled Client fields.",
+    importContactApply: "Import",
     deleteClient: "Delete Client",
     noClientsTitle: "No Clients yet",
     noClientsBody: "Create the first Client with only a name, then add details later.",
@@ -342,4 +354,88 @@ export function buildSmsComposerUrl(phone: string, body: string): string {
   const recipient = phone.trim().replace(/[^\d+]/g, "");
 
   return `sms:${recipient}?body=${encodeURIComponent(body)}`;
+}
+
+export type ImportedContactFields = {
+  name?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+};
+
+export type ImportedDeviceContact = {
+  fullName?: string | null;
+  givenName?: string | null;
+  familyName?: string | null;
+  phones?: { number?: string | null }[] | null;
+  emails?: { address?: string | null; email?: string | null }[] | null;
+  addresses?: {
+    street?: string | null;
+    city?: string | null;
+    state?: string | null;
+    postcode?: string | null;
+    region?: string | null;
+    country?: string | null;
+  }[] | null;
+};
+
+type ImportableClientFields = {
+  name: string;
+  phone: string;
+  email: string;
+  address: string;
+};
+
+function cleanImportedValue(value: string | null | undefined): string | undefined {
+  const trimmedValue = value?.trim();
+  return trimmedValue ? trimmedValue : undefined;
+}
+
+export function normalizeImportedContact(contact: ImportedDeviceContact): ImportedContactFields {
+  const name =
+    cleanImportedValue(contact.fullName) ??
+    cleanImportedValue([contact.givenName, contact.familyName].map((part) => part?.trim()).filter(Boolean).join(" "));
+  const phone = contact.phones?.map((phoneNumber) => cleanImportedValue(phoneNumber.number)).find(Boolean);
+  const email = contact.emails
+    ?.map((emailAddress) => cleanImportedValue(emailAddress.address ?? emailAddress.email))
+    .find(Boolean);
+  const address = contact.addresses
+    ?.map((contactAddress) =>
+      [
+        contactAddress.street,
+        contactAddress.city,
+        contactAddress.state ?? contactAddress.region,
+        contactAddress.postcode,
+        contactAddress.country
+      ]
+        .map(cleanImportedValue)
+        .filter(Boolean)
+        .join(", ")
+    )
+    .map(cleanImportedValue)
+    .find(Boolean);
+
+  return {
+    ...(name ? { name } : {}),
+    ...(phone ? { phone } : {}),
+    ...(email ? { email } : {}),
+    ...(address ? { address } : {})
+  };
+}
+
+export function hasImportedContactFields(contact: ImportedContactFields): boolean {
+  return Boolean(contact.name || contact.phone || contact.email || contact.address);
+}
+
+export function mergeImportedContactIntoClient<TClient extends ImportableClientFields>(
+  client: TClient,
+  importedContact: ImportedContactFields
+): TClient {
+  return {
+    ...client,
+    ...(importedContact.name ? { name: importedContact.name } : {}),
+    ...(importedContact.phone ? { phone: importedContact.phone } : {}),
+    ...(importedContact.email ? { email: importedContact.email } : {}),
+    ...(importedContact.address ? { address: importedContact.address } : {})
+  };
 }
