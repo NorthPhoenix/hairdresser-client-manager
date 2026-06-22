@@ -35,6 +35,7 @@ model Stylist {
 
   clients Client[]
   appointments Appointment[]
+  serviceMenuItems ServiceMenuItem[]
 }
 
 model Client {
@@ -52,6 +53,7 @@ model Client {
   stylist       Stylist        @relation(fields: [stylistId], references: [id], onDelete: Cascade)
   primaryAppointments Appointment[] @relation("AppointmentPrimaryClient")
   appointmentParticipants AppointmentParticipant[]
+  appointmentServices AppointmentService[]
   profileShares ProfileShare[]
 }
 
@@ -65,12 +67,14 @@ model Appointment {
   locationType AppointmentLocationType @default(inSalon)
   locationAddress String?
   note         String?
+  finalTotalCentsOverride Int?
   createdAt    DateTime                @default(now())
   updatedAt    DateTime                @updatedAt
 
   stylist       Stylist @relation(fields: [stylistId], references: [id], onDelete: Cascade)
   primaryClient Client  @relation("AppointmentPrimaryClient", fields: [primaryClientId], references: [id], onDelete: Restrict)
   participants  AppointmentParticipant[]
+  services      AppointmentService[]
 }
 
 model AppointmentParticipant {
@@ -83,6 +87,32 @@ model AppointmentParticipant {
   client      Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@unique([appointmentId, clientId])
+}
+
+model ServiceMenuItem {
+  id                String   @id @default(cuid())
+  stylistId         String
+  name              String
+  defaultPriceCents Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  stylist Stylist @relation(fields: [stylistId], references: [id], onDelete: Cascade)
+}
+
+model AppointmentService {
+  id             String   @id @default(cuid())
+  appointmentId  String
+  clientId       String
+  menuItemId     String?
+  name           String
+  priceCents     Int      @default(0)
+  note           String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  client      Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
 }
 
 model ProfileShare {

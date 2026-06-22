@@ -54,7 +54,21 @@ type Appointment = {
     name: string;
     address: string;
     isPrimary: boolean;
+    subtotalCents: number;
   }[];
+  services: {
+    id: string;
+    appointmentId: string;
+    clientId: string;
+    menuItemId: string | null;
+    name: string;
+    priceCents: number;
+    note: string;
+    createdAt: string;
+  }[];
+  serviceTotalCents: number;
+  finalTotalCents: number;
+  finalTotalCentsOverride: number | null;
   startsAt: string;
   endsAt: string | null;
   status: "scheduled" | "completed" | "canceled" | "noShow";
@@ -72,6 +86,29 @@ type AppointmentForm = {
   endsAt: string;
   locationType: "inSalon" | "atHome";
   customLocationAddress: string;
+};
+
+type ServiceMenuItem = {
+  id: string;
+  stylistId: string;
+  name: string;
+  defaultPriceCents: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type ServiceMenuForm = {
+  id: string | null;
+  name: string;
+  defaultPrice: string;
+};
+
+type AppointmentServiceForm = {
+  clientId: string;
+  menuItemId: string;
+  name: string;
+  price: string;
+  note: string;
 };
 
 function getDeviceLocale(): SupportedLocale {
@@ -138,6 +175,43 @@ function createAppointmentForm(): AppointmentForm {
   };
 }
 
+function createServiceMenuForm(): ServiceMenuForm {
+  return {
+    id: null,
+    name: "",
+    defaultPrice: ""
+  };
+}
+
+function createAppointmentServiceForm(appointment: Appointment): AppointmentServiceForm {
+  return {
+    clientId: appointment.primaryClientId,
+    menuItemId: "",
+    name: "",
+    price: "",
+    note: ""
+  };
+}
+
+function centsToPrice(cents: number): string {
+  return (cents / 100).toFixed(2);
+}
+
+function priceToCents(price: string): number {
+  const normalizedPrice = price.replace(",", ".").trim();
+  const parsedPrice = Number.parseFloat(normalizedPrice || "0");
+
+  if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
+    return 0;
+  }
+
+  return Math.round(parsedPrice * 100);
+}
+
+function formatPrice(cents: number): string {
+  return `$${centsToPrice(cents)}`;
+}
+
 function formatAppointmentTime(appointment: Appointment): string {
   const start = new Date(appointment.startsAt).toLocaleString();
   const end = appointment.endsAt ? new Date(appointment.endsAt).toLocaleTimeString() : "";
@@ -157,8 +231,11 @@ export default function HomeScreen() {
   const [settings, setSettings] = useState<StylistSettings>(() => createInitialSettings());
   const [clientForm, setClientForm] = useState<ClientForm>(() => createClientForm(defaultLocale));
   const [clientSearch, setClientSearch] = useState("");
+  const [serviceMenuForm, setServiceMenuForm] = useState<ServiceMenuForm>(() => createServiceMenuForm());
   const [appointmentForm, setAppointmentForm] = useState<AppointmentForm>(() => createAppointmentForm());
   const [appointmentNotes, setAppointmentNotes] = useState<Record<string, string>>({});
+  const [appointmentServiceForms, setAppointmentServiceForms] = useState<Record<string, AppointmentServiceForm>>({});
+  const [appointmentFinalTotals, setAppointmentFinalTotals] = useState<Record<string, string>>({});
   const [calendarDate, setCalendarDate] = useState(() => toDateInputValue(new Date()));
   const utils = trpc.useUtils();
   const deviceBootstrapDefaults = useMemo(
@@ -214,6 +291,31 @@ export default function HomeScreen() {
     }
   });
   const loadingClients = clientListQuery.isLoading || saveClientMutation.isPending || deleteClientMutation.isPending;
+  const serviceMenuQuery = trpc.serviceMenu.list.useQuery(undefined, {
+    enabled: Boolean(isSignedIn && onboardingComplete)
+  });
+  const saveServiceMenuMutation = trpc.serviceMenu.save.useMutation({
+    onSuccess(nextItem) {
+      setServiceMenuForm({
+        id: nextItem.id,
+        name: nextItem.name,
+        defaultPrice: centsToPrice(nextItem.defaultPriceCents)
+      });
+      void utils.serviceMenu.list.invalidate();
+    },
+    onError(error) {
+      Alert.alert("Services", error.message);
+    }
+  });
+  const deleteServiceMenuMutation = trpc.serviceMenu.delete.useMutation({
+    onSuccess() {
+      clearServiceMenuForm();
+      void utils.serviceMenu.list.invalidate();
+    },
+    onError(error) {
+      Alert.alert("Services", error.message);
+    }
+  });
   const todayRange = useMemo(() => getDayRange(toDateInputValue(new Date())), []);
   const calendarRange = useMemo(() => getDayRange(calendarDate), [calendarDate]);
   const homeAppointmentsQuery = trpc.appointment.home.useQuery(todayRange, {
@@ -274,6 +376,24 @@ export default function HomeScreen() {
       Alert.alert("Appointments", error.message);
     }
   });
+  const addAppointmentServiceMutation = trpc.appointment.addService.useMutation({
+    onSuccess() {
+      void utils.appointment.home.invalidate();
+      void utils.appointment.list.invalidate();
+    },
+    onError(error) {
+      Alert.alert("Services", error.message);
+    }
+  });
+  const deleteAppointmentServiceMutation = trpc.appointment.deleteService.useMutation({
+    onSuccess() {
+      void utils.appointment.home.invalidate();
+      void utils.appointment.list.invalidate();
+    },
+    onError(error) {
+      Alert.alert("Services", error.message);
+    }
+  });
 
   useEffect(() => {
     if (!user?.id) {
@@ -307,6 +427,7 @@ export default function HomeScreen() {
   }, [bootstrapQuery.data]);
 
   const clients = clientListQuery.data ?? [];
+  const serviceMenuItems = serviceMenuQuery.data ?? [];
   const searchQuery = clientSearch.trim().toLowerCase();
   const searchablePhone = toSearchablePhone(searchQuery);
   const filteredClients = useMemo(
@@ -389,10 +510,32 @@ export default function HomeScreen() {
     setClientForm(createClientForm(settings.language));
   }
 
+  function selectServiceMenuItem(item: ServiceMenuItem) {
+    setServiceMenuForm({
+      id: item.id,
+      name: item.name,
+      defaultPrice: centsToPrice(item.defaultPriceCents)
+    });
+  }
+
+  function clearServiceMenuForm() {
+    setServiceMenuForm(createServiceMenuForm());
+  }
+
   function updateAppointmentForm(nextForm: Partial<AppointmentForm>) {
     setAppointmentForm((currentForm) => ({
       ...currentForm,
       ...nextForm
+    }));
+  }
+
+  function updateAppointmentServiceForm(appointment: Appointment, nextForm: Partial<AppointmentServiceForm>) {
+    setAppointmentServiceForms((currentForms) => ({
+      ...currentForms,
+      [appointment.id]: {
+        ...(currentForms[appointment.id] ?? createAppointmentServiceForm(appointment)),
+        ...nextForm
+      }
     }));
   }
 
@@ -474,6 +617,45 @@ export default function HomeScreen() {
     );
   }
 
+  function saveServiceMenuItem() {
+    const name = serviceMenuForm.name.trim();
+
+    if (!name) {
+      Alert.alert("Services", t(locale, "serviceNameRequired"));
+      return;
+    }
+
+    saveServiceMenuMutation.mutate(
+      {
+        id: serviceMenuForm.id ?? undefined,
+        name,
+        defaultPriceCents: priceToCents(serviceMenuForm.defaultPrice)
+      },
+      {
+        onSuccess() {
+          Alert.alert("Services", t(locale, "serviceMenuItemSaved"));
+        }
+      }
+    );
+  }
+
+  function deleteServiceMenuItem() {
+    if (!serviceMenuForm.id) {
+      return;
+    }
+
+    deleteServiceMenuMutation.mutate(
+      {
+        id: serviceMenuForm.id
+      },
+      {
+        onSuccess() {
+          Alert.alert("Services", t(locale, "serviceMenuItemDeleted"));
+        }
+      }
+    );
+  }
+
   function createAppointment() {
     if (createAppointmentMutation.isPending) {
       return;
@@ -530,6 +712,19 @@ export default function HomeScreen() {
     });
   }
 
+  function saveAppointmentFinalTotal(appointment: Appointment, override: boolean) {
+    if (!override) {
+      setAppointmentFinalTotals((currentTotals) => {
+        const { [appointment.id]: _removed, ...remainingTotals } = currentTotals;
+        return remainingTotals;
+      });
+    }
+    updateAppointmentMutation.mutate({
+      id: appointment.id,
+      finalTotalCentsOverride: override ? priceToCents(appointmentFinalTotals[appointment.id] ?? "") : null
+    });
+  }
+
   function deleteAppointment(appointment: Appointment) {
     deleteAppointmentMutation.mutate({
       id: appointment.id
@@ -554,6 +749,43 @@ export default function HomeScreen() {
     });
   }
 
+  function addAppointmentService(appointment: Appointment) {
+    const form = appointmentServiceForms[appointment.id] ?? createAppointmentServiceForm(appointment);
+    const selectedMenuItem = serviceMenuItems.find((item) => item.id === form.menuItemId);
+    const name = form.name.trim() || selectedMenuItem?.name || "";
+
+    if (!name) {
+      Alert.alert("Services", t(locale, "serviceNameRequired"));
+      return;
+    }
+
+    addAppointmentServiceMutation.mutate(
+      {
+        appointmentId: appointment.id,
+        clientId: form.clientId,
+        menuItemId: selectedMenuItem?.id,
+        name: form.name.trim() || undefined,
+        priceCents: form.price.trim() ? priceToCents(form.price) : undefined,
+        note: form.note.trim() || undefined
+      },
+      {
+        onSuccess() {
+          setAppointmentServiceForms((currentForms) => ({
+            ...currentForms,
+            [appointment.id]: createAppointmentServiceForm(appointment)
+          }));
+          Alert.alert("Services", t(locale, "appointmentServiceSaved"));
+        }
+      }
+    );
+  }
+
+  function deleteAppointmentService(serviceId: string) {
+    deleteAppointmentServiceMutation.mutate({
+      id: serviceId
+    });
+  }
+
   function toggleAdditionalClient(clientId: string) {
     setAppointmentForm((currentForm) => ({
       ...currentForm,
@@ -573,7 +805,11 @@ export default function HomeScreen() {
       );
     }
 
-    return appointments.map((appointment) => (
+    return appointments.map((appointment) => {
+      const serviceForm = appointmentServiceForms[appointment.id] ?? createAppointmentServiceForm(appointment);
+      const selectedMenuItem = serviceMenuItems.find((item) => item.id === serviceForm.menuItemId);
+
+      return (
       <View key={appointment.id} style={styles.clientRow}>
         <View style={styles.clientRowText}>
           <Text style={styles.clientName}>{appointment.primaryClientName}</Text>
@@ -586,6 +822,12 @@ export default function HomeScreen() {
             {appointment.locationAddress ? ` · ${appointment.locationAddress}` : ""}
           </Text>
           <Text style={styles.clientMeta}>{t(locale, appointmentStatusMessageKey[appointment.status])}</Text>
+          <Text style={styles.clientMeta}>
+            {t(locale, "appointmentServiceTotal")}: {formatPrice(appointment.serviceTotalCents)}
+          </Text>
+          <Text style={styles.clientMeta}>
+            {t(locale, "appointmentFinalTotal")}: {formatPrice(appointment.finalTotalCents)}
+          </Text>
         </View>
         <TextInput
           multiline
@@ -616,7 +858,9 @@ export default function HomeScreen() {
         <View style={styles.clientList}>
           {appointment.participants.map((participant) => (
             <View key={participant.clientId} style={styles.participantRow}>
-              <Text style={styles.clientMeta}>{participant.isPrimary ? `${participant.name} *` : participant.name}</Text>
+              <Text style={styles.clientMeta}>
+                {participant.isPrimary ? `${participant.name} *` : participant.name} · {formatPrice(participant.subtotalCents)}
+              </Text>
               <View style={styles.buttonRow}>
                 {!participant.isPrimary ? (
                   <Pressable onPress={() => updateAppointmentPrimary(appointment, participant.clientId)} style={styles.statusButton}>
@@ -639,6 +883,122 @@ export default function HomeScreen() {
               </Pressable>
             ))}
         </View>
+        <View style={styles.serviceBox}>
+          <Text style={styles.optionalTitle}>{t(locale, "appointmentServicesTitle")}</Text>
+          {appointment.services.map((service) => {
+            const serviceClient = appointment.participants.find((participant) => participant.clientId === service.clientId);
+
+            return (
+              <View key={service.id} style={styles.participantRow}>
+                <Text style={styles.clientMeta}>
+                  {service.name} · {formatPrice(service.priceCents)} · {serviceClient?.name ?? ""}
+                </Text>
+                {service.note ? <Text style={styles.clientMeta}>{service.note}</Text> : null}
+                <Pressable onPress={() => deleteAppointmentService(service.id)} style={styles.statusButton}>
+                  <Text style={styles.statusButtonText}>{t(locale, "deleteAppointmentService")}</Text>
+                </Pressable>
+              </View>
+            );
+          })}
+          <View style={styles.field}>
+            <Text style={styles.label}>{t(locale, "appointmentServiceClientLabel")}</Text>
+            <View style={styles.buttonRow}>
+              {appointment.participants.map((participant) => (
+                <Pressable
+                  key={participant.clientId}
+                  onPress={() => updateAppointmentServiceForm(appointment, { clientId: participant.clientId })}
+                  style={[
+                    styles.statusButton,
+                    serviceForm.clientId === participant.clientId ? styles.selectedClientRow : null
+                  ]}
+                >
+                  <Text style={styles.statusButtonText}>{participant.name}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>{t(locale, "addMenuService")}</Text>
+            <View style={styles.clientList}>
+              {serviceMenuItems.map((item) => (
+                <Pressable
+                  key={item.id}
+                  onPress={() =>
+                    updateAppointmentServiceForm(appointment, {
+                      menuItemId: item.id,
+                      name: "",
+                      price: centsToPrice(item.defaultPriceCents)
+                    })
+                  }
+                  style={[
+                    styles.clientRow,
+                    serviceForm.menuItemId === item.id ? styles.selectedClientRow : null
+                  ]}
+                >
+                  <Text style={styles.clientName}>{item.name}</Text>
+                  <Text style={styles.clientMeta}>{formatPrice(item.defaultPriceCents)}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>{t(locale, "appointmentServiceNameLabel")}</Text>
+            <TextInput
+              onChangeText={(name) => updateAppointmentServiceForm(appointment, { name, menuItemId: "" })}
+              placeholder={selectedMenuItem?.name ?? "Haircut"}
+              style={styles.input}
+              value={serviceForm.name}
+            />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>{t(locale, "appointmentServicePriceLabel")}</Text>
+            <TextInput
+              inputMode="decimal"
+              onChangeText={(price) => updateAppointmentServiceForm(appointment, { price })}
+              placeholder="85.00"
+              style={styles.input}
+              value={serviceForm.price}
+            />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>{t(locale, "appointmentServiceNoteLabel")}</Text>
+            <TextInput
+              multiline
+              onChangeText={(note) => updateAppointmentServiceForm(appointment, { note })}
+              placeholder="Optional"
+              style={[styles.input, styles.addressInput]}
+              value={serviceForm.note}
+            />
+          </View>
+          <Pressable onPress={() => addAppointmentService(appointment)} style={styles.secondaryButton}>
+            <Text style={styles.secondaryButtonText}>
+              {serviceForm.menuItemId ? t(locale, "addMenuService") : t(locale, "addAdHocService")}
+            </Text>
+          </Pressable>
+          <View style={styles.field}>
+            <Text style={styles.label}>{t(locale, "appointmentFinalTotalOverride")}</Text>
+            <TextInput
+              inputMode="decimal"
+              onChangeText={(price) =>
+                setAppointmentFinalTotals((currentTotals) => ({
+                  ...currentTotals,
+                  [appointment.id]: price
+                }))
+              }
+              placeholder={centsToPrice(appointment.finalTotalCents)}
+              style={styles.input}
+              value={appointmentFinalTotals[appointment.id] ?? (appointment.finalTotalCentsOverride === null ? "" : centsToPrice(appointment.finalTotalCentsOverride))}
+            />
+            <View style={styles.buttonRow}>
+              <Pressable onPress={() => saveAppointmentFinalTotal(appointment, true)} style={[styles.secondaryButton, styles.flexButton]}>
+                <Text style={styles.secondaryButtonText}>{t(locale, "saveFinalTotal")}</Text>
+              </Pressable>
+              <Pressable onPress={() => saveAppointmentFinalTotal(appointment, false)} style={[styles.secondaryButton, styles.flexButton]}>
+                <Text style={styles.secondaryButtonText}>{t(locale, "clearFinalTotalOverride")}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
         <View style={styles.buttonRow}>
           <Pressable onPress={() => saveAppointmentNote(appointment)} style={[styles.secondaryButton, styles.flexButton]}>
             <Text style={styles.secondaryButtonText}>{t(locale, "saveAppointmentNote")}</Text>
@@ -653,7 +1013,8 @@ export default function HomeScreen() {
           </Pressable>
         ) : null}
       </View>
-    ));
+      );
+    });
   }
 
   return (
@@ -747,6 +1108,79 @@ export default function HomeScreen() {
               </Text>
             </Pressable>
           </View>
+
+          {onboardingComplete ? (
+            <View style={styles.panel}>
+              <Text style={styles.sectionTitle}>{t(locale, "serviceMenuTitle")}</Text>
+              <Text style={styles.body}>{t(locale, "serviceMenuSubtitle")}</Text>
+
+              <View style={styles.clientList}>
+                {serviceMenuItems.length > 0 ? (
+                  serviceMenuItems.map((item) => (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => selectServiceMenuItem(item)}
+                      style={[
+                        styles.clientRow,
+                        item.id === serviceMenuForm.id ? styles.selectedClientRow : null
+                      ]}
+                    >
+                      <Text style={styles.clientName}>{item.name}</Text>
+                      <Text style={styles.clientMeta}>{formatPrice(item.defaultPriceCents)}</Text>
+                    </Pressable>
+                  ))
+                ) : (
+                  <View style={styles.emptyState}>
+                    <Text style={styles.optionalTitle}>{t(locale, "serviceMenuEmptyTitle")}</Text>
+                    <Text style={styles.body}>{t(locale, "serviceMenuEmptyBody")}</Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.formHeader}>
+                <Text style={styles.sectionTitle}>
+                  {serviceMenuForm.id ? t(locale, "saveServiceMenuItem") : t(locale, "createServiceMenuItem")}
+                </Text>
+                <Pressable onPress={clearServiceMenuForm}>
+                  <Text style={styles.inlineAction}>{t(locale, "clearServiceMenuForm")}</Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.field}>
+                <Text style={styles.label}>{t(locale, "serviceMenuNameLabel")}</Text>
+                <TextInput
+                  onChangeText={(name) => setServiceMenuForm((currentForm) => ({ ...currentForm, name }))}
+                  placeholder="Haircut"
+                  style={styles.input}
+                  value={serviceMenuForm.name}
+                />
+              </View>
+
+              <View style={styles.field}>
+                <Text style={styles.label}>{t(locale, "serviceMenuPriceLabel")}</Text>
+                <TextInput
+                  inputMode="decimal"
+                  onChangeText={(defaultPrice) => setServiceMenuForm((currentForm) => ({ ...currentForm, defaultPrice }))}
+                  placeholder="85.00"
+                  style={styles.input}
+                  value={serviceMenuForm.defaultPrice}
+                />
+              </View>
+
+              <View style={styles.buttonRow}>
+                <Pressable onPress={saveServiceMenuItem} style={[styles.button, styles.flexButton]}>
+                  <Text style={styles.buttonText}>
+                    {serviceMenuForm.id ? t(locale, "saveServiceMenuItem") : t(locale, "createServiceMenuItem")}
+                  </Text>
+                </Pressable>
+                {serviceMenuForm.id ? (
+                  <Pressable onPress={deleteServiceMenuItem} style={[styles.secondaryButton, styles.flexButton]}>
+                    <Text style={styles.secondaryButtonText}>{t(locale, "deleteServiceMenuItem")}</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+          ) : null}
 
           {onboardingComplete ? (
             <View style={styles.panel}>
@@ -1271,6 +1705,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 8,
     padding: 10
+  },
+  serviceBox: {
+    borderColor: "#d8c5ad",
+    borderRadius: 6,
+    borderWidth: 1,
+    gap: 10,
+    padding: 12
   },
   clientName: {
     color: "#111111",

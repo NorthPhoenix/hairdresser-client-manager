@@ -24,12 +24,33 @@ const appointmentUpdateInput = z.object({
   id: z.string(),
   primaryClientId: z.string().optional(),
   status: z.enum(["scheduled", "completed", "canceled", "noShow"]).optional(),
-  note: z.string().trim().optional()
+  note: z.string().trim().optional(),
+  finalTotalCentsOverride: z.number().int().min(0).nullable().optional()
 });
 
 const appointmentParticipantInput = z.object({
   appointmentId: z.string(),
   clientId: z.string()
+});
+
+const appointmentServiceInput = z.object({
+  appointmentId: z.string(),
+  clientId: z.string(),
+  menuItemId: z.string().optional(),
+  name: z.string().trim().min(1).optional(),
+  priceCents: z.number().int().min(0).optional(),
+  note: z.string().trim().optional()
+});
+
+const appointmentServiceUpdateInput = z.object({
+  id: z.string(),
+  name: z.string().trim().min(1),
+  priceCents: z.number().int().min(0),
+  note: z.string().trim().optional()
+});
+
+const appointmentServiceDeleteInput = z.object({
+  id: z.string()
 });
 
 const appointmentDeleteInput = z.object({
@@ -57,6 +78,7 @@ function toAppointmentOutput(appointment: {
   locationType: "inSalon" | "atHome";
   locationAddress: string | null;
   note: string | null;
+  finalTotalCentsOverride: number | null;
   primaryClient: {
     id: string;
     name: string;
@@ -69,19 +91,37 @@ function toAppointmentOutput(appointment: {
       address: string | null;
     };
   }[];
+  services?: {
+    id: string;
+    appointmentId: string;
+    clientId: string;
+    menuItemId: string | null;
+    name: string;
+    priceCents: number;
+    note: string | null;
+    createdAt: Date;
+  }[];
 }) {
+  const services = appointment.services ?? [];
+  const serviceTotalCents = services.reduce((total, service) => total + service.priceCents, 0);
+  const clientSubtotals = services.reduce<Record<string, number>>((subtotals, service) => {
+    subtotals[service.clientId] = (subtotals[service.clientId] ?? 0) + service.priceCents;
+    return subtotals;
+  }, {});
   const participants =
     appointment.participants?.map((participant) => ({
       clientId: participant.client.id,
       name: participant.client.name,
       address: participant.client.address ?? "",
-      isPrimary: participant.client.id === appointment.primaryClientId
+      isPrimary: participant.client.id === appointment.primaryClientId,
+      subtotalCents: clientSubtotals[participant.client.id] ?? 0
     })) ?? [
       {
         clientId: appointment.primaryClient.id,
         name: appointment.primaryClient.name,
         address: appointment.primaryClient.address ?? "",
-        isPrimary: true
+        isPrimary: true,
+        subtotalCents: clientSubtotals[appointment.primaryClient.id] ?? 0
       }
     ];
 
@@ -97,6 +137,19 @@ function toAppointmentOutput(appointment: {
     locationType: appointment.locationType,
     locationAddress: appointment.locationAddress ?? "",
     note: appointment.note ?? "",
+    services: services.map((service) => ({
+      id: service.id,
+      appointmentId: service.appointmentId,
+      clientId: service.clientId,
+      menuItemId: service.menuItemId,
+      name: service.name,
+      priceCents: service.priceCents,
+      note: service.note ?? "",
+      createdAt: service.createdAt.toISOString()
+    })),
+    serviceTotalCents,
+    finalTotalCents: appointment.finalTotalCentsOverride ?? serviceTotalCents,
+    finalTotalCentsOverride: appointment.finalTotalCentsOverride,
     mapUrl: appointment.locationAddress
       ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(appointment.locationAddress)}`
       : null
@@ -131,6 +184,11 @@ export const appointmentRouter = createTRPCRouter({
               }
             }
           },
+          orderBy: {
+            createdAt: "asc"
+          }
+        },
+        services: {
           orderBy: {
             createdAt: "asc"
           }
@@ -181,6 +239,11 @@ export const appointmentRouter = createTRPCRouter({
               }
             }
           },
+          orderBy: {
+            createdAt: "asc"
+          }
+        },
+        services: {
           orderBy: {
             createdAt: "asc"
           }
@@ -304,6 +367,7 @@ export const appointmentRouter = createTRPCRouter({
         locationType: input.locationType,
         locationAddress,
         note: "",
+        finalTotalCentsOverride: null,
         participants: {
           create: [primaryClient.id, ...additionalClientIds].map((clientId) => ({
             clientId
@@ -328,6 +392,11 @@ export const appointmentRouter = createTRPCRouter({
               }
             }
           },
+          orderBy: {
+            createdAt: "asc"
+          }
+        },
+        services: {
           orderBy: {
             createdAt: "asc"
           }
@@ -378,7 +447,8 @@ export const appointmentRouter = createTRPCRouter({
       data: {
         ...(input.primaryClientId ? { primaryClientId: input.primaryClientId } : {}),
         ...(input.status ? { status: input.status } : {}),
-        ...(input.note !== undefined ? { note: input.note } : {})
+        ...(input.note !== undefined ? { note: input.note } : {}),
+        ...(input.finalTotalCentsOverride !== undefined ? { finalTotalCentsOverride: input.finalTotalCentsOverride } : {})
       },
       include: {
         primaryClient: {
@@ -398,6 +468,229 @@ export const appointmentRouter = createTRPCRouter({
               }
             }
           },
+          orderBy: {
+            createdAt: "asc"
+          }
+        },
+        services: {
+          orderBy: {
+            createdAt: "asc"
+          }
+        }
+      }
+    });
+
+    return toAppointmentOutput(updatedAppointment);
+  }),
+  addService: stylistProcedure.input(appointmentServiceInput).mutation(async ({ ctx, input }) => {
+    const appointment = await ctx.db.appointment.findFirst({
+      where: {
+        id: input.appointmentId,
+        stylistId: ctx.stylist.id
+      },
+      include: {
+        participants: true
+      }
+    });
+
+    if (!appointment) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Appointment not found."
+      });
+    }
+
+    if (!appointment.participants.some((participant) => participant.clientId === input.clientId)) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Service Client must be attached to the Appointment."
+      });
+    }
+
+    const menuItem = input.menuItemId
+      ? await ctx.db.serviceMenuItem.findFirst({
+          where: {
+            id: input.menuItemId,
+            stylistId: ctx.stylist.id
+          }
+        })
+      : null;
+
+    if (input.menuItemId && !menuItem) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Service Menu Item not found."
+      });
+    }
+
+    if (!menuItem && !input.name) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Service name is required."
+      });
+    }
+
+    await ctx.db.appointmentService.create({
+      data: {
+        appointmentId: appointment.id,
+        clientId: input.clientId,
+        menuItemId: menuItem?.id ?? null,
+        name: input.name ?? menuItem?.name ?? "",
+        priceCents: input.priceCents ?? menuItem?.defaultPriceCents ?? 0,
+        note: input.note ?? ""
+      }
+    });
+
+    const updatedAppointment = await ctx.db.appointment.findUniqueOrThrow({
+      where: {
+        id: appointment.id
+      },
+      include: {
+        primaryClient: {
+          select: {
+            id: true,
+            name: true,
+            address: true
+          }
+        },
+        participants: {
+          include: {
+            client: {
+              select: {
+                id: true,
+                name: true,
+                address: true
+              }
+            }
+          },
+          orderBy: {
+            createdAt: "asc"
+          }
+        },
+        services: {
+          orderBy: {
+            createdAt: "asc"
+          }
+        }
+      }
+    });
+
+    return toAppointmentOutput(updatedAppointment);
+  }),
+  updateService: stylistProcedure.input(appointmentServiceUpdateInput).mutation(async ({ ctx, input }) => {
+    const service = await ctx.db.appointmentService.findFirst({
+      where: {
+        id: input.id,
+        appointment: {
+          stylistId: ctx.stylist.id
+        }
+      }
+    });
+
+    if (!service) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Appointment Service not found."
+      });
+    }
+
+    await ctx.db.appointmentService.update({
+      where: {
+        id: service.id
+      },
+      data: {
+        name: input.name,
+        priceCents: input.priceCents,
+        note: input.note ?? ""
+      }
+    });
+
+    const updatedAppointment = await ctx.db.appointment.findUniqueOrThrow({
+      where: {
+        id: service.appointmentId
+      },
+      include: {
+        primaryClient: {
+          select: {
+            id: true,
+            name: true,
+            address: true
+          }
+        },
+        participants: {
+          include: {
+            client: {
+              select: {
+                id: true,
+                name: true,
+                address: true
+              }
+            }
+          },
+          orderBy: {
+            createdAt: "asc"
+          }
+        },
+        services: {
+          orderBy: {
+            createdAt: "asc"
+          }
+        }
+      }
+    });
+
+    return toAppointmentOutput(updatedAppointment);
+  }),
+  deleteService: stylistProcedure.input(appointmentServiceDeleteInput).mutation(async ({ ctx, input }) => {
+    const service = await ctx.db.appointmentService.findFirst({
+      where: {
+        id: input.id,
+        appointment: {
+          stylistId: ctx.stylist.id
+        }
+      }
+    });
+
+    if (!service) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Appointment Service not found."
+      });
+    }
+
+    await ctx.db.appointmentService.delete({
+      where: {
+        id: service.id
+      }
+    });
+
+    const updatedAppointment = await ctx.db.appointment.findUniqueOrThrow({
+      where: {
+        id: service.appointmentId
+      },
+      include: {
+        primaryClient: {
+          select: {
+            id: true,
+            name: true,
+            address: true
+          }
+        },
+        participants: {
+          include: {
+            client: {
+              select: {
+                id: true,
+                name: true,
+                address: true
+              }
+            }
+          },
+          orderBy: {
+            createdAt: "asc"
+          }
+        },
+        services: {
           orderBy: {
             createdAt: "asc"
           }
@@ -477,6 +770,19 @@ export const appointmentRouter = createTRPCRouter({
     }
 
     const remainingParticipant = appointment.participants.find((participant) => participant.clientId !== input.clientId);
+    const serviceCount = await ctx.db.appointmentService.count({
+      where: {
+        appointmentId: appointment.id,
+        clientId: input.clientId
+      }
+    });
+
+    if (serviceCount > 0) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Client has Services attached to this Appointment."
+      });
+    }
 
     if (appointment.primaryClientId === input.clientId && remainingParticipant) {
       await ctx.db.appointment.update({

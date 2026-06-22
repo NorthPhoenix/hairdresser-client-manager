@@ -240,6 +240,16 @@ describe("client router", () => {
               address: ""
             }
           }
+        ],
+        services: [
+          {
+            id: "appointment_service_1",
+            clientId: "client_1",
+            menuItemId: "menu_1",
+            name: "Old haircut name",
+            priceCents: 8500,
+            note: "History snapshot"
+          }
         ]
       }
     ]);
@@ -268,7 +278,17 @@ describe("client router", () => {
     ).resolves.toMatchObject([
       {
         id: "appointment_1",
-        participantClientIds: ["client_1", "client_2"]
+        participantClientIds: ["client_1", "client_2"],
+        services: [
+          {
+            id: "appointment_service_1",
+            clientId: "client_1",
+            menuItemId: "menu_1",
+            name: "Old haircut name",
+            priceCents: 8500,
+            note: "History snapshot"
+          }
+        ]
       }
     ]);
     expect(appointmentFindMany).toHaveBeenCalledWith({
