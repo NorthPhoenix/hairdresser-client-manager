@@ -33,191 +33,163 @@ export function normalizeLocale(locale: string | undefined): SupportedLocale {
   return defaultLocale;
 }
 
+// Copy for the client-facing web surfaces: Profile Share pages and Share Images, which are
+// written in the Client's language. The Android app keeps its own copy in Android string
+// resources (apps/android/app/src/main/res/values and values-ru).
 const messages = {
   ru: {
-    protectedHomeTitle: "Рабочее место стилиста",
-    protectedHomeSubtitle: "Защищенный экран для Клиентов и Записей.",
-    onboardingTitle: "Настройте рабочее место",
-    onboardingSubtitle: "Подтвердите язык, часовой пояс и адрес салона перед началом работы.",
-    settingsTitle: "Настройки стилиста",
-    settingsSubtitle: "Измените язык приложения, часовой пояс и адрес салона.",
-    languageLabel: "Язык приложения",
-    languageRussian: "Русский",
-    languageEnglish: "English",
-    timezoneLabel: "Часовой пояс",
-    addressLabel: "Адрес салона или бизнеса",
-    optionalSetupTitle: "Можно настроить позже",
-    optionalSetupBody: "Google Calendar, напоминания стилиста и меню услуг необязательны после онбординга.",
-    saveOnboarding: "Сохранить и продолжить",
-    saveSettings: "Сохранить настройки",
-    timezoneRequired: "Подтвердите часовой пояс.",
-    clientsTitle: "Клиенты",
-    clientsSubtitle: "Создавайте, ищите и обновляйте Client Profiles для своего рабочего места.",
-    clientSearchLabel: "Поиск по имени или телефону",
-    clientSearchPlaceholder: "Анна или +1...",
-    newClientTitle: "Новый Client Profile",
-    editClientTitle: "Client Profile",
-    clientNameLabel: "Имя Клиента",
-    clientPhoneLabel: "Телефон",
-    clientEmailLabel: "Email",
-    clientAddressLabel: "Адрес",
-    clientNoteLabel: "Client Note",
-    saveClient: "Сохранить Клиента",
-    createClient: "Создать Клиента",
-    clearClientForm: "Очистить форму",
-    deleteClient: "Удалить Клиента",
-    noClientsTitle: "Пока нет Клиентов",
-    noClientsBody: "Создайте первого Клиента с одним именем, затем добавьте детали позже.",
-    noClientResults: "Нет Клиентов по этому поиску.",
-    duplicatePhoneTitle: "Телефон уже используется",
-    duplicatePhoneBody: "У другого Клиента уже есть этот телефон. Можно сохранить всё равно.",
-    duplicatePhoneContinue: "Сохранить всё равно",
-    cancel: "Отмена",
-    clientNameRequired: "Добавьте имя Клиента.",
-    clientSaved: "Client Profile сохранён.",
-    clientDeleted: "Client Profile удалён.",
-    homeAppointmentsTitle: "Сегодня и незавершённые",
-    homeAppointmentsSubtitle: "Записи на сегодня и прошлые scheduled Записи, которым нужен итог.",
-    calendarTitle: "Календарь",
-    calendarSubtitle: "Просматривайте Записи по дням.",
-    previousDay: "Назад",
-    nextDay: "Вперёд",
-    appointmentsEmptyTitle: "Нет Записей",
-    appointmentsEmptyBody: "Создайте Запись, чтобы увидеть её здесь.",
-    newAppointmentTitle: "Новая Запись",
-    newAppointmentSubtitle: "Выберите основного Клиента, время и локацию.",
-    primaryClientLabel: "Основной Клиент",
-    additionalClientsLabel: "Дополнительные Клиенты",
-    inlineClientLabel: "Создать минимального Клиента",
-    appointmentStartLabel: "Начало",
-    appointmentEndLabel: "Окончание",
-    appointmentLocationLabel: "Локация",
     appointmentInSalon: "В салоне",
     appointmentAtHome: "На дому",
-    appointmentAddressLabel: "Адрес Записи",
-    createAppointment: "Создать Запись",
-    appointmentClientRequired: "Выберите Клиента или создайте минимального Клиента.",
-    appointmentStartRequired: "Добавьте время начала.",
-    appointmentSaved: "Запись создана.",
-    appointmentConflictWarning: "Запись создана, но есть конфликт времени.",
-    appointmentMapUnavailable: "Для этой Записи нет адреса.",
-    openInMaps: "Открыть в Google Maps",
-    appointmentStatus_scheduled: "Scheduled",
-    appointmentStatus_completed: "Completed",
-    appointmentStatus_canceled: "Canceled",
-    appointmentStatus_noShow: "No-show",
-    appointmentNotePlaceholder: "Заметка к Записи",
-    markCompleted: "Completed",
-    markCanceled: "Canceled",
-    markNoShow: "No-show",
-    markScheduled: "Scheduled",
-    saveAppointmentNote: "Сохранить заметку",
-    deleteAppointment: "Удалить Запись",
-    makePrimary: "Сделать основным",
-    removeClientFromAppointment: "Убрать Клиента",
-    addClientToAppointment: "Добавить Клиента",
-    signInTitle: "Вход для стилиста",
-    signUpTitle: "Регистрация стилиста",
-    verifyEmailTitle: "Подтвердите email",
-    missingEnvTitle: "Нужна настройка окружения",
-    missingEnvBody: "Добавьте ключ Clerk перед запуском приложения.",
-    profileShareTitle: "Профиль Клиента",
-    profileSharePlaceholder: "Публичная страница Profile Share готова к подключению данных."
+    profileShareTitle: "Профиль клиента",
+    profileSharePlaceholder: "Здесь открываются профили клиентов по ссылке от мастера.",
+    profileShareUpcomingTitle: "Будущие записи",
+    profileShareLastCompletedTitle: "Последняя завершённая запись",
+    profileShareNoUpcoming: "Будущих записей нет.",
+    profileShareNoCompleted: "Завершённых записей пока нет.",
+    profileShareServicesTitle: "Услуги и формулы",
+    profileSharePhotosTitle: "Фото",
+    profileSharePhotosEmpty: "Фото для показа пока нет.",
+    switchToRussian: "Русский",
+    switchToEnglish: "English"
   },
   en: {
-    protectedHomeTitle: "Stylist workspace",
-    protectedHomeSubtitle: "Protected screen for Clients and Appointments.",
-    onboardingTitle: "Set up your workspace",
-    onboardingSubtitle: "Confirm language, timezone, and salon address before using the app.",
-    settingsTitle: "Stylist settings",
-    settingsSubtitle: "Edit app language, timezone, and salon address.",
-    languageLabel: "App language",
-    languageRussian: "Русский",
-    languageEnglish: "English",
-    timezoneLabel: "Timezone",
-    addressLabel: "Salon or business address",
-    optionalSetupTitle: "Can be set up later",
-    optionalSetupBody: "Google Calendar, Stylist Reminders, and Service Menu Items stay optional after onboarding.",
-    saveOnboarding: "Save and continue",
-    saveSettings: "Save settings",
-    timezoneRequired: "Confirm a timezone.",
-    clientsTitle: "Clients",
-    clientsSubtitle: "Create, search, and update Client Profiles for your workspace.",
-    clientSearchLabel: "Search by name or phone",
-    clientSearchPlaceholder: "Anna or +1...",
-    newClientTitle: "New Client Profile",
-    editClientTitle: "Client Profile",
-    clientNameLabel: "Client name",
-    clientPhoneLabel: "Phone",
-    clientEmailLabel: "Email",
-    clientAddressLabel: "Address",
-    clientNoteLabel: "Client Note",
-    saveClient: "Save Client",
-    createClient: "Create Client",
-    clearClientForm: "Clear form",
-    deleteClient: "Delete Client",
-    noClientsTitle: "No Clients yet",
-    noClientsBody: "Create the first Client with only a name, then add details later.",
-    noClientResults: "No Clients match this search.",
-    duplicatePhoneTitle: "Phone already used",
-    duplicatePhoneBody: "Another Client already has this phone number. You can save anyway.",
-    duplicatePhoneContinue: "Save anyway",
-    cancel: "Cancel",
-    clientNameRequired: "Add a Client name.",
-    clientSaved: "Client Profile saved.",
-    clientDeleted: "Client Profile deleted.",
-    homeAppointmentsTitle: "Today and unresolved",
-    homeAppointmentsSubtitle: "Today's Appointments and past scheduled Appointments that still need an outcome.",
-    calendarTitle: "Calendar",
-    calendarSubtitle: "Browse Appointments by day.",
-    previousDay: "Previous",
-    nextDay: "Next",
-    appointmentsEmptyTitle: "No Appointments",
-    appointmentsEmptyBody: "Create an Appointment to see it here.",
-    newAppointmentTitle: "New Appointment",
-    newAppointmentSubtitle: "Choose the primary Client, time, and location.",
-    primaryClientLabel: "Primary Client",
-    additionalClientsLabel: "Additional Clients",
-    inlineClientLabel: "Create minimal Client inline",
-    appointmentStartLabel: "Start time",
-    appointmentEndLabel: "End time",
-    appointmentLocationLabel: "Location",
     appointmentInSalon: "In salon",
     appointmentAtHome: "At home",
-    appointmentAddressLabel: "Appointment address",
-    createAppointment: "Create Appointment",
-    appointmentClientRequired: "Choose a Client or create a minimal Client.",
-    appointmentStartRequired: "Add a start time.",
-    appointmentSaved: "Appointment created.",
-    appointmentConflictWarning: "Appointment created, but there is a time conflict.",
-    appointmentMapUnavailable: "This Appointment has no address.",
-    openInMaps: "Open in Google Maps",
-    appointmentStatus_scheduled: "Scheduled",
-    appointmentStatus_completed: "Completed",
-    appointmentStatus_canceled: "Canceled",
-    appointmentStatus_noShow: "No-show",
-    appointmentNotePlaceholder: "Appointment note",
-    markCompleted: "Completed",
-    markCanceled: "Canceled",
-    markNoShow: "No-show",
-    markScheduled: "Scheduled",
-    saveAppointmentNote: "Save note",
-    deleteAppointment: "Delete Appointment",
-    makePrimary: "Make primary",
-    removeClientFromAppointment: "Remove Client",
-    addClientToAppointment: "Add Client",
-    signInTitle: "Stylist sign in",
-    signUpTitle: "Stylist sign up",
-    verifyEmailTitle: "Verify email",
-    missingEnvTitle: "Environment setup required",
-    missingEnvBody: "Add the Clerk key before running the app.",
     profileShareTitle: "Client Profile",
-    profileSharePlaceholder: "The public Profile Share page is ready for data wiring."
+    profileSharePlaceholder: "Client pages open here from a link shared by the Stylist.",
+    profileShareUpcomingTitle: "Upcoming Appointments",
+    profileShareLastCompletedTitle: "Last completed Appointment",
+    profileShareNoUpcoming: "No upcoming Appointments.",
+    profileShareNoCompleted: "No completed Appointments yet.",
+    profileShareServicesTitle: "Services and formulas",
+    profileSharePhotosTitle: "Photos",
+    profileSharePhotosEmpty: "No stored photos are selected for sharing yet.",
+    switchToRussian: "Русский",
+    switchToEnglish: "English"
   }
 } as const;
 
 export type MessageKey = keyof (typeof messages)["ru"];
 
+export const messageKeys = Object.keys(messages.ru) as MessageKey[];
+
 export function t(locale: SupportedLocale, key: MessageKey): string {
   return messages[locale][key];
+}
+
+export function getMissingLocalizationKeys(): Record<SupportedLocale, MessageKey[]> {
+  return supportedLocales.reduce(
+    (missingKeys, locale) => ({
+      ...missingKeys,
+      [locale]: messageKeys.filter((key) => !messages[locale][key]?.trim())
+    }),
+    {
+      ru: [],
+      en: []
+    } as Record<SupportedLocale, MessageKey[]>
+  );
+}
+
+export type ClientReminderMessageInput = {
+  locale: SupportedLocale;
+  appointmentTime: string;
+  location: string;
+};
+
+export function buildClientReminderMessage(input: ClientReminderMessageInput): string {
+  if (input.locale === "en") {
+    return `Reminder: your appointment is scheduled for ${input.appointmentTime}. Location: ${input.location}.`;
+  }
+
+  return `Напоминание: ваша запись назначена на ${input.appointmentTime}. Адрес: ${input.location}.`;
+}
+
+export function buildSmsComposerUrl(phone: string, body: string): string {
+  const recipient = phone.trim().replace(/[^\d+]/g, "");
+
+  return `sms:${recipient}?body=${encodeURIComponent(body)}`;
+}
+
+export type ImportedContactFields = {
+  name?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+};
+
+export type ImportedDeviceContact = {
+  fullName?: string | null;
+  givenName?: string | null;
+  familyName?: string | null;
+  phones?: { number?: string | null }[] | null;
+  emails?: { address?: string | null; email?: string | null }[] | null;
+  addresses?: {
+    street?: string | null;
+    city?: string | null;
+    state?: string | null;
+    postcode?: string | null;
+    region?: string | null;
+    country?: string | null;
+  }[] | null;
+};
+
+type ImportableClientFields = {
+  name: string;
+  phone: string;
+  email: string;
+  address: string;
+};
+
+function cleanImportedValue(value: string | null | undefined): string | undefined {
+  const trimmedValue = value?.trim();
+  return trimmedValue ? trimmedValue : undefined;
+}
+
+export function normalizeImportedContact(contact: ImportedDeviceContact): ImportedContactFields {
+  const name =
+    cleanImportedValue(contact.fullName) ??
+    cleanImportedValue([contact.givenName, contact.familyName].map((part) => part?.trim()).filter(Boolean).join(" "));
+  const phone = contact.phones?.map((phoneNumber) => cleanImportedValue(phoneNumber.number)).find(Boolean);
+  const email = contact.emails
+    ?.map((emailAddress) => cleanImportedValue(emailAddress.address ?? emailAddress.email))
+    .find(Boolean);
+  const address = contact.addresses
+    ?.map((contactAddress) =>
+      [
+        contactAddress.street,
+        contactAddress.city,
+        contactAddress.state ?? contactAddress.region,
+        contactAddress.postcode,
+        contactAddress.country
+      ]
+        .map(cleanImportedValue)
+        .filter(Boolean)
+        .join(", ")
+    )
+    .map(cleanImportedValue)
+    .find(Boolean);
+
+  return {
+    ...(name ? { name } : {}),
+    ...(phone ? { phone } : {}),
+    ...(email ? { email } : {}),
+    ...(address ? { address } : {})
+  };
+}
+
+export function hasImportedContactFields(contact: ImportedContactFields): boolean {
+  return Boolean(contact.name || contact.phone || contact.email || contact.address);
+}
+
+export function mergeImportedContactIntoClient<TClient extends ImportableClientFields>(
+  client: TClient,
+  importedContact: ImportedContactFields
+): TClient {
+  return {
+    ...client,
+    ...(importedContact.name ? { name: importedContact.name } : {}),
+    ...(importedContact.phone ? { phone: importedContact.phone } : {}),
+    ...(importedContact.email ? { email: importedContact.email } : {}),
+    ...(importedContact.address ? { address: importedContact.address } : {})
+  };
 }

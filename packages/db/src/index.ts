@@ -3,6 +3,8 @@ import { PrismaClient } from "@prisma/client";
 import { config } from "dotenv";
 
 config({ path: new URL("../.env", import.meta.url) });
+config({ path: "packages/db/.env" });
+config({ path: "../../packages/db/.env" });
 
 const globalForPrisma = globalThis as unknown as {
   hcmPrisma?: PrismaClient;
