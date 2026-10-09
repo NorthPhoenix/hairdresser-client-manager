@@ -25,7 +25,7 @@ Create a new local testing guide in `/temp` for each issue completed. The guide 
 Testing guides should:
 
 - focus only on user-visible behavior changed by the issue
-- provide step-by-step manual flows the maintainer can run locally, such as opening the app in Expo Go and interacting with the changed screen
+- provide step-by-step manual flows the maintainer can run locally, such as installing the Android debug build on an emulator or device and interacting with the changed screen
 - include concrete expected results after each flow
 - cover important edge cases introduced by the change
 - avoid broad app regression checklists unless the issue changed broad app behavior

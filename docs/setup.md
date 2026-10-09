@@ -1,10 +1,12 @@
 # Local setup
 
-This repo starts as a Turborepo with an Expo mobile app, a Profile Share-only Next.js web app, shared localization, and Prisma/Postgres wiring.
+This repo is a Turborepo with a Profile Share-only Next.js web app that also hosts the API, shared localization, and Prisma/Postgres wiring, plus a native Android app (Kotlin, Jetpack Compose) in `apps/android` that is built with Gradle rather than pnpm.
 
 Because this is a new application, use current stable APIs and package names by default. Do not add legacy or compatibility APIs unless a current API is blocked and the reason plus removal path are documented.
 
-Before extending the mobile/API stack, read ADRs `0010`, `0011`, and `0012`. They define the Next.js-hosted tRPC backend, lazy Clerk-to-Stylist identity model, and v1 Tailwind/NativeWind stack.
+Before extending the mobile/API stack, read ADRs `0010`, `0011`, `0012`, and `0013`. They define the Next.js-hosted tRPC backend, lazy Clerk-to-Stylist identity model, the v1 stack, and the native Android app that replaced the original Expo app.
+
+For building, configuring, and running the Android app, including a local backend that needs no provider credentials, read `apps/android/README.md`.
 
 For v1 acceptance, Android QA, localization ownership, optional provider behavior, and future-agent entry points, read `docs/v1-acceptance.md`.
 
@@ -66,13 +68,12 @@ Run these steps locally when you are ready to wire providers:
 6. Fill in Clerk keys:
 
    ```sh
-   EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=
    CLERK_PUBLISHABLE_KEY=
    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
    CLERK_SECRET_KEY=
    ```
 
-   Clerk CLI writes `CLERK_PUBLISHABLE_KEY`. Expo client code needs `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`, so mirror the publishable key into `apps/mobile/.env.local` with that name when testing the mobile app.
+   Clerk CLI writes `CLERK_PUBLISHABLE_KEY`. The Android app reads the same publishable key from `apps/android/local.properties` as `hcm.clerkPublishableKey`. Enable the Native API for the Clerk application in the Clerk dashboard so the Android SDK can sign in.
 
 7. Create a Prisma Postgres database and fill in `packages/db/.env`:
 
@@ -98,20 +99,20 @@ Run these steps locally when you are ready to wire providers:
    UPLOADTHING_CALLBACK_URL=http://127.0.0.1:3000/api/uploadthing
    ```
 
-   Keep `UPLOADTHING_TOKEN` server-only. `UPLOADTHING_CALLBACK_URL` is not secret; it is needed for local Android emulator testing because the device calls the web app through `10.0.2.2`, while UploadThing's local dev callback must reach the host Next.js server. The Expo app uploads through the web app's `/api/uploadthing` endpoint, using the same base URL as `EXPO_PUBLIC_TRPC_URL`.
+   Keep `UPLOADTHING_TOKEN` server-only. `UPLOADTHING_CALLBACK_URL` is not secret; it is needed for local Android emulator testing because the device calls the web app through `10.0.2.2`, while UploadThing's local dev callback must reach the host Next.js server. The Android app uploads through the web app's `/api/uploadthing` endpoint, using the same base URL as `hcm.apiBaseUrl`. UploadThing has no Android SDK, so the app implements the upload protocol itself; keep `UploadThingClient.CLIENT_VERSION` in step with the `uploadthing` package version.
 
 10. Run the apps:
 
    ```sh
-   pnpm --filter @hcm/mobile dev
    pnpm --filter @hcm/web dev
+   cd apps/android && ./gradlew :app:installDebug
    ```
 
-   The mobile app targets Expo SDK 56. Expo Go must also support SDK 56; if Expo Go reports an older supported SDK, install the SDK 56 client from Expo's official Expo Go download page or use a development build.
+   The Android app needs the Android SDK and a JDK; `apps/android/README.md` lists the exact packages and the `local.properties` keys. From an emulator the host's web app is reachable at `http://10.0.2.2:3000`, which is the default `hcm.apiBaseUrl`.
 
 ## Expected missing-env behavior
 
-The Expo app intentionally renders a clear setup screen when no Clerk publishable key is available.
+The Android app intentionally renders a clear setup screen when no Clerk publishable key is configured.
 
 The web app currently exposes only public Profile Share placeholder routes. Clerk is installed for future shared auth/provider compatibility, but the v1 web app does not create a Stylist management surface.
 
@@ -126,7 +127,12 @@ pnpm lint
 pnpm build
 ```
 
-These commands typecheck the mobile auth and localization wiring, validate the Prisma schema, build the shared package, and build the public Profile Share web route.
+These commands validate the Prisma schema, build the shared and API packages, and build the public Profile Share web route. The Android app is verified separately:
+
+```sh
+cd apps/android
+./gradlew :app:testDebugUnitTest :app:assembleDebug
+```
 
 For a faster web-only build check while working on Profile Share pages, use:
 

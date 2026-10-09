@@ -50,7 +50,7 @@ function svgLine(text: string, x: number, y: number, size = 28, weight = 500): s
 
 export function buildShareImageSvg(input: ShareImageInput): string {
   const lines: string[] = [
-    svgLine("Profile Share", 112, 150, 24, 700),
+    svgLine(t(input.locale, "profileShareTitle"), 112, 150, 24, 700),
     svgLine(input.clientName, 112, 230, 64, 800)
   ];
   let y = 330;

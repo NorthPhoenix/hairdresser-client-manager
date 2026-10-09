@@ -1,16 +1,16 @@
 # v1 acceptance hardening
 
-This page is the v1 hardening index for future agents and maintainers. Start with `CONTEXT.md` for domain language, then read the relevant records in `docs/adr/`, especially ADRs `0001`, `0003`, `0005`, `0010`, `0011`, and `0012`. The parent PRD is GitHub issue `#1`; child implementation issues are GitHub issues `#2` through `#18`.
+This page is the v1 hardening index for future agents and maintainers. Start with `CONTEXT.md` for domain language, then read the relevant records in `docs/adr/`, especially ADRs `0001`, `0003`, `0005`, `0010`, `0011`, `0012`, and `0013`. The parent PRD is GitHub issue `#1`; child implementation issues are GitHub issues `#2` through `#18`.
 
 ## Localization
 
 Russian is the primary language and English is secondary. Stylist language drives app UI copy. Client language drives client-facing Client Reminder messages, Profile Share pages, and Share Images.
 
-The shared localization table is covered by `packages/api/src/v1Hardening.test.ts`, which fails when any v1 message key is missing an English or Russian value.
+The Android app keeps its copy in Android string resources (`apps/android/app/src/main/res/values` for English, `values-ru` for Russian); its `TranslationsTest` fails when a Russian translation is missing. The client-facing web copy lives in `packages/shared` and is covered by `packages/api/src/v1Hardening.test.ts`. In Russian mode the app shows no English product terms.
 
 ## Android QA path
 
-Use Android as the primary device target for v1 acceptance. A complete manual pass should cover:
+Android is the only device target: the Stylist app is the native Android app in `apps/android`. Without provider credentials, `apps/android/README.md` describes a local dev backend and debug sign-in that cover every step below except real Clerk sign-in. A complete manual pass should cover:
 
 1. Stylist sign-in and lazy Stylist bootstrap.
 2. Stylist Onboarding and Settings language/timezone/address changes.
@@ -46,4 +46,5 @@ pnpm --filter @hcm/shared build
 pnpm --filter @hcm/api test
 pnpm lint
 pnpm build
+(cd apps/android && ./gradlew :app:testDebugUnitTest :app:assembleDebug)
 ```

@@ -1,0 +1,23 @@
+{
+  "name": "@hcm/dev-backend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "seed": "tsx src/seed.ts",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@hcm/api": "workspace:*",
+    "@hcm/db": "workspace:*",
+    "@trpc/server": "11.17.0",
+    "uploadthing": "7.7.4",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "25.9.3",
+    "tsx": "^4.20.0",
+    "typescript": "6.0.3"
+  }
+}

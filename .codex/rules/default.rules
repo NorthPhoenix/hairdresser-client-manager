@@ -38,8 +38,8 @@ prefix_rule(
     pattern = ["pnpm", "--filter", "@hcm/web", "dev"]
 )
 prefix_rule(
-    pattern = ["pnpm", "--filter", "@hcm/mobile", "exec", "expo", "start"]
+    pattern = ["pnpm", "--filter", "@hcm/dev-backend", "start"]
 )
 prefix_rule(
-    pattern = ["pnpm", "--filter", "@hcm/mobile", "exec", "expo", "run:android"]
+    pattern = ["./gradlew"]
 )

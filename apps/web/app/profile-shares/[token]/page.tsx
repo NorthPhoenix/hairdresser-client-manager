@@ -105,7 +105,7 @@ export default async function ProfileSharePage({ params, searchParams }: Profile
     <main style={styles.shell}>
       <article style={styles.page}>
         <header style={styles.header}>
-          <p style={styles.kicker}>Profile Share</p>
+          <p style={styles.kicker}>{t(locale, "profileShareTitle")}</p>
           <h1 style={styles.title}>{share.client.name}</h1>
           <nav style={styles.languageNav} aria-label="Language">
             <a style={styles.languageLink} href={`/profile-shares/${token}?lang=ru`}>

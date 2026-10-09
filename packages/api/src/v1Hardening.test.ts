@@ -8,6 +8,7 @@ import {
   getMissingLocalizationKeys,
   messageKeys,
   t,
+  themeTokens,
   type SupportedLocale
 } from "@hcm/shared";
 
@@ -16,7 +17,7 @@ function readWorkspaceFile(path: string): string {
 }
 
 describe("v1 acceptance hardening", () => {
-  it("keeps Russian and English copy present for every shared v1 message", () => {
+  it("keeps Russian and English copy present for every shared client-facing message", () => {
     expect(messageKeys.length).toBeGreaterThan(0);
     expect(getMissingLocalizationKeys()).toEqual({
       ru: [],
@@ -30,9 +31,9 @@ describe("v1 acceptance hardening", () => {
     }
   });
 
-  it("uses Stylist language for app UI copy and Client language for client-facing reminders and shares", () => {
-    expect(t("ru", "protectedHomeTitle")).toContain("стилиста");
-    expect(t("en", "protectedHomeTitle")).toContain("Stylist");
+  it("uses Client language for client-facing reminders and shares", () => {
+    expect(t("ru", "profileShareTitle")).toBe("Профиль клиента");
+    expect(t("en", "profileShareTitle")).toBe("Client Profile");
 
     const russianReminder = buildClientReminderMessage({
       locale: "ru",
@@ -69,17 +70,20 @@ describe("v1 acceptance hardening", () => {
     ).toContain("Upcoming Appointments");
   });
 
-  it("keeps Tailwind and NativeWind wired to shared theme tokens", () => {
-    const mobileTailwindConfig = readWorkspaceFile("apps/mobile/tailwind.config.ts");
-    const mobileGlobalCss = readWorkspaceFile("apps/mobile/global.css");
+  it("keeps web Tailwind and the Android theme wired to shared theme tokens", () => {
     const webTailwindConfig = readWorkspaceFile("apps/web/tailwind.config.ts");
     const webGlobalCss = readWorkspaceFile("apps/web/app/globals.css");
+    const androidTheme = readWorkspaceFile(
+      "apps/android/app/src/main/java/com/northphoenix/hairdresserclientmanager/ui/theme/Theme.kt"
+    ).toLowerCase();
 
-    expect(mobileTailwindConfig).toContain("themeTokens");
-    expect(mobileTailwindConfig).toContain("nativewind/preset");
-    expect(mobileGlobalCss).toContain("@tailwind utilities");
     expect(webTailwindConfig).toContain("themeTokens");
     expect(webGlobalCss).toContain("@tailwind utilities");
+
+    // Kotlin cannot import the tokens, so the Android palette must repeat the same colour values.
+    for (const color of Object.values(themeTokens.colors)) {
+      expect(androidTheme, color).toContain(`0xff${color.slice(1).toLowerCase()}`);
+    }
   });
 
   it("documents optional provider configuration and future-agent entry points", () => {
