@@ -483,8 +483,11 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
             onSuccess = { onSuccess() },
             reload = {
                 loadAll()
-                // Appointments this Client was in have changed or gone with them: keep only what was just loaded.
-                _appointments.value = (_home.value + _calendar.value).associateBy { it.id }
+                // Appointments this Client was in have changed or gone with them: drop the copies that were not just reloaded.
+                val reloaded = (_home.value + _calendar.value).map { it.id }.toSet()
+                _appointments.update { cache ->
+                    cache.filterValues { appointment -> appointment.id in reloaded || appointment.participants.none { it.clientId == id } }
+                }
             },
         ) {
             api.deleteClient(id)
