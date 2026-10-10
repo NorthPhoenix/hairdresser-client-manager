@@ -5,13 +5,11 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
@@ -58,15 +56,15 @@ class UploadThingClient(
                 .build()
             val (status, body) = execute(request)
             val result = parseObject(body)
-            val error = result?.get("error")?.jsonPrimitive?.contentOrNull
+            val error = result?.get("error")?.takeUnless { it is JsonNull }
 
             if (status !in 200..299 || result == null || error != null) {
-                throw ApiException(error ?: "Upload failed ($status).", code = "UPLOAD_FAILED")
+                throw ApiException(error.textOrNull() ?: "Upload failed ($status).", code = "UPLOAD_FAILED")
             }
 
             UploadedFile(
                 key = presigned.key,
-                ufsUrl = result["ufsUrl"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                ufsUrl = result["ufsUrl"].textOrNull().orEmpty(),
                 serverData = result["serverData"],
             )
         }
@@ -111,7 +109,7 @@ class UploadThingClient(
         val (status, body) = execute(request)
 
         if (status !in 200..299) {
-            val message = parseObject(body)?.get("message")?.jsonPrimitive?.contentOrNull
+            val message = parseObject(body)?.get("message").textOrNull()
             throw ApiException(message ?: "Upload could not start ($status).", code = "UPLOAD_REJECTED")
         }
 
@@ -147,7 +145,7 @@ class UploadThingClient(
 
     private fun parseObject(body: String): JsonObject? =
         try {
-            hcmJson.parseToJsonElement(body).jsonObject
+            hcmJson.parseToJsonElement(body) as? JsonObject
         } catch (_: Exception) {
             null
         }

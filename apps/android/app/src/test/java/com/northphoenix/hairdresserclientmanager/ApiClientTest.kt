@@ -11,6 +11,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import mockwebserver3.SocketEffect
 import okhttp3.OkHttpClient
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -20,6 +21,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.TimeUnit
 
 class ApiClientTest {
     private val server = MockWebServer()
@@ -116,6 +118,108 @@ class ApiClientTest {
     }
 
     @Test
+    fun `a change that could not be sent is a network failure, not an unknown outcome`() = runTest {
+        server.close()
+
+        try {
+            api.deleteClient("c1")
+            fail("expected an ApiException")
+        } catch (error: ApiException) {
+            assertTrue(error.isNetwork)
+            assertFalse(error.outcomeUnknown)
+        }
+    }
+
+    /** Reads the request, then never answers. */
+    private fun enqueueNoReply() {
+        server.enqueue(MockResponse.Builder().onResponseStart(SocketEffect.Stall).build())
+    }
+
+    private fun impatientApi() =
+        HcmApi(TrpcClient(server.url("/api/trpc").toString(), http.newBuilder().readTimeout(300, TimeUnit.MILLISECONDS).build()) { "token-1" })
+
+    @Test
+    fun `a change that was sent but never answered has an unknown outcome`() = runTest {
+        enqueueNoReply()
+
+        try {
+            impatientApi().saveClient(null, "Lost Carl", Language.EN, "5550123", "", "", "")
+            fail("expected an ApiException")
+        } catch (error: ApiException) {
+            assertTrue(error.outcomeUnknown)
+            assertFalse(error.isNetwork)
+        }
+        // The server did receive it, so it may well have been saved.
+        assertEquals("/api/trpc/clientProfile.save", server.takeRequest().url.encodedPath)
+    }
+
+    @Test
+    fun `a query that was never answered is a plain network failure`() = runTest {
+        enqueueNoReply()
+
+        try {
+            impatientApi().listClients()
+            fail("expected an ApiException")
+        } catch (error: ApiException) {
+            assertTrue(error.isNetwork)
+            assertFalse(error.outcomeUnknown)
+        }
+    }
+
+    @Test
+    fun `a json reply that is not a tRPC envelope is a failure, not a crash`() = runTest {
+        val replies = listOf(
+            """{"error":"Too many requests"}""",
+            """{"error":["Too many requests"]}""",
+            """{"result":null}""",
+            """{"result":"ok"}""",
+            """{"result":{}}""",
+            """{"result":{"data":"ok"}}""",
+            """[]""",
+            """null""",
+            """"Internal dev backend error"""",
+        )
+
+        for (reply in replies) {
+            enqueue(reply)
+            try {
+                api.listClients()
+                fail("expected an ApiException for the query reply $reply")
+            } catch (error: ApiException) {
+                assertEquals(reply, "BAD_RESPONSE", error.code)
+            }
+
+            enqueue(reply)
+            try {
+                api.updateAppointmentNote("a1", "gate note x")
+                fail("expected an ApiException for the mutation reply $reply")
+            } catch (error: ApiException) {
+                assertEquals(reply, "BAD_RESPONSE", error.code)
+            }
+        }
+    }
+
+    @Test
+    fun `an error envelope with unexpected parts is still an api failure`() = runTest {
+        enqueue("""{"error":{"message":{"text":"Too many requests"},"data":"none"}}""", code = 429)
+
+        try {
+            api.listClients()
+            fail("expected an ApiException")
+        } catch (error: ApiException) {
+            assertEquals("UNKNOWN", error.code)
+            assertEquals("Request failed.", error.message)
+        }
+    }
+
+    @Test
+    fun `a null error beside a result is not an error`() = runTest {
+        enqueue("""{"error":null,"result":{"data":[]}}""")
+
+        assertTrue(api.listClients().isEmpty())
+    }
+
+    @Test
     fun `upload requests a presigned url then puts the file to it`() = runTest {
         val uploads = UploadThingClient(server.url("/api/uploadthing").toString(), http) { "token-1" }
         val presignedUrl = server.url("/ingest/key-1?signature=abc")
@@ -154,6 +258,21 @@ class ApiClientTest {
         val photo = UploadThingClient.decodeUploadedPhoto(uploaded.serverData)
         assertEquals(PhotoCategory.BEFORE, photo?.category)
         assertEquals("https://ufs/key-1", photo?.url)
+    }
+
+    @Test
+    fun `an upload reply with an error of an unexpected shape is a failed upload, not a crash`() = runTest {
+        val uploads = UploadThingClient(server.url("/api/uploadthing").toString(), http) { "token-1" }
+        enqueue("""[{"url":"${server.url("/ingest/key-1")}","key":"key-1"}]""")
+        server.enqueue(MockResponse.Builder().code(200).build())
+        enqueue("""{"error":{"code":"TooLarge"}}""")
+
+        try {
+            uploads.upload("appointmentPhoto", buildJsonObject {}, "photo.jpg", "image/jpeg", ByteArray(1))
+            fail("expected an ApiException")
+        } catch (error: ApiException) {
+            assertEquals("UPLOAD_FAILED", error.code)
+        }
     }
 
     @Test

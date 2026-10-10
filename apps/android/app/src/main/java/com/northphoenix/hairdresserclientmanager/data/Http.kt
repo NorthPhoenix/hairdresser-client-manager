@@ -2,6 +2,9 @@ package com.northphoenix.hairdresserclientmanager.data
 
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.Response
@@ -15,7 +18,10 @@ val hcmJson: Json = Json {
     coerceInputValues = true
 }
 
-/** A failure the UI can show. [isNetwork] means the server was never reached. */
+/**
+ * A failure the UI can show. [isNetwork] means there was no usable connection to the server;
+ * for a change it also means the change was never sent.
+ */
 class ApiException(
     override val message: String,
     val code: String = "UNKNOWN",
@@ -23,7 +29,21 @@ class ApiException(
     cause: Throwable? = null,
 ) : Exception(message, cause) {
     val isUnauthorized: Boolean get() = code == "UNAUTHORIZED"
+
+    /** A change was sent but no reply came back, so it may or may not have been saved. */
+    val outcomeUnknown: Boolean get() = code == NO_REPLY
+
+    companion object {
+        const val NO_REPLY = "NO_REPLY"
+    }
 }
+
+/** Anything that went wrong, as a failure the UI can show. Callers rethrow cancellation before using this. */
+internal fun Exception.toApiException(): ApiException =
+    this as? ApiException ?: ApiException("Unexpected failure.", code = "UNEXPECTED", cause = this)
+
+/** The content of a JSON string or other primitive, null for anything else. Replies are not trusted to have the expected shape. */
+internal fun JsonElement?.textOrNull(): String? = (this as? JsonPrimitive)?.contentOrNull
 
 internal suspend fun Call.await(): Response =
     suspendCancellableCoroutine { continuation ->
