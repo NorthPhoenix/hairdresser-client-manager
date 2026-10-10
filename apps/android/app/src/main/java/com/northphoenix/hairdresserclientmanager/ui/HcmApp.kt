@@ -13,6 +13,7 @@ import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -80,11 +81,31 @@ fun HcmApp(container: AppContainer) {
                 when (val state = authState) {
                     AuthState.Loading -> LoadingScreen()
                     is AuthState.Failed -> FailureScreen(message = stringResource(R.string.error_generic), onRetry = auth::retry)
-                    AuthState.SignedOut -> auth.SignInContent(Modifier.fillMaxSize().safeDrawingPadding())
+                    AuthState.SignedOut -> SignedOutContent(viewModel)
                     is AuthState.SignedIn -> SignedInContent(viewModel)
                 }
             }
         }
+    }
+}
+
+/** The provider's sign-in screen. When the session ended on its own, the reason stays above it until someone signs in. */
+@Composable
+private fun SignedOutContent(viewModel: AppViewModel) {
+    val sessionEnded by viewModel.sessionEnded.collectAsStateWithLifecycle()
+
+    Column(Modifier.fillMaxSize().safeDrawingPadding()) {
+        if (sessionEnded) {
+            Surface(color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    stringResource(R.string.error_session_ended),
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+            }
+        }
+        viewModel.auth.SignInContent(Modifier.weight(1f).fillMaxWidth())
     }
 }
 

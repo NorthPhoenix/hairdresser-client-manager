@@ -106,7 +106,9 @@
     <string name="error_image_unreadable">Не удалось прочитать выбранное изображение.</string>
     <string name="error_invalid_input">Проверьте введённые данные и попробуйте ещё раз.</string>
     <string name="error_not_found">Данные не найдены. Обновите список и попробуйте ещё раз.</string>
+    <string name="error_outcome_unknown">Сервер не ответил, поэтому неясно, выполнено ли действие. Проверьте, прежде чем повторять.</string>
     <string name="error_session_ended">Сеанс завершён. Войдите снова.</string>
+    <string name="error_sign_in_rejected">Сервер не принял ваш вход. Попробуйте ещё раз.</string>
     <string name="generate_share_image">Создать изображение</string>
     <string name="home_appointments_title">Сегодня и незакрытые</string>
     <string name="home_empty_body">На сегодня записей нет, и все прошлые закрыты.</string>

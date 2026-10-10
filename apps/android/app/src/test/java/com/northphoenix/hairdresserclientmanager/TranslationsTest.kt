@@ -65,7 +65,10 @@ class TranslationsTest {
         assertEquals(R.string.error_client_has_services, ApiException("Client has Services attached to this Appointment.", code = "BAD_REQUEST").messageRes())
         assertEquals(R.string.error_not_found, ApiException("Client not found.", code = "NOT_FOUND").messageRes())
         assertEquals(R.string.error_invalid_input, ApiException("Too small", code = "BAD_REQUEST").messageRes())
-        assertEquals(R.string.error_session_ended, ApiException("Authentication required.", code = "UNAUTHORIZED").messageRes())
+        // Whether the session has ended is for the sign-in provider to say, so a refused token does not claim it.
+        assertEquals(R.string.error_sign_in_rejected, ApiException("Authentication required.", code = "UNAUTHORIZED").messageRes())
+        // A change that was sent but never answered is not "can't reach the server".
+        assertEquals(R.string.error_outcome_unknown, ApiException("No reply from the server.", code = ApiException.NO_REPLY).messageRes())
         assertEquals(R.string.error_generic, ApiException("boom").messageRes())
     }
 }

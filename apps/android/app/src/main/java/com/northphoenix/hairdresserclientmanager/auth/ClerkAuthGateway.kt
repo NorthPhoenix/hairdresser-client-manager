@@ -6,6 +6,7 @@ import androidx.compose.ui.Modifier
 import com.clerk.api.Clerk
 import com.clerk.api.ClerkConfigurationOptions
 import com.clerk.api.network.serialization.successOrNull
+import com.clerk.api.session.GetTokenOptions
 import com.clerk.ui.auth.AuthMode
 import com.clerk.ui.auth.AuthView
 import com.northphoenix.hairdresserclientmanager.BuildConfig
@@ -71,6 +72,14 @@ class ClerkAuthGateway(
 
     override suspend fun signOut() {
         Clerk.auth.signOut()
+    }
+
+    override suspend fun sessionEnded(): Boolean {
+        // Skipping the cache makes Clerk ask its servers for a token. Clerk itself drops a session
+        // that can no longer issue one; any other failure leaves the session in place.
+        Clerk.auth.getToken(GetTokenOptions(skipCache = true))
+
+        return Clerk.session == null
     }
 
     @Composable

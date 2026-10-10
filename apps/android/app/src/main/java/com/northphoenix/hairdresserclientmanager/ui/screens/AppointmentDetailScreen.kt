@@ -244,7 +244,7 @@ private fun AppointmentDetail(
                             ChoiceChip(
                                 stringResource(status.label),
                                 selected = appointment.status == status,
-                                onClick = { if (appointment.status != status) viewModel.setAppointmentStatus(appointment.id, status) },
+                                onClick = { viewModel.setAppointmentStatus(appointment.id, status) },
                             )
                         }
                     }
@@ -288,6 +288,7 @@ private fun AppointmentDetail(
                         ServiceBlock(
                             service = service,
                             clientName = appointment.participants.firstOrNull { it.clientId == service.clientId }?.name.takeIf { isGroup },
+                            busy = busy,
                             onDelete = { viewModel.deleteService(appointment.id, service.id) },
                             onAddFormula = { sheet = DetailSheet.Formula(service, null) },
                             onEditFormula = { sheet = DetailSheet.Formula(service, it) },
@@ -543,6 +544,7 @@ private fun ParticipantRow(
 private fun ServiceBlock(
     service: AppointmentService,
     clientName: String?,
+    busy: Boolean,
     onDelete: () -> Unit,
     onAddFormula: () -> Unit,
     onEditFormula: (ColorFormula) -> Unit,
@@ -556,7 +558,7 @@ private fun ServiceBlock(
                 }
             }
             Text(Money.format(service.priceCents), style = MaterialTheme.typography.titleMedium)
-            IconButton(onClick = onDelete) {
+            IconButton(onClick = onDelete, enabled = !busy) {
                 Icon(Icons.Rounded.DeleteOutline, contentDescription = stringResource(R.string.delete_appointment_service), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -809,6 +811,7 @@ private fun FormulaSheet(
                 onClick = { onDelete(existing.id) },
                 icon = Icons.Rounded.DeleteOutline,
                 danger = true,
+                enabled = !busy,
                 modifier = Modifier.align(Alignment.CenterHorizontally),
             )
         }

@@ -13,13 +13,15 @@ import com.northphoenix.hairdresserclientmanager.data.ApiException
 fun ApiException.messageRes(): Int =
     when {
         isNetwork -> R.string.network_error
+        outcomeUnknown -> R.string.error_outcome_unknown
         message == "Appointment must keep at least one Client." -> R.string.error_appointment_needs_client
         message == "Client has Services attached to this Appointment." -> R.string.error_client_has_services
         message == "End time must be after start time." -> R.string.appointment_end_before_start
         message == "Completed source Appointment not found." -> R.string.copy_services_empty
         code == "BAD_IMAGE" -> R.string.error_image_unreadable
         code == "UPLOAD_FAILED" || code == "UPLOAD_REJECTED" -> R.string.appointment_photo_upload_failed
-        code == "UNAUTHORIZED" -> R.string.error_session_ended
+        // Shown only after the sign-in provider confirmed the session is still alive; an ended one goes to sign-in.
+        isUnauthorized -> R.string.error_sign_in_rejected
         code == "NOT_FOUND" -> R.string.error_not_found
         code == "BAD_REQUEST" -> R.string.error_invalid_input
         else -> R.string.error_generic

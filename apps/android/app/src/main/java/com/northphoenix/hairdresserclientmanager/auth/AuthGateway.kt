@@ -23,6 +23,13 @@ interface AuthGateway {
 
     suspend fun signOut()
 
+    /**
+     * Asks the provider about the session after the API refused its token. True only when the
+     * provider has dropped the session, in which case [state] becomes [AuthState.SignedOut];
+     * a provider that cannot be reached has not ended anything.
+     */
+    suspend fun sessionEnded(): Boolean = false
+
     /** Retries provider start-up after [AuthState.Failed]. */
     fun retry() {}
 

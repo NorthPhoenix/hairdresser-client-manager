@@ -107,7 +107,9 @@
     <string name="error_image_unreadable">The selected image couldn\'t be read.</string>
     <string name="error_invalid_input">Check what you entered and try again.</string>
     <string name="error_not_found">That item wasn\'t found. Refresh and try again.</string>
+    <string name="error_outcome_unknown">The server didn\'t reply, so it\'s unclear whether this went through. Check before trying again.</string>
     <string name="error_session_ended">Your session has ended. Sign in again.</string>
+    <string name="error_sign_in_rejected">The server didn\'t accept your sign-in. Try again.</string>
     <string name="generate_share_image">Generate Share Image</string>
     <string name="home_appointments_title">Today and unresolved</string>
     <string name="home_empty_body">Nothing is scheduled today and no past Appointments need an outcome.</string>

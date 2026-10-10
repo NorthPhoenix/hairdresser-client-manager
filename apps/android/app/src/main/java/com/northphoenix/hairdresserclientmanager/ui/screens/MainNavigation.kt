@@ -41,6 +41,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -84,8 +85,8 @@ fun MainNavigation(viewModel: AppViewModel) {
         composable(Routes.MAIN) {
             MainScreen(viewModel, navController, openAppointment)
         }
-        composable(Routes.SERVICES) {
-            ServiceMenuScreen(viewModel, onBack = navController::popBackStack)
+        composable(Routes.SERVICES) { entry ->
+            ServiceMenuScreen(viewModel, onBack = { navController.from(entry) { popBackStack() } })
         }
         composable(
             Routes.APPOINTMENT,
@@ -98,7 +99,7 @@ fun MainNavigation(viewModel: AppViewModel) {
                 viewModel = viewModel,
                 appointmentId = entry.arguments?.getString("id").orEmpty(),
                 startsAt = entry.arguments?.getString("startsAt").orEmpty(),
-                onBack = navController::popBackStack,
+                onBack = { navController.from(entry) { popBackStack() } },
                 onOpenClient = { navController.navigate(Routes.client(it)) },
             )
         }
@@ -109,10 +110,12 @@ fun MainNavigation(viewModel: AppViewModel) {
             NewAppointmentScreen(
                 viewModel = viewModel,
                 initialDate = entry.arguments?.getString("date")?.let { runCatching { LocalDate.parse(it) }.getOrNull() },
-                onBack = navController::popBackStack,
+                onBack = { navController.from(entry) { popBackStack() } },
                 onCreated = { appointment ->
-                    navController.popBackStack()
-                    openAppointment(appointment.id, appointment.startsAt)
+                    navController.from(entry) {
+                        popBackStack()
+                        openAppointment(appointment.id, appointment.startsAt)
+                    }
                 },
             )
         }
@@ -123,10 +126,21 @@ fun MainNavigation(viewModel: AppViewModel) {
             ClientEditorScreen(
                 viewModel = viewModel,
                 clientId = entry.arguments?.getString("id"),
-                onBack = navController::popBackStack,
+                onBack = { navController.from(entry) { popBackStack() } },
                 onOpenAppointment = openAppointment,
             )
         }
+    }
+}
+
+/**
+ * Navigates from [entry]'s screen only while that screen is still the one on top. A callback that
+ * arrives after the Stylist has left the screen (a save that finishes late, a second tap on Back)
+ * would otherwise act on whatever screen is underneath.
+ */
+private fun NavHostController.from(entry: NavBackStackEntry, action: NavHostController.() -> Unit) {
+    if (currentBackStackEntry?.id == entry.id) {
+        action()
     }
 }
 
