@@ -27,9 +27,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
+import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.AppointmentCard
 import com.northphoenix.hairdresserclientmanager.ui.components.EmptyState
+import com.northphoenix.hairdresserclientmanager.ui.components.LoadFailed
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenPadding
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenTitle
 import com.northphoenix.hairdresserclientmanager.ui.components.Tag
@@ -41,7 +43,7 @@ import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String, String) -> Unit) {
     val format = LocalTimeFormat.current
     val appointments by viewModel.home.collectAsStateWithLifecycle()
-    val loaded by viewModel.loaded.collectAsStateWithLifecycle()
+    val load by viewModel.homeLoad.collectAsStateWithLifecycle()
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
     val today = format.today()
     val (unresolved, todays) = remember(appointments, today) {
@@ -64,12 +66,14 @@ fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String, String) -> 
                 )
             }
 
-            if (!loaded) {
-                item { LoadingRow() }
-            } else if (appointments.isEmpty()) {
-                item {
-                    EmptyState(Icons.Rounded.EventAvailable, stringResource(R.string.appointments_empty_title), body = stringResource(R.string.home_empty_body))
+            when (val state = load) {
+                is LoadState.Failed -> item { LoadFailed(state.message, onRetry = viewModel::retryLoad) }
+                LoadState.Loaded -> if (appointments.isEmpty()) {
+                    item {
+                        EmptyState(Icons.Rounded.EventAvailable, stringResource(R.string.appointments_empty_title), body = stringResource(R.string.home_empty_body))
+                    }
                 }
+                else -> item { LoadingRow() }
             }
 
             if (unresolved.isNotEmpty()) {
@@ -89,19 +93,22 @@ fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String, String) -> 
     }
 }
 
+/** [count] is null while the list is not loaded: a number, even 0, would say that it is. */
 @Composable
-fun ListSectionLabel(title: String, count: Int, modifier: Modifier = Modifier, warning: Boolean = false) {
+fun ListSectionLabel(title: String, count: Int?, modifier: Modifier = Modifier, warning: Boolean = false) {
     Row(
         modifier.fillMaxWidth().padding(top = 10.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(title, style = MaterialTheme.typography.headlineSmall)
-        Tag(
-            count.toString(),
-            content = if (warning) HcmColors.Warning else MaterialTheme.colorScheme.onSurfaceVariant,
-            container = if (warning) HcmColors.WarningSoft else MaterialTheme.colorScheme.surfaceVariant,
-        )
+        if (count != null) {
+            Tag(
+                count.toString(),
+                content = if (warning) HcmColors.Warning else MaterialTheme.colorScheme.onSurfaceVariant,
+                container = if (warning) HcmColors.WarningSoft else MaterialTheme.colorScheme.surfaceVariant,
+            )
+        }
     }
 }
 

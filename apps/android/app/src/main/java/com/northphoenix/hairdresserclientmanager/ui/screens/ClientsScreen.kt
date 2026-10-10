@@ -41,10 +41,12 @@ import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
+import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.components.Avatar
 import com.northphoenix.hairdresserclientmanager.ui.components.EmptyState
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmCard
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmTextField
+import com.northphoenix.hairdresserclientmanager.ui.components.LoadFailed
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenPadding
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenTitle
 
@@ -53,7 +55,7 @@ import com.northphoenix.hairdresserclientmanager.ui.components.ScreenTitle
 @Composable
 fun ClientsScreen(viewModel: AppViewModel, onOpenClient: (String) -> Unit) {
     val clients by viewModel.clients.collectAsStateWithLifecycle()
-    val loaded by viewModel.loaded.collectAsStateWithLifecycle()
+    val load by viewModel.clientsLoad.collectAsStateWithLifecycle()
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
     var search by rememberSaveable { mutableStateOf("") }
     val filtered = remember(clients, search) { ClientRules.filter(clients, search) }
@@ -68,11 +70,16 @@ fun ClientsScreen(viewModel: AppViewModel, onOpenClient: (String) -> Unit) {
                 ScreenTitle(title = stringResource(R.string.clients_title), modifier = Modifier.padding(bottom = 8.dp))
             }
 
-            if (!loaded) {
-                item { LoadingRow() }
-            } else if (clients.isEmpty()) {
-                item { EmptyState(Icons.Rounded.Group, stringResource(R.string.no_clients_title), body = stringResource(R.string.no_clients_body)) }
-            } else {
+            when (val state = load) {
+                is LoadState.Failed -> item { LoadFailed(state.message, onRetry = viewModel::retryLoad) }
+                LoadState.Loaded -> if (clients.isEmpty()) {
+                    item { EmptyState(Icons.Rounded.Group, stringResource(R.string.no_clients_title), body = stringResource(R.string.no_clients_body)) }
+                }
+                else -> item { LoadingRow() }
+            }
+
+            // Clients known before the list has loaded (one that was just created) are listed all the same.
+            if (clients.isNotEmpty()) {
                 item {
                     HcmTextField(
                         value = search,
@@ -91,7 +98,7 @@ fun ClientsScreen(viewModel: AppViewModel, onOpenClient: (String) -> Unit) {
                     )
                 }
 
-                if (filtered.isEmpty()) {
+                if (filtered.isEmpty() && load == LoadState.Loaded) {
                     item { EmptyState(Icons.Rounded.SearchOff, stringResource(R.string.no_client_results)) }
                 }
 

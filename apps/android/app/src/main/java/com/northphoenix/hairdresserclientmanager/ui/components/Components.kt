@@ -1,5 +1,6 @@
 package com.northphoenix.hairdresserclientmanager.ui.components
 
+import androidx.annotation.StringRes
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,6 +28,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -448,6 +452,32 @@ fun EmptyState(icon: ImageVector, title: String, modifier: Modifier = Modifier, 
 @Composable
 fun InlineEmpty(text: String, modifier: Modifier = Modifier) {
     Text(text, modifier = modifier, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+/** Stands where data that failed to load would be: why it failed and a way to try again. Never an empty state. */
+@Composable
+fun LoadFailed(@StringRes message: Int, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    EmptyState(Icons.Rounded.CloudOff, stringResource(R.string.load_failed_title), modifier, body = stringResource(message)) {
+        PrimaryButton(stringResource(R.string.retry), onClick = onRetry)
+    }
+}
+
+/** [LoadFailed] for the inside of a card or sheet. */
+@Composable
+fun InlineLoadFailed(@StringRes message: Int, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier) {
+        Text(stringResource(message), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+        // Pull the text button's own padding back so its label lines up with the message.
+        TextAction(stringResource(R.string.retry), onClick = onRetry, modifier = Modifier.offset(x = (-10).dp))
+    }
+}
+
+/** Stands where one item would be that the server no longer has, with the way back. */
+@Composable
+fun ItemMissing(title: String, body: String, onBack: () -> Unit, modifier: Modifier = Modifier) {
+    EmptyState(Icons.Rounded.SearchOff, title, modifier, body = body) {
+        SecondaryButton(stringResource(R.string.back), onClick = onBack)
+    }
 }
 
 @Composable

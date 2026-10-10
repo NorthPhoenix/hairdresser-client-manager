@@ -10,6 +10,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.auth.AuthGateway
 import com.northphoenix.hairdresserclientmanager.auth.AuthState
+import com.northphoenix.hairdresserclientmanager.auth.SessionCheck
 import com.northphoenix.hairdresserclientmanager.core.AppContainer
 import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.data.Appointment
@@ -31,16 +32,14 @@ import com.northphoenix.hairdresserclientmanager.domain.zoneOrSystem
 import com.northphoenix.hairdresserclientmanager.i18n.deviceLanguage
 import com.northphoenix.hairdresserclientmanager.i18n.AppLanguage
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
+import com.northphoenix.hairdresserclientmanager.i18n.refusedSignInMessage
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -97,14 +96,21 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
     // Locale-independent: only used here for day boundaries.
     private val clock: TimeFormat get() = TimeFormat(Locale.ROOT, zone.value)
 
+    // Each list comes with a load state. A screen says that a list is empty only when its state is Loaded.
     private val _clients = MutableStateFlow<List<ClientProfile>>(emptyList())
     val clients: StateFlow<List<ClientProfile>> = _clients.asStateFlow()
+    private val clientsLoading = LoadTracker()
+    val clientsLoad: StateFlow<LoadState> = clientsLoading.state
 
     private val _serviceMenu = MutableStateFlow<List<ServiceMenuItem>>(emptyList())
     val serviceMenu: StateFlow<List<ServiceMenuItem>> = _serviceMenu.asStateFlow()
+    private val serviceMenuLoading = LoadTracker()
+    val serviceMenuLoad: StateFlow<LoadState> = serviceMenuLoading.state
 
     private val _home = MutableStateFlow<List<Appointment>>(emptyList())
     val home: StateFlow<List<Appointment>> = _home.asStateFlow()
+    private val homeLoading = LoadTracker()
+    val homeLoad: StateFlow<LoadState> = homeLoading.state
 
     private val _calendarDate = MutableStateFlow(LocalDate.now())
     val calendarDate: StateFlow<LocalDate> = _calendarDate.asStateFlow()
@@ -112,25 +118,27 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
     private val _calendar = MutableStateFlow<List<Appointment>>(emptyList())
     val calendar: StateFlow<List<Appointment>> = _calendar.asStateFlow()
 
-    private val _calendarLoading = MutableStateFlow(false)
-    val calendarLoading: StateFlow<Boolean> = _calendarLoading.asStateFlow()
+    /** Of the day in [calendarDate]. Reset whenever that day changes, so it never speaks for another day. */
+    private val calendarLoading = LoadTracker()
+    val calendarLoad: StateFlow<LoadState> = calendarLoading.state
 
     private val _completedSources = MutableStateFlow<List<Appointment>>(emptyList())
     val completedSources: StateFlow<List<Appointment>> = _completedSources.asStateFlow()
+    private val completedSourcesLoading = LoadTracker()
+    val completedSourcesLoad: StateFlow<LoadState> = completedSourcesLoading.state
+
+    private val loadedAppointments = LoadedAppointments()
 
     /** Every Appointment seen so far, by id, so a detail screen can render whichever list it came from. */
-    private val _appointments = MutableStateFlow<Map<String, Appointment>>(emptyMap())
-    val appointments: StateFlow<Map<String, Appointment>> = _appointments.asStateFlow()
+    val appointments: StateFlow<Map<String, Appointment>> = loadedAppointments.loaded
 
-    private val _loaded = MutableStateFlow(false)
-
-    /** False until the first full load after sign-in finishes, so lists can show a spinner instead of "empty". */
-    val loaded: StateFlow<Boolean> = _loaded.asStateFlow()
+    /** Why an Appointment that a screen asked for is not in [appointments]: loading, failed to load or gone. */
+    val absentAppointments: StateFlow<Map<String, LoadState>> = loadedAppointments.absent
 
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
 
-    private val actions = ActionRunner(viewModelScope, ::report)
+    private val actions = ActionRunner(viewModelScope, ::report, reloadAll = ::loadAll)
 
     /** True while any mutation is in flight. */
     val busy: StateFlow<Boolean> = actions.busy
@@ -165,8 +173,9 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
     }
 
     /**
-     * Shows a failure. When the API refused the session, the sign-in provider is asked first: an
-     * ended session takes the Stylist to sign-in (see [sessionEnded]) instead of showing a notice.
+     * Shows a failure. When the API refused the sign-in, the sign-in provider is asked first: an
+     * ended session takes the Stylist to sign-in (see [sessionEnded]) instead of showing a notice,
+     * and a provider that cannot be reached is named as the cause.
      */
     private fun report(error: ApiException) {
         if (!error.isUnauthorized) {
@@ -174,20 +183,16 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
             return
         }
 
-        viewModelScope.launch {
-            if (!providerEndedSession()) {
-                notify(error.messageRes(), isError = true)
-            }
-        }
+        viewModelScope.launch { checkSession().refusedSignInMessage()?.let { notify(it, isError = true) } }
     }
 
-    private suspend fun providerEndedSession(): Boolean =
+    private suspend fun checkSession(): SessionCheck =
         try {
-            auth.sessionEnded()
+            auth.checkSession()
         } catch (error: CancellationException) {
             throw error
         } catch (_: Exception) {
-            false
+            SessionCheck.ALIVE
         }
 
     /** Runs [block] and reports whatever goes wrong in it, so no failure can end a view-model coroutine and the app with it. */
@@ -211,8 +216,9 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
         _home.value = emptyList()
         _calendar.value = emptyList()
         _completedSources.value = emptyList()
-        _appointments.value = emptyMap()
-        _loaded.value = false
+        // Resetting also drops whatever is still on its way for the previous Stylist.
+        listOf(clientsLoading, serviceMenuLoading, homeLoading, calendarLoading, completedSourcesLoading).forEach(LoadTracker::reset)
+        loadedAppointments.clear()
     }
 
     // --- loading ---
@@ -239,11 +245,10 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
                 throw error
             } catch (error: Exception) {
                 val failure = error.toApiException()
+                // No message for an ended session: it goes to sign-in, and the auth state change replaces this screen.
+                val message = if (failure.isUnauthorized) checkSession().refusedSignInMessage() else failure.messageRes()
 
-                // An ended session goes to sign-in instead: the auth state change replaces this screen.
-                if (!(failure.isUnauthorized && providerEndedSession())) {
-                    _bootstrap.value = BootstrapState.Failed(failure.messageRes())
-                }
+                message?.let { _bootstrap.value = BootstrapState.Failed(it) }
             }
         }
     }
@@ -259,38 +264,52 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
         }
     }
 
+    /** 'Try again' under a list that failed to load. The list has a spinner of its own, so the pull-to-refresh one stays out of it. */
+    fun retryLoad() {
+        viewModelScope.launch { refreshAll() }
+    }
+
+    /**
+     * The app is in front again, and what it shows may have been changed elsewhere meanwhile.
+     * Nobody asked for this reload, so it fails quietly and what was on screen stays.
+     */
+    fun refreshOnReturn() {
+        if (_stylist.value?.onboardingComplete == true) {
+            viewModelScope.launch { actions.reloadWithRetry(::loadAll) }
+        }
+    }
+
     private suspend fun refreshAll() = reporting { loadAll() }
 
-    private suspend fun loadAll() {
-        coroutineScope {
-            listOf(
-                async { _clients.value = api.listClients() },
-                async { _serviceMenu.value = api.listServiceMenu() },
-                async { loadAppointmentLists() },
-            ).awaitAll()
+    private suspend fun loadAll() = together(::loadClients, ::loadServiceMenu, ::loadAppointmentLists)
+
+    private suspend fun loadClients() = clientsLoading.load(api::listClients) { _clients.value = it }
+
+    private suspend fun loadServiceMenu() = serviceMenuLoading.load(api::listServiceMenu) { _serviceMenu.value = it }
+
+    private suspend fun loadAppointmentLists() = together(::loadHome, ::loadCalendarDay, ::loadCompletedSources)
+
+    private suspend fun loadHome() {
+        val (start, end) = clock.run { dayRange(today()) }
+
+        homeLoading.load({ api.homeAppointments(start, end) }) { appointments ->
+            _home.value = appointments
+            loadedAppointments.remember(appointments)
         }
-        _loaded.value = true
     }
 
-    private suspend fun loadAppointmentLists() =
-        coroutineScope {
-            val format = clock
-            val (todayStart, todayEnd) = format.dayRange(format.today())
-            val (dayStart, dayEnd) = format.dayRange(_calendarDate.value)
-            val home = async { api.homeAppointments(todayStart, todayEnd) }
-            val calendar = async { api.listAppointments(dayStart, dayEnd) }
-            val completed = async { api.completedSources() }
+    /** Loads the day in [calendarDate]. What arrives after the Stylist has moved on to another day is dropped. */
+    private suspend fun loadCalendarDay() {
+        val (start, end) = clock.dayRange(_calendarDate.value)
 
-            _home.value = home.await()
-            _calendar.value = calendar.await()
-            _completedSources.value = completed.await()
-            // The completed-sources projection omits photos and phone numbers, so it is not cached for detail screens.
-            remember(_home.value + _calendar.value)
+        calendarLoading.load({ api.listAppointments(start, end) }) { appointments ->
+            _calendar.value = appointments
+            loadedAppointments.remember(appointments)
         }
-
-    private fun remember(appointments: List<Appointment>) {
-        _appointments.update { cache -> cache + appointments.associateBy { it.id } }
     }
+
+    // The completed-sources projection omits photos and phone numbers, so it is not kept for detail screens.
+    private suspend fun loadCompletedSources() = completedSourcesLoading.load(api::completedSources) { _completedSources.value = it }
 
     /** Applies a change the server has just accepted to the loaded copies of an Appointment. */
     private fun updateLoaded(id: String, change: (Appointment) -> Appointment) {
@@ -298,7 +317,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
 
         _home.update(changed)
         _calendar.update(changed)
-        _appointments.update { cache -> cache[id]?.let { cache + (id to change(it)) } ?: cache }
+        loadedAppointments.update(id, change)
     }
 
     /** Drops an Appointment the server has just deleted from everything loaded. */
@@ -308,64 +327,53 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
         _home.update(without)
         _calendar.update(without)
         _completedSources.update(without)
-        _appointments.update { it - id }
+        loadedAppointments.forget(id)
     }
 
     /**
-     * Refetches one Appointment. The API has no get-by-id, so this asks for the
-     * one-millisecond range that starts at the Appointment's own start time.
+     * Fetches one Appointment again. The API has no get-by-id, so this asks for the one-millisecond
+     * range that starts at the Appointment's own start time: the one of the loaded copy, or
+     * [startsAt] for an Appointment that is not loaded. An Appointment that is not found there
+     * counts as gone, so a change of the start time has to reach the loaded copy before a reload.
      */
-    private suspend fun reloadAppointment(id: String) {
-        val startsAt = _appointments.value[id]?.startsAt ?: return
-        val start = Instant.parse(startsAt)
-        val match = api.listAppointments(start, start.plusMillis(1)).firstOrNull { it.id == id }
+    private suspend fun reloadAppointment(id: String, startsAt: String = "") =
+        loadedAppointments.reload(id) {
+            val start = (loadedAppointments[id]?.startsAt ?: startsAt).takeIf { it.isNotEmpty() }?.let(Instant::parse)
 
-        _appointments.update { cache -> if (match != null) cache + (id to match) else cache - id }
-    }
-
-    private suspend fun reloadAppointmentAndLists(id: String) {
-        coroutineScope {
-            listOf(async { loadAppointmentLists() }, async { reloadAppointment(id) }).awaitAll()
-        }
-    }
-
-    /** Opens an Appointment that may not be in any loaded list, such as one from a Client's history. */
-    fun ensureAppointment(id: String, startsAt: String) {
-        if (_appointments.value.containsKey(id)) {
-            return
+            start?.let { api.listAppointments(it, it.plusMillis(1)).firstOrNull { appointment -> appointment.id == id } }
         }
 
+    private suspend fun reloadAppointmentAndLists(id: String) = together(::loadAppointmentLists, { reloadAppointment(id) })
+
+    /**
+     * Called by the Appointment screen each time it comes into view, and by its 'Try again'.
+     * A loaded copy is shown at once and refreshed behind it; a refresh nobody asked for fails quietly.
+     * Without a copy the screen shows how the load went (see [absentAppointments]).
+     */
+    fun loadAppointment(id: String, startsAt: String) {
         viewModelScope.launch {
-            reporting {
-                val start = Instant.parse(startsAt)
-                api.listAppointments(start, start.plusMillis(1)).firstOrNull { it.id == id }?.let { remember(listOf(it)) }
-            }
-        }
-    }
-
-    fun setCalendarDate(date: LocalDate) {
-        if (date == _calendarDate.value) {
-            return
-        }
-
-        _calendarDate.value = date
-        _calendar.value = emptyList()
-        calendarJob?.cancel()
-        calendarJob = viewModelScope.launch {
-            _calendarLoading.value = true
             try {
-                val (start, end) = clock.dayRange(date)
-                val appointments = api.listAppointments(start, end)
-                _calendar.value = appointments
-                remember(appointments)
+                reloadAppointment(id, startsAt)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                report(error.toApiException())
-            } finally {
-                _calendarLoading.value = false
+                if (loadedAppointments[id] == null) {
+                    report(error.toApiException())
+                }
             }
         }
+    }
+
+    /** Shows [date] in the Calendar. Choosing the day that is already shown loads it again, which is also the retry after a failed load. */
+    fun setCalendarDate(date: LocalDate) {
+        if (date != _calendarDate.value) {
+            _calendarDate.value = date
+            _calendar.value = emptyList()
+            calendarLoading.reset()
+        }
+
+        calendarJob?.cancel()
+        calendarJob = viewModelScope.launch { reporting { loadCalendarDay() } }
     }
 
     // --- mutation plumbing ---
@@ -394,7 +402,10 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
         @StringRes successNotice: Int? = null,
         onSuccess: () -> Unit = {},
         change: suspend () -> Unit,
-    ) = act(key, successNotice, onSuccess = { onSuccess() }, reload = { reloadAppointmentAndLists(id) }, change = change)
+    ) = act(key, successNotice, onSuccess = { onSuccess() }, reload = { reloadAppointmentAndLists(id) }) {
+        change()
+        loadedAppointments.changed(id)
+    }
 
     // --- settings ---
 
@@ -461,58 +472,83 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
             key = "saveClient:${id ?: "new"}",
             successNotice = R.string.client_saved,
             onSuccess = onSuccess,
-            reload = {
-                coroutineScope {
-                    listOf(
-                        async { _clients.value = api.listClients() },
-                        // Names and phone numbers shown on Appointments come from the Client.
-                        async { if (id != null) loadAppointmentLists() },
-                    ).awaitAll()
-                }
-            },
+            reload = { together(::loadClients, { if (id != null) loadAppointmentLists() }) },
         ) {
-            api.saveClient(id, name.trim(), language, phone.trim(), email.trim(), address.trim(), note.trim())
-                .also { saved -> _clients.update { it.withSaved(saved) } }
+            api.saveClient(id, name.trim(), language, phone.trim(), email.trim(), address.trim(), note.trim()).also { saved ->
+                _clients.update { it.withSaved(saved) }
+                // Names and phone numbers shown on Appointments come from the Client: every loaded
+                // copy gets them now, on whatever day it is, so no reminder goes to the old number.
+                _home.update { appointments -> appointments.map { it.withClient(saved) } }
+                _calendar.update { appointments -> appointments.map { it.withClient(saved) } }
+                loadedAppointments.updateAll { it.withClient(saved) }
+            }
         }
     }
 
-    fun deleteClient(id: String, onSuccess: () -> Unit) =
+    fun deleteClient(id: String, onSuccess: () -> Unit) {
+        // The loaded Appointments this Client was in: they have changed or gone with them, on whatever day they are.
+        var affected = emptyList<Appointment>()
+
         act(
             key = "deleteClient:$id",
             successNotice = R.string.client_deleted,
             onSuccess = { onSuccess() },
-            reload = {
-                loadAll()
-                // Appointments this Client was in have changed or gone with them: drop the copies that were not just reloaded.
-                val reloaded = (_home.value + _calendar.value).map { it.id }.toSet()
-                _appointments.update { cache ->
-                    cache.filterValues { appointment -> appointment.id in reloaded || appointment.participants.none { it.clientId == id } }
-                }
-            },
+            reload = { together(::loadAll, { affected.forEach { reloadAppointment(it.id, it.startsAt) } }) },
         ) {
             api.deleteClient(id)
             _clients.update { clients -> clients.filterNot { it.id == id } }
+            affected = appointments.value.values.filter { appointment -> appointment.participants.any { it.clientId == id } }
+            // An Appointment left without Clients is deleted with its last one. The reload checks each of them again.
+            affected.filter { appointment -> appointment.participants.all { it.clientId == id } }.forEach { forgetAppointment(it.id) }
         }
+    }
 
     fun createProfileShare(clientId: String) =
-        act("createProfileShare:$clientId", reload = { _clients.value = api.listClients() }) { api.createProfileShare(clientId) }
+        act("createProfileShare:$clientId", reload = ::loadClients) { api.createProfileShare(clientId) }
 
     fun revokeProfileShare(clientId: String) =
-        act("revokeProfileShare:$clientId", reload = { _clients.value = api.listClients() }) { api.revokeProfileShare(clientId) }
+        act("revokeProfileShare:$clientId", reload = ::loadClients) { api.revokeProfileShare(clientId) }
 
     fun buildShareImage(clientId: String, language: Language, onReady: (String) -> Unit) =
         act("buildShareImage:$clientId:$language", onSuccess = { image: ShareImage -> onReady(image.svg) }) {
             api.buildProfileShareImage(clientId, language)
         }
 
-    suspend fun clientHistory(clientId: String): List<ClientHistoryEntry>? =
+    /**
+     * For a Client Profile whose Client is not in the list. The list may be older than the Client,
+     * or the Client may have been deleted: the list is loaded again before the profile says which.
+     * [LoadState.Loaded] means the Client is in [clients] now.
+     */
+    suspend fun findClient(id: String): LoadState =
+        try {
+            loadClients()
+            if (_clients.value.any { it.id == id }) LoadState.Loaded else LoadState.Missing
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            val failure = error.toApiException()
+
+            report(failure)
+            LoadState.Failed(failure.messageRes())
+        }
+
+    /**
+     * A Client's Appointment history. A failure is thrown for the profile to show in the history's
+     * place. It is also reported as a notice, unless history that is already on screen was only
+     * being [refreshing]: that fails quietly.
+     */
+    suspend fun clientHistory(clientId: String, refreshing: Boolean): List<ClientHistoryEntry> =
         try {
             api.clientAppointmentHistory(clientId)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            report(error.toApiException())
-            null
+            val failure = error.toApiException()
+
+            if (!refreshing) {
+                report(failure)
+            }
+            throw failure
         }
 
     // --- service menu ---
@@ -522,7 +558,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
             key = "saveServiceMenuItem:${id ?: "new"}",
             successNotice = R.string.service_menu_item_saved,
             onSuccess = { onSuccess() },
-            reload = { _serviceMenu.value = api.listServiceMenu() },
+            reload = ::loadServiceMenu,
         ) {
             api.saveServiceMenuItem(id, name.trim(), defaultPriceCents)
         }
@@ -532,7 +568,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
             key = "deleteServiceMenuItem:$id",
             successNotice = R.string.service_menu_item_deleted,
             onSuccess = { onSuccess() },
-            reload = { _serviceMenu.value = api.listServiceMenu() },
+            reload = ::loadServiceMenu,
         ) {
             api.deleteServiceMenuItem(id)
         }
@@ -554,15 +590,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
             notify(if (result.conflicts.isEmpty()) R.string.appointment_saved else R.string.appointment_conflict_warning)
             onSuccess(result)
         },
-        reload = {
-            coroutineScope {
-                listOf(
-                    async { loadAppointmentLists() },
-                    // An inline Client is created on the server as part of this call.
-                    async { if (primaryClientId == null) _clients.value = api.listClients() },
-                ).awaitAll()
-            }
-        },
+        // An inline Client is created on the server as part of this call.
+        reload = { together(::loadAppointmentLists, { if (primaryClientId == null) loadClients() }) },
     ) {
         api.createAppointment(
             primaryClientId = primaryClientId,
@@ -572,14 +601,14 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
             endsAt = endsAt,
             locationType = locationType,
             customLocationAddress = customLocationAddress?.trim(),
-        ).also { remember(listOf(it.appointment)) }
+        ).also { loadedAppointments.remember(listOf(it.appointment)) }
     }
 
     /** Status taps are saved one at a time in the order they were made, so the last tap is the status that stays. */
     fun setAppointmentStatus(id: String, status: AppointmentStatus) {
         // Compared with the status being saved rather than the one on screen: tapping back to the
         // shown status while another one is on its way is still the last tap.
-        if (status == (statusChanges.pending(id) ?: _appointments.value[id]?.status)) {
+        if (status == (statusChanges.pending(id) ?: loadedAppointments[id]?.status)) {
             return
         }
         // While a status request is in flight it is followed by one for this tap.
@@ -754,4 +783,25 @@ internal fun List<ClientProfile>.withSaved(saved: ClientProfile): List<ClientPro
     val known = firstOrNull { it.id == saved.id }
 
     return listOf(saved.copy(activeProfileShare = saved.activeProfileShare ?: known?.activeProfileShare)) + filterNot { it.id == saved.id }
+}
+
+/**
+ * The Appointment with what it repeats of a Client replaced by that Client as just saved: the name,
+ * phone, language and address of their row, and the Appointment's primary Client name.
+ */
+internal fun Appointment.withClient(saved: ClientProfile): Appointment {
+    if (participants.none { it.clientId == saved.id } && primaryClientId != saved.id) {
+        return this
+    }
+
+    return copy(
+        primaryClientName = if (primaryClientId == saved.id) saved.name else primaryClientName,
+        participants = participants.map { participant ->
+            if (participant.clientId == saved.id) {
+                participant.copy(name = saved.name, phone = saved.phone, language = saved.language, address = saved.address)
+            } else {
+                participant
+            }
+        },
+    )
 }

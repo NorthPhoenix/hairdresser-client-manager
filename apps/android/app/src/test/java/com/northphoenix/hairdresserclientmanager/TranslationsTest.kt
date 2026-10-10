@@ -1,12 +1,19 @@
 package com.northphoenix.hairdresserclientmanager
 
+import com.northphoenix.hairdresserclientmanager.auth.AuthState
+import com.northphoenix.hairdresserclientmanager.auth.SessionCheck
 import com.northphoenix.hairdresserclientmanager.data.ApiException
+import com.northphoenix.hairdresserclientmanager.data.isConnectionFailure
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
+import com.northphoenix.hairdresserclientmanager.i18n.refusedSignInMessage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import javax.xml.parsers.DocumentBuilderFactory
 
 /** Guards the two string files: every translatable English string needs a matching Russian one. */
@@ -70,5 +77,30 @@ class TranslationsTest {
         // A change that was sent but never answered is not "can't reach the server".
         assertEquals(R.string.error_outcome_unknown, ApiException("No reply from the server.", code = ApiException.NO_REPLY).messageRes())
         assertEquals(R.string.error_generic, ApiException("boom").messageRes())
+    }
+
+    @Test
+    fun `a refused sign-in is explained by what the sign-in provider says about the session`() {
+        // The provider could not issue a token, so the request went out without one. Nothing has ended.
+        assertEquals(R.string.error_sign_in_unreachable, SessionCheck.UNREACHABLE.refusedSignInMessage())
+        assertEquals(R.string.error_sign_in_rejected, SessionCheck.ALIVE.refusedSignInMessage())
+        // An ended session is explained on the sign-in screen, not in a message here.
+        assertNull(SessionCheck.ENDED.refusedSignInMessage())
+
+        // Only the sign-in banner may say that the session has ended.
+        assertFalse(SessionCheck.entries.any { it.refusedSignInMessage() == R.string.error_session_ended })
+    }
+
+    @Test
+    fun `a sign-in provider that cannot start for lack of a connection says so`() {
+        // What Clerk reports when it is started offline, as it is thrown and as the cause of another failure.
+        val offline = UnknownHostException("Unable to resolve host \"clerk.example.dev\"")
+
+        assertTrue(offline.isConnectionFailure())
+        assertTrue(IllegalStateException("Failed to load client", SocketTimeoutException("timeout")).isConnectionFailure())
+        assertFalse(IllegalStateException("Invalid Clerk publishable key.").isConnectionFailure())
+
+        assertEquals(R.string.network_error, AuthState.Failed("Unable to resolve host", isNetwork = offline.isConnectionFailure()).messageRes())
+        assertEquals(R.string.error_generic, AuthState.Failed("Invalid Clerk publishable key.").messageRes())
     }
 }

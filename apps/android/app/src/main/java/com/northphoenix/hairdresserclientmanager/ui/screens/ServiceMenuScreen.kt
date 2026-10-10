@@ -31,10 +31,12 @@ import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.ServiceMenuItem
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
+import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.components.EmptyState
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmBottomSheet
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmCard
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmTextField
+import com.northphoenix.hairdresserclientmanager.ui.components.LoadFailed
 import com.northphoenix.hairdresserclientmanager.ui.components.PrimaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenPadding
 import com.northphoenix.hairdresserclientmanager.ui.components.SubScreen
@@ -50,6 +52,7 @@ private sealed interface MenuEditor {
 @Composable
 fun ServiceMenuScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     val items by viewModel.serviceMenu.collectAsStateWithLifecycle()
+    val load by viewModel.serviceMenuLoad.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     var editor by remember { mutableStateOf<MenuEditor?>(null) }
 
@@ -75,8 +78,12 @@ fun ServiceMenuScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                 )
             }
 
-            if (items.isEmpty()) {
-                item { EmptyState(Icons.Rounded.ContentCut, stringResource(R.string.service_menu_empty_title), body = stringResource(R.string.service_menu_empty_body)) }
+            when (val state = load) {
+                is LoadState.Failed -> item { LoadFailed(state.message, onRetry = viewModel::retryLoad) }
+                LoadState.Loaded -> if (items.isEmpty()) {
+                    item { EmptyState(Icons.Rounded.ContentCut, stringResource(R.string.service_menu_empty_title), body = stringResource(R.string.service_menu_empty_body)) }
+                }
+                else -> item { LoadingRow() }
             }
 
             items(items, key = { it.id }) { item ->

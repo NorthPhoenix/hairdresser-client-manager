@@ -22,6 +22,9 @@ import kotlinx.coroutines.sync.withLock
  *   a reload that fails is retried quietly instead of being reported as a failed change.
  * - When the request was sent but never answered ([ApiException.outcomeUnknown]) the failure is
  *   reported and the reload still runs, so the screen shows whether the change was saved.
+ * - When the server says that something the change refers to no longer exists
+ *   ([ApiException.isNotFound]) the failure is reported and everything is reloaded, so what is
+ *   gone leaves the screen.
  * - Whatever is thrown is reported through [onFailure]. Nothing escapes to kill the app, and
  *   [busy] always clears.
  *
@@ -31,6 +34,8 @@ internal class ActionRunner(
     private val scope: CoroutineScope,
     private val onFailure: (ApiException) -> Unit,
     private val reloadRetryDelaysMillis: List<Long> = listOf(3_000, 10_000, 30_000),
+    /** Reloads everything a screen can show. A change's own reload covers only what that change touches. */
+    private val reloadAll: suspend () -> Unit = {},
 ) {
     private val running = mutableSetOf<String>()
     private var pending = 0
@@ -64,8 +69,13 @@ internal class ActionRunner(
                 }
 
                 failure?.let(onFailure)
-                if (saved || failure?.outcomeUnknown == true) {
-                    reloadWithRetry(reload)
+                when {
+                    saved || failure?.outcomeUnknown == true -> reloadWithRetry(reload)
+                    // The screen shows something the server no longer has, and the reply does not say what.
+                    failure?.isNotFound == true -> reloadWithRetry {
+                        reloadAll()
+                        reload()
+                    }
                 }
             } finally {
                 key?.let(running::remove)

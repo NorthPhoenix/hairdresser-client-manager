@@ -11,7 +11,20 @@ sealed interface AuthState {
 
     data class SignedIn(val userId: String, val email: String) : AuthState
 
-    data class Failed(val message: String) : AuthState
+    /** The provider did not start. [isNetwork] means it could not be reached, as opposed to a broken setup. */
+    data class Failed(val message: String, val isNetwork: Boolean = false) : AuthState
+}
+
+/** What the sign-in provider says about the session after the API refused its token. */
+enum class SessionCheck {
+    /** The provider has dropped the session, and [AuthGateway.state] becomes [AuthState.SignedOut]. */
+    ENDED,
+
+    /** The provider still issues tokens for the session. */
+    ALIVE,
+
+    /** The provider could not be asked. It has not ended anything, and it is why the request had no valid token. */
+    UNREACHABLE,
 }
 
 /** The app's only dependency on an identity provider. Clerk in production. */
@@ -23,12 +36,8 @@ interface AuthGateway {
 
     suspend fun signOut()
 
-    /**
-     * Asks the provider about the session after the API refused its token. True only when the
-     * provider has dropped the session, in which case [state] becomes [AuthState.SignedOut];
-     * a provider that cannot be reached has not ended anything.
-     */
-    suspend fun sessionEnded(): Boolean = false
+    /** Asks the provider about the session after the API refused its token. */
+    suspend fun checkSession(): SessionCheck = SessionCheck.ALIVE
 
     /** Retries provider start-up after [AuthState.Failed]. */
     fun retry() {}

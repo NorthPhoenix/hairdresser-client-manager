@@ -2,6 +2,8 @@ package com.northphoenix.hairdresserclientmanager.i18n
 
 import androidx.annotation.StringRes
 import com.northphoenix.hairdresserclientmanager.R
+import com.northphoenix.hairdresserclientmanager.auth.AuthState
+import com.northphoenix.hairdresserclientmanager.auth.SessionCheck
 import com.northphoenix.hairdresserclientmanager.data.ApiException
 
 /**
@@ -20,9 +22,27 @@ fun ApiException.messageRes(): Int =
         message == "Completed source Appointment not found." -> R.string.copy_services_empty
         code == "BAD_IMAGE" -> R.string.error_image_unreadable
         code == "UPLOAD_FAILED" || code == "UPLOAD_REJECTED" -> R.string.appointment_photo_upload_failed
-        // Shown only after the sign-in provider confirmed the session is still alive; an ended one goes to sign-in.
+        // What a refused sign-in really means is for the sign-in provider to say: see refusedSignInMessage.
         isUnauthorized -> R.string.error_sign_in_rejected
-        code == "NOT_FOUND" -> R.string.error_not_found
+        isNotFound -> R.string.error_not_found
         code == "BAD_REQUEST" -> R.string.error_invalid_input
         else -> R.string.error_generic
     }
+
+/**
+ * What to say after the API refused the sign-in ([ApiException.isUnauthorized]), once the sign-in
+ * provider has been asked about the session. Null when the session has ended: the sign-in screen
+ * appears and says so itself.
+ */
+@StringRes
+fun SessionCheck.refusedSignInMessage(): Int? =
+    when (this) {
+        SessionCheck.ENDED -> null
+        SessionCheck.ALIVE -> R.string.error_sign_in_rejected
+        // Nothing has ended, so nothing here may tell the Stylist to sign in again.
+        SessionCheck.UNREACHABLE -> R.string.error_sign_in_unreachable
+    }
+
+/** Why the sign-in provider did not start. Its own text is technical English, so only the kind of failure is shown. */
+@StringRes
+fun AuthState.Failed.messageRes(): Int = if (isNetwork) R.string.network_error else R.string.error_generic

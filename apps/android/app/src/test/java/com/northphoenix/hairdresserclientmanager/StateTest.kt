@@ -2,11 +2,18 @@ package com.northphoenix.hairdresserclientmanager
 
 import com.northphoenix.hairdresserclientmanager.auth.AuthState
 import com.northphoenix.hairdresserclientmanager.data.ApiException
+import com.northphoenix.hairdresserclientmanager.data.Appointment
+import com.northphoenix.hairdresserclientmanager.data.AppointmentParticipant
+import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.Language
+import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.data.ProfileShare
+import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.state.LatestWins
+import com.northphoenix.hairdresserclientmanager.state.LoadedAppointments
 import com.northphoenix.hairdresserclientmanager.state.SessionWatch
+import com.northphoenix.hairdresserclientmanager.state.withClient
 import com.northphoenix.hairdresserclientmanager.state.withSaved
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -195,5 +202,69 @@ class StateTest {
         assertEquals(listOf("c2", "c1"), clients.map { it.id })
         assertEquals("Olga Petrova", clients.first().name)
         assertEquals(share, clients.first().activeProfileShare)
+    }
+
+    // --- a saved Client on the Appointments that are already loaded ---
+
+    private fun participant(clientId: String, name: String, phone: String, isPrimary: Boolean = false) =
+        AppointmentParticipant(clientId = clientId, name = name, phone = phone, language = Language.RU, isPrimary = isPrimary, subtotalCents = 4500)
+
+    private fun appointment(id: String, primary: AppointmentParticipant, vararg others: AppointmentParticipant) =
+        Appointment(
+            id = id,
+            primaryClientId = primary.clientId,
+            primaryClientName = primary.name,
+            participants = listOf(primary) + others,
+            startsAt = "2026-10-14T15:00:00.000Z",
+            status = AppointmentStatus.SCHEDULED,
+            locationType = LocationType.IN_SALON,
+        )
+
+    @Test
+    fun `a saved Client's new phone is on every loaded Appointment they are in`() {
+        val appointments = LoadedAppointments()
+        val phoneTest = participant("c1", "Phone Test", "5550001", isPrimary = true)
+        val other = participant("c2", "Carol Other", "5550100")
+
+        // One opened from the Client's history, one as an additional Client, one without them.
+        appointments.remember(
+            listOf(
+                appointment("next-week", phoneTest),
+                appointment("group", other.copy(isPrimary = true), phoneTest.copy(isPrimary = false)),
+                appointment("unrelated", other.copy(isPrimary = true)),
+            ),
+        )
+        val unrelated = appointments["unrelated"]
+
+        val saved = ClientProfile(id = "c1", name = "Phone Test", language = Language.EN, phone = "5550002", address = "1 New St")
+        appointments.updateAll { it.withClient(saved) }
+
+        // The SMS reminder goes to the primary Client's phone, in their language.
+        val recipient = appointments["next-week"]!!.participants.single { it.isPrimary }
+        assertEquals("5550002", recipient.phone)
+        assertEquals(Language.EN, recipient.language)
+        assertEquals("1 New St", recipient.address)
+        assertEquals("5550002", ClientReminder.recipient(recipient.phone))
+
+        val inGroup = appointments["group"]!!.participants
+        assertEquals(listOf("5550100", "5550002"), inGroup.map { it.phone })
+        assertEquals("Carol Other", appointments["group"]!!.primaryClientName)
+        // What the Appointment itself holds about the Client stays.
+        assertEquals(listOf(4500, 4500), inGroup.map { it.subtotalCents })
+        assertFalse(inGroup.last().isPrimary)
+
+        assertTrue(unrelated === appointments["unrelated"])
+    }
+
+    @Test
+    fun `a renamed primary Client is renamed on their Appointments`() {
+        val before = appointment("a1", participant("c1", "Olga", "5550001", isPrimary = true), participant("c2", "Anna", "5550100"))
+
+        val after = before.withClient(ClientProfile(id = "c1", name = "Olga Petrova", language = Language.RU, phone = "5550001"))
+
+        assertEquals("Olga Petrova", after.primaryClientName)
+        assertEquals(listOf("Olga Petrova", "Anna"), after.participants.map { it.name })
+        // Another Client's save changes nothing here.
+        assertEquals(before, before.withClient(ClientProfile(id = "c9", name = "Someone Else", language = Language.RU)))
     }
 }

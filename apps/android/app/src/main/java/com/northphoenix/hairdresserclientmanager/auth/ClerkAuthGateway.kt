@@ -5,11 +5,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.clerk.api.Clerk
 import com.clerk.api.ClerkConfigurationOptions
+import com.clerk.api.network.serialization.ClerkResult
 import com.clerk.api.network.serialization.successOrNull
 import com.clerk.api.session.GetTokenOptions
 import com.clerk.ui.auth.AuthMode
 import com.clerk.ui.auth.AuthView
 import com.northphoenix.hairdresserclientmanager.BuildConfig
+import com.northphoenix.hairdresserclientmanager.data.isConnectionFailure
 import com.northphoenix.hairdresserclientmanager.ui.theme.hcmClerkTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,8 +42,12 @@ class ClerkAuthGateway(
         ) { failure, initialized, initializationError, authComplete, user ->
             when {
                 failure != null -> AuthState.Failed(failure)
+                // Clerk hands over the failure of its own start-up request as it was thrown.
                 !initialized && initializationError != null ->
-                    AuthState.Failed(initializationError.message ?: "Clerk failed to start.")
+                    AuthState.Failed(
+                        initializationError.message ?: "Clerk failed to start.",
+                        isNetwork = initializationError.isConnectionFailure(),
+                    )
                 !initialized -> AuthState.Loading
                 authComplete && user != null ->
                     AuthState.SignedIn(userId = user.id, email = user.primaryEmailAddress?.emailAddress.orEmpty())
@@ -74,12 +80,18 @@ class ClerkAuthGateway(
         Clerk.auth.signOut()
     }
 
-    override suspend fun sessionEnded(): Boolean {
+    override suspend fun checkSession(): SessionCheck {
         // Skipping the cache makes Clerk ask its servers for a token. Clerk itself drops a session
         // that can no longer issue one; any other failure leaves the session in place.
-        Clerk.auth.getToken(GetTokenOptions(skipCache = true))
+        val token = Clerk.auth.getToken(GetTokenOptions(skipCache = true))
 
-        return Clerk.session == null
+        return when {
+            Clerk.session == null -> SessionCheck.ENDED
+            token is ClerkResult.Success<*> -> SessionCheck.ALIVE
+            // No token and the session is still there: Clerk did not answer. That is also why the
+            // refused request went out without a token (see token()).
+            else -> SessionCheck.UNREACHABLE
+        }
     }
 
     @Composable

@@ -40,11 +40,13 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
+import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.AppointmentCard
 import com.northphoenix.hairdresserclientmanager.ui.components.CircleIconButton
 import com.northphoenix.hairdresserclientmanager.ui.components.EmptyState
 import com.northphoenix.hairdresserclientmanager.ui.components.Kicker
+import com.northphoenix.hairdresserclientmanager.ui.components.LoadFailed
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenPadding
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 import java.time.Instant
@@ -60,8 +62,7 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String, String) 
     val locale = format.locale
     val selected by viewModel.calendarDate.collectAsStateWithLifecycle()
     val appointments by viewModel.calendar.collectAsStateWithLifecycle()
-    val loading by viewModel.calendarLoading.collectAsStateWithLifecycle()
-    val loaded by viewModel.loaded.collectAsStateWithLifecycle()
+    val load by viewModel.calendarLoad.collectAsStateWithLifecycle()
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
     val today = format.today()
     val weekStart = remember(selected, locale) { selected.with(WeekFields.of(locale).dayOfWeek(), 1) }
@@ -119,15 +120,18 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String, String) 
             item {
                 ListSectionLabel(
                     if (selected == today) stringResource(R.string.tab_today) + " · " + format.longDay(selected) else format.longDay(selected),
-                    appointments.size,
+                    appointments.size.takeIf { load == LoadState.Loaded },
                     modifier = Modifier.padding(top = 6.dp),
                 )
             }
 
-            if (!loaded || (loading && appointments.isEmpty())) {
-                item { LoadingRow() }
-            } else if (appointments.isEmpty()) {
-                item { EmptyState(Icons.Rounded.EventBusy, stringResource(R.string.appointments_empty_title), body = stringResource(R.string.calendar_empty_body)) }
+            when (val state = load) {
+                // Choosing the day again loads it again.
+                is LoadState.Failed -> item { LoadFailed(state.message, onRetry = { viewModel.setCalendarDate(selected) }) }
+                LoadState.Loaded -> if (appointments.isEmpty()) {
+                    item { EmptyState(Icons.Rounded.EventBusy, stringResource(R.string.appointments_empty_title), body = stringResource(R.string.calendar_empty_body)) }
+                }
+                else -> item { LoadingRow() }
             }
 
             items(appointments, key = { it.id }) { appointment ->

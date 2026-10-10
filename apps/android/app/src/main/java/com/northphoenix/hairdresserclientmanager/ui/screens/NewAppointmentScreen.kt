@@ -54,6 +54,7 @@ private enum class AppointmentPicker { PRIMARY, ADDITIONAL, DATE, START, END }
 fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBack: () -> Unit, onCreated: (Appointment) -> Unit) {
     val format = LocalTimeFormat.current
     val clients by viewModel.clients.collectAsStateWithLifecycle()
+    val clientsLoad by viewModel.clientsLoad.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     // Default start: the next full hour, in the Stylist's timezone.
     val nextHour = remember { ZonedDateTime.now(format.zone).withMinute(0).withSecond(0).withNano(0).plusHours(1) }
@@ -195,6 +196,8 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
         AppointmentPicker.PRIMARY -> ClientPickerSheet(
             title = stringResource(R.string.primary_client_label),
             clients = clients,
+            load = clientsLoad,
+            onRetry = viewModel::retryLoad,
             selectedIds = setOfNotNull(primaryClientId),
             onDismiss = { picker = null },
             onPick = { client ->
@@ -216,6 +219,8 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
         AppointmentPicker.ADDITIONAL -> ClientPickerSheet(
             title = stringResource(R.string.additional_clients_label),
             clients = clients.filter { it.id != primaryClientId },
+            load = clientsLoad,
+            onRetry = viewModel::retryLoad,
             selectedIds = additionalClientIds.toSet(),
             onDismiss = { picker = null },
             onPick = { client ->

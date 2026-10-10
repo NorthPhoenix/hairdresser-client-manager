@@ -26,6 +26,8 @@
     <string name="appointment_history_title">Appointment history</string>
     <string name="appointment_in_salon">In salon</string>
     <string name="appointment_location_label">Location</string>
+    <string name="appointment_missing_body">It may have been deleted or moved to another time.</string>
+    <string name="appointment_missing_title">Appointment not found</string>
     <string name="appointment_no_photos">No photos yet.</string>
     <string name="appointment_no_services">No Services yet.</string>
     <string name="appointment_note_placeholder">Appointment note</string>
@@ -67,6 +69,8 @@
     <string name="client_deleted">Client deleted.</string>
     <string name="client_email_label">Email</string>
     <string name="client_language_label">Client language</string>
+    <string name="client_missing_body">This Client has been deleted.</string>
+    <string name="client_missing_title">Client not found</string>
     <string name="client_name_label">Client name</string>
     <string name="client_name_required">Add a Client name.</string>
     <string name="client_note_label">Client Note</string>
@@ -106,10 +110,11 @@
     <string name="error_generic">Something went wrong. Try again.</string>
     <string name="error_image_unreadable">The selected image couldn\'t be read.</string>
     <string name="error_invalid_input">Check what you entered and try again.</string>
-    <string name="error_not_found">That item wasn\'t found. Refresh and try again.</string>
+    <string name="error_not_found">That item no longer exists. Refreshing the screen.</string>
     <string name="error_outcome_unknown">The server didn\'t reply, so it\'s unclear whether this went through. Check before trying again.</string>
     <string name="error_session_ended">Your session has ended. Sign in again.</string>
     <string name="error_sign_in_rejected">The server didn\'t accept your sign-in. Try again.</string>
+    <string name="error_sign_in_unreachable">Can\'t reach the sign-in service. Check your connection and try again.</string>
     <string name="generate_share_image">Generate Share Image</string>
     <string name="home_appointments_title">Today and unresolved</string>
     <string name="home_empty_body">Nothing is scheduled today and no past Appointments need an outcome.</string>

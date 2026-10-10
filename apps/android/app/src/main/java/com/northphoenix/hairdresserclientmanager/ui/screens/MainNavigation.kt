@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -40,6 +41,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
@@ -80,6 +82,18 @@ private enum class MainTab(@StringRes val label: Int, val icon: ImageVector) {
 fun MainNavigation(viewModel: AppViewModel) {
     val navController = rememberNavController()
     val openAppointment: (String, String) -> Unit = { id, startsAt -> navController.navigate(Routes.appointment(id, startsAt)) }
+    // Set while the app is out of view, so that only a return reloads, not the first start.
+    var away by remember { mutableStateOf(false) }
+
+    // Back in front: the lists may have been changed elsewhere meanwhile. A screen that shows one
+    // item (an Appointment, a Client's history) asks for it again itself when it comes into view.
+    LifecycleStartEffect(viewModel) {
+        if (away) {
+            viewModel.refreshOnReturn()
+        }
+        away = false
+        onStopOrDispose { away = true }
+    }
 
     NavHost(navController, startDestination = Routes.MAIN, modifier = Modifier.fillMaxSize()) {
         composable(Routes.MAIN) {

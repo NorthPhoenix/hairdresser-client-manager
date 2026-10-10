@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.PersonAddAlt1
@@ -30,10 +31,12 @@ import androidx.compose.ui.unit.dp
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
+import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmBottomSheet
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmTextField
 import com.northphoenix.hairdresserclientmanager.ui.components.InlineEmpty
+import com.northphoenix.hairdresserclientmanager.ui.components.InlineLoadFailed
 import com.northphoenix.hairdresserclientmanager.ui.components.SecondaryButton
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 import java.time.LocalTime
@@ -41,11 +44,14 @@ import java.time.LocalTime
 /**
  * Sheet for choosing Clients. With [onCreateInline] it also offers creating a
  * minimal Client from just the typed name, for walk-ins.
+ * [load] is the state of the Stylist's Client list, which [clients] may be only a part of.
  */
 @Composable
 fun ClientPickerSheet(
     title: String,
     clients: List<ClientProfile>,
+    load: LoadState,
+    onRetry: () -> Unit,
     selectedIds: Set<String>,
     onPick: (ClientProfile) -> Unit,
     onDismiss: () -> Unit,
@@ -73,8 +79,13 @@ fun ClientPickerSheet(
             )
         }
 
-        if (filtered.isEmpty()) {
-            InlineEmpty(stringResource(if (clients.isEmpty()) R.string.no_clients_title else R.string.no_client_results))
+        // "No Clients yet" is only true of a list that has loaded.
+        when (load) {
+            is LoadState.Failed -> InlineLoadFailed(load.message, onRetry)
+            LoadState.Loaded -> if (filtered.isEmpty()) {
+                InlineEmpty(stringResource(if (clients.isEmpty()) R.string.no_clients_title else R.string.no_client_results))
+            }
+            else -> LoadingRow(Modifier.heightIn(max = 96.dp))
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

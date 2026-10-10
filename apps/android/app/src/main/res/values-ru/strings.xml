@@ -25,6 +25,8 @@
     <string name="appointment_history_title">История записей</string>
     <string name="appointment_in_salon">В салоне</string>
     <string name="appointment_location_label">Место</string>
+    <string name="appointment_missing_body">Возможно, её удалили или перенесли на другое время.</string>
+    <string name="appointment_missing_title">Запись не найдена</string>
     <string name="appointment_no_photos">Фото пока нет.</string>
     <string name="appointment_no_services">Услуг пока нет.</string>
     <string name="appointment_note_placeholder">Заметка к записи</string>
@@ -66,6 +68,8 @@
     <string name="client_deleted">Клиент удалён.</string>
     <string name="client_email_label">Эл. почта</string>
     <string name="client_language_label">Язык клиента</string>
+    <string name="client_missing_body">Этот клиент был удалён.</string>
+    <string name="client_missing_title">Клиент не найден</string>
     <string name="client_name_label">Имя клиента</string>
     <string name="client_name_required">Укажите имя клиента.</string>
     <string name="client_note_label">Заметка о клиенте</string>
@@ -105,10 +109,11 @@
     <string name="error_generic">Что-то пошло не так. Попробуйте ещё раз.</string>
     <string name="error_image_unreadable">Не удалось прочитать выбранное изображение.</string>
     <string name="error_invalid_input">Проверьте введённые данные и попробуйте ещё раз.</string>
-    <string name="error_not_found">Данные не найдены. Обновите список и попробуйте ещё раз.</string>
+    <string name="error_not_found">Этих данных больше нет. Обновляем экран.</string>
     <string name="error_outcome_unknown">Сервер не ответил, поэтому неясно, выполнено ли действие. Проверьте, прежде чем повторять.</string>
     <string name="error_session_ended">Сеанс завершён. Войдите снова.</string>
     <string name="error_sign_in_rejected">Сервер не принял ваш вход. Попробуйте ещё раз.</string>
+    <string name="error_sign_in_unreachable">Нет связи с сервисом входа. Проверьте подключение и попробуйте ещё раз.</string>
     <string name="generate_share_image">Создать изображение</string>
     <string name="home_appointments_title">Сегодня и незакрытые</string>
     <string name="home_empty_body">На сегодня записей нет, и все прошлые закрыты.</string>

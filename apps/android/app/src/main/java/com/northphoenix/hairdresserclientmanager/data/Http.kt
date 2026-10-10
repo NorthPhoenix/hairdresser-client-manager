@@ -30,6 +30,9 @@ class ApiException(
 ) : Exception(message, cause) {
     val isUnauthorized: Boolean get() = code == "UNAUTHORIZED"
 
+    /** Something the request refers to no longer exists on the server, so what the screen shows is out of date. */
+    val isNotFound: Boolean get() = code == "NOT_FOUND"
+
     /** A change was sent but no reply came back, so it may or may not have been saved. */
     val outcomeUnknown: Boolean get() = code == NO_REPLY
 
@@ -41,6 +44,9 @@ class ApiException(
 /** Anything that went wrong, as a failure the UI can show. Callers rethrow cancellation before using this. */
 internal fun Exception.toApiException(): ApiException =
     this as? ApiException ?: ApiException("Unexpected failure.", code = "UNEXPECTED", cause = this)
+
+/** True when this failure, or what caused it, is the connection: no network, an unknown host, a timeout. */
+internal fun Throwable.isConnectionFailure(): Boolean = generateSequence(this) { it.cause }.take(8).any { it is IOException }
 
 /** The content of a JSON string or other primitive, null for anything else. Replies are not trusted to have the expected shape. */
 internal fun JsonElement?.textOrNull(): String? = (this as? JsonPrimitive)?.contentOrNull

@@ -102,6 +102,28 @@ class ActionRunnerTest {
     }
 
     @Test
+    fun `a change the server refuses because its target is gone reloads everything`() = runTest {
+        val reloads = mutableListOf<String>()
+        val runner = ActionRunner(backgroundScope, { failures += it }, reloadAll = { reloads += "everything" })
+        var saved = false
+
+        // The Appointment was deleted in another session, and the Stylist taps 'Completed' on it.
+        runner.run<Unit>(
+            key = "setAppointmentStatus:a1",
+            change = { throw ApiException("Appointment not found.", code = "NOT_FOUND") },
+            reload = { reloads += "the Appointment" },
+            onSaved = { saved = true },
+        )
+        runCurrent()
+
+        // The lists drop the card, and the Appointment's own reload finds out that it is gone.
+        assertEquals(listOf("everything", "the Appointment"), reloads)
+        assertEquals(listOf("NOT_FOUND"), failures.map { it.code })
+        assertFalse(saved)
+        assertFalse(runner.busy.value)
+    }
+
+    @Test
     fun `a second call with the same key does nothing until the first has finished`() = runTest {
         val runner = runner()
         val reply = CompletableDeferred<Unit>()

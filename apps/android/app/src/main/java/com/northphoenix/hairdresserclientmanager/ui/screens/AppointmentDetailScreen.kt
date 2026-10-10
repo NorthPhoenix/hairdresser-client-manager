@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -41,7 +42,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,6 +57,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.northphoenix.hairdresserclientmanager.R
@@ -76,6 +78,7 @@ import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.i18n.inLanguage
 import com.northphoenix.hairdresserclientmanager.i18n.toLocale
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
+import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.Avatar
 import com.northphoenix.hairdresserclientmanager.ui.components.ChoiceChip
@@ -86,8 +89,11 @@ import com.northphoenix.hairdresserclientmanager.ui.components.HcmCard
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmTextField
 import com.northphoenix.hairdresserclientmanager.ui.components.IconLine
 import com.northphoenix.hairdresserclientmanager.ui.components.InlineEmpty
+import com.northphoenix.hairdresserclientmanager.ui.components.InlineLoadFailed
+import com.northphoenix.hairdresserclientmanager.ui.components.ItemMissing
 import com.northphoenix.hairdresserclientmanager.ui.components.Kicker
 import com.northphoenix.hairdresserclientmanager.ui.components.LabeledValue
+import com.northphoenix.hairdresserclientmanager.ui.components.LoadFailed
 import com.northphoenix.hairdresserclientmanager.ui.components.PrimaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenColumn
 import com.northphoenix.hairdresserclientmanager.ui.components.SecondaryButton
@@ -128,17 +134,28 @@ fun AppointmentDetailScreen(
     onOpenClient: (String) -> Unit,
 ) {
     val appointments by viewModel.appointments.collectAsStateWithLifecycle()
+    val absent by viewModel.absentAppointments.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val appointment = appointments[appointmentId]
 
-    LaunchedEffect(appointmentId) {
-        if (startsAt.isNotEmpty()) {
-            viewModel.ensureAppointment(appointmentId, startsAt)
-        }
-    }
+    // Asked for again each time the screen comes into view, from another screen or from the
+    // background: the Appointment may have changed or gone since it was loaded.
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.loadAppointment(appointmentId, startsAt) }
 
     if (appointment == null) {
-        SubScreen(title = "", onBack = onBack, busy = busy) { padding -> LoadingRow(Modifier.padding(padding)) }
+        SubScreen(title = "", onBack = onBack, busy = busy) { padding ->
+            when (val load = absent[appointmentId]) {
+                is LoadState.Failed ->
+                    LoadFailed(load.message, onRetry = { viewModel.loadAppointment(appointmentId, startsAt) }, Modifier.padding(padding))
+                LoadState.Missing -> ItemMissing(
+                    stringResource(R.string.appointment_missing_title),
+                    stringResource(R.string.appointment_missing_body),
+                    onBack,
+                    Modifier.padding(padding),
+                )
+                else -> LoadingRow(Modifier.padding(padding))
+            }
+        }
         return
     }
 
@@ -157,8 +174,10 @@ private fun AppointmentDetail(
     val context = LocalContext.current
     val format = LocalTimeFormat.current
     val clients by viewModel.clients.collectAsStateWithLifecycle()
+    val clientsLoad by viewModel.clientsLoad.collectAsStateWithLifecycle()
     val serviceMenu by viewModel.serviceMenu.collectAsStateWithLifecycle()
     val completedSources by viewModel.completedSources.collectAsStateWithLifecycle()
+    val completedSourcesLoad by viewModel.completedSourcesLoad.collectAsStateWithLifecycle()
     val uploadingPhoto by viewModel.uploadingPhoto.collectAsStateWithLifecycle()
     val isGroup = appointment.participants.size > 1
     var sheet by remember { mutableStateOf<DetailSheet?>(null) }
@@ -371,6 +390,8 @@ private fun AppointmentDetail(
         DetailSheet.AddClient -> ClientPickerSheet(
             title = stringResource(R.string.add_client_to_appointment),
             clients = clients.filter { client -> appointment.participants.none { it.clientId == client.id } },
+            load = clientsLoad,
+            onRetry = viewModel::retryLoad,
             selectedIds = emptySet(),
             onDismiss = { sheet = null },
             onPick = {
@@ -390,6 +411,8 @@ private fun AppointmentDetail(
         )
         DetailSheet.CopyServices -> CopyServicesSheet(
             sources = completedSources.filter { it.id != appointment.id },
+            load = completedSourcesLoad,
+            onRetry = viewModel::retryLoad,
             format = format,
             onDismiss = { sheet = null },
             onCopy = { sourceId -> viewModel.copyServices(appointment.id, sourceId) { sheet = null } },
@@ -757,9 +780,21 @@ private fun AddServiceSheet(
 }
 
 @Composable
-private fun CopyServicesSheet(sources: List<Appointment>, format: TimeFormat, onDismiss: () -> Unit, onCopy: (String?) -> Unit) {
+private fun CopyServicesSheet(
+    sources: List<Appointment>,
+    load: LoadState,
+    onRetry: () -> Unit,
+    format: TimeFormat,
+    onDismiss: () -> Unit,
+    onCopy: (String?) -> Unit,
+) {
     HcmBottomSheet(title = stringResource(R.string.copy_completed_services), onDismiss = onDismiss) {
-        if (sources.isEmpty()) {
+        // "No completed Appointments" is only true of a list that has loaded.
+        if (load is LoadState.Failed) {
+            InlineLoadFailed(load.message, onRetry)
+        } else if (load != LoadState.Loaded) {
+            LoadingRow(Modifier.heightIn(max = 96.dp))
+        } else if (sources.isEmpty()) {
             InlineEmpty(stringResource(R.string.copy_services_empty))
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

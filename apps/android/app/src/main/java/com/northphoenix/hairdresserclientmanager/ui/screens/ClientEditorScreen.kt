@@ -34,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -54,6 +55,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
@@ -63,6 +66,7 @@ import coil3.request.allowHardware
 import coil3.size.Size
 import coil3.toBitmap
 import com.northphoenix.hairdresserclientmanager.R
+import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.data.ClientHistoryEntry
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.DeviceContacts
@@ -71,7 +75,9 @@ import com.northphoenix.hairdresserclientmanager.domain.ClientRules
 import com.northphoenix.hairdresserclientmanager.domain.ContactImport
 import com.northphoenix.hairdresserclientmanager.domain.ImportedContact
 import com.northphoenix.hairdresserclientmanager.i18n.label
+import com.northphoenix.hairdresserclientmanager.i18n.messageRes
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
+import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.BottomActionBar
 import com.northphoenix.hairdresserclientmanager.ui.components.ConfirmDialog
@@ -79,6 +85,9 @@ import com.northphoenix.hairdresserclientmanager.ui.components.Hairline
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmCard
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmTextField
 import com.northphoenix.hairdresserclientmanager.ui.components.InlineEmpty
+import com.northphoenix.hairdresserclientmanager.ui.components.InlineLoadFailed
+import com.northphoenix.hairdresserclientmanager.ui.components.ItemMissing
+import com.northphoenix.hairdresserclientmanager.ui.components.LoadFailed
 import com.northphoenix.hairdresserclientmanager.ui.components.PrimaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenColumn
 import com.northphoenix.hairdresserclientmanager.ui.components.SecondaryButton
@@ -123,6 +132,9 @@ fun ClientEditorScreen(
     var dialog by remember { mutableStateOf<ClientDialog?>(null) }
     var pendingImport by remember { mutableStateOf<ImportedContact?>(null) }
     var shareImageSvg by remember { mutableStateOf<String?>(null) }
+    // How looking for a Client who is not in the list went (see below).
+    var lookup by remember { mutableStateOf<LoadState>(LoadState.Loading) }
+    var lookupAttempt by remember { mutableIntStateOf(0) }
 
     // Fill the form once per Client; later list refreshes must not overwrite what is being typed.
     LaunchedEffect(existing?.id) {
@@ -180,6 +192,31 @@ fun ClientEditorScreen(
         } else {
             viewModel.notify(R.string.import_contact_permission_denied, isError = true)
         }
+    }
+
+    // A profile opened for a Client who is not in the list. The list may be older than the Client,
+    // or the Client may have been deleted: it is loaded again, and until then this is not a form.
+    val absentId = currentId.takeIf { existing == null }
+
+    if (absentId != null) {
+        LaunchedEffect(absentId, lookupAttempt) {
+            lookup = LoadState.Loading
+            lookup = viewModel.findClient(absentId)
+        }
+
+        SubScreen(title = stringResource(R.string.edit_client_title), onBack = onBack, busy = busy) { padding ->
+            when (val state = lookup) {
+                is LoadState.Failed -> LoadFailed(state.message, onRetry = { lookupAttempt++ }, Modifier.padding(padding))
+                LoadState.Missing -> ItemMissing(
+                    stringResource(R.string.client_missing_title),
+                    stringResource(R.string.client_missing_body),
+                    onBack,
+                    Modifier.padding(padding),
+                )
+                else -> LoadingRow(Modifier.padding(padding))
+            }
+        }
+        return
     }
 
     SubScreen(
@@ -381,16 +418,34 @@ private fun ProfileShareCard(
 @Composable
 private fun ClientHistoryCard(viewModel: AppViewModel, clientId: String, onOpenAppointment: (String, String) -> Unit) {
     val format = LocalTimeFormat.current
+    val scope = rememberCoroutineScope()
     var history by remember(clientId) { mutableStateOf<List<ClientHistoryEntry>?>(null) }
+    // Why there is no history to show; null while it is loading.
+    var failure by remember(clientId) { mutableStateOf<Int?>(null) }
 
-    LaunchedEffect(clientId) { history = viewModel.clientHistory(clientId) }
+    fun load() {
+        scope.launch {
+            failure = null
+            try {
+                history = viewModel.clientHistory(clientId, refreshing = history != null)
+            } catch (error: ApiException) {
+                failure = error.messageRes()
+            }
+        }
+    }
+
+    // Each time the profile comes into view, from an Appointment opened here or from the background.
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { load() }
 
     HcmCard(contentPadding = PaddingValues(vertical = 18.dp)) {
         Text(stringResource(R.string.appointment_history_title), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(horizontal = 18.dp))
 
         val entries = history
+        val failed = failure
 
         when {
+            // History that is on screen stays there when loading it again fails.
+            entries == null && failed != null -> InlineLoadFailed(failed, onRetry = ::load, Modifier.padding(start = 18.dp, end = 18.dp, top = 10.dp))
             entries == null -> LoadingRow(Modifier.heightIn(max = 96.dp))
             entries.isEmpty() -> InlineEmpty(stringResource(R.string.appointment_history_empty), Modifier.padding(start = 18.dp, end = 18.dp, top = 10.dp))
             else -> entries.forEachIndexed { index, entry ->

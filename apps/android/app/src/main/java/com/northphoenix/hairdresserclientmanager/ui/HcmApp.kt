@@ -32,6 +32,7 @@ import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.auth.AuthState
 import com.northphoenix.hairdresserclientmanager.core.AppContainer
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
+import com.northphoenix.hairdresserclientmanager.i18n.messageRes
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.BootstrapState
 import com.northphoenix.hairdresserclientmanager.ui.components.EmptyState
@@ -80,7 +81,7 @@ fun HcmApp(container: AppContainer) {
 
                 when (val state = authState) {
                     AuthState.Loading -> LoadingScreen()
-                    is AuthState.Failed -> FailureScreen(message = stringResource(R.string.error_generic), onRetry = auth::retry)
+                    is AuthState.Failed -> FailureScreen(message = stringResource(state.messageRes()), onRetry = auth::retry)
                     AuthState.SignedOut -> SignedOutContent(viewModel)
                     is AuthState.SignedIn -> SignedInContent(viewModel)
                 }
