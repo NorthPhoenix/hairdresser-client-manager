@@ -1,4 +1,4 @@
-import { db } from "@hcm/db";
+import { db, type Prisma } from "@hcm/db";
 
 export type ClerkAuth = {
   userId: string | null;
@@ -18,3 +18,6 @@ export async function createTRPCContext({ auth }: CreateTRPCContextOptions) {
 }
 
 export type TRPCContext = Awaited<ReturnType<typeof createTRPCContext>>;
+
+/** The database client, or a transaction opened on it. */
+export type Db = Prisma.TransactionClient;

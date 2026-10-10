@@ -1,13 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { appRouter } from "./root";
 import type { TRPCContext } from "./context";
+import { withTransaction } from "./testSupport";
 
 function createContext(db: TRPCContext["db"]): TRPCContext {
   return {
     clerkAuth: {
       userId: "clerk_1"
     },
-    db,
+    db: withTransaction(db),
     stylist: {
       id: "stylist_1",
       clerkId: "clerk_1",
@@ -550,6 +551,181 @@ describe("client router", () => {
         id: "client_1",
         stylistId: "stylist_1"
       }
+    });
+  });
+
+  it("finds the Client's Appointments by Client or primary Client and deletes the ones left without Clients", async () => {
+    const appointmentFindMany = vi.fn().mockResolvedValue([
+      {
+        // Names the Client as primary without listing them: nobody is left, so it goes too.
+        id: "appointment_1",
+        primaryClientId: "client_1",
+        participants: []
+      }
+    ]);
+    const appointmentDelete = vi.fn();
+    const clientDeleteMany = vi.fn().mockResolvedValue({
+      count: 1
+    });
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: {
+          upsert: vi.fn().mockResolvedValue({
+            id: "stylist_1",
+            clerkId: "clerk_1"
+          })
+        },
+        appointment: {
+          findMany: appointmentFindMany,
+          delete: appointmentDelete
+        },
+        client: {
+          deleteMany: clientDeleteMany
+        }
+      } as unknown as TRPCContext["db"])
+    );
+
+    await caller.clientProfile.delete({
+      id: "client_1"
+    });
+
+    expect(appointmentFindMany).toHaveBeenCalledWith({
+      where: {
+        stylistId: "stylist_1",
+        OR: [
+          {
+            primaryClientId: "client_1"
+          },
+          {
+            participants: {
+              some: {
+                clientId: "client_1"
+              }
+            }
+          }
+        ]
+      },
+      include: expect.any(Object)
+    });
+    expect(appointmentDelete).toHaveBeenCalledWith({
+      where: {
+        id: "appointment_1"
+      }
+    });
+    expect(appointmentDelete.mock.invocationCallOrder[0]).toBeLessThan(clientDeleteMany.mock.invocationCallOrder[0] ?? 0);
+  });
+
+  it("moves an at-home Appointment to the promoted Client's address when its primary Client is deleted", async () => {
+    const appointmentUpdate = vi.fn();
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: {
+          upsert: vi.fn().mockResolvedValue({
+            id: "stylist_1",
+            clerkId: "clerk_1"
+          })
+        },
+        appointment: {
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: "appointment_1",
+              primaryClientId: "client_1",
+              locationType: "atHome",
+              locationAddress: "9 Lamar Blvd",
+              locationAddressIsCustom: false,
+              primaryClient: {
+                address: "9 Lamar Blvd"
+              },
+              participants: [
+                {
+                  clientId: "client_1"
+                },
+                {
+                  clientId: "client_2"
+                }
+              ]
+            }
+          ]),
+          update: appointmentUpdate
+        },
+        appointmentParticipant: {
+          deleteMany: vi.fn()
+        },
+        client: {
+          findUniqueOrThrow: vi.fn().mockResolvedValue({
+            address: "22 Bob St"
+          }),
+          deleteMany: vi.fn().mockResolvedValue({
+            count: 1
+          })
+        }
+      } as unknown as TRPCContext["db"])
+    );
+
+    await caller.clientProfile.delete({
+      id: "client_1"
+    });
+
+    expect(appointmentUpdate).toHaveBeenCalledWith({
+      where: {
+        id: "appointment_1"
+      },
+      data: {
+        primaryClientId: "client_2",
+        locationAddress: "22 Bob St",
+        locationAddressIsCustom: false
+      }
+    });
+  });
+
+  it("deletes a Client in one transaction that a failing step rolls back", async () => {
+    const appointmentDelete = vi.fn();
+    const context = createContext({
+      stylist: {
+        upsert: vi.fn().mockResolvedValue({
+          id: "stylist_1",
+          clerkId: "clerk_1"
+        })
+      },
+      appointment: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: "appointment_1",
+            primaryClientId: "client_1",
+            participants: [
+              {
+                clientId: "client_1"
+              }
+            ]
+          }
+        ]),
+        delete: appointmentDelete
+      },
+      client: {
+        // What Prisma throws for a foreign key violation.
+        deleteMany: vi.fn().mockRejectedValue(
+          Object.assign(new Error("Foreign key constraint violated on the constraint: `Appointment_primaryClientId_fkey`"), {
+            name: "PrismaClientKnownRequestError",
+            code: "P2003"
+          })
+        )
+      }
+    } as unknown as TRPCContext["db"]);
+    const db = context.db as unknown as ReturnType<typeof withTransaction>;
+    const failure = await appRouter
+      .createCaller(context)
+      .clientProfile.delete({
+        id: "client_1"
+      })
+      .catch((error: unknown) => error);
+
+    // The Appointment was deleted inside the transaction, and the transaction failed: the
+    // database undoes that step. The reply carries no database text.
+    expect(db.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(appointmentDelete.mock.invocationCallOrder[0] ?? 0);
+    await expect(db.$transaction.mock.results[0]?.value).rejects.toBeDefined();
+    expect(failure).toMatchObject({
+      code: "NOT_FOUND",
+      message: "A record this change refers to no longer exists."
     });
   });
 

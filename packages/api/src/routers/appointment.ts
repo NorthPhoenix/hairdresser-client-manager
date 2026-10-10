@@ -1,7 +1,9 @@
+import type { Prisma } from "@hcm/db";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import type { TRPCContext } from "../context";
-import { createTRPCRouter, stylistProcedure } from "../trpc";
+import { getClientAddress, getPrimaryClientChange, getSalonAddress, hasCustomAddress } from "../appointmentLocation";
+import type { Db } from "../context";
+import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from "../trpc";
 
 const dateRangeInput = z.object({
   start: z.string().datetime(),
@@ -26,7 +28,13 @@ const appointmentUpdateInput = z.object({
   primaryClientId: z.string().optional(),
   status: z.enum(["scheduled", "completed", "canceled", "noShow"]).optional(),
   note: z.string().trim().optional(),
-  finalTotalCentsOverride: z.number().int().min(0).nullable().optional()
+  finalTotalCentsOverride: z.number().int().min(0).nullable().optional(),
+  startsAt: z.string().datetime().optional(),
+  // null clears the end time.
+  endsAt: z.string().datetime().nullable().optional(),
+  locationType: z.enum(["inSalon", "atHome"]).optional(),
+  // At home only: an empty string means the primary Client's address.
+  customLocationAddress: z.string().trim().optional()
 });
 
 const appointmentParticipantInput = z.object({
@@ -114,6 +122,32 @@ function getConflictWindow(startsAt: Date, endsAt: Date | null) {
   };
 }
 
+// Appointments that start together keep one order: the one they were created in.
+const appointmentOrder: Prisma.AppointmentOrderByWithRelationInput[] = [
+  { startsAt: "asc" },
+  { createdAt: "asc" },
+  { id: "asc" }
+];
+const appointmentOrderNewestFirst: Prisma.AppointmentOrderByWithRelationInput[] = [
+  { startsAt: "desc" },
+  { createdAt: "desc" },
+  { id: "desc" }
+];
+
+// The primary Client first, then the others in the order they were added. The id settles equal
+// timestamps, so the order never changes between loads.
+function sortParticipants<T extends { id?: string; createdAt?: Date; client: { id: string } }>(
+  participants: T[],
+  primaryClientId: string
+) {
+  return [...participants].sort(
+    (a, b) =>
+      Number(b.client.id === primaryClientId) - Number(a.client.id === primaryClientId) ||
+      (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0) ||
+      Number((a.id ?? "") > (b.id ?? "")) - Number((a.id ?? "") < (b.id ?? ""))
+  );
+}
+
 function toAppointmentOutput(appointment: {
   id: string;
   stylistId: string;
@@ -123,6 +157,7 @@ function toAppointmentOutput(appointment: {
   status: "scheduled" | "completed" | "canceled" | "noShow";
   locationType: "inSalon" | "atHome";
   locationAddress: string | null;
+  locationAddressIsCustom?: boolean | null;
   note: string | null;
   finalTotalCentsOverride: number | null;
   primaryClient: {
@@ -133,6 +168,8 @@ function toAppointmentOutput(appointment: {
     language?: "ru" | "en";
   };
   participants?: {
+    id?: string;
+    createdAt?: Date;
     client: {
       id: string;
       name: string;
@@ -180,8 +217,10 @@ function toAppointmentOutput(appointment: {
     subtotals[service.clientId] = (subtotals[service.clientId] ?? 0) + service.priceCents;
     return subtotals;
   }, {});
+  const sortedParticipants =
+    appointment.participants && sortParticipants(appointment.participants, appointment.primaryClientId);
   const participants =
-    appointment.participants?.map((participant) => ({
+    sortedParticipants?.map((participant) => ({
       clientId: participant.client.id,
       name: participant.client.name,
       address: participant.client.address ?? "",
@@ -212,6 +251,8 @@ function toAppointmentOutput(appointment: {
     status: appointment.status,
     locationType: appointment.locationType,
     locationAddress: appointment.locationAddress ?? "",
+    // The address when the Stylist typed it; empty when it is the salon's or the primary Client's.
+    customLocationAddress: hasCustomAddress(appointment) ? appointment.locationAddress ?? "" : "",
     note: appointment.note ?? "",
     services: services.map((service) => ({
       id: service.id,
@@ -254,8 +295,8 @@ function toAppointmentOutput(appointment: {
   };
 }
 
-async function getAppointmentOutput(ctx: Pick<TRPCContext, "db">, appointmentId: string) {
-  const appointment = await ctx.db.appointment.findUniqueOrThrow({
+async function getAppointmentOutput(db: Db, appointmentId: string) {
+  const appointment = await db.appointment.findUniqueOrThrow({
     where: {
       id: appointmentId
     },
@@ -306,6 +347,62 @@ async function getAppointmentOutput(ctx: Pick<TRPCContext, "db">, appointmentId:
   });
 
   return toAppointmentOutput(appointment);
+}
+
+// The Stylist's Scheduled Appointments whose time overlaps the given one. An Appointment without
+// an end time counts as 30 minutes long.
+async function findConflicts(
+  db: Db,
+  stylistId: string,
+  startsAt: Date,
+  endsAt: Date | null,
+  exceptAppointmentId?: string
+) {
+  const window = getConflictWindow(startsAt, endsAt);
+  const possibleConflicts = await db.appointment.findMany({
+    where: {
+      stylistId,
+      status: "scheduled",
+      startsAt: {
+        lt: window.end
+      },
+      ...(exceptAppointmentId ? { id: { not: exceptAppointmentId } } : {})
+    },
+    include: {
+      primaryClient: {
+        select: {
+          id: true,
+          name: true,
+          address: true,
+          phone: true,
+          language: true
+        }
+      },
+      participants: {
+        include: {
+          client: {
+            select: {
+              id: true,
+              name: true,
+              address: true,
+              phone: true,
+              language: true
+            }
+          }
+        },
+        orderBy: {
+          createdAt: "asc"
+        }
+      }
+    },
+    orderBy: appointmentOrder
+  });
+
+  return possibleConflicts.filter((appointment) => {
+    const conflictWindow = getConflictWindow(appointment.startsAt, appointment.endsAt);
+
+    return conflictWindow.end > window.start;
+  });
 }
 
 export const appointmentRouter = createTRPCRouter({
@@ -362,9 +459,7 @@ export const appointmentRouter = createTRPCRouter({
           }
         }
       },
-      orderBy: {
-        startsAt: "asc"
-      }
+      orderBy: appointmentOrder
     });
 
     return appointments.map(toAppointmentOutput);
@@ -433,9 +528,7 @@ export const appointmentRouter = createTRPCRouter({
           }
         }
       },
-      orderBy: {
-        startsAt: "asc"
-      }
+      orderBy: appointmentOrder
     });
 
     return appointments.map(toAppointmentOutput);
@@ -481,14 +574,12 @@ export const appointmentRouter = createTRPCRouter({
           }
         }
       },
-      orderBy: {
-        startsAt: "desc"
-      }
+      orderBy: appointmentOrderNewestFirst
     });
 
     return appointments.map(toAppointmentOutput);
   }),
-  create: stylistProcedure.input(appointmentCreateInput).mutation(async ({ ctx, input }) => {
+  create: stylistTransactionProcedure.input(appointmentCreateInput).mutation(async ({ ctx, input }) => {
     const startsAt = new Date(input.startsAt);
     const endsAt = input.endsAt ? new Date(input.endsAt) : null;
 
@@ -548,52 +639,9 @@ export const appointmentRouter = createTRPCRouter({
     const locationAddress =
       input.locationType === "atHome"
         ? input.customLocationAddress || primaryClient.address || ""
-        : ctx.stylist.salonAddress ?? "";
-    const window = getConflictWindow(startsAt, endsAt);
-    const possibleConflicts = await ctx.db.appointment.findMany({
-      where: {
-        stylistId: ctx.stylist.id,
-        status: "scheduled",
-        startsAt: {
-          lt: window.end
-        }
-      },
-      include: {
-        primaryClient: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
-            phone: true,
-            language: true
-          }
-        },
-        participants: {
-          include: {
-            client: {
-              select: {
-                id: true,
-                name: true,
-                address: true,
-                phone: true,
-                language: true
-              }
-            }
-          },
-          orderBy: {
-            createdAt: "asc"
-          }
-        }
-      },
-      orderBy: {
-        startsAt: "asc"
-      }
-    });
-    const conflicts = possibleConflicts.filter((appointment) => {
-      const conflictWindow = getConflictWindow(appointment.startsAt, appointment.endsAt);
-
-      return conflictWindow.end > window.start;
-    });
+        : await getSalonAddress(ctx.db, ctx.stylist.id);
+    const conflicts = await findConflicts(ctx.db, ctx.stylist.id, startsAt, endsAt);
+    const addedAt = Date.now();
     const appointment = await ctx.db.appointment.create({
       data: {
         stylistId: ctx.stylist.id,
@@ -602,11 +650,14 @@ export const appointmentRouter = createTRPCRouter({
         endsAt,
         locationType: input.locationType,
         locationAddress,
+        locationAddressIsCustom: input.locationType === "atHome" && Boolean(input.customLocationAddress),
         note: "",
         finalTotalCentsOverride: null,
         participants: {
-          create: [primaryClient.id, ...additionalClientIds].map((clientId) => ({
-            clientId
+          // One millisecond apart, so the Clients keep the order they were picked in.
+          create: [primaryClient.id, ...additionalClientIds].map((clientId, index) => ({
+            clientId,
+            createdAt: new Date(addedAt + index)
           }))
         }
       },
@@ -656,11 +707,18 @@ export const appointmentRouter = createTRPCRouter({
       conflicts: conflicts.map(toAppointmentOutput)
     };
   }),
-  update: stylistProcedure.input(appointmentUpdateInput).mutation(async ({ ctx, input }) => {
+  update: stylistTransactionProcedure.input(appointmentUpdateInput).mutation(async ({ ctx, input }) => {
     const appointment = await ctx.db.appointment.findFirst({
       where: {
         id: input.id,
         stylistId: ctx.stylist.id
+      },
+      include: {
+        primaryClient: {
+          select: {
+            address: true
+          }
+        }
       }
     });
 
@@ -668,6 +726,16 @@ export const appointmentRouter = createTRPCRouter({
       throw new TRPCError({
         code: "NOT_FOUND",
         message: "Appointment not found."
+      });
+    }
+
+    const startsAt = input.startsAt ? new Date(input.startsAt) : appointment.startsAt;
+    const endsAt = input.endsAt === undefined ? appointment.endsAt : input.endsAt ? new Date(input.endsAt) : null;
+
+    if ((input.startsAt || input.endsAt) && endsAt && endsAt <= startsAt) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "End time must be after start time."
       });
     }
 
@@ -687,6 +755,40 @@ export const appointmentRouter = createTRPCRouter({
       }
     }
 
+    const primaryClientId = input.primaryClientId ?? appointment.primaryClientId;
+    const status = input.status ?? appointment.status;
+    const locationType = input.locationType ?? appointment.locationType;
+    const becomesScheduled = status === "scheduled" && appointment.status !== "scheduled";
+    const locationTypeChanges = locationType !== appointment.locationType;
+    let location: { locationAddress: string; locationAddressIsCustom: boolean } | undefined;
+
+    if (locationType === "inSalon") {
+      // A Scheduled in-salon Appointment shows the salon's current address; one with an outcome
+      // keeps the address it had.
+      if (locationTypeChanges || becomesScheduled) {
+        location = {
+          locationAddress: await getSalonAddress(ctx.db, ctx.stylist.id),
+          locationAddressIsCustom: false
+        };
+      }
+    } else if (input.customLocationAddress) {
+      location = {
+        locationAddress: input.customLocationAddress,
+        locationAddressIsCustom: true
+      };
+    } else if (
+      input.customLocationAddress !== undefined ||
+      locationTypeChanges ||
+      (primaryClientId !== appointment.primaryClientId && !hasCustomAddress(appointment))
+    ) {
+      // At home without a custom address is at the primary Client's address, so it follows a
+      // change of primary Client.
+      location = {
+        locationAddress: await getClientAddress(ctx.db, primaryClientId),
+        locationAddressIsCustom: false
+      };
+    }
+
     const updatedAppointment = await ctx.db.appointment.update({
       where: {
         id: appointment.id
@@ -695,7 +797,11 @@ export const appointmentRouter = createTRPCRouter({
         ...(input.primaryClientId ? { primaryClientId: input.primaryClientId } : {}),
         ...(input.status ? { status: input.status } : {}),
         ...(input.note !== undefined ? { note: input.note } : {}),
-        ...(input.finalTotalCentsOverride !== undefined ? { finalTotalCentsOverride: input.finalTotalCentsOverride } : {})
+        ...(input.finalTotalCentsOverride !== undefined ? { finalTotalCentsOverride: input.finalTotalCentsOverride } : {}),
+        ...(input.startsAt ? { startsAt } : {}),
+        ...(input.endsAt !== undefined ? { endsAt } : {}),
+        ...(input.locationType ? { locationType: input.locationType } : {}),
+        ...location
       },
       include: {
         primaryClient: {
@@ -737,10 +843,21 @@ export const appointmentRouter = createTRPCRouter({
         }
       }
     });
+    // The overlap warning of Appointment Creation, for an Appointment that moved or went back to
+    // Scheduled.
+    const timeChanges =
+      startsAt.getTime() !== appointment.startsAt.getTime() || endsAt?.getTime() !== appointment.endsAt?.getTime();
+    const conflicts =
+      status === "scheduled" && (timeChanges || becomesScheduled)
+        ? await findConflicts(ctx.db, ctx.stylist.id, startsAt, endsAt, appointment.id)
+        : [];
 
-    return toAppointmentOutput(updatedAppointment);
+    return {
+      ...toAppointmentOutput(updatedAppointment),
+      conflicts: conflicts.map(toAppointmentOutput)
+    };
   }),
-  addService: stylistProcedure.input(appointmentServiceInput).mutation(async ({ ctx, input }) => {
+  addService: stylistTransactionProcedure.input(appointmentServiceInput).mutation(async ({ ctx, input }) => {
     const appointment = await ctx.db.appointment.findFirst({
       where: {
         id: input.appointmentId,
@@ -991,7 +1108,7 @@ export const appointmentRouter = createTRPCRouter({
 
     return toAppointmentOutput(updatedAppointment);
   }),
-  addPhoto: stylistProcedure.input(appointmentPhotoInput).mutation(async ({ ctx, input }) => {
+  addPhoto: stylistTransactionProcedure.input(appointmentPhotoInput).mutation(async ({ ctx, input }) => {
     const appointment = await ctx.db.appointment.findFirst({
       where: {
         id: input.appointmentId,
@@ -1039,7 +1156,7 @@ export const appointmentRouter = createTRPCRouter({
       }
     });
 
-    return getAppointmentOutput(ctx, appointment.id);
+    return getAppointmentOutput(ctx.db, appointment.id);
   }),
   updatePhoto: stylistProcedure.input(appointmentPhotoUpdateInput).mutation(async ({ ctx, input }) => {
     const photo = await ctx.db.appointmentPhoto.findFirst({
@@ -1069,7 +1186,7 @@ export const appointmentRouter = createTRPCRouter({
       }
     });
 
-    return getAppointmentOutput(ctx, photo.appointmentId);
+    return getAppointmentOutput(ctx.db, photo.appointmentId);
   }),
   deletePhoto: stylistProcedure.input(appointmentPhotoDeleteInput).mutation(async ({ ctx, input }) => {
     const photo = await ctx.db.appointmentPhoto.findFirst({
@@ -1094,7 +1211,7 @@ export const appointmentRouter = createTRPCRouter({
       }
     });
 
-    return getAppointmentOutput(ctx, photo.appointmentId);
+    return getAppointmentOutput(ctx.db, photo.appointmentId);
   }),
   addColorFormula: stylistProcedure.input(colorFormulaInput).mutation(async ({ ctx, input }) => {
     const service = await ctx.db.appointmentService.findFirst({
@@ -1322,7 +1439,7 @@ export const appointmentRouter = createTRPCRouter({
 
     return toAppointmentOutput(updatedAppointment);
   }),
-  copyServices: stylistProcedure.input(appointmentCopyServicesInput).mutation(async ({ ctx, input }) => {
+  copyServices: stylistTransactionProcedure.input(appointmentCopyServicesInput).mutation(async ({ ctx, input }) => {
     const targetAppointment = await ctx.db.appointment.findFirst({
       where: {
         id: input.targetAppointmentId,
@@ -1386,9 +1503,7 @@ export const appointmentRouter = createTRPCRouter({
               }
             }
           },
-          orderBy: {
-            startsAt: "desc"
-          }
+          orderBy: appointmentOrderNewestFirst
         });
 
     if (!sourceAppointment) {
@@ -1467,7 +1582,7 @@ export const appointmentRouter = createTRPCRouter({
 
     return toAppointmentOutput(updatedAppointment);
   }),
-  addParticipant: stylistProcedure.input(appointmentParticipantInput).mutation(async ({ ctx, input }) => {
+  addParticipant: stylistTransactionProcedure.input(appointmentParticipantInput).mutation(async ({ ctx, input }) => {
     const appointment = await ctx.db.appointment.findFirst({
       where: {
         id: input.appointmentId,
@@ -1507,17 +1622,20 @@ export const appointmentRouter = createTRPCRouter({
       clientId: client.id
     };
   }),
-  removeParticipant: stylistProcedure.input(appointmentParticipantInput).mutation(async ({ ctx, input }) => {
+  removeParticipant: stylistTransactionProcedure.input(appointmentParticipantInput).mutation(async ({ ctx, input }) => {
     const appointment = await ctx.db.appointment.findFirst({
       where: {
         id: input.appointmentId,
         stylistId: ctx.stylist.id
       },
       include: {
-        participants: {
-          orderBy: {
-            createdAt: "asc"
+        primaryClient: {
+          select: {
+            address: true
           }
+        },
+        participants: {
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }]
         }
       }
     });
@@ -1529,14 +1647,23 @@ export const appointmentRouter = createTRPCRouter({
       });
     }
 
-    if (appointment.participants.length <= 1) {
+    if (!appointment.participants.some((participant) => participant.clientId === input.clientId)) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Client must be attached to the Appointment."
+      });
+    }
+
+    const remainingParticipants = appointment.participants.filter((participant) => participant.clientId !== input.clientId);
+    const nextPrimaryParticipant = remainingParticipants[0];
+
+    if (!nextPrimaryParticipant) {
       throw new TRPCError({
         code: "BAD_REQUEST",
         message: "Appointment must keep at least one Client."
       });
     }
 
-    const remainingParticipant = appointment.participants.find((participant) => participant.clientId !== input.clientId);
     const serviceCount = await ctx.db.appointmentService.count({
       where: {
         appointmentId: appointment.id,
@@ -1551,24 +1678,31 @@ export const appointmentRouter = createTRPCRouter({
       });
     }
 
-    if (appointment.primaryClientId === input.clientId && remainingParticipant) {
-      await ctx.db.appointment.update({
-        where: {
-          id: appointment.id
-        },
-        data: {
-          primaryClientId: remainingParticipant.clientId
-        }
-      });
-    }
-
-    await ctx.db.appointmentParticipant.deleteMany({
+    const photoCount = await ctx.db.appointmentPhoto.count({
       where: {
         appointmentId: appointment.id,
         clientId: input.clientId
       }
     });
-    await ctx.db.appointmentPhoto.deleteMany({
+
+    if (photoCount > 0) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Client has Appointment Photos attached to this Appointment."
+      });
+    }
+
+    // The primary Client is always one of the Appointment's Clients.
+    if (!remainingParticipants.some((participant) => participant.clientId === appointment.primaryClientId)) {
+      await ctx.db.appointment.update({
+        where: {
+          id: appointment.id
+        },
+        data: await getPrimaryClientChange(ctx.db, appointment, nextPrimaryParticipant.clientId)
+      });
+    }
+
+    await ctx.db.appointmentParticipant.deleteMany({
       where: {
         appointmentId: appointment.id,
         clientId: input.clientId

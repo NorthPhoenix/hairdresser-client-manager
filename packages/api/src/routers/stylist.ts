@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createTRPCRouter, stylistProcedure } from "../trpc";
+import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from "../trpc";
 
 const stylistBootstrapInput = z.object({
   deviceLanguage: z.enum(["ru", "en"]).optional(),
@@ -35,7 +35,7 @@ export const stylistRouter = createTRPCRouter({
   bootstrap: stylistProcedure.input(stylistBootstrapInput).query(({ ctx }) => {
     return toStylistOutput(ctx.stylist);
   }),
-  saveSettings: stylistProcedure.input(stylistSettingsInput).mutation(async ({ ctx, input }) => {
+  saveSettings: stylistTransactionProcedure.input(stylistSettingsInput).mutation(async ({ ctx, input }) => {
     const stylist = await ctx.db.stylist.update({
       where: {
         id: ctx.stylist.id
@@ -45,6 +45,19 @@ export const stylistRouter = createTRPCRouter({
         timezone: input.timezone,
         salonAddress: input.salonAddress ?? "",
         onboardingCompletedAt: ctx.stylist.onboardingCompletedAt ?? new Date()
+      }
+    });
+
+    // In-salon Appointments that are still Scheduled show the salon's current address, also those
+    // created before there was one. Appointments with an outcome keep the address they had.
+    await ctx.db.appointment.updateMany({
+      where: {
+        stylistId: stylist.id,
+        status: "scheduled",
+        locationType: "inSalon"
+      },
+      data: {
+        locationAddress: stylist.salonAddress ?? ""
       }
     });
 

@@ -1,7 +1,8 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { getPrimaryClientChange } from "../appointmentLocation";
 import { buildShareImageSvg } from "../shareImage";
-import { createTRPCRouter, stylistProcedure } from "../trpc";
+import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from "../trpc";
 
 const clientListInput = z.object({
   search: z.string().trim().optional()
@@ -422,29 +423,42 @@ export const clientRouter = createTRPCRouter({
       })
     };
   }),
-  delete: stylistProcedure.input(clientDeleteInput).mutation(async ({ ctx, input }) => {
+  delete: stylistTransactionProcedure.input(clientDeleteInput).mutation(async ({ ctx, input }) => {
+    // Also Appointments that name the Client as primary without listing them as a Client: the
+    // primary Client relation would otherwise block the delete.
     const appointments = await ctx.db.appointment.findMany({
       where: {
         stylistId: ctx.stylist.id,
-        participants: {
-          some: {
-            clientId: input.id
+        OR: [
+          {
+            primaryClientId: input.id
+          },
+          {
+            participants: {
+              some: {
+                clientId: input.id
+              }
+            }
           }
-        }
+        ]
       },
       include: {
-        participants: {
-          orderBy: {
-            createdAt: "asc"
+        primaryClient: {
+          select: {
+            address: true
           }
+        },
+        participants: {
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }]
         }
       }
     });
 
     for (const appointment of appointments) {
       const remainingParticipants = appointment.participants.filter((participant) => participant.clientId !== input.id);
+      const nextPrimaryParticipant = remainingParticipants[0];
 
-      if (remainingParticipants.length === 0) {
+      if (!nextPrimaryParticipant) {
         await ctx.db.appointment.delete({
           where: {
             id: appointment.id
@@ -458,9 +472,7 @@ export const clientRouter = createTRPCRouter({
           where: {
             id: appointment.id
           },
-          data: {
-            primaryClientId: remainingParticipants[0]?.clientId
-          }
+          data: await getPrimaryClientChange(ctx.db, appointment, nextPrimaryParticipant.clientId)
         });
       }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { appRouter } from "./root";
 import type { TRPCContext } from "./context";
+import { withTransaction } from "./testSupport";
 
 function createContext(overrides: Partial<TRPCContext>): TRPCContext {
   return {
@@ -156,11 +157,12 @@ describe("stylist bootstrap", () => {
       salonAddress: "123 Main St",
       onboardingCompletedAt: new Date("2026-06-13T12:00:00.000Z")
     });
+    const appointmentUpdateMany = vi.fn();
     const ctx = createContext({
       clerkAuth: {
         userId: "clerk_1"
       },
-      db: {
+      db: withTransaction({
         stylist: {
           upsert: vi.fn().mockResolvedValue({
             id: "stylist_1",
@@ -171,8 +173,11 @@ describe("stylist bootstrap", () => {
             onboardingCompletedAt: null
           }),
           update
+        },
+        appointment: {
+          updateMany: appointmentUpdateMany
         }
-      } as unknown as TRPCContext["db"]
+      })
     });
     const caller = appRouter.createCaller(ctx);
 
@@ -198,6 +203,91 @@ describe("stylist bootstrap", () => {
         salonAddress: "123 Main St",
         onboardingCompletedAt: expect.any(Date)
       }
+    });
+    // Scheduled in-salon Appointments follow the salon address; ones with an outcome keep theirs.
+    expect(appointmentUpdateMany).toHaveBeenCalledWith({
+      where: {
+        stylistId: "stylist_1",
+        status: "scheduled",
+        locationType: "inSalon"
+      },
+      data: {
+        locationAddress: "123 Main St"
+      }
+    });
+  });
+
+  it("takes the Stylist lock first and fails the transaction when the mutation fails", async () => {
+    const update = vi.fn().mockRejectedValue(new Error("connection lost"));
+    const db = withTransaction({
+      stylist: {
+        upsert: vi.fn().mockResolvedValue({
+          id: "stylist_1",
+          clerkId: "clerk_1",
+          language: "ru",
+          timezone: "UTC",
+          salonAddress: null,
+          onboardingCompletedAt: null
+        }),
+        update
+      },
+      appointment: {
+        updateMany: vi.fn()
+      }
+    });
+    const caller = appRouter.createCaller(
+      createContext({
+        clerkAuth: {
+          userId: "clerk_1"
+        },
+        db
+      })
+    );
+
+    await expect(
+      caller.stylist.saveSettings({
+        language: "en",
+        timezone: "America/Chicago"
+      })
+    ).rejects.toMatchObject({
+      code: "INTERNAL_SERVER_ERROR"
+    });
+
+    // One lock per Stylist, taken before anything is read or written.
+    expect(db.$executeRaw.mock.calls[0]?.slice(1)).toEqual(["stylist_1"]);
+    expect(String(db.$executeRaw.mock.calls[0]?.[0])).toContain("pg_advisory_xact_lock");
+    expect(db.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(update.mock.invocationCallOrder[0] ?? 0);
+    // A transaction whose callback rejects is rolled back by the database.
+    await expect(db.$transaction.mock.results[0]?.value).rejects.toBeDefined();
+  });
+
+  it.each([
+    ["P2002", "CONFLICT", "This record already exists."],
+    ["P2003", "NOT_FOUND", "A record this change refers to no longer exists."],
+    ["P2025", "NOT_FOUND", "This record no longer exists."]
+  ])("answers database failure %s as %s without database text", async (prismaCode, code, message) => {
+    const caller = appRouter.createCaller(
+      createContext({
+        clerkAuth: {
+          userId: "clerk_1"
+        },
+        db: {
+          stylist: {
+            upsert: vi.fn().mockRejectedValue(
+              Object.assign(new Error("Invalid `ctx.db.stylist.upsert()` invocation in /srv/app/trpc.ts"), {
+                name: "PrismaClientKnownRequestError",
+                code: prismaCode
+              })
+            )
+          }
+        } as unknown as TRPCContext["db"]
+      })
+    );
+    const failure = await caller.stylist.bootstrap().catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
+      code,
+      message
     });
   });
 });

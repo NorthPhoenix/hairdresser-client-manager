@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { appRouter } from "./root";
 import type { TRPCContext } from "./context";
+import { withTransaction } from "./testSupport";
 
 const stylist = {
   id: "stylist_1",
@@ -18,7 +19,7 @@ function createContext(db: TRPCContext["db"]): TRPCContext {
     clerkAuth: {
       userId: "clerk_1"
     },
-    db,
+    db: withTransaction(db),
     stylist
   } as unknown as TRPCContext;
 }
@@ -26,11 +27,99 @@ function createContext(db: TRPCContext["db"]): TRPCContext {
 function createDb(appointment: Record<string, unknown>, client: Record<string, unknown> = {}) {
   return {
     stylist: {
-      upsert: vi.fn().mockResolvedValue(stylist)
+      upsert: vi.fn().mockResolvedValue(stylist),
+      findUniqueOrThrow: vi.fn().mockResolvedValue(stylist)
     },
     appointment,
     client
   } as unknown as TRPCContext["db"];
+}
+
+// An Appointment row as the mutations read it before they change it.
+const scheduledAppointment = {
+  id: "appointment_1",
+  stylistId: "stylist_1",
+  primaryClientId: "client_1",
+  startsAt: new Date("2026-06-13T15:00:00.000Z"),
+  endsAt: null,
+  status: "scheduled",
+  locationType: "inSalon",
+  locationAddress: "500 Salon Ave",
+  locationAddressIsCustom: false,
+  note: "",
+  finalTotalCentsOverride: null,
+  primaryClient: {
+    id: "client_1",
+    name: "Anna",
+    address: "10 Client St"
+  }
+};
+
+// A group Appointment kept in memory, with just the calls the group mutations make. Used with
+// two mutations started together: each mock yields, so they would interleave if their checks
+// were not inside the transaction.
+function createGroupDb(clientIds: string[]) {
+  const state = {
+    primaryClientId: clientIds[0] ?? "",
+    clientIds: [...clientIds],
+    serviceClientIds: [] as string[],
+    photoClientIds: [] as string[]
+  };
+  const read = () => ({
+    ...scheduledAppointment,
+    primaryClientId: state.primaryClientId,
+    participants: state.clientIds.map((clientId) => ({
+      clientId,
+      client: {
+        id: clientId,
+        name: clientId,
+        address: ""
+      }
+    })),
+    services: []
+  });
+  const db = {
+    stylist: {
+      upsert: vi.fn().mockResolvedValue(stylist)
+    },
+    appointment: {
+      findFirst: vi.fn(async () => read()),
+      findUniqueOrThrow: vi.fn(async () => read()),
+      update: vi.fn(async ({ data }: { data: { primaryClientId?: string } }) => {
+        state.primaryClientId = data.primaryClientId ?? state.primaryClientId;
+
+        return read();
+      })
+    },
+    appointmentParticipant: {
+      findFirst: vi.fn(async ({ where }: { where: { clientId: string } }) =>
+        state.clientIds.includes(where.clientId) ? { clientId: where.clientId } : null
+      ),
+      deleteMany: vi.fn(async ({ where }: { where: { clientId: string } }) => {
+        state.clientIds = state.clientIds.filter((clientId) => clientId !== where.clientId);
+      })
+    },
+    appointmentService: {
+      count: vi.fn(async ({ where }: { where: { clientId: string } }) =>
+        state.serviceClientIds.filter((clientId) => clientId === where.clientId).length
+      ),
+      create: vi.fn(async ({ data }: { data: { clientId: string } }) => {
+        state.serviceClientIds.push(data.clientId);
+      })
+    },
+    appointmentPhoto: {
+      count: vi.fn(async ({ where }: { where: { clientId: string } }) =>
+        state.photoClientIds.filter((clientId) => clientId === where.clientId).length
+      ),
+      deleteMany: vi.fn()
+    }
+  };
+
+  return {
+    state,
+    db,
+    caller: appRouter.createCaller(createContext(db as unknown as TRPCContext["db"]))
+  };
 }
 
 describe("appointment router", () => {
@@ -97,12 +186,14 @@ describe("appointment router", () => {
         endsAt: null,
         locationType: "inSalon",
         locationAddress: "500 Salon Ave",
+        locationAddressIsCustom: false,
         note: "",
         finalTotalCentsOverride: null,
         participants: {
           create: [
             {
-              clientId: "client_1"
+              clientId: "client_1",
+              createdAt: expect.any(Date)
             }
           ]
         }
@@ -199,16 +290,23 @@ describe("appointment router", () => {
         participants: {
           create: [
             {
-              clientId: "client_1"
+              clientId: "client_1",
+              createdAt: expect.any(Date)
             },
             {
-              clientId: "client_2"
+              clientId: "client_2",
+              createdAt: expect.any(Date)
             }
           ]
         }
       }),
       include: expect.any(Object)
     });
+
+    // The Clients are stored in the order they were picked, a millisecond apart.
+    const [first, second] = create.mock.calls[0]?.[0].data.participants.create ?? [];
+
+    expect(second.createdAt.getTime() - first.createdAt.getTime()).toBe(1);
   });
 
   it("creates an inline minimal Client for Appointment Creation", async () => {
@@ -329,7 +427,10 @@ describe("appointment router", () => {
       },
       conflicts: [
         {
-          id: "conflict_1"
+          id: "conflict_1",
+          primaryClientName: "Mila",
+          startsAt: "2026-06-13T15:15:00.000Z",
+          endsAt: null
         }
       ]
     });
@@ -359,9 +460,7 @@ describe("appointment router", () => {
         }
       },
       include: expect.any(Object),
-      orderBy: {
-        startsAt: "asc"
-      }
+      orderBy: [{ startsAt: "asc" }, { createdAt: "asc" }, { id: "asc" }]
     });
   });
 
@@ -422,16 +521,12 @@ describe("appointment router", () => {
         ]
       },
       include: expect.any(Object),
-      orderBy: {
-        startsAt: "asc"
-      }
+      orderBy: [{ startsAt: "asc" }, { createdAt: "asc" }, { id: "asc" }]
     });
   });
 
   it("updates outcome and appointment-level note for an owned Appointment", async () => {
-    const findFirst = vi.fn().mockResolvedValue({
-      id: "appointment_1"
-    });
+    const findFirst = vi.fn().mockResolvedValue(scheduledAppointment);
     const update = vi.fn().mockResolvedValue({
       id: "appointment_1",
       stylistId: "stylist_1",
@@ -500,8 +595,11 @@ describe("appointment router", () => {
       createContext(
         createDb({
           findFirst: vi.fn().mockResolvedValue({
-            id: "appointment_1"
+            ...scheduledAppointment,
+            status: "completed",
+            locationAddress: "1 Old Salon St"
           }),
+          findMany: vi.fn().mockResolvedValue([]),
           update
         })
       )
@@ -512,12 +610,15 @@ describe("appointment router", () => {
       status: "scheduled"
     });
 
+    // Scheduled again, an in-salon Appointment shows the salon's current address.
     expect(update).toHaveBeenCalledWith({
       where: {
         id: "appointment_1"
       },
       data: {
-        status: "scheduled"
+        status: "scheduled",
+        locationAddress: "500 Salon Ave",
+        locationAddressIsCustom: false
       },
       include: expect.any(Object)
     });
@@ -732,9 +833,7 @@ describe("appointment router", () => {
   });
 
   it("lets the final total override the sum of Services", async () => {
-    const findFirst = vi.fn().mockResolvedValue({
-      id: "appointment_1"
-    });
+    const findFirst = vi.fn().mockResolvedValue(scheduledAppointment);
     const update = vi.fn().mockResolvedValue({
       id: "appointment_1",
       stylistId: "stylist_1",
@@ -1029,9 +1128,7 @@ describe("appointment router", () => {
         }
       },
       include: expect.any(Object),
-      orderBy: {
-        startsAt: "desc"
-      }
+      orderBy: [{ startsAt: "desc" }, { createdAt: "desc" }, { id: "desc" }]
     });
     expect(appointmentServiceCreate).toHaveBeenCalledWith({
       data: {
@@ -1247,9 +1344,7 @@ describe("appointment router", () => {
           upsert: vi.fn().mockResolvedValue(stylist)
         },
         appointment: {
-          findFirst: vi.fn().mockResolvedValue({
-            id: "appointment_1"
-          }),
+          findFirst: vi.fn().mockResolvedValue(scheduledAppointment),
           update
         },
         appointmentParticipant: {
@@ -1284,6 +1379,7 @@ describe("appointment router", () => {
     const appointmentUpdate = vi.fn();
     const participantDeleteMany = vi.fn();
     const serviceCount = vi.fn().mockResolvedValue(0);
+    const photoCount = vi.fn().mockResolvedValue(0);
     const photoDeleteMany = vi.fn();
     const caller = appRouter.createCaller(
       createContext({
@@ -1312,6 +1408,7 @@ describe("appointment router", () => {
           count: serviceCount
         },
         appointmentPhoto: {
+          count: photoCount,
           deleteMany: photoDeleteMany
         }
       } as unknown as TRPCContext["db"])
@@ -1342,12 +1439,14 @@ describe("appointment router", () => {
         clientId: "client_1"
       }
     });
-    expect(photoDeleteMany).toHaveBeenCalledWith({
+    expect(photoCount).toHaveBeenCalledWith({
       where: {
         appointmentId: "appointment_1",
         clientId: "client_1"
       }
     });
+    // Removing a Client never deletes Appointment Photos.
+    expect(photoDeleteMany).not.toHaveBeenCalled();
   });
 
   it("adds, updates, and deletes Appointment Photos with UploadThing metadata", async () => {
@@ -1539,6 +1638,627 @@ describe("appointment router", () => {
 
     expect(appointmentUpdate).not.toHaveBeenCalled();
     expect(participantDeleteMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses to remove a Client who has Appointment Photos and deletes none of them", async () => {
+    const { state, db, caller } = createGroupDb(["client_1", "client_2"]);
+
+    state.photoClientIds.push("client_2");
+
+    await expect(
+      caller.appointment.removeParticipant({
+        appointmentId: "appointment_1",
+        clientId: "client_2"
+      })
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "Client has Appointment Photos attached to this Appointment."
+    });
+
+    expect(state.clientIds).toEqual(["client_1", "client_2"]);
+    expect(db.appointmentParticipant.deleteMany).not.toHaveBeenCalled();
+    expect(db.appointmentPhoto.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("says so when the Client to remove is no longer attached to the Appointment", async () => {
+    const { state, caller } = createGroupDb(["client_1"]);
+
+    // One Client is left, but the refusal is about the Client named, not about the last Client.
+    await expect(
+      caller.appointment.removeParticipant({
+        appointmentId: "appointment_1",
+        clientId: "client_2"
+      })
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "Client must be attached to the Appointment."
+    });
+    await expect(
+      caller.appointment.removeParticipant({
+        appointmentId: "appointment_1",
+        clientId: "client_1"
+      })
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "Appointment must keep at least one Client."
+    });
+    await expect(
+      caller.appointment.update({
+        id: "appointment_1",
+        primaryClientId: "client_2"
+      })
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "Primary Client must be attached to the Appointment."
+    });
+    await expect(
+      caller.appointment.addService({
+        appointmentId: "appointment_1",
+        clientId: "client_2",
+        name: "Cut"
+      })
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "Service Client must be attached to the Appointment."
+    });
+
+    expect(state.clientIds).toEqual(["client_1"]);
+  });
+
+  it("keeps one Client when both Clients of an Appointment are removed at the same moment", async () => {
+    const { state, caller } = createGroupDb(["client_1", "client_2"]);
+
+    const results = await Promise.allSettled([
+      caller.appointment.removeParticipant({
+        appointmentId: "appointment_1",
+        clientId: "client_1"
+      }),
+      caller.appointment.removeParticipant({
+        appointmentId: "appointment_1",
+        clientId: "client_2"
+      })
+    ]);
+
+    expect(results.map((result) => result.status)).toEqual(["fulfilled", "rejected"]);
+    expect(results[1]).toMatchObject({
+      reason: {
+        code: "BAD_REQUEST",
+        message: "Appointment must keep at least one Client."
+      }
+    });
+    expect(state.clientIds).toEqual(["client_2"]);
+    expect(state.primaryClientId).toBe("client_2");
+  });
+
+  it("keeps the primary Client attached when make primary and removal arrive together", async () => {
+    const makePrimaryFirst = createGroupDb(["client_1", "client_2"]);
+
+    await Promise.allSettled([
+      makePrimaryFirst.caller.appointment.update({
+        id: "appointment_1",
+        primaryClientId: "client_2"
+      }),
+      makePrimaryFirst.caller.appointment.removeParticipant({
+        appointmentId: "appointment_1",
+        clientId: "client_2"
+      })
+    ]);
+
+    // The removal saw client_2 as primary and moved the primary back before removing them.
+    expect(makePrimaryFirst.state).toMatchObject({
+      primaryClientId: "client_1",
+      clientIds: ["client_1"]
+    });
+
+    const removalFirst = createGroupDb(["client_1", "client_2"]);
+    const results = await Promise.allSettled([
+      removalFirst.caller.appointment.removeParticipant({
+        appointmentId: "appointment_1",
+        clientId: "client_2"
+      }),
+      removalFirst.caller.appointment.update({
+        id: "appointment_1",
+        primaryClientId: "client_2"
+      })
+    ]);
+
+    expect(results[1]).toMatchObject({
+      reason: {
+        code: "BAD_REQUEST",
+        message: "Primary Client must be attached to the Appointment."
+      }
+    });
+    expect(removalFirst.state).toMatchObject({
+      primaryClientId: "client_1",
+      clientIds: ["client_1"]
+    });
+  });
+
+  it("never both adds a Service for a Client and removes that Client", async () => {
+    const serviceFirst = createGroupDb(["client_1", "client_2"]);
+    const serviceFirstResults = await Promise.allSettled([
+      serviceFirst.caller.appointment.addService({
+        appointmentId: "appointment_1",
+        clientId: "client_2",
+        name: "Cut"
+      }),
+      serviceFirst.caller.appointment.removeParticipant({
+        appointmentId: "appointment_1",
+        clientId: "client_2"
+      })
+    ]);
+
+    expect(serviceFirstResults[1]).toMatchObject({
+      reason: {
+        message: "Client has Services attached to this Appointment."
+      }
+    });
+    expect(serviceFirst.state).toMatchObject({
+      clientIds: ["client_1", "client_2"],
+      serviceClientIds: ["client_2"]
+    });
+
+    const removalFirst = createGroupDb(["client_1", "client_2"]);
+    const removalFirstResults = await Promise.allSettled([
+      removalFirst.caller.appointment.removeParticipant({
+        appointmentId: "appointment_1",
+        clientId: "client_2"
+      }),
+      removalFirst.caller.appointment.addService({
+        appointmentId: "appointment_1",
+        clientId: "client_2",
+        name: "Cut"
+      })
+    ]);
+
+    expect(removalFirstResults[1]).toMatchObject({
+      reason: {
+        message: "Service Client must be attached to the Appointment."
+      }
+    });
+    expect(removalFirst.state).toMatchObject({
+      clientIds: ["client_1"],
+      serviceClientIds: []
+    });
+  });
+
+  it("creates the inline Client inside the transaction that a refusal rolls back", async () => {
+    const createClient = vi.fn().mockResolvedValue({
+      id: "client_new",
+      name: "Walk-in",
+      address: ""
+    });
+    const createAppointment = vi.fn();
+    const context = createContext(
+      createDb(
+        {
+          findMany: vi.fn().mockResolvedValue([]),
+          create: createAppointment
+        },
+        {
+          create: createClient,
+          findMany: vi.fn().mockResolvedValue([])
+        }
+      )
+    );
+    const db = context.db as unknown as ReturnType<typeof withTransaction>;
+
+    await expect(
+      appRouter.createCaller(context).appointment.create({
+        inlineClientName: "Walk-in",
+        additionalClientIds: ["missing"],
+        startsAt: "2026-06-13T15:00:00.000Z"
+      })
+    ).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "One or more group Clients were not found."
+    });
+
+    // The lock comes first, the Client insert after it, and the refusal fails the transaction,
+    // which is what makes the database discard the Client.
+    expect(db.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(createClient.mock.invocationCallOrder[0] ?? 0);
+    await expect(db.$transaction.mock.results[0]?.value).rejects.toMatchObject({
+      code: "NOT_FOUND"
+    });
+    expect(createAppointment).not.toHaveBeenCalled();
+  });
+
+  it("changes start, end and location of an existing Appointment", async () => {
+    const update = vi.fn().mockResolvedValue(scheduledAppointment);
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        ...scheduledAppointment,
+        id: "conflict_1",
+        primaryClientId: "client_3",
+        startsAt: new Date("2026-06-14T10:15:00.000Z"),
+        primaryClient: {
+          id: "client_3",
+          name: "Mila",
+          address: ""
+        }
+      }
+    ]);
+    const caller = appRouter.createCaller(
+      createContext(
+        createDb(
+          {
+            findFirst: vi.fn().mockResolvedValue(scheduledAppointment),
+            findMany,
+            update
+          },
+          {
+            findUniqueOrThrow: vi.fn().mockResolvedValue({
+              address: "10 Client St"
+            })
+          }
+        )
+      )
+    );
+
+    // Moved into an occupied time: saved, and the reply names the Appointment it overlaps.
+    await expect(
+      caller.appointment.update({
+        id: "appointment_1",
+        startsAt: "2026-06-14T10:00:00.000Z",
+        endsAt: "2026-06-14T11:00:00.000Z",
+        locationType: "atHome",
+        customLocationAddress: " 77 Venue Rd "
+      })
+    ).resolves.toMatchObject({
+      conflicts: [
+        {
+          id: "conflict_1",
+          primaryClientName: "Mila",
+          startsAt: "2026-06-14T10:15:00.000Z",
+          endsAt: null
+        }
+      ]
+    });
+    expect(update).toHaveBeenLastCalledWith({
+      where: {
+        id: "appointment_1"
+      },
+      data: {
+        startsAt: new Date("2026-06-14T10:00:00.000Z"),
+        endsAt: new Date("2026-06-14T11:00:00.000Z"),
+        locationType: "atHome",
+        locationAddress: "77 Venue Rd",
+        locationAddressIsCustom: true
+      },
+      include: expect.any(Object)
+    });
+    // The overlap check is the one of Appointment Creation, leaving out the Appointment itself.
+    expect(findMany).toHaveBeenLastCalledWith({
+      where: {
+        stylistId: "stylist_1",
+        status: "scheduled",
+        startsAt: {
+          lt: new Date("2026-06-14T11:00:00.000Z")
+        },
+        id: {
+          not: "appointment_1"
+        }
+      },
+      include: expect.any(Object),
+      orderBy: [{ startsAt: "asc" }, { createdAt: "asc" }, { id: "asc" }]
+    });
+
+    // At home without a custom address is the primary Client's address; null clears the end time.
+    await caller.appointment.update({
+      id: "appointment_1",
+      endsAt: null,
+      locationType: "atHome",
+      customLocationAddress: ""
+    });
+    expect(update).toHaveBeenLastCalledWith({
+      where: {
+        id: "appointment_1"
+      },
+      data: {
+        endsAt: null,
+        locationType: "atHome",
+        locationAddress: "10 Client St",
+        locationAddressIsCustom: false
+      },
+      include: expect.any(Object)
+    });
+  });
+
+  it("validates a changed time like Appointment Creation and reports no overlap for other changes", async () => {
+    const update = vi.fn().mockResolvedValue(scheduledAppointment);
+    const findMany = vi.fn().mockResolvedValue([]);
+    const caller = appRouter.createCaller(
+      createContext(
+        createDb({
+          findFirst: vi.fn().mockResolvedValue({
+            ...scheduledAppointment,
+            endsAt: new Date("2026-06-13T16:00:00.000Z")
+          }),
+          findMany,
+          update
+        })
+      )
+    );
+
+    await expect(
+      caller.appointment.update({
+        id: "appointment_1",
+        endsAt: "2026-06-13T15:00:00.000Z"
+      })
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "End time must be after start time."
+    });
+    // A new start is checked against the end the Appointment already has.
+    await expect(
+      caller.appointment.update({
+        id: "appointment_1",
+        startsAt: "2026-06-13T17:00:00.000Z"
+      })
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "End time must be after start time."
+    });
+    expect(update).not.toHaveBeenCalled();
+
+    await expect(
+      caller.appointment.update({
+        id: "appointment_1",
+        note: "Bring the toner."
+      })
+    ).resolves.toMatchObject({
+      conflicts: []
+    });
+    expect(findMany).not.toHaveBeenCalled();
+  });
+
+  it("reports the overlap when an Appointment is set back to Scheduled into an occupied time", async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        ...scheduledAppointment,
+        id: "conflict_1",
+        endsAt: new Date("2026-06-13T16:00:00.000Z")
+      }
+    ]);
+    const caller = appRouter.createCaller(
+      createContext(
+        createDb({
+          findFirst: vi.fn().mockResolvedValue({
+            ...scheduledAppointment,
+            status: "canceled"
+          }),
+          findMany,
+          update: vi.fn().mockResolvedValue(scheduledAppointment)
+        })
+      )
+    );
+
+    await expect(
+      caller.appointment.update({
+        id: "appointment_1",
+        status: "scheduled"
+      })
+    ).resolves.toMatchObject({
+      status: "scheduled",
+      conflicts: [
+        {
+          id: "conflict_1",
+          primaryClientName: "Anna",
+          startsAt: "2026-06-13T15:00:00.000Z",
+          endsAt: "2026-06-13T16:00:00.000Z"
+        }
+      ]
+    });
+  });
+
+  it("moves an at-home Appointment to the new primary Client's address unless the address is custom", async () => {
+    const atHome = {
+      ...scheduledAppointment,
+      locationType: "atHome",
+      locationAddress: "10 Client St"
+    };
+    const findFirst = vi.fn();
+    const update = vi.fn().mockResolvedValue(atHome);
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: {
+          upsert: vi.fn().mockResolvedValue(stylist)
+        },
+        appointment: {
+          findFirst,
+          update
+        },
+        appointmentParticipant: {
+          findFirst: vi.fn().mockResolvedValue({
+            clientId: "client_2"
+          })
+        },
+        client: {
+          findUniqueOrThrow: vi.fn().mockResolvedValue({
+            address: "22 Bob St"
+          })
+        }
+      } as unknown as TRPCContext["db"])
+    );
+    const makePrimary = () =>
+      caller.appointment.update({
+        id: "appointment_1",
+        primaryClientId: "client_2"
+      });
+
+    findFirst.mockResolvedValueOnce(atHome);
+    await makePrimary();
+    expect(update).toHaveBeenLastCalledWith({
+      where: {
+        id: "appointment_1"
+      },
+      data: {
+        primaryClientId: "client_2",
+        locationAddress: "22 Bob St",
+        locationAddressIsCustom: false
+      },
+      include: expect.any(Object)
+    });
+
+    findFirst.mockResolvedValueOnce({
+      ...atHome,
+      locationAddress: "5 Venue Way",
+      locationAddressIsCustom: true
+    });
+    await makePrimary();
+    expect(update).toHaveBeenLastCalledWith({
+      where: {
+        id: "appointment_1"
+      },
+      data: {
+        primaryClientId: "client_2"
+      },
+      include: expect.any(Object)
+    });
+
+    // From before the flag existed: an address that differs from the primary Client's was typed.
+    findFirst.mockResolvedValueOnce({
+      ...atHome,
+      locationAddress: "5 Venue Way",
+      locationAddressIsCustom: null
+    });
+    await makePrimary();
+    expect(update).toHaveBeenLastCalledWith({
+      where: {
+        id: "appointment_1"
+      },
+      data: {
+        primaryClientId: "client_2"
+      },
+      include: expect.any(Object)
+    });
+
+    findFirst.mockResolvedValueOnce({
+      ...atHome,
+      locationAddressIsCustom: null
+    });
+    await makePrimary();
+    expect(update).toHaveBeenLastCalledWith({
+      where: {
+        id: "appointment_1"
+      },
+      data: {
+        primaryClientId: "client_2",
+        locationAddress: "22 Bob St",
+        locationAddressIsCustom: false
+      },
+      include: expect.any(Object)
+    });
+  });
+
+  it("moves the at-home address with the primary Client when the primary is removed", async () => {
+    const appointmentUpdate = vi.fn();
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: {
+          upsert: vi.fn().mockResolvedValue(stylist)
+        },
+        appointment: {
+          findFirst: vi.fn().mockResolvedValue({
+            ...scheduledAppointment,
+            locationType: "atHome",
+            locationAddress: "10 Client St",
+            participants: [
+              {
+                clientId: "client_1"
+              },
+              {
+                clientId: "client_2"
+              }
+            ]
+          }),
+          update: appointmentUpdate
+        },
+        appointmentParticipant: {
+          deleteMany: vi.fn()
+        },
+        appointmentService: {
+          count: vi.fn().mockResolvedValue(0)
+        },
+        appointmentPhoto: {
+          count: vi.fn().mockResolvedValue(0)
+        },
+        client: {
+          findUniqueOrThrow: vi.fn().mockResolvedValue({
+            address: "22 Bob St"
+          })
+        }
+      } as unknown as TRPCContext["db"])
+    );
+
+    await caller.appointment.removeParticipant({
+      appointmentId: "appointment_1",
+      clientId: "client_1"
+    });
+
+    expect(appointmentUpdate).toHaveBeenCalledWith({
+      where: {
+        id: "appointment_1"
+      },
+      data: {
+        primaryClientId: "client_2",
+        locationAddress: "22 Bob St",
+        locationAddressIsCustom: false
+      }
+    });
+  });
+
+  it("returns the Clients primary first, then in the order they were added", async () => {
+    const addedAt = new Date("2026-06-13T12:00:00.000Z");
+    const participant = (id: string, clientId: string, createdAt: Date) => ({
+      id,
+      createdAt,
+      client: {
+        id: clientId,
+        name: clientId,
+        address: ""
+      }
+    });
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        ...scheduledAppointment,
+        primaryClientId: "client_3",
+        locationType: "atHome",
+        locationAddress: "5 Venue Way",
+        locationAddressIsCustom: true,
+        // As the database may return them: equal timestamps in no particular order.
+        participants: [
+          participant("p_b", "client_2", addedAt),
+          participant("p_d", "client_4", new Date(addedAt.getTime() + 1)),
+          participant("p_c", "client_3", new Date(addedAt.getTime() + 1)),
+          participant("p_a", "client_1", addedAt)
+        ]
+      }
+    ]);
+    const caller = appRouter.createCaller(
+      createContext(
+        createDb({
+          findMany
+        })
+      )
+    );
+    const [appointment] = await caller.appointment.list({
+      start: "2026-06-13T00:00:00.000Z",
+      end: "2026-06-14T00:00:00.000Z"
+    });
+
+    expect(appointment?.participants.map((item) => item.clientId)).toEqual([
+      "client_3",
+      "client_1",
+      "client_2",
+      "client_4"
+    ]);
+    expect(appointment?.participants.map((item) => item.isPrimary)).toEqual([true, false, false, false]);
+    // The custom address is reported apart from the address shown.
+    expect(appointment).toMatchObject({
+      locationAddress: "5 Venue Way",
+      customLocationAddress: "5 Venue Way"
+    });
   });
 
   it("deletes an owned Appointment", async () => {

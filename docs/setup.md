@@ -4,7 +4,7 @@ This repo is a Turborepo with a Profile Share-only Next.js web app that also hos
 
 Because this is a new application, use current stable APIs and package names by default. Do not add legacy or compatibility APIs unless a current API is blocked and the reason plus removal path are documented.
 
-Before extending the mobile/API stack, read ADRs `0010`, `0011`, `0012`, and `0013`. They define the Next.js-hosted tRPC backend, lazy Clerk-to-Stylist identity model, the v1 stack, and the native Android app that replaced the original Expo app.
+Before extending the mobile/API stack, read ADRs `0010`, `0011`, `0012`, `0013`, and `0014`. They define the Next.js-hosted tRPC backend, lazy Clerk-to-Stylist identity model, the v1 stack, the native Android app that replaced the original Expo app, and how mutations that check before they write stay consistent.
 
 For building, configuring, and running the Android app, including a local backend that needs no provider credentials, read `apps/android/README.md`.
 

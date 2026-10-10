@@ -79,6 +79,9 @@ model Appointment {
   status       AppointmentStatus       @default(scheduled)
   locationType AppointmentLocationType @default(inSalon)
   locationAddress String?
+  // true: the Stylist typed this address. false: it is the salon's (in salon) or the primary
+  // Client's (at home). null: created before this column existed.
+  locationAddressIsCustom Boolean?
   note         String?
   finalTotalCentsOverride Int?
   createdAt    DateTime                @default(now())
