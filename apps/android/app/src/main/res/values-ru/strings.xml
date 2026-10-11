@@ -42,6 +42,7 @@
     <string name="appointment_photo_after">После</string>
     <string name="appointment_photo_before">До</string>
     <string name="appointment_photo_category_label">Категория фото</string>
+    <string name="appointment_photo_description">Фото: %1$s</string>
     <string name="appointment_photo_other">Другое</string>
     <string name="appointment_photo_permission_denied">Не удалось открыть камеру или галерею.</string>
     <string name="appointment_photo_too_large">Фото больше 8 МБ.</string>
@@ -139,7 +140,7 @@
     <string name="home_appointments_title">Сегодня и незакрытые</string>
     <string name="home_empty_body">На сегодня записей нет, и все прошлые закрыты.</string>
     <string name="home_today_section">Сегодня</string>
-    <string name="home_unresolved_section">Нужен итог</string>
+    <string name="home_unresolved_section">Нужно закрыть</string>
     <string name="import_contact">Импорт из контактов</string>
     <string name="import_contact_apply">Импортировать</string>
     <string name="import_contact_confirm_body">Данные контакта заменят заполненные поля клиента.</string>
@@ -185,6 +186,7 @@
     <string name="profile_share_description">Публичная ссылка на историю, которую видит клиент.</string>
     <string name="profile_share_link_copied">Ссылка скопирована.</string>
     <string name="profile_share_title">Ссылка на профиль клиента</string>
+    <string name="remove_additional_client">Убрать клиента: %1$s</string>
     <string name="remove_appointment_photo">Удалить фото</string>
     <string name="remove_client_from_appointment">Убрать из записи</string>
     <string name="retry">Повторить</string>

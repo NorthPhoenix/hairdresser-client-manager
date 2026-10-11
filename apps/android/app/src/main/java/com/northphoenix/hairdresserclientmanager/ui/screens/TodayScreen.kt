@@ -94,7 +94,10 @@ fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String, String) -> 
     }
 }
 
-/** [count] is null while the list is not loaded: a number, even 0, would say that it is. */
+/**
+ * [count] is null while the list is not loaded: a number, even 0, would say that it is. The count
+ * keeps its place beside a [title] of any length, which goes on as many lines as it takes.
+ */
 @Composable
 fun ListSectionLabel(title: String, count: Int?, modifier: Modifier = Modifier, warning: Boolean = false) {
     Row(
@@ -102,7 +105,7 @@ fun ListSectionLabel(title: String, count: Int?, modifier: Modifier = Modifier, 
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(title, style = MaterialTheme.typography.headlineSmall)
+        Text(title, modifier = Modifier.weight(1f, fill = false), style = MaterialTheme.typography.headlineSmall)
         if (count != null) {
             Tag(
                 count.toString(),

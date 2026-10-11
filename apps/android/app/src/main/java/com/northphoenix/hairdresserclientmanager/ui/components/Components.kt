@@ -25,6 +25,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -58,6 +60,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.error
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -353,7 +357,7 @@ fun PickerField(
     }
 }
 
-/** Two-or-more option pill selector. */
+/** Two-or-more option pill selector. A screen reader is told which option is the chosen one. */
 @Composable
 fun <T> SegmentedControl(
     options: List<T>,
@@ -367,7 +371,8 @@ fun <T> SegmentedControl(
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(4.dp),
+            .padding(4.dp)
+            .selectableGroup(),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         options.forEach { option ->
@@ -380,7 +385,7 @@ fun <T> SegmentedControl(
                     .weight(1f)
                     .clip(RoundedCornerShape(12.dp))
                     .background(container)
-                    .clickable(role = Role.RadioButton) { onSelect(option) }
+                    .selectable(selected = isSelected, role = Role.RadioButton) { onSelect(option) }
                     .defaultMinSize(minHeight = 44.dp)
                     .padding(horizontal = 10.dp, vertical = 10.dp),
                 contentAlignment = Alignment.Center,
@@ -392,17 +397,51 @@ fun <T> SegmentedControl(
 }
 
 /**
- * A tappable chip for picking one of a few values inline. A chip with [wraps] shows all of its
- * text on as many lines as that takes; the others cut it at one line.
+ * A tappable chip for picking one of a few values inline. A screen reader is told whether it is
+ * the chosen one: put the chips of one choice in a `selectableGroup()`. A chip with [wraps] shows
+ * all of its text on as many lines as that takes; the others cut it at one line.
  */
 @Composable
-fun ChoiceChip(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, icon: ImageVector? = null, wraps: Boolean = false) {
+fun ChoiceChip(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, wraps: Boolean = false) {
+    Chip(
+        text,
+        highlighted = selected,
+        onClick = onClick,
+        modifier = modifier.semantics {
+            role = Role.RadioButton
+            this.selected = selected
+        },
+        wraps = wraps,
+    )
+}
+
+/**
+ * A chip that does something when tapped ('Add Client', a chosen Client that the tap takes away
+ * again): a button, where a [ChoiceChip] is an option. [description] is read out in place of
+ * [text] when the text alone does not say what the tap does.
+ */
+@Composable
+fun ActionChip(text: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier, highlighted: Boolean = false, description: String? = null) {
+    Chip(
+        text,
+        highlighted = highlighted,
+        onClick = onClick,
+        modifier = modifier.semantics {
+            role = Role.Button
+            if (description != null) contentDescription = description
+        },
+        icon = icon,
+    )
+}
+
+@Composable
+private fun Chip(text: String, highlighted: Boolean, onClick: () -> Unit, modifier: Modifier, icon: ImageVector? = null, wraps: Boolean = false) {
     val container by animateColorAsState(
-        if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLowest,
+        if (highlighted) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLowest,
         label = "chip",
     )
-    val border = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-    val content = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+    val border = if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+    val content = if (highlighted) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
 
     Surface(
         onClick = onClick,
@@ -410,7 +449,7 @@ fun ChoiceChip(text: String, selected: Boolean, onClick: () -> Unit, modifier: M
         // The corners of a one-line chip, kept at that size when the chip grows taller.
         shape = if (wraps) RoundedCornerShape(20.dp) else CircleShape,
         color = container,
-        border = BorderStroke(if (selected) 1.5.dp else 1.dp, border),
+        border = BorderStroke(if (highlighted) 1.5.dp else 1.dp, border),
     ) {
         Row(
             Modifier.heightIn(min = 40.dp).padding(horizontal = 14.dp, vertical = 8.dp),
@@ -545,17 +584,19 @@ fun BackButton(onBack: () -> Unit) {
     }
 }
 
+/** A 44 dp circle. It takes the 48 dp of a touch target wherever it stands: do not give it a smaller size. */
 @Composable
 fun CircleIconButton(icon: ImageVector, contentDescription: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
     Surface(
         onClick = onClick,
-        modifier = modifier.size(44.dp),
+        modifier = modifier,
         enabled = enabled,
         shape = CircleShape,
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
-        Box(contentAlignment = Alignment.Center) {
+        // The size is the circle's own, inside the Surface: on the Surface it would also cut the touch target down to 44 dp.
+        Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
             Icon(icon, contentDescription = contentDescription, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurface)
         }
     }

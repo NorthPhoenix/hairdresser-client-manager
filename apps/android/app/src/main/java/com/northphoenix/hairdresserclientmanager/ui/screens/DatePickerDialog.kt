@@ -62,7 +62,8 @@ private val FirstMonth = YearMonth.of(Years.first, 1)
 private val LastMonth = YearMonth.of(Years.last, 12)
 
 private val WeekdayRowHeight = 32.dp
-private val WeekRowHeight = 44.dp
+// A day is a 40 dp circle; the row gives it the 48 dp of a touch target.
+private val WeekRowHeight = 48.dp
 
 // A month takes up to six weeks. Always that tall, so the dialog keeps its size from month to month.
 private val MonthHeight = WeekdayRowHeight + WeekRowHeight * 6
@@ -93,7 +94,8 @@ fun HcmDatePickerDialog(initial: LocalDate, today: LocalDate, onDismiss: () -> U
         colors = DatePickerDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column(Modifier.padding(start = 12.dp, end = 12.dp, top = 12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // The arrows are 44 dp circles in touch targets of 48 dp: 4 dp between the targets is 8 dp between the circles.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 // The month's name opens the list of years, and closes it again.
                 TextButton(onClick = { choosingYear = !choosingYear }) {
                     Text(format.monthAndYear(month.atDay(1)), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)

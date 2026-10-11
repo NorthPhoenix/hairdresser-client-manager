@@ -35,7 +35,7 @@ import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.BottomActionBar
-import com.northphoenix.hairdresserclientmanager.ui.components.ChoiceChip
+import com.northphoenix.hairdresserclientmanager.ui.components.ActionChip
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmCard
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmTextField
 import com.northphoenix.hairdresserclientmanager.ui.components.PickerField
@@ -139,9 +139,15 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
                             Text(stringResource(R.string.additional_clients_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 additionalClients.forEach { client ->
-                                    ChoiceChip(client.name, selected = true, icon = Icons.Rounded.Close, onClick = { additionalClientIds = additionalClientIds - client.id })
+                                    ActionChip(
+                                        client.name,
+                                        icon = Icons.Rounded.Close,
+                                        onClick = { additionalClientIds = additionalClientIds - client.id },
+                                        highlighted = true,
+                                        description = stringResource(R.string.remove_additional_client, client.name),
+                                    )
                                 }
-                                ChoiceChip(stringResource(R.string.add_client_to_appointment), selected = false, icon = Icons.Rounded.Add, onClick = { picker = AppointmentPicker.ADDITIONAL })
+                                ActionChip(stringResource(R.string.add_client_to_appointment), icon = Icons.Rounded.Add, onClick = { picker = AppointmentPicker.ADDITIONAL })
                             }
                         }
                     }

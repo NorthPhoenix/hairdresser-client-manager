@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.BrokenImage
@@ -59,6 +60,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
@@ -313,7 +318,7 @@ private fun AppointmentDetail(
             HcmCard {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(stringResource(R.string.appointment_status_label), style = MaterialTheme.typography.headlineSmall)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         AppointmentStatus.entries.forEach { status ->
                             ChoiceChip(
                                 stringResource(status.label),
@@ -780,18 +785,23 @@ private fun PhotoGrid(photos: List<AppointmentPhoto>, onOpen: (AppointmentPhoto)
         photos.chunked(3).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { photo ->
+                    val category = stringResource(photo.category.label)
+                    val description = stringResource(R.string.appointment_photo_description, category)
+
                     Box(
                         Modifier
                             .weight(1f)
                             .aspectRatio(1f)
                             .clip(MaterialTheme.shapes.medium)
                             .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .clickable { onOpen(photo) },
+                            .clickable(role = Role.Button) { onOpen(photo) }
+                            // Says that it is a photo and names the category once: the image and the tag are not read out as well.
+                            .semantics { contentDescription = description },
                     ) {
                         if (photo.status == PhotoStatus.STORED && photo.url.isNotBlank()) {
                             AsyncImage(
                                 model = photo.thumbnailUrl.ifBlank { photo.url },
-                                contentDescription = stringResource(photo.category.label),
+                                contentDescription = null,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize(),
                             )
@@ -804,8 +814,8 @@ private fun PhotoGrid(photos: List<AppointmentPhoto>, onOpen: (AppointmentPhoto)
                             )
                         }
                         Tag(
-                            stringResource(photo.category.label),
-                            modifier = Modifier.align(Alignment.BottomStart).padding(6.dp),
+                            category,
+                            modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).clearAndSetSemantics {},
                             content = HcmColors.Surface,
                             container = HcmColors.Ink.copy(alpha = 0.72f),
                         )
@@ -843,7 +853,7 @@ private fun AddServiceSheet(
         if (appointment.participants.size > 1) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.appointment_service_client_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     appointment.participants.forEach { participant ->
                         ChoiceChip(participant.name, selected = clientId == participant.clientId, onClick = { clientId = participant.clientId })
                     }
@@ -860,7 +870,7 @@ private fun AddServiceSheet(
                 } else if (menu.isEmpty()) {
                     LoadingRow(Modifier.heightIn(max = 96.dp))
                 } else {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         menu.forEach { item ->
                             ChoiceChip(
                                 // The price stays with its dot when a long name takes the chip onto more lines.

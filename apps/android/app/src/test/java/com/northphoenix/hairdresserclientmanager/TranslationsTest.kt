@@ -79,6 +79,14 @@ class TranslationsTest {
     }
 
     @Test
+    fun `the Home heading for Appointments that need an outcome does not use the word for the total`() {
+        // 'Итог' is the title of the money card: a heading with that word says that a total is needed, not a status.
+        val total = russian.getValue("appointment_totals_title").text.lowercase()
+
+        assertFalse(russian.getValue("home_unresolved_section").text.lowercase().contains(total))
+    }
+
+    @Test
     fun `api failures map to localized messages instead of raw English`() {
         assertEquals(R.string.network_error, ApiException("x", isNetwork = true).messageRes())
         assertEquals(R.string.error_client_has_services, ApiException("Client has Services attached to this Appointment.", code = "BAD_REQUEST").messageRes())

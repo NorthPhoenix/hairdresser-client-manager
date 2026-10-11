@@ -40,9 +40,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleStartEffect
@@ -60,6 +64,7 @@ import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.ui.HcmSnackbarHost
 import com.northphoenix.hairdresserclientmanager.ui.components.Hairline
+import com.northphoenix.hairdresserclientmanager.ui.components.fittedTextStyle
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 import java.time.LocalDate
 import kotlinx.coroutines.delay
@@ -189,6 +194,10 @@ private fun MainScreen(viewModel: AppViewModel, open: (route: String) -> Unit) {
     val openAppointment: (String, String) -> Unit = { id, startsAt -> open(Routes.appointment(id, startsAt)) }
     val calendarDate by viewModel.calendarDate.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
+    // The tab labels get smaller together, as far as the longest of them needs to stay whole in its tab.
+    val tabLabels = MainTab.entries.map { stringResource(it.label) }
+    val barWidth = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
+    val tabLabelStyle = fittedTextStyle(tabLabels, MaterialTheme.typography.labelMedium, tabLabelWidth(barWidth, tabLabels.size))
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -202,7 +211,8 @@ private fun MainScreen(viewModel: AppViewModel, open: (route: String) -> Unit) {
                             selected = tab == item,
                             onClick = { tab = item },
                             icon = { Icon(item.icon, contentDescription = null, modifier = Modifier.size(24.dp)) },
-                            label = { Text(stringResource(item.label), style = MaterialTheme.typography.labelMedium) },
+                            // One line at every font size. The ellipsis is for a tab too narrow for its label at any readable size.
+                            label = { Text(stringResource(item.label), style = tabLabelStyle, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
                                 selectedTextColor = MaterialTheme.colorScheme.onSurface,
@@ -238,6 +248,14 @@ private fun MainScreen(viewModel: AppViewModel, open: (route: String) -> Unit) {
         }
     }
 }
+
+/**
+ * The width a label has in its tab of the [NavigationBar]. The bar shares its width among the tabs
+ * with 8 dp between them: Material's own measure, which it does not expose. 4 dp are kept clear at
+ * both edges of a tab, as some releases of Material do themselves and others leave to the label,
+ * and one more dp for the rounding to whole pixels.
+ */
+internal fun tabLabelWidth(barWidth: Dp, tabs: Int): Dp = (barWidth - 8.dp * (tabs - 1)) / tabs - 4.dp * 2 - 1.dp
 
 @Composable
 fun NewFab(text: String, icon: ImageVector, onClick: () -> Unit) {

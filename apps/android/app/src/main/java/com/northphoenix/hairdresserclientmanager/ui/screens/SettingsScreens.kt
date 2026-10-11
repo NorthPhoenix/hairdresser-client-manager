@@ -1,6 +1,5 @@
 package com.northphoenix.hairdresserclientmanager.ui.screens
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +16,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -46,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -345,10 +347,14 @@ private fun TimezonePickerDialog(selected: String, onDismiss: () -> Unit, onPick
                         else -> key(search) {
                             val start = if (search.isBlank()) found.indexOfFirst { it.id == selected }.coerceAtLeast(0) else 0
 
-                            LazyColumn(Modifier.fillMaxSize(), state = rememberLazyListState(initialFirstVisibleItemIndex = start)) {
+                            LazyColumn(Modifier.fillMaxSize().selectableGroup(), state = rememberLazyListState(initialFirstVisibleItemIndex = start)) {
                                 items(found, key = { it.id }) { zone ->
                                     Row(
-                                        Modifier.fillMaxWidth().clickable { onPick(zone.id) }.padding(horizontal = 20.dp, vertical = 13.dp),
+                                        Modifier
+                                            .fillMaxWidth()
+                                            // The check mark is for the eye; a screen reader is told which timezone is the chosen one.
+                                            .selectable(selected = zone.id == selected, role = Role.RadioButton) { onPick(zone.id) }
+                                            .padding(horizontal = 20.dp, vertical = 13.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                                     ) {

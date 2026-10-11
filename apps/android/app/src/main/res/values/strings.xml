@@ -43,6 +43,7 @@
     <string name="appointment_photo_after">After</string>
     <string name="appointment_photo_before">Before</string>
     <string name="appointment_photo_category_label">Photo category</string>
+    <string name="appointment_photo_description">Photo: %1$s</string>
     <string name="appointment_photo_other">Other</string>
     <string name="appointment_photo_permission_denied">Couldn\'t open the camera or gallery.</string>
     <string name="appointment_photo_too_large">The photo is larger than 8 MB.</string>
@@ -188,6 +189,7 @@
     <string name="profile_share_description">A public link with the history the Client can see.</string>
     <string name="profile_share_link_copied">Link copied.</string>
     <string name="profile_share_title">Profile Share</string>
+    <string name="remove_additional_client">Remove Client: %1$s</string>
     <string name="remove_appointment_photo">Remove photo</string>
     <string name="remove_client_from_appointment">Remove from Appointment</string>
     <string name="retry">Try again</string>
