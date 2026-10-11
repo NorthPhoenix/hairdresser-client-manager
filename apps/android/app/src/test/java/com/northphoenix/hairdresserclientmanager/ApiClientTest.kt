@@ -167,6 +167,62 @@ class ApiClientTest {
     }
 
     @Test
+    fun `a change answered by a server-side failure that is not the api's has an unknown outcome`() = runTest {
+        // A gateway that gave up waiting, the hosting platform's own error, the dev backend's
+        // catch-all: the API may have saved the change before any of them answered in its place.
+        val replies = listOf(
+            504 to "<html><body><h1>504 Gateway Time-out</h1></body></html>",
+            502 to """{"error":{"code":"502","message":"An error occurred with your deployment"}}""",
+            503 to "",
+            500 to """{"error":"Internal dev backend error"}""",
+        )
+
+        for ((status, reply) in replies) {
+            enqueue(reply, code = status)
+            try {
+                api.saveClient(null, "Lost Carl", Language.EN, "5550123", "", "", "")
+                fail("expected an ApiException for the $status reply")
+            } catch (error: ApiException) {
+                assertTrue("$status", error.outcomeUnknown)
+                assertFalse("$status", error.isNetwork)
+            }
+        }
+    }
+
+    @Test
+    fun `a refusal by the api, a reply from in front of it and a failed query are plain failures`() = runTest {
+        // The API's own failure says that the change was not made.
+        enqueue("""{"error":{"message":"Internal server error.","code":-32603,"data":{"code":"INTERNAL_SERVER_ERROR","httpStatus":500}}}""", code = 500)
+        try {
+            api.deleteClient("c1")
+            fail("expected an ApiException")
+        } catch (error: ApiException) {
+            assertEquals("INTERNAL_SERVER_ERROR", error.code)
+            assertFalse(error.outcomeUnknown)
+        }
+
+        // A rate limiter turned the change away before it reached the API.
+        enqueue("<html><body>Too many requests</body></html>", code = 429)
+        try {
+            api.deleteClient("c1")
+            fail("expected an ApiException")
+        } catch (error: ApiException) {
+            assertEquals("BAD_RESPONSE", error.code)
+            assertFalse(error.outcomeUnknown)
+        }
+
+        // A query changes nothing, so there is no outcome to be unsure of.
+        enqueue("<html><body><h1>504 Gateway Time-out</h1></body></html>", code = 504)
+        try {
+            api.listClients()
+            fail("expected an ApiException")
+        } catch (error: ApiException) {
+            assertEquals("BAD_RESPONSE", error.code)
+            assertFalse(error.outcomeUnknown)
+        }
+    }
+
+    @Test
     fun `a json reply that is not a tRPC envelope is a failure, not a crash`() = runTest {
         val replies = listOf(
             """{"error":"Too many requests"}""",

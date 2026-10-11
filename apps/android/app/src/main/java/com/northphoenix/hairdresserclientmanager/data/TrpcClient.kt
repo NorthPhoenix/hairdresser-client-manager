@@ -56,7 +56,7 @@ class TrpcClient(
             }.build()
 
             try {
-                http.newCall(request).await().use { decode(it.body.string(), it.code, output) }
+                http.newCall(request).await().use { decode(it.body.string(), it.code, isMutation, output) }
             } catch (error: IOException) {
                 throw if (isMutation && sent.get()) {
                     // The change may have been saved: only the reply is missing.
@@ -71,21 +71,36 @@ class TrpcClient(
      * Other software can answer in the API's place (a gateway, a rate limiter, the dev backend's
      * catch-all), so every part of the reply's shape is checked instead of assumed.
      */
-    private fun <T> decode(body: String, httpStatus: Int, output: KSerializer<T>): T {
+    private fun <T> decode(body: String, httpStatus: Int, isMutation: Boolean, output: KSerializer<T>): T {
+        // A change answered with a server-side failure that is not the API's own: a gateway or the
+        // hosting platform spoke in its place, perhaps after the API had saved the change (a
+        // timeout, a crash after the commit). The outcome is as unknown as with no reply at all.
+        val maybeSaved = isMutation && httpStatus in 500..599
+
+        fun notFromApi(cause: Throwable? = null) =
+            if (maybeSaved) {
+                ApiException("No reply from the API ($httpStatus).", code = ApiException.NO_REPLY, cause = cause)
+            } else {
+                ApiException("Unexpected server response ($httpStatus).", code = "BAD_RESPONSE", cause = cause)
+            }
+
         val envelope = try {
             hcmJson.parseToJsonElement(body)
         } catch (error: Exception) {
-            throw badResponse(httpStatus, error)
-        } as? JsonObject ?: throw badResponse(httpStatus)
+            throw notFromApi(error)
+        } as? JsonObject ?: throw notFromApi()
 
-        envelope["error"]?.takeUnless { it is JsonNull }?.let { throw parseError(it, httpStatus) }
+        envelope["error"]?.takeUnless { it is JsonNull }?.let { error ->
+            // The API always names its code, so an error without one is somebody else's.
+            throw parseError(error)?.takeUnless { maybeSaved && it.code == UNCODED } ?: notFromApi()
+        }
 
-        val data = (envelope["result"] as? JsonObject)?.get("data") ?: throw badResponse(httpStatus)
+        val data = (envelope["result"] as? JsonObject)?.get("data") ?: throw notFromApi()
 
         return try {
             hcmJson.decodeFromJsonElement(output, data)
         } catch (error: Exception) {
-            throw badResponse(httpStatus, error)
+            throw notFromApi(error)
         }
     }
 
@@ -95,15 +110,16 @@ class TrpcClient(
     companion object {
         private val jsonMediaType = "application/json".toMediaType()
 
-        private fun badResponse(httpStatus: Int, cause: Throwable? = null) =
-            ApiException("Unexpected server response ($httpStatus).", code = "BAD_RESPONSE", cause = cause)
+        /** The code of an error that came without tRPC's own. */
+        private const val UNCODED = "UNKNOWN"
 
-        private fun parseError(error: JsonElement, httpStatus: Int): ApiException {
+        /** The error as a failure to show, or null when it is not an object at all. */
+        private fun parseError(error: JsonElement): ApiException? {
             if (error !is JsonObject) {
-                return badResponse(httpStatus)
+                return null
             }
 
-            val code = (error["data"] as? JsonObject)?.get("code").textOrNull() ?: "UNKNOWN"
+            val code = (error["data"] as? JsonObject)?.get("code").textOrNull() ?: UNCODED
             val rawMessage = error["message"].textOrNull().orEmpty()
 
             return ApiException(message = readableMessage(rawMessage), code = code)

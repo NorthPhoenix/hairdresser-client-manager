@@ -33,7 +33,10 @@ class ApiException(
     /** Something the request refers to no longer exists on the server, so what the screen shows is out of date. */
     val isNotFound: Boolean get() = code == "NOT_FOUND"
 
-    /** A change was sent but no reply came back, so it may or may not have been saved. */
+    /**
+     * A change was sent but the API's reply to it never came: none at all, or a gateway's failure
+     * in its place. It may or may not have been saved.
+     */
     val outcomeUnknown: Boolean get() = code == NO_REPLY
 
     companion object {
