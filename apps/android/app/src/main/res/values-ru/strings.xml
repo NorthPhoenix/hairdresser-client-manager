@@ -111,6 +111,7 @@
     <string name="error_invalid_input">Проверьте введённые данные и попробуйте ещё раз.</string>
     <string name="error_not_found">Этих данных больше нет. Обновляем экран.</string>
     <string name="error_outcome_unknown">Сервер не ответил, поэтому неясно, выполнено ли действие. Проверьте, прежде чем повторять.</string>
+    <string name="error_screen_not_refreshed">Изменение сохранено, но обновить экран пока не удалось: на нём могут быть старые данные.</string>
     <string name="error_session_ended">Сеанс завершён. Войдите снова.</string>
     <string name="error_sign_in_rejected">Сервер не принял ваш вход. Попробуйте ещё раз.</string>
     <string name="error_sign_in_unreachable">Нет связи с сервисом входа. Проверьте подключение и попробуйте ещё раз.</string>

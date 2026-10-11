@@ -132,6 +132,77 @@ class StateTest {
         assertTrue(changes.offer("a1", "noShow"))
     }
 
+    @Test
+    fun `tapping the value that is already saved sends nothing`() {
+        val changes = LatestWins<String, String>()
+
+        assertFalse(changes.offer("p1", "after", saved = "after"))
+        assertNull(changes.pending("p1"))
+        assertTrue(changes.offer("p1", "before", saved = "after"))
+    }
+
+    @Test
+    fun `a tap back to the value on screen while another is being saved is the one that stays`() = runTest {
+        val changes = LatestWins<String, String>()
+        val requests = Requests()
+
+        // A photo shown as After. Before is tapped and, while that is on its way, After again.
+        assertTrue(changes.offer("p1", "before", saved = "after"))
+        val sending = launch { changes.send("p1", requests::send) }
+        runCurrent()
+        assertFalse(changes.offer("p1", "after", saved = "after"))
+
+        requests.answer()
+        runCurrent()
+        assertEquals(listOf("before", "after"), requests.sent)
+
+        requests.answer()
+        runCurrent()
+        assertTrue(sending.isCompleted)
+    }
+
+    @Test
+    fun `a value tapped again after another one in between is not lost`() = runTest {
+        val changes = LatestWins<String, String>()
+        val requests = Requests()
+
+        // Before, Other, Before within one request: a key per value used to drop the third tap and save Other.
+        assertTrue(changes.offer("p1", "before", saved = "after"))
+        val sending = launch { changes.send("p1", requests::send) }
+        runCurrent()
+        assertFalse(changes.offer("p1", "other", saved = "after"))
+        assertFalse(changes.offer("p1", "before", saved = "after"))
+
+        requests.answer()
+        runCurrent()
+        assertEquals(listOf("before"), requests.sent)
+        assertTrue(sending.isCompleted)
+
+        // Before is saved and on screen now, so the next tap starts from it.
+        assertFalse(changes.offer("p1", "before", saved = "before"))
+        assertTrue(changes.offer("p1", "other", saved = "before"))
+    }
+
+    @Test
+    fun `a value cleared while it is being saved is cleared after it`() = runTest {
+        val changes = LatestWins<String, Int?>()
+        val requests = Requests()
+
+        // No final total override yet: 50.00 is saved and, before the reply, cleared again.
+        assertTrue(changes.offer("a1", 5000, saved = null))
+        val sending = launch { changes.send("a1") { requests.send(it?.toString() ?: "cleared") } }
+        runCurrent()
+        assertFalse(changes.offer("a1", null, saved = null))
+
+        requests.answer()
+        runCurrent()
+        assertEquals(listOf("5000", "cleared"), requests.sent)
+
+        requests.answer()
+        runCurrent()
+        assertTrue(sending.isCompleted)
+    }
+
     // --- why the sign-in screen appeared ---
 
     private val signedIn = AuthState.SignedIn(userId = "user_1", email = "stylist@example.com")

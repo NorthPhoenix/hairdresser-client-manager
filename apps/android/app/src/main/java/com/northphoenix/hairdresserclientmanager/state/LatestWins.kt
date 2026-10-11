@@ -7,10 +7,10 @@ package com.northphoenix.hairdresserclientmanager.state
  *
  * Not thread-safe: use it from one thread.
  */
-internal class LatestWins<K, V : Any> {
+internal class LatestWins<K, V> {
     private val wanted = mutableMapOf<K, V>()
 
-    /** The value [key] is being changed to, or null when no change is in flight. */
+    /** The value [key] is being changed to. Null when no change is in flight, or when that is the value. */
     fun pending(key: K): V? = wanted[key]
 
     /**
@@ -22,6 +22,13 @@ internal class LatestWins<K, V : Any> {
         wanted[key] = value
         return idle
     }
+
+    /**
+     * [offer] for a value whose saved state is known. Offering [saved] while nothing is in flight
+     * starts nothing. While a change is in flight [saved] is only what the screen still shows:
+     * going back to it is a change again, and the last one offered.
+     */
+    fun offer(key: K, value: V, saved: V?): Boolean = (key in wanted || value != saved) && offer(key, value)
 
     /** Sends the wanted value, and again for as long as a newer one was offered in the meantime. */
     suspend fun send(key: K, request: suspend (V) -> Unit) {

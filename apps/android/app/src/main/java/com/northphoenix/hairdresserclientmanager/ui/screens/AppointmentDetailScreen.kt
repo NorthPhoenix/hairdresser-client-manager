@@ -898,7 +898,8 @@ private fun PhotoSheet(
         }
         Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Text(stringResource(R.string.appointment_photo_category_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            SegmentedControl(PhotoCategory.entries, photo.category, { if (it != photo.category) onCategory(it) }, label = { stringResource(it.label) })
+            // Not compared with the category shown: while a change is being saved, a tap back to it is a change again.
+            SegmentedControl(PhotoCategory.entries, photo.category, onCategory, label = { stringResource(it.label) })
         }
         TextAction(
             stringResource(R.string.remove_appointment_photo),

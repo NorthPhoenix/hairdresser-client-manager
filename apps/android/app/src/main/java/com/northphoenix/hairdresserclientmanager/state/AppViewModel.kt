@@ -138,13 +138,23 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
 
-    private val actions = ActionRunner(viewModelScope, ::report, reloadAll = ::loadAll)
+    private val actions = ActionRunner(
+        viewModelScope,
+        ::report,
+        reloadAll = ::loadAll,
+        onStale = { notify(R.string.error_screen_not_refreshed, isError = true) },
+    )
 
     /** True while any mutation is in flight. */
     val busy: StateFlow<Boolean> = actions.busy
 
-    /** Status taps on one Appointment, kept in the order they were made. */
+    // Values the Stylist can change again while they are still being saved, each kept in the order
+    // of the taps (see saveLatest). Keyed by the Appointment, the photo's category by the photo.
     private val statusChanges = LatestWins<String, AppointmentStatus>()
+    private val primaryChanges = LatestWins<String, String>()
+    private val noteChanges = LatestWins<String, String>()
+    private val finalTotalChanges = LatestWins<String, Int?>()
+    private val photoCategoryChanges = LatestWins<String, PhotoCategory>()
 
     private val _uploadingPhoto = MutableStateFlow(false)
     val uploadingPhoto: StateFlow<Boolean> = _uploadingPhoto.asStateFlow()
@@ -219,6 +229,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
         // Resetting also drops whatever is still on its way for the previous Stylist.
         listOf(clientsLoading, serviceMenuLoading, homeLoading, calendarLoading, completedSourcesLoading).forEach(LoadTracker::reset)
         loadedAppointments.clear()
+        actions.forgetOwed()
     }
 
     // --- loading ---
@@ -279,7 +290,11 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
         }
     }
 
-    private suspend fun refreshAll() = reporting { loadAll() }
+    private suspend fun refreshAll() = reporting {
+        loadAll()
+        // The server answers: what could not be reloaded after an earlier change is reloaded as well.
+        actions.reloadOwed()
+    }
 
     private suspend fun loadAll() = together(::loadClients, ::loadServiceMenu, ::loadAppointmentLists)
 
@@ -354,6 +369,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
         viewModelScope.launch {
             try {
                 reloadAppointment(id, startsAt)
+                actions.reloadOwed()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -405,6 +421,31 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
     ) = act(key, successNotice, onSuccess = { onSuccess() }, reload = { reloadAppointmentAndLists(id) }) {
         change()
         loadedAppointments.changed(id)
+    }
+
+    /**
+     * Saves a value of an Appointment that the Stylist can change again while it is still being
+     * saved, such as a status chip. Requests for one [target] go out one at a time, and the value
+     * offered last is the one saved last (see [LatestWins]); a key would drop a tap that goes back
+     * to a value whose request is still running. [saved] is the value the loaded copy has.
+     * [save] makes the request and, when the result is known exactly, puts it into the loaded
+     * copy, so that [saved] is right for the next tap even before the reload.
+     */
+    private fun <V> saveLatest(
+        changes: LatestWins<String, V>,
+        appointmentId: String,
+        target: String,
+        value: V,
+        saved: V?,
+        @StringRes successNotice: Int? = null,
+        save: suspend (V) -> Unit,
+    ) {
+        if (!changes.offer(target, value, saved)) {
+            return
+        }
+
+        // No key: the values are ordered here, and the next change may start while this one is still reloading.
+        actOnAppointment(appointmentId, key = null, successNotice) { changes.send(target, save) }
     }
 
     // --- settings ---
@@ -605,40 +646,30 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
     }
 
     /** Status taps are saved one at a time in the order they were made, so the last tap is the status that stays. */
-    fun setAppointmentStatus(id: String, status: AppointmentStatus) {
-        // Compared with the status being saved rather than the one on screen: tapping back to the
-        // shown status while another one is on its way is still the last tap.
-        if (status == (statusChanges.pending(id) ?: loadedAppointments[id]?.status)) {
-            return
-        }
-        // While a status request is in flight it is followed by one for this tap.
-        if (!statusChanges.offer(id, status)) {
-            return
+    fun setAppointmentStatus(id: String, status: AppointmentStatus) =
+        saveLatest(statusChanges, id, id, status, saved = loadedAppointments[id]?.status) { next ->
+            api.updateAppointmentStatus(id, next)
+            updateLoaded(id) { it.copy(status = next) }
         }
 
-        // No key: the taps are ordered here, and the next change may start while this one is still reloading.
-        actOnAppointment(id, key = null) {
-            statusChanges.send(id) { next ->
-                api.updateAppointmentStatus(id, next)
-                updateLoaded(id) { it.copy(status = next) }
-            }
-        }
-    }
-
+    // Not put into the loaded copy: the Appointment's address can change with its primary Client, and only the reload shows to what.
     fun setAppointmentPrimary(id: String, clientId: String) =
-        actOnAppointment(id, "setAppointmentPrimary:$id:$clientId") { api.updateAppointmentPrimary(id, clientId) }
-
-    fun saveAppointmentNote(id: String, note: String) {
-        val trimmed = note.trim()
-
-        actOnAppointment(id, "saveAppointmentNote:$id:$trimmed", R.string.appointment_note_saved) {
-            api.updateAppointmentNote(id, trimmed)
-            updateLoaded(id) { it.copy(note = trimmed) }
+        saveLatest(primaryChanges, id, id, clientId, saved = loadedAppointments[id]?.primaryClientId) { next ->
+            api.updateAppointmentPrimary(id, next)
         }
-    }
 
+    fun saveAppointmentNote(id: String, note: String) =
+        saveLatest(noteChanges, id, id, note.trim(), saved = loadedAppointments[id]?.note, R.string.appointment_note_saved) { next ->
+            api.updateAppointmentNote(id, next)
+            updateLoaded(id) { it.copy(note = next) }
+        }
+
+    /** [overrideCents] null clears the override, and the final total is the Service total again. */
     fun setAppointmentFinalTotal(id: String, overrideCents: Int?) =
-        actOnAppointment(id, "setAppointmentFinalTotal:$id:$overrideCents") { api.updateAppointmentFinalTotal(id, overrideCents) }
+        saveLatest(finalTotalChanges, id, id, overrideCents, saved = loadedAppointments[id]?.finalTotalCentsOverride) { next ->
+            api.updateAppointmentFinalTotal(id, next)
+            updateLoaded(id) { it.copy(finalTotalCentsOverride = next, finalTotalCents = next ?: it.serviceTotalCents) }
+        }
 
     fun deleteAppointment(id: String, onSuccess: () -> Unit) =
         actOnAppointment(id, "deleteAppointment:$id", onSuccess = onSuccess) {
@@ -755,7 +786,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
 
             try {
                 if (stored > 0 || outcomeUnknown) {
-                    actions.reloadWithRetry { reloadAppointmentAndLists(appointmentId) }
+                    // Saved in full only when every photo was stored; otherwise the Stylist has been told what went wrong.
+                    actions.reloadAfterChange(saved = stored == sources.size) { reloadAppointmentAndLists(appointmentId) }
                 }
             } finally {
                 _uploadingPhoto.value = false
@@ -764,7 +796,18 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
     }
 
     fun setPhotoCategory(appointmentId: String, photoId: String, category: PhotoCategory) =
-        actOnAppointment(appointmentId, "setPhotoCategory:$photoId:$category") { api.updatePhotoCategory(photoId, category) }
+        saveLatest(
+            photoCategoryChanges,
+            appointmentId,
+            photoId,
+            category,
+            saved = loadedAppointments[appointmentId]?.photos?.firstOrNull { it.id == photoId }?.category,
+        ) { next ->
+            api.updatePhotoCategory(photoId, next)
+            updateLoaded(appointmentId) { appointment ->
+                appointment.copy(photos = appointment.photos.map { if (it.id == photoId) it.copy(category = next) else it })
+            }
+        }
 
     fun deletePhoto(appointmentId: String, photoId: String) =
         actOnAppointment(appointmentId, "deletePhoto:$photoId") { api.deletePhoto(photoId) }

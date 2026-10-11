@@ -112,6 +112,7 @@
     <string name="error_invalid_input">Check what you entered and try again.</string>
     <string name="error_not_found">That item no longer exists. Refreshing the screen.</string>
     <string name="error_outcome_unknown">The server didn\'t reply, so it\'s unclear whether this went through. Check before trying again.</string>
+    <string name="error_screen_not_refreshed">Your change was saved, but the screen couldn\'t be refreshed yet and may show old data.</string>
     <string name="error_session_ended">Your session has ended. Sign in again.</string>
     <string name="error_sign_in_rejected">The server didn\'t accept your sign-in. Try again.</string>
     <string name="error_sign_in_unreachable">Can\'t reach the sign-in service. Check your connection and try again.</string>
