@@ -4,9 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 import type { Db, TRPCContext } from "./context";
 import {
   defaultProfileShareOptions,
+  findSharedPhoto,
   formatAppointmentTime,
   loadProfileShareContent,
-  resolveProfileShareOptions
+  resolveProfileShareOptions,
+  sharedPhotoName
 } from "./profileShare";
 import { appRouter } from "./root";
 import { withTransaction } from "./testSupport";
@@ -283,6 +285,80 @@ describe("Profile Share content", () => {
 
     expect(content.lastCompletedAppointment).toBeNull();
     expect(content.salonAddress).toBeNull();
+  });
+});
+
+describe("Profile Share photo links", () => {
+  const token = "a".repeat(64);
+  const withEveryPhoto = { ...defaultProfileShareOptions, includeOtherPhotos: true };
+
+  it("name each shared photo without telling where its file is stored", async () => {
+    const content = await loadProfileShareContent(createSources().sources, client, withEveryPhoto);
+    const photos = content.lastCompletedAppointment?.photos ?? [];
+    const names = photos.map((photo) => sharedPhotoName(token, photo));
+
+    expect(photos).toHaveLength(4);
+    expect(new Set(names).size).toBe(4);
+
+    for (const [index, name] of names.entries()) {
+      // Safe as one part of a link, and nothing of the stored file or of the database is in it.
+      expect(name).toMatch(/^[A-Za-z0-9_-]{16}$/);
+      expect(name).not.toContain(photos[index]?.url.split("/").pop());
+      expect(findSharedPhoto(content, token, name)).toEqual(photos[index]);
+    }
+
+    // The same photo keeps its name from one view of the page to the next.
+    expect(sharedPhotoName(token, { ...photos[0]! })).toBe(names[0]);
+  });
+
+  it("find a photo only under the link it was named for", async () => {
+    const content = await loadProfileShareContent(createSources().sources, client, withEveryPhoto);
+    const photo = content.lastCompletedAppointment!.photos[0]!;
+    const otherToken = "b".repeat(64);
+
+    expect(sharedPhotoName(otherToken, photo)).not.toBe(sharedPhotoName(token, photo));
+    expect(findSharedPhoto(content, otherToken, sharedPhotoName(token, photo))).toBeNull();
+  });
+
+  it("find nothing by the address or the file key of a stored file, or by a made-up name", async () => {
+    const content = await loadProfileShareContent(createSources().sources, client, withEveryPhoto);
+
+    for (const name of ["after_1", `${storage}/f/after_1`, "0", "", "x".repeat(16)]) {
+      expect(findSharedPhoto(content, token, name)).toBeNull();
+    }
+  });
+
+  it("stop finding a photo when the Stylist leaves it out, and never find one the share does not show", async () => {
+    const { sources } = createSources();
+    const shown = await loadProfileShareContent(sources, client, withEveryPhoto);
+    const nameOf = (file: string) => sharedPhotoName(token, { url: `${storage}/f/${file}`, category: "after" });
+
+    expect(findSharedPhoto(shown, token, nameOf("before_1"))?.category).toBe("before");
+    expect(findSharedPhoto(shown, token, nameOf("after_1"))?.category).toBe("after");
+
+    const afterOnly = await loadProfileShareContent(sources, client, defaultProfileShareOptions);
+
+    expect(findSharedPhoto(afterOnly, token, nameOf("before_1"))).toBeNull();
+    expect(findSharedPhoto(afterOnly, token, nameOf("after_1"))?.category).toBe("after");
+
+    const noPhotos = await loadProfileShareContent(sources, client, { ...withEveryPhoto, includeAfterPhotos: false, includeOtherPhotos: false });
+
+    expect(findSharedPhoto(noPhotos, token, nameOf("after_1"))).toBeNull();
+
+    // The other Client's photo, one that is not stored, and one outside this server's storage.
+    for (const file of ["olga_after", "after_uploading", "after_failed"]) {
+      expect(findSharedPhoto(shown, token, nameOf(file))).toBeNull();
+    }
+
+    expect(
+      findSharedPhoto(shown, token, sharedPhotoName(token, { url: "https://elsewhere.example/f/after_elsewhere", category: "after" }))
+    ).toBeNull();
+  });
+
+  it("find nothing when the Client has no completed Appointment", async () => {
+    const content = await loadProfileShareContent(createSources({ completed: null }).sources, client, withEveryPhoto);
+
+    expect(findSharedPhoto(content, token, sharedPhotoName(token, { url: `${storage}/f/after_1`, category: "after" }))).toBeNull();
   });
 });
 

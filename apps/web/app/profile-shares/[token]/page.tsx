@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { formatAppointmentTime } from "@hcm/api";
+import { formatAppointmentTime, sharedPhotoName } from "@hcm/api";
 import { normalizeLocale, t, type SupportedLocale } from "@hcm/shared";
 import { loadProfileShare } from "../../../server/profileShare";
 
@@ -112,21 +112,26 @@ export default async function ProfileSharePage({ params, searchParams }: Profile
                 <>
                   <h3 style={styles.subsectionTitle}>{t(locale, "profileSharePhotosTitle")}</h3>
                   <div style={styles.photoGrid}>
-                    {completed.photos.map((photo, index) => (
-                      <figure key={index} style={styles.photoFigure}>
-                        <a href={photo.url}>
-                          <img
-                            alt={photoCaptions[photo.category] ?? t(locale, "profileSharePhotosTitle")}
-                            loading="lazy"
-                            src={photo.url}
-                            style={styles.photo}
-                          />
-                        </a>
-                        {photoCaptions[photo.category] ? (
-                          <figcaption style={styles.photoCaption}>{photoCaptions[photo.category]}</figcaption>
-                        ) : null}
-                      </figure>
-                    ))}
+                    {completed.photos.map((photo, index) => {
+                      // Served by this share (photos/[photo]/route.ts), never from the stored file's own address.
+                      const photoLink = `/profile-shares/${token}/photos/${sharedPhotoName(token, photo)}`;
+
+                      return (
+                        <figure key={index} style={styles.photoFigure}>
+                          <a href={photoLink}>
+                            <img
+                              alt={photoCaptions[photo.category] ?? t(locale, "profileSharePhotosTitle")}
+                              loading="lazy"
+                              src={photoLink}
+                              style={styles.photo}
+                            />
+                          </a>
+                          {photoCaptions[photo.category] ? (
+                            <figcaption style={styles.photoCaption}>{photoCaptions[photo.category]}</figcaption>
+                          ) : null}
+                        </figure>
+                      );
+                    })}
                   </div>
                 </>
               ) : null}

@@ -11,7 +11,8 @@ import { db } from "@hcm/db";
 export const photoOrigins = getUploadThingOrigins(process.env.UPLOADTHING_TOKEN);
 
 // How long a share waits for the sign-in provider, and how long a name it answered is reused: a
-// Profile Share page is public, and not every view of it should ask the provider.
+// Profile Share page is public, and not every view of it should ask the provider. The Stylist's
+// own requests ask every time (`fresh`), so a name entered a moment ago is on the next Share Image.
 const accountNameTimeoutMs = 3_000;
 const accountNameLifetimeMs = 60_000;
 const accountNames = new Map<string, { name: string | null; until: number }>();
@@ -21,10 +22,10 @@ const accountNames = new Map<string, { name: string | null; until: number }>();
  * the Stylist's identity. Null for an account without a name. The email address is a personal
  * contact detail and is never used in its place.
  */
-export async function accountName(clerkId: string) {
+export async function accountName(clerkId: string, { fresh = false } = {}) {
   const known = accountNames.get(clerkId);
 
-  if (known && known.until > Date.now()) {
+  if (!fresh && known && known.until > Date.now()) {
     return known.name;
   }
 
@@ -47,6 +48,13 @@ export async function accountName(clerkId: string) {
     accountNames.set(clerkId, { name, until: Date.now() + accountNameLifetimeMs });
 
     return name;
+  } catch (error) {
+    // Asked afresh and not answered: the name that would have been reused is better than none.
+    if (known && known.until > Date.now()) {
+      return known.name;
+    }
+
+    throw error;
   } finally {
     clearTimeout(timer);
   }
@@ -107,6 +115,40 @@ export async function readSharePhoto(url: string): Promise<SharePhotoImage | nul
     console.error("A photo could not be read for a Share Image:", error);
 
     return null;
+  }
+}
+
+// What a browser shows as a picture and as nothing else: an answer of this server is never a
+// document that could run in the name of its pages.
+const photoTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif", "image/heic", "image/heif"]);
+
+/**
+ * Opens a stored Appointment Photo for a Profile Share page, to be passed on as it is stored.
+ * Null: photo storage did not answer in time, or what it answered is not a picture.
+ */
+export async function openSharePhoto(url: string) {
+  // Only the answer is waited for. The file itself is passed on as fast as the Client's phone
+  // takes it, which can be slow.
+  const waiting = new AbortController();
+  const timer = setTimeout(() => waiting.abort(), photoReadTimeoutMs);
+
+  try {
+    const response = await fetch(url, { signal: waiting.signal });
+    const type = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ?? "";
+
+    if (!response.ok || !response.body || !photoTypes.has(type)) {
+      await response.body?.cancel();
+
+      return null;
+    }
+
+    return { body: response.body, type };
+  } catch (error) {
+    console.error("A photo could not be read for a Profile Share page:", error);
+
+    return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

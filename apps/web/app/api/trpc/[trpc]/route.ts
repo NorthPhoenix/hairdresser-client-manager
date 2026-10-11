@@ -31,7 +31,7 @@ function handler(request: Request) {
         },
         photoOrigins,
         deleteStoredFiles,
-        accountName,
+        accountName: (clerkId) => accountName(clerkId, { fresh: true }),
         readSharePhoto
       }),
     // The reply to an unexpected failure says nothing about it, so the log has to.

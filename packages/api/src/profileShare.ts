@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { SupportedLocale } from "@hcm/shared";
 import { addedOrder } from "./addedOrder";
 import type { Db } from "./context";
@@ -175,8 +176,8 @@ export async function loadProfileShareContent(
           ? service.colorFormulas.map(({ formula, placement }) => ({ formula, placement }))
           : []
       })),
-      // A photo is shown from this server's photo storage and from nowhere else: the page gives
-      // its address to the Client's browser, and the Share Image makes this server fetch it.
+      // A photo is shown from this server's photo storage and from nowhere else: this server
+      // fetches it, for the page (see sharedPhotoName) and for the Share Image.
       photos: photoCategories.flatMap((category) =>
         lastCompletedAppointment.photos.flatMap((photo) =>
           photo.category === category && photo.url && isInPhotoStorage(photo.url, photoOrigins)
@@ -191,6 +192,21 @@ export async function loadProfileShareContent(
 
 function toSharedAppointment({ startsAt, endsAt, locationType, locationAddress }: SharedAppointment): SharedAppointment {
   return { startsAt, endsAt, locationType, locationAddress };
+}
+
+/**
+ * The name a shared photo has in the links of a Profile Share page. The page never gives out the
+ * address of the stored file: that address is open to anyone who has it, and stays open after the
+ * Profile Share is revoked or the Stylist leaves the photo out. The name tells neither the file
+ * nor anything else of the database, and is of no use under another link.
+ */
+export function sharedPhotoName(token: string, photo: SharedPhoto): string {
+  return createHash("sha256").update(`${token}\n${photo.url}`).digest("base64url").slice(0, 16);
+}
+
+/** The photo of that name, as long as the Profile Share behind `token` shows it. */
+export function findSharedPhoto(content: ProfileShareContent, token: string, name: string): SharedPhoto | null {
+  return content.lastCompletedAppointment?.photos.find((photo) => sharedPhotoName(token, photo) === name) ?? null;
 }
 
 /**
