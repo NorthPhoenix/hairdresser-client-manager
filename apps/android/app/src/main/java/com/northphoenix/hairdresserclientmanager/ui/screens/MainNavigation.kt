@@ -119,7 +119,14 @@ fun MainNavigation(viewModel: AppViewModel) {
         }
     }
 
-    NavHost(navController, startDestination = Routes.MAIN, modifier = Modifier.fillMaxSize()) {
+    NavHost(
+        navController,
+        startDestination = Routes.MAIN,
+        modifier = Modifier.fillMaxSize(),
+        // A back swipe moves the screen with the finger instead of the library's shrinking one.
+        predictivePopEnterTransition = { edge -> BackSwipe.comeBack(edge) },
+        predictivePopExitTransition = { edge -> BackSwipe.leave(edge) },
+    ) {
         composable(Routes.MAIN) { entry ->
             MainScreen(viewModel, open = { route -> navController.from(entry) { navigate(route) } })
         }
