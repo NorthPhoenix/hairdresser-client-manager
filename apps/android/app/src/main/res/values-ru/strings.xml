@@ -70,6 +70,7 @@
     <string name="clear_final_total_override">Вернуть сумму услуг</string>
     <string name="client_address_label">Адрес</string>
     <string name="client_deleted">Клиент удалён.</string>
+    <string name="client_email_invalid">Укажите адрес вида name@example.com или оставьте поле пустым.</string>
     <string name="client_email_label">Эл. почта</string>
     <string name="client_language_label">Язык клиента</string>
     <string name="client_missing_body">Этот клиент был удалён.</string>
@@ -165,6 +166,7 @@
     <string name="optional">Необязательно</string>
     <string name="optional_setup_body">Google Календарь, напоминания мастеру и меню услуг можно настроить позже.</string>
     <string name="optional_setup_title">Можно настроить позже</string>
+    <string name="placeholder_address">ул. Садовая, 12</string>
     <string name="placeholder_client_name">Анна Петрова</string>
     <string name="placeholder_client_note">Любит мягкие слои.</string>
     <string name="placeholder_formula_placement">Корни</string>

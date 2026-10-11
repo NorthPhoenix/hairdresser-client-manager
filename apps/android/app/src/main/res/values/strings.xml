@@ -71,6 +71,7 @@
     <string name="clear_final_total_override">Use services total</string>
     <string name="client_address_label">Address</string>
     <string name="client_deleted">Client deleted.</string>
+    <string name="client_email_invalid">Enter an email address like name@example.com, or leave it empty.</string>
     <string name="client_email_label">Email</string>
     <string name="client_language_label">Client language</string>
     <string name="client_missing_body">This Client has been deleted.</string>
@@ -168,7 +169,7 @@
     <string name="optional">Optional</string>
     <string name="optional_setup_body">Google Calendar, Stylist Reminders, and the Service Menu can be set up later.</string>
     <string name="optional_setup_title">Can be set up later</string>
-    <string name="placeholder_address" translatable="false">123 Main St</string>
+    <string name="placeholder_address">123 Main St</string>
     <string name="placeholder_client_name">Anna Petrova</string>
     <string name="placeholder_client_note">Prefers soft layers.</string>
     <string name="placeholder_formula_placement">Roots</string>

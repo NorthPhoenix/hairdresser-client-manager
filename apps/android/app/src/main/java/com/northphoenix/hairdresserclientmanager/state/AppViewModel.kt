@@ -29,6 +29,7 @@ import com.northphoenix.hairdresserclientmanager.data.ShareImage
 import com.northphoenix.hairdresserclientmanager.data.Stylist
 import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
 import com.northphoenix.hairdresserclientmanager.data.toApiException
+import com.northphoenix.hairdresserclientmanager.domain.OneLine
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
 import com.northphoenix.hairdresserclientmanager.domain.zoneOrSystem
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
@@ -643,7 +644,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             onSuccess = onSuccess,
             reload = { together(::loadClients, { if (id != null) loadAppointmentLists() }) },
         ) {
-            api.saveClient(id, name.trim(), language, phone.trim(), email.trim(), address.trim(), note.trim()).also { saved ->
+            api.saveClient(id, OneLine.clean(name), language, OneLine.clean(phone), email.trim(), address.trim(), note.trim()).also { saved ->
                 _clients.update { it.withSaved(saved) }
                 // Names and phone numbers shown on Appointments come from the Client: every loaded
                 // copy gets them now, on whatever day it is, so no reminder goes to the old number.

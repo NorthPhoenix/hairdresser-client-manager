@@ -73,6 +73,7 @@ import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
 import com.northphoenix.hairdresserclientmanager.domain.Money
+import com.northphoenix.hairdresserclientmanager.domain.OneLine
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.i18n.refusalRes
 import com.northphoenix.hairdresserclientmanager.ui.theme.DisplayFamily
@@ -252,7 +253,8 @@ fun HcmTextField(
         }
         OutlinedTextField(
             value = value,
-            onValueChange = onValueChange,
+            // A one-line field shows one line only; text pasted with a line break or a control character must not hold more.
+            onValueChange = { onValueChange(if (singleLine) OneLine.typed(it) else it) },
             modifier = Modifier.fillMaxWidth().semantics {
                 contentDescription = label
                 // The reason itself is what a screen reader says, in place of Material's "Invalid input".

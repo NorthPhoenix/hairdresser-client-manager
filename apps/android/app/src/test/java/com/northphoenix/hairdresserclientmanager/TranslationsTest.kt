@@ -80,6 +80,7 @@ class TranslationsTest {
         assertEquals(R.string.error_outcome_unknown, ApiException("No reply from the server.", code = ApiException.NO_REPLY).messageRes())
         assertEquals(R.string.error_generic, ApiException("boom").messageRes())
         assertEquals(R.string.error_appointment_total_too_large, ApiException("Appointment total is too large.", code = "BAD_REQUEST").messageRes())
+        assertEquals(R.string.client_email_invalid, ApiException("Email is not valid.", code = "BAD_REQUEST").messageRes())
     }
 
     @Test

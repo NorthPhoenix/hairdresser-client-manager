@@ -4,6 +4,7 @@ import com.northphoenix.hairdresserclientmanager.core.AppConfig
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
+import com.northphoenix.hairdresserclientmanager.data.DeviceContacts
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.domain.Amount
@@ -11,7 +12,9 @@ import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
 import com.northphoenix.hairdresserclientmanager.domain.ContactImport
 import com.northphoenix.hairdresserclientmanager.domain.DeviceContact
+import com.northphoenix.hairdresserclientmanager.domain.ImportedContact
 import com.northphoenix.hairdresserclientmanager.domain.Money
+import com.northphoenix.hairdresserclientmanager.domain.OneLine
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
 import com.northphoenix.hairdresserclientmanager.domain.weeksOf
 import com.northphoenix.hairdresserclientmanager.i18n.normalizeLanguage
@@ -305,6 +308,124 @@ class DomainTest {
 
         assertNull(imported.name)
         assertFalse(imported.hasFields)
+    }
+
+    @Test
+    fun `a contact's name and phone are imported as one line without control characters`() {
+        val imported = ContactImport.normalize(
+            DeviceContact(fullName = "Kim\u000BVert Importa", phones = listOf("+1 555\n0100"), emails = listOf(" kim@example.com\n")),
+        )
+
+        assertEquals("Kim Vert Importa", imported.name)
+        assertEquals("+1 555 0100", imported.phone)
+        assertEquals("kim@example.com", imported.email)
+        assertEquals("Zoe Ctrl", ContactImport.normalize(DeviceContact(givenName = "Zoe\u0001", familyName = "\tCtrl")).name)
+        // A name of nothing but a control character is no name: the given and family names are used.
+        assertEquals("Anna", ContactImport.normalize(DeviceContact(fullName = "\u0001", givenName = "Anna")).name)
+    }
+
+    @Test
+    fun `a contact saved without a name gives no Client name`() {
+        // Android lists such a contact under its phone number (source 20) or its email address (source 10).
+        assertNull(DeviceContacts.savedName("+1 650 555 0144", source = 20))
+        assertNull(DeviceContacts.savedName("nameless@example.com", source = 10))
+        assertNull(DeviceContacts.savedName(null, source = 0))
+        // A structured name (40), a nickname (35) and an organization (30) are what the contact is called.
+        assertEquals("Anna Petrova", DeviceContacts.savedName("Anna Petrova", source = 40))
+        assertEquals("Anya", DeviceContacts.savedName("Anya", source = 35))
+        assertEquals("Salon Supplies", DeviceContacts.savedName("Salon Supplies", source = 30))
+
+        val imported = ContactImport.normalize(DeviceContact(fullName = null, phones = listOf("+1 650 555 0144")))
+
+        assertNull(imported.name)
+        assertEquals("+1 650 555 0144", imported.phone)
+        assertTrue(imported.hasFields)
+    }
+
+    @Test
+    fun `contact import asks before it replaces what is in the form`() {
+        val nameAndPhone = ImportedContact(name = "Paula Phoneonly", phone = "+1 415 555 0123")
+
+        fun asks(existingClient: Boolean = false, name: String = "", phone: String = "", email: String = "", address: String = "") =
+            ContactImport.asksFirst(nameAndPhone, existingClient, name, phone, email, address)
+
+        // An existing Client is always asked about, whatever the form holds and whether its Client is loaded yet.
+        assertTrue(asks(existingClient = true))
+        assertTrue(asks(existingClient = true, name = "Vera Full", phone = "+7 916 123-45-67"))
+
+        // A new Client: only when something that was entered would be replaced.
+        assertFalse(asks())
+        assertFalse(asks(name = "  ", phone = " "))
+        assertTrue(asks(name = "Typed Name"))
+        assertTrue(asks(phone = "+1 415 555 0199"))
+        assertTrue(asks(name = "Paula Phoneonly", phone = "+1 415 555 0199"))
+        // The contact has no email and no address, so what was typed there stays and is not asked about.
+        assertFalse(asks(email = "typed@example.com", address = "77 Typed Ave"))
+        // The same value again replaces nothing.
+        assertFalse(asks(name = " Paula Phoneonly ", phone = "+1 415 555 0123"))
+    }
+
+    @Test
+    fun `one-line text is cleaned the way the server cleans it`() {
+        assertEquals("Paste Test second line", OneLine.clean("Paste Test\nsecond line"))
+        assertEquals("ZoeCtrl", OneLine.clean("Zoe\u0001Ctrl"))
+        assertEquals("Kim Vert", OneLine.clean("Kim\u000BVert"))
+        assertEquals("a b", OneLine.clean("a \n \r\n b"))
+        assertEquals("a b c", OneLine.clean("\ta b\u0085 c\r\n"))
+        assertEquals("Anna Petrova", OneLine.clean("  Anna Petrova ﻿"))
+        assertEquals("Anna  Petrova", OneLine.clean("Anna  Petrova"))
+        assertEquals("", OneLine.clean("\u0001"))
+        assertEquals("", OneLine.clean(" \n\t "))
+        assertEquals("", OneLine.clean(""))
+        // A zero-width joiner inside a name is kept: emoji and some scripts need it.
+        assertEquals("a‍b", OneLine.clean("a‍b"))
+    }
+
+    @Test
+    fun `a one-line field keeps what is typed and takes pasted text as one line`() {
+        // Typing: nothing is touched, so a space can be typed before the next word.
+        listOf("", "Anna", "Anna ", "  Anna  Petrova ", "Жан-Поль д’Арк", "👩🏽‍🦰 Zoë").forEach { assertEquals(it, it, OneLine.typed(it)) }
+
+        assertEquals("Paste Test second line", OneLine.typed("Paste Test\nsecond line"))
+        assertEquals("Paste Test second line", OneLine.typed("Paste Test \r\n\n  second line"))
+        assertEquals("ZoeCtrl", OneLine.typed("Zoe\u0001Ctrl"))
+        assertEquals("Anna Petrova ", OneLine.typed("Anna\tPetrova "))
+        assertEquals("Anna", OneLine.typed("Anna\n"))
+        assertEquals("", OneLine.typed("\n"))
+
+        // What the field holds is saved as the server would save the pasted text.
+        listOf("Paste Test\nsecond line", " a \u0001\n b ", "\u0001\nb", "a\n \u0001 \nb", "x\u007F\u009Fy ").forEach {
+            assertEquals(OneLine.clean(it), OneLine.typed(it).trim())
+        }
+    }
+
+    @Test
+    fun `a name needs a character that can be seen`() {
+        listOf("", " ", "\u0001", "​", "  ", "﻿", "󠀁").forEach { assertFalse(OneLine.hasVisibleCharacter(it)) }
+        listOf("A", " я ", "😀", "​x", "-").forEach { assertTrue(it, OneLine.hasVisibleCharacter(it)) }
+    }
+
+    @Test
+    fun `an email is empty or one address with a domain`() {
+        listOf("", "  ", "name@example.com", " name@example.com ", "first.last+tag@mail.example.co.uk", "анна@почта.рф", "a@b.c").forEach {
+            assertTrue(it, ClientRules.isEmail(it))
+        }
+        listOf(
+            "not an email@@", "plainaddress", "name@", "@example.com", "name@example", "name@.com", "name@example.",
+            "name@example..com", "na me@example.com", "name@exa mple.com", "a@b@example.com", "name@example.com, other@example.com",
+        ).forEach {
+            assertFalse(it, ClientRules.isEmail(it))
+        }
+    }
+
+    @Test
+    fun `a Client whose saved name holds a control character is found by the name as it reads`() {
+        val clients = listOf(client("1", "Zoe\u0001Ctrl"), client("2", "Vera\tTab"), client("3", "Anna Petrova"))
+
+        assertEquals(listOf("1"), found(clients, "zoectrl"))
+        assertEquals(listOf("2"), found(clients, "veratab"))
+        assertEquals(listOf("1"), found(clients, "zoe"))
+        assertEquals(listOf("3"), found(clients, "anna p"))
     }
 
     @Test

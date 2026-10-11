@@ -53,6 +53,27 @@ object ClientRules {
     }
 
     /**
+     * Whether a save takes this email: none, or one address with a domain, such as name@example.com.
+     * The server's own rule (`emailText` in packages/api/src/input.ts).
+     */
+    fun isEmail(email: String): Boolean {
+        val address = email.trim()
+        val at = address.indexOf('@')
+
+        if (address.isEmpty()) {
+            return true
+        }
+
+        if (at < 1 || at != address.lastIndexOf('@') || address.any(Char::isWhitespace)) {
+            return false
+        }
+
+        val domain = address.substring(at + 1).split('.')
+
+        return domain.size > 1 && domain.none(String::isEmpty)
+    }
+
+    /**
      * The initials of an avatar: the first character of each of the first two words, in upper case.
      * A character is all of what is drawn as one (an emoji with its modifiers, a letter with its accent), never a part of it.
      */
@@ -65,9 +86,12 @@ object ClientRules {
         }.ifEmpty { "·" }
     }
 
-    /** Text as a search compares it: one spelling of every character, lower case, and "ё" (U+0451) as "е" (U+0435). */
+    /**
+     * Text as a search compares it: one spelling of every character, lower case, and "ё" (U+0451) as "е" (U+0435).
+     * Control characters, which a name saved long ago may hold and nobody sees, are left out: the name is found as it reads.
+     */
     private fun searchFold(text: String): String =
-        Normalizer.normalize(text, Normalizer.Form.NFC).lowercase().replace('ё', 'е')
+        Normalizer.normalize(text, Normalizer.Form.NFC).lowercase().replace('ё', 'е').filterNot(Char::isISOControl)
 
     /** A search that can only be a phone number: it has a digit, and nothing but digits, spaces and phone punctuation. */
     private fun isPhoneLike(query: String): Boolean =

@@ -74,6 +74,7 @@ import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
 import com.northphoenix.hairdresserclientmanager.domain.ContactImport
 import com.northphoenix.hairdresserclientmanager.domain.ImportedContact
+import com.northphoenix.hairdresserclientmanager.domain.OneLine
 import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
@@ -132,6 +133,8 @@ fun ClientEditorScreen(
     var note by rememberSaveable { mutableStateOf("") }
     // The form as it was when it was opened, filled or last saved. Back asks before it discards what was changed since.
     var savedContent by rememberSaveable { mutableStateOf(UnsavedInput.clientForm(name, language, phone, email, address, note)) }
+    // The email a save was refused for: the reason shows under the field until the text is another one.
+    var refusedEmail by rememberSaveable { mutableStateOf<String?>(null) }
     var dialog by remember { mutableStateOf<ClientDialog?>(null) }
     var pendingImport by remember { mutableStateOf<ImportedContact?>(null) }
     var shareImageSvg by remember { mutableStateOf<String?>(null) }
@@ -142,9 +145,10 @@ fun ClientEditorScreen(
     // Fill the form once per Client; later list refreshes must not overwrite what is being typed.
     LaunchedEffect(existing?.id) {
         if (existing != null && loadedFor != existing.id) {
-            name = existing.name
+            // One line each, as a save stores them, also when they were saved before names were cleaned.
+            name = OneLine.clean(existing.name)
             language = existing.language
-            phone = existing.phone
+            phone = OneLine.clean(existing.phone)
             email = existing.email
             address = existing.address
             note = existing.note
@@ -153,6 +157,7 @@ fun ClientEditorScreen(
         }
     }
 
+    // Only what the contact has is copied: every other field, the Client Note among them, stays as it is.
     fun applyImport(imported: ImportedContact) {
         imported.name?.let { name = it }
         imported.phone?.let { phone = it }
@@ -177,18 +182,14 @@ fun ClientEditorScreen(
 
                 when {
                     imported == null || !imported.hasFields -> viewModel.notify(R.string.import_contact_empty, isError = true)
-                    existing != null -> {
+                    // Whether the Client exists is read from the id, not from the list: after Android has
+                    // re-created the app the contact arrives before the list does. The question then
+                    // waits for the form, which comes back as it was left.
+                    ContactImport.asksFirst(imported, existingClient = currentId != null, name, phone, email, address) -> {
                         pendingImport = imported
                         dialog = ClientDialog.IMPORT_OVERWRITE
                     }
-                    else -> {
-                        name = ""
-                        phone = ""
-                        email = ""
-                        address = ""
-                        note = ""
-                        applyImport(imported)
-                    }
+                    else -> applyImport(imported)
                 }
             }
         }
@@ -236,8 +237,12 @@ fun ClientEditorScreen(
                 PrimaryButton(
                     stringResource(if (existing != null) R.string.save_client else R.string.create_client),
                     onClick = {
+                        refusedEmail = email.takeUnless(ClientRules::isEmail)
+
                         when {
-                            name.isBlank() -> viewModel.notify(R.string.client_name_required, isError = true)
+                            !OneLine.hasVisibleCharacter(name) -> viewModel.notify(R.string.client_name_required, isError = true)
+                            // The reason is under the field.
+                            refusedEmail != null -> Unit
                             ClientRules.isDuplicatePhone(clients, currentId, phone) -> dialog = ClientDialog.DUPLICATE_PHONE
                             else -> save()
                         }
@@ -271,6 +276,7 @@ fun ClientEditorScreen(
                         placeholder = "client@example.com",
                         keyboardType = KeyboardType.Email,
                         capitalization = KeyboardCapitalization.None,
+                        error = stringResource(R.string.client_email_invalid).takeIf { email == refusedEmail },
                     )
                     HcmTextField(
                         address,

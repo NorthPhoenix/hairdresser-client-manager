@@ -22,6 +22,8 @@ fun ApiException.messageRes(): Int =
         message == "End time must be after start time." -> R.string.appointment_end_before_start
         message == "Completed source Appointment not found." -> R.string.copy_services_empty
         message == "Appointment total is too large." -> R.string.error_appointment_total_too_large
+        // The Client Profile form refuses such an email itself, under the field, with these words.
+        message == "Email is not valid." -> R.string.client_email_invalid
         code == "BAD_IMAGE" -> R.string.error_image_unreadable
         code == "UPLOAD_FAILED" || code == "UPLOAD_REJECTED" -> R.string.appointment_photo_upload_failed
         // What a refused sign-in really means is for the sign-in provider to say: see refusedSignInMessage.
