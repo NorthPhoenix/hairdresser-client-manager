@@ -28,3 +28,23 @@ export function withTransaction(models: object) {
     $transaction: ReturnType<typeof vi.fn>;
   };
 }
+
+/**
+ * The first validation issue of a refused input: the app reads its message to tell which rule was
+ * broken, and its path to tell which field.
+ */
+export async function firstIssueOf(call: Promise<unknown>) {
+  const error = await call.then(
+    () => {
+      throw new Error("The call was not refused.");
+    },
+    (reason: { code?: string; message: string }) => reason
+  );
+  const issues = JSON.parse(error.message) as { message: string; path: (string | number)[] }[];
+
+  return {
+    code: error.code,
+    message: issues[0]?.message,
+    field: issues[0]?.path.join(".")
+  };
+}

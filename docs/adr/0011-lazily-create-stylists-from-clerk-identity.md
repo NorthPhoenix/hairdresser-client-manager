@@ -5,3 +5,5 @@ In v1, Clerk is the authentication provider and the database Stylist is the app-
 Stylist domain state, including language, timezone, salon address, and onboarding completion, lives in the app database rather than Clerk metadata. Clerk metadata can be considered later only for tiny auth-adjacent claims if a proven hot path needs them, but it is not the source of truth for Stylist settings.
 
 Lazy creation creates only the minimum valid Stylist record, using Clerk id plus initial language and timezone defaults when available. It does not mark onboarding complete; `onboardingCompletedAt` is set only by an explicit onboarding or settings mutation after the Stylist confirms the required setup fields.
+
+The defaults are checked when they are used: a language the app does not have, or a timezone that is not an IANA timezone the server knows, is refused as invalid input and creates no Stylist. For a Stylist who already exists the defaults are not used and never refuse a call, so a device whose timezone the server does not know cannot lock its Stylist out.

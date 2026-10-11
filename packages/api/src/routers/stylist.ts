@@ -1,15 +1,19 @@
 import { z } from "zod";
+import { expectedUpdatedAt, refuseOutdatedSave, text, textLimits, timezoneText } from "../input";
 import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from "../trpc";
 
+// The device defaults only create a Stylist: stylistProcedure checks them when it uses them.
 const stylistBootstrapInput = z.object({
   deviceLanguage: z.enum(["ru", "en"]).optional(),
-  deviceTimezone: z.string().trim().min(1).optional()
+  deviceTimezone: text(textLimits.timezone).min(1).optional()
 }).optional();
 
 const stylistSettingsInput = z.object({
   language: z.enum(["ru", "en"]),
-  timezone: z.string().trim().min(1),
-  salonAddress: z.string().trim().optional()
+  timezone: timezoneText,
+  salonAddress: text(textLimits.address).optional(),
+  // The updatedAt of the Stylist the settings were loaded from.
+  expectedUpdatedAt: expectedUpdatedAt.optional()
 });
 
 function toStylistOutput(stylist: {
@@ -19,6 +23,7 @@ function toStylistOutput(stylist: {
   timezone: string;
   salonAddress: string | null;
   onboardingCompletedAt: Date | null;
+  updatedAt: Date;
 }) {
   return {
     id: stylist.id,
@@ -27,7 +32,8 @@ function toStylistOutput(stylist: {
     timezone: stylist.timezone,
     salonAddress: stylist.salonAddress ?? "",
     onboardingCompletedAt: stylist.onboardingCompletedAt?.toISOString() ?? null,
-    onboardingComplete: Boolean(stylist.onboardingCompletedAt)
+    onboardingComplete: Boolean(stylist.onboardingCompletedAt),
+    updatedAt: stylist.updatedAt.toISOString()
   };
 }
 
@@ -36,6 +42,25 @@ export const stylistRouter = createTRPCRouter({
     return toStylistOutput(ctx.stylist);
   }),
   saveSettings: stylistTransactionProcedure.input(stylistSettingsInput).mutation(async ({ ctx, input }) => {
+    const salonAddress = input.salonAddress ?? "";
+
+    if (input.expectedUpdatedAt) {
+      // ctx.stylist was read before the lock.
+      const current = await ctx.db.stylist.findUniqueOrThrow({
+        where: {
+          id: ctx.stylist.id
+        }
+      });
+
+      refuseOutdatedSave(
+        current,
+        input.expectedUpdatedAt,
+        current.language !== input.language ||
+          current.timezone !== input.timezone ||
+          (current.salonAddress ?? "") !== salonAddress
+      );
+    }
+
     const stylist = await ctx.db.stylist.update({
       where: {
         id: ctx.stylist.id
@@ -43,7 +68,7 @@ export const stylistRouter = createTRPCRouter({
       data: {
         language: input.language,
         timezone: input.timezone,
-        salonAddress: input.salonAddress ?? "",
+        salonAddress,
         onboardingCompletedAt: ctx.stylist.onboardingCompletedAt ?? new Date()
       }
     });

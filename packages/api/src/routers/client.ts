@@ -1,21 +1,35 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getPrimaryClientChange } from "../appointmentLocation";
+import {
+  emailText,
+  expectedUpdatedAt,
+  nameText,
+  oneLineText,
+  refuseOutdatedSave,
+  requestKey,
+  text,
+  textLimits
+} from "../input";
 import { buildShareImageSvg } from "../shareImage";
 import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from "../trpc";
 
 const clientListInput = z.object({
-  search: z.string().trim().optional()
+  search: text(textLimits.name).optional()
 }).optional();
 
 const clientSaveInput = z.object({
   id: z.string().optional(),
-  name: z.string().trim().min(1),
+  name: nameText,
   language: z.enum(["ru", "en"]).optional(),
-  phone: z.string().trim().optional(),
-  email: z.string().trim().optional(),
-  address: z.string().trim().optional(),
-  note: z.string().trim().optional()
+  phone: oneLineText(textLimits.phone).optional(),
+  email: emailText.optional(),
+  address: text(textLimits.address).optional(),
+  note: text(textLimits.note).optional(),
+  // With an id: the updatedAt of the Client the form was loaded from.
+  expectedUpdatedAt: expectedUpdatedAt.optional(),
+  // Without an id: see requestKey.
+  requestKey: requestKey.optional()
 });
 
 const clientDeleteInput = z.object({
@@ -224,7 +238,7 @@ export const clientRouter = createTRPCRouter({
       }))
     }));
   }),
-  save: stylistProcedure.input(clientSaveInput).mutation(async ({ ctx, input }) => {
+  save: stylistTransactionProcedure.input(clientSaveInput).mutation(async ({ ctx, input }) => {
     const data = {
       name: input.name,
       language: input.language ?? ctx.stylist.language,
@@ -235,10 +249,24 @@ export const clientRouter = createTRPCRouter({
     };
 
     if (!input.id) {
+      const repeatedClient = input.requestKey
+        ? await ctx.db.client.findFirst({
+            where: {
+              stylistId: ctx.stylist.id,
+              requestKey: input.requestKey
+            }
+          })
+        : null;
+
+      if (repeatedClient) {
+        return toClientOutput(repeatedClient);
+      }
+
       const client = await ctx.db.client.create({
         data: {
           ...data,
-          stylistId: ctx.stylist.id
+          stylistId: ctx.stylist.id,
+          requestKey: input.requestKey
         }
       });
 
@@ -259,6 +287,12 @@ export const clientRouter = createTRPCRouter({
       });
     }
 
+    refuseOutdatedSave(
+      existingClient,
+      input.expectedUpdatedAt,
+      (Object.keys(data) as (keyof typeof data)[]).some((field) => (existingClient[field] ?? "") !== data[field])
+    );
+
     const client = await ctx.db.client.update({
       where: {
         id: existingClient.id
@@ -268,7 +302,9 @@ export const clientRouter = createTRPCRouter({
 
     return toClientOutput(client);
   }),
-  createProfileShare: stylistProcedure.input(clientProfileShareInput).mutation(async ({ ctx, input }) => {
+  // Under the Stylist lock, so two requests at once cannot both find no active Profile Share and
+  // each create one. A request sent again gets the Profile Share the first one created.
+  createProfileShare: stylistTransactionProcedure.input(clientProfileShareInput).mutation(async ({ ctx, input }) => {
     const client = await ctx.db.client.findFirst({
       where: {
         id: input.clientId,

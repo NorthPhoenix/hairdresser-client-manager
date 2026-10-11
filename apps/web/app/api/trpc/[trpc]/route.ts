@@ -16,7 +16,13 @@ function handler(request: Request) {
             userId: clerkAuth.userId
           };
         }
-      })
+      }),
+    // The reply to an unexpected failure says nothing about it, so the log has to.
+    onError: ({ error, path }) => {
+      if (error.code === "INTERNAL_SERVER_ERROR") {
+        console.error(`tRPC ${path ?? "request"} failed:`, error.cause ?? error);
+      }
+    }
   });
 }
 

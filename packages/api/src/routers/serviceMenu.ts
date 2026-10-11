@@ -1,11 +1,14 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { createTRPCRouter, stylistProcedure } from "../trpc";
+import { amountCents, nameText, requestKey } from "../input";
+import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from "../trpc";
 
 const serviceMenuSaveInput = z.object({
   id: z.string().optional(),
-  name: z.string().trim().min(1),
-  defaultPriceCents: z.number().int().min(0).default(0)
+  name: nameText,
+  defaultPriceCents: amountCents.default(0),
+  // Without an id: see requestKey.
+  requestKey: requestKey.optional()
 });
 
 const serviceMenuDeleteInput = z.object({
@@ -43,17 +46,31 @@ export const serviceMenuRouter = createTRPCRouter({
 
     return items.map(toServiceMenuItemOutput);
   }),
-  save: stylistProcedure.input(serviceMenuSaveInput).mutation(async ({ ctx, input }) => {
+  save: stylistTransactionProcedure.input(serviceMenuSaveInput).mutation(async ({ ctx, input }) => {
     const data = {
       name: input.name,
       defaultPriceCents: input.defaultPriceCents
     };
 
     if (!input.id) {
+      const repeatedItem = input.requestKey
+        ? await ctx.db.serviceMenuItem.findFirst({
+            where: {
+              stylistId: ctx.stylist.id,
+              requestKey: input.requestKey
+            }
+          })
+        : null;
+
+      if (repeatedItem) {
+        return toServiceMenuItemOutput(repeatedItem);
+      }
+
       const item = await ctx.db.serviceMenuItem.create({
         data: {
           ...data,
-          stylistId: ctx.stylist.id
+          stylistId: ctx.stylist.id,
+          requestKey: input.requestKey
         }
       });
 

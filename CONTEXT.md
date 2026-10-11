@@ -5,7 +5,7 @@ This context describes the client-management domain for independent hair and bea
 ## Language
 
 **Stylist**:
-The solo professional who uses the app to manage clients, appointments, visit history, photos, reminders, and shared client records. A Stylist can have one optional salon or business address and has a configurable timezone that defaults from the device timezone.
+The solo professional who uses the app to manage clients, appointments, visit history, photos, reminders, and shared client records. A Stylist can have one optional salon or business address and has a configurable timezone, always a named IANA timezone, that defaults from the device timezone.
 _Avoid_: Hair dresser, hairdresser, provider, user
 
 **Stylist Account Deletion**:
@@ -33,11 +33,11 @@ The Stylist's list and search view for finding, creating, importing, and opening
 _Avoid_: Contacts view, customer list, address book
 
 **Client**:
-A person whose relationship, contact details, appointments, visit history, notes, photos, and shared records are managed by exactly one Stylist. In v1, a Client has one display name, has an editable language that defaults from the Stylist's current language at creation, and may have one primary phone number, one email address, and one address.
+A person whose relationship, contact details, appointments, visit history, notes, photos, and shared records are managed by exactly one Stylist. In v1, a Client has one display name on a single line with at least one visible character, has an editable language that defaults from the Stylist's current language at creation, and may have one primary phone number, one email address in the form of an email address, and one address.
 _Avoid_: Customer, guest, contact
 
 **Appointment**:
-A scheduled or completed session between a Stylist and one or more Clients, with one primary Client and optional additional Clients. An Appointment has a start time in the Stylist's timezone, can optionally have an end time, start time, end time, and location stay editable after creation, scheduled Appointments produce conflict warnings that name the overlapping Appointments when an Appointment is created, moved, or set back to scheduled, using a 30-minute minimum duration when no end time is set, past scheduled Appointments remain unresolved until the Stylist marks an outcome, can have zero or more Services, can be completed with zero Services, outcome states remain editable, can have one appointment-level note, defaults to an in-salon location that shows the Stylist's salon address and follows changes to it while the Appointment is scheduled, can be changed to an at-home location using the primary Client address or a custom address, an at-home Appointment without a custom address takes the address of the new primary Client whenever its primary Client changes so a former primary Client's address never stays on it, can be scheduled, explicitly completed, canceled, or marked as a no-show, its final total defaults to the sum of Service prices and can be overridden by the Stylist, each Client's subtotal is derived from that Client's Services, the primary Client can be changed to another Client attached to the Appointment and is always one of its Clients, Clients are listed with the primary Client first and then in the order they were added, a Client can be removed from the Appointment only when no Services or Appointment Photos are attached to that Client in the Appointment, and deletion removes its Services, Color Formulas, and Appointment Photos.
+A scheduled or completed session between a Stylist and one or more Clients, with one primary Client and optional additional Clients. An Appointment has a start time in the Stylist's timezone, can optionally have an end time, start time, end time, and location stay editable after creation, scheduled Appointments produce conflict warnings that name the overlapping Appointments when an Appointment is created, moved, or set back to scheduled, using a 30-minute minimum duration when no end time is set, past scheduled Appointments remain unresolved until the Stylist marks an outcome, can have zero or more Services, can be completed with zero Services, outcome states remain editable, can have one appointment-level note, defaults to an in-salon location that shows the Stylist's salon address and follows changes to it while the Appointment is scheduled, can be changed to an at-home location using the primary Client address or a custom address, an at-home Appointment without a custom address takes the address of the new primary Client whenever its primary Client changes so a former primary Client's address never stays on it, can be scheduled, explicitly completed, canceled, or marked as a no-show, its final total defaults to the sum of Service prices and can be overridden by the Stylist, neither the sum of its Service prices nor an overridden total exceeds 9,999,999.99, each Client's subtotal is derived from that Client's Services, the primary Client can be changed to another Client attached to the Appointment and is always one of its Clients, Clients are listed with the primary Client first and then in the order they were added, a Client can be removed from the Appointment only when no Services or Appointment Photos are attached to that Client in the Appointment, and deletion removes its Services, Color Formulas, and Appointment Photos.
 _Avoid_: Visit, session, booking
 
 **Map Opening**:
@@ -69,11 +69,11 @@ Not a v1 concept. The app does not manage a dedicated client-facing aftercare no
 _Avoid_: Aftercare note, care note, instructions
 
 **Service**:
-A type of work performed for exactly one Client during an Appointment, such as a haircut, root touch-up, toner, balayage, blowout, or extensions. A Service records the actual price for that Appointment, can have one service-level note, and color details belong to the Service they describe when applicable.
+A type of work performed for exactly one Client during an Appointment, such as a haircut, root touch-up, toner, balayage, blowout, or extensions. A Service has a one-line name, records the actual price for that Appointment up to 9,999,999.99, can have one service-level note, and color details belong to the Service they describe when applicable.
 _Avoid_: Work item, treatment, procedure
 
 **Service Menu Item**:
-A reusable service option configured by a Stylist with a default name and price. A Service can start from a Service Menu Item or be added ad hoc, appointment history stores the Service as it actually happened, and deleting a Service Menu Item does not change existing Services.
+A reusable service option configured by a Stylist with a default one-line name and a default price up to 9,999,999.99. A Service can start from a Service Menu Item or be added ad hoc, appointment history stores the Service as it actually happened, and deleting a Service Menu Item does not change existing Services.
 _Avoid_: Template service, catalog item
 
 **Color Formula**:
@@ -85,7 +85,7 @@ Not a v1 concept. Color Formulas live on Services, and reuse happens through App
 _Avoid_: Formula template, formula catalog, saved formula
 
 **Appointment Photo**:
-A photo stored by the app, associated with an Appointment, and categorized as before, after, or other. Appointment Photos can be captured with the camera or selected from the gallery, can be attached to a specific Client in the Appointment, show upload failure state with retry or remove options, an Appointment can have multiple Appointment Photos in each category, an Appointment Photo category can be changed, and an Appointment Photo can be deleted independently.
+A photo stored by the app in its own photo storage and nowhere else, associated with an Appointment, and categorized as before, after, or other. Appointment Photos can be captured with the camera or selected from the gallery, can be attached to a specific Client in the Appointment, show upload failure state with retry or remove options, an Appointment can have multiple Appointment Photos in each category, an Appointment Photo category can be changed, and an Appointment Photo can be deleted independently.
 _Avoid_: Image, picture, reference photo
 
 **Photo Editing**:

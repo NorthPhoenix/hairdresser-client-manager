@@ -3,6 +3,8 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getClientAddress, getPrimaryClientChange, getSalonAddress, hasCustomAddress } from "../appointmentLocation";
 import type { Db } from "../context";
+import { amountCents, maxAmountCents, nameText, oneLineText, requestKey, text, textLimits } from "../input";
+import { isPhotoStorageUrl } from "../photoStorage";
 import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from "../trpc";
 
 const dateRangeInput = z.object({
@@ -13,11 +15,12 @@ const dateRangeInput = z.object({
 const appointmentCreateInput = z.object({
   primaryClientId: z.string().optional(),
   additionalClientIds: z.array(z.string()).default([]),
-  inlineClientName: z.string().trim().min(1).optional(),
+  inlineClientName: nameText.optional(),
   startsAt: z.string().datetime(),
   endsAt: z.string().datetime().optional(),
   locationType: z.enum(["inSalon", "atHome"]).default("inSalon"),
-  customLocationAddress: z.string().trim().optional()
+  customLocationAddress: text(textLimits.address).optional(),
+  requestKey: requestKey.optional()
 }).refine((input) => input.primaryClientId || input.inlineClientName, {
   message: "Choose a primary Client or create one inline.",
   path: ["primaryClientId"]
@@ -27,14 +30,14 @@ const appointmentUpdateInput = z.object({
   id: z.string(),
   primaryClientId: z.string().optional(),
   status: z.enum(["scheduled", "completed", "canceled", "noShow"]).optional(),
-  note: z.string().trim().optional(),
-  finalTotalCentsOverride: z.number().int().min(0).nullable().optional(),
+  note: text(textLimits.note).optional(),
+  finalTotalCentsOverride: amountCents.nullable().optional(),
   startsAt: z.string().datetime().optional(),
   // null clears the end time.
   endsAt: z.string().datetime().nullable().optional(),
   locationType: z.enum(["inSalon", "atHome"]).optional(),
   // At home only: an empty string means the primary Client's address.
-  customLocationAddress: z.string().trim().optional()
+  customLocationAddress: text(textLimits.address).optional()
 });
 
 const appointmentParticipantInput = z.object({
@@ -46,16 +49,17 @@ const appointmentServiceInput = z.object({
   appointmentId: z.string(),
   clientId: z.string(),
   menuItemId: z.string().optional(),
-  name: z.string().trim().min(1).optional(),
-  priceCents: z.number().int().min(0).optional(),
-  note: z.string().trim().optional()
+  name: nameText.optional(),
+  priceCents: amountCents.optional(),
+  note: text(textLimits.note).optional(),
+  requestKey: requestKey.optional()
 });
 
 const appointmentServiceUpdateInput = z.object({
   id: z.string(),
-  name: z.string().trim().min(1),
-  priceCents: z.number().int().min(0),
-  note: z.string().trim().optional()
+  name: nameText,
+  priceCents: amountCents,
+  note: text(textLimits.note).optional()
 });
 
 const appointmentServiceDeleteInput = z.object({
@@ -64,14 +68,15 @@ const appointmentServiceDeleteInput = z.object({
 
 const colorFormulaInput = z.object({
   appointmentServiceId: z.string(),
-  formula: z.string().trim().min(1),
-  placement: z.string().trim().optional()
+  formula: text(textLimits.formula).min(1),
+  placement: oneLineText(textLimits.placement).optional(),
+  requestKey: requestKey.optional()
 });
 
 const colorFormulaUpdateInput = z.object({
   id: z.string(),
-  formula: z.string().trim().min(1),
-  placement: z.string().trim().optional()
+  formula: text(textLimits.formula).min(1),
+  placement: oneLineText(textLimits.placement).optional()
 });
 
 const colorFormulaDeleteInput = z.object({
@@ -80,36 +85,66 @@ const colorFormulaDeleteInput = z.object({
 
 const appointmentCopyServicesInput = z.object({
   targetAppointmentId: z.string(),
-  sourceAppointmentId: z.string().optional()
+  sourceAppointmentId: z.string().optional(),
+  requestKey: requestKey.optional()
 });
 
 const appointmentDeleteInput = z.object({
   id: z.string()
 });
 
+const maxFileKeyLength = 200;
+const maxUrlLength = 2000;
+const maxUploadErrorLength = 500;
+// Far more than any camera produces, and inside the database's 32-bit column.
+const photoPixels = z.number().int().positive().max(100_000);
+
 const appointmentPhotoInput = z.object({
   appointmentId: z.string(),
   clientId: z.string(),
   category: z.enum(["before", "after", "other"]),
-  fileKey: z.string().trim().optional(),
-  url: z.string().trim().url().optional(),
-  thumbnailUrl: z.string().trim().url().optional(),
-  width: z.number().int().positive().optional(),
-  height: z.number().int().positive().optional(),
+  fileKey: text(maxFileKeyLength).optional(),
+  url: text(maxUrlLength).url().optional(),
+  thumbnailUrl: text(maxUrlLength).url().optional(),
+  width: photoPixels.optional(),
+  height: photoPixels.optional(),
   status: z.enum(["pendingUpload", "stored", "failed"]).default("stored"),
-  uploadError: z.string().trim().optional()
+  uploadError: text(maxUploadErrorLength).optional(),
+  requestKey: requestKey.optional()
 });
 
 const appointmentPhotoUpdateInput = z.object({
   id: z.string(),
   category: z.enum(["before", "after", "other"]).optional(),
   status: z.enum(["pendingUpload", "stored", "failed"]).optional(),
-  uploadError: z.string().trim().nullable().optional()
+  uploadError: text(maxUploadErrorLength).nullable().optional()
 });
 
 const appointmentPhotoDeleteInput = z.object({
   id: z.string()
 });
+
+// What a mutation that adds or reprices Services reads of the ones already there: their prices
+// for the total, and their request keys to recognise a request that is sent again.
+const existingServices = {
+  select: {
+    priceCents: true,
+    requestKey: true
+  }
+} as const;
+
+// The Services total of an Appointment is an amount like any other: see maxAmountCents. Only a
+// change that raises the total is refused, so an Appointment from before the limit can be put right.
+function refuseTotalAboveMaximum(services: { priceCents: number }[], raisedByCents: number) {
+  const totalCents = services.reduce((total, service) => total + service.priceCents, 0);
+
+  if (raisedByCents > 0 && totalCents + raisedByCents > maxAmountCents) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Appointment total is too large."
+    });
+  }
+}
 
 function addMinutes(date: Date, minutes: number) {
   return new Date(date.getTime() + minutes * 60 * 1000);
@@ -590,6 +625,34 @@ export const appointmentRouter = createTRPCRouter({
       });
     }
 
+    const repeatedAppointment = input.requestKey
+      ? await ctx.db.appointment.findFirst({
+          where: {
+            stylistId: ctx.stylist.id,
+            requestKey: input.requestKey
+          }
+        })
+      : null;
+
+    if (repeatedAppointment) {
+      // The Appointment the first call created, with the overlap warning that call answered with.
+      const repeatedConflicts =
+        repeatedAppointment.status === "scheduled"
+          ? await findConflicts(
+              ctx.db,
+              ctx.stylist.id,
+              repeatedAppointment.startsAt,
+              repeatedAppointment.endsAt,
+              repeatedAppointment.id
+            )
+          : [];
+
+      return {
+        appointment: await getAppointmentOutput(ctx.db, repeatedAppointment.id),
+        conflicts: repeatedConflicts.map(toAppointmentOutput)
+      };
+    }
+
     const additionalClientIds = [...new Set(input.additionalClientIds.filter((clientId) => clientId !== input.primaryClientId))];
     const primaryClient = input.primaryClientId
       ? await ctx.db.client.findFirst({
@@ -653,6 +716,7 @@ export const appointmentRouter = createTRPCRouter({
         locationAddressIsCustom: input.locationType === "atHome" && Boolean(input.customLocationAddress),
         note: "",
         finalTotalCentsOverride: null,
+        requestKey: input.requestKey,
         participants: {
           // One millisecond apart, so the Clients keep the order they were picked in.
           create: [primaryClient.id, ...additionalClientIds].map((clientId, index) => ({
@@ -864,7 +928,8 @@ export const appointmentRouter = createTRPCRouter({
         stylistId: ctx.stylist.id
       },
       include: {
-        participants: true
+        participants: true,
+        services: existingServices
       }
     });
 
@@ -873,6 +938,10 @@ export const appointmentRouter = createTRPCRouter({
         code: "NOT_FOUND",
         message: "Appointment not found."
       });
+    }
+
+    if (input.requestKey && appointment.services.some((service) => service.requestKey === input.requestKey)) {
+      return getAppointmentOutput(ctx.db, appointment.id);
     }
 
     if (!appointment.participants.some((participant) => participant.clientId === input.clientId)) {
@@ -905,14 +974,19 @@ export const appointmentRouter = createTRPCRouter({
       });
     }
 
+    const priceCents = input.priceCents ?? menuItem?.defaultPriceCents ?? 0;
+
+    refuseTotalAboveMaximum(appointment.services, priceCents);
+
     await ctx.db.appointmentService.create({
       data: {
         appointmentId: appointment.id,
         clientId: input.clientId,
         menuItemId: menuItem?.id ?? null,
         name: input.name ?? menuItem?.name ?? "",
-        priceCents: input.priceCents ?? menuItem?.defaultPriceCents ?? 0,
-        note: input.note ?? ""
+        priceCents,
+        note: input.note ?? "",
+        requestKey: input.requestKey
       }
     });
 
@@ -963,12 +1037,19 @@ export const appointmentRouter = createTRPCRouter({
 
     return toAppointmentOutput(updatedAppointment);
   }),
-  updateService: stylistProcedure.input(appointmentServiceUpdateInput).mutation(async ({ ctx, input }) => {
+  updateService: stylistTransactionProcedure.input(appointmentServiceUpdateInput).mutation(async ({ ctx, input }) => {
     const service = await ctx.db.appointmentService.findFirst({
       where: {
         id: input.id,
         appointment: {
           stylistId: ctx.stylist.id
+        }
+      },
+      include: {
+        appointment: {
+          select: {
+            services: existingServices
+          }
         }
       }
     });
@@ -979,6 +1060,8 @@ export const appointmentRouter = createTRPCRouter({
         message: "Appointment Service not found."
       });
     }
+
+    refuseTotalAboveMaximum(service.appointment.services, input.priceCents - service.priceCents);
 
     await ctx.db.appointmentService.update({
       where: {
@@ -1115,7 +1198,13 @@ export const appointmentRouter = createTRPCRouter({
         stylistId: ctx.stylist.id
       },
       include: {
-        participants: true
+        participants: true,
+        photos: {
+          select: {
+            fileKey: true,
+            requestKey: true
+          }
+        }
       }
     });
 
@@ -1124,6 +1213,18 @@ export const appointmentRouter = createTRPCRouter({
         code: "NOT_FOUND",
         message: "Appointment not found."
       });
+    }
+
+    // A request that is sent again, recognised by its key or by the stored file: one file is one
+    // Appointment Photo.
+    if (
+      appointment.photos.some(
+        (photo) =>
+          (input.requestKey && photo.requestKey === input.requestKey) ||
+          (input.fileKey && photo.fileKey === input.fileKey)
+      )
+    ) {
+      return getAppointmentOutput(ctx.db, appointment.id);
     }
 
     if (!appointment.participants.some((participant) => participant.clientId === input.clientId)) {
@@ -1140,6 +1241,13 @@ export const appointmentRouter = createTRPCRouter({
       });
     }
 
+    if ([input.url, input.thumbnailUrl].some((url) => url && !isPhotoStorageUrl(url, ctx.photoOrigins))) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Appointment Photo URLs must point at UploadThing storage."
+      });
+    }
+
     await ctx.db.appointmentPhoto.create({
       data: {
         appointmentId: appointment.id,
@@ -1152,7 +1260,8 @@ export const appointmentRouter = createTRPCRouter({
         thumbnailUrl: input.thumbnailUrl ?? null,
         width: input.width ?? null,
         height: input.height ?? null,
-        uploadError: input.uploadError ?? null
+        uploadError: input.uploadError ?? null,
+        requestKey: input.requestKey
       }
     });
 
@@ -1213,12 +1322,19 @@ export const appointmentRouter = createTRPCRouter({
 
     return getAppointmentOutput(ctx.db, photo.appointmentId);
   }),
-  addColorFormula: stylistProcedure.input(colorFormulaInput).mutation(async ({ ctx, input }) => {
+  addColorFormula: stylistTransactionProcedure.input(colorFormulaInput).mutation(async ({ ctx, input }) => {
     const service = await ctx.db.appointmentService.findFirst({
       where: {
         id: input.appointmentServiceId,
         appointment: {
           stylistId: ctx.stylist.id
+        }
+      },
+      include: {
+        colorFormulas: {
+          select: {
+            requestKey: true
+          }
         }
       }
     });
@@ -1230,11 +1346,16 @@ export const appointmentRouter = createTRPCRouter({
       });
     }
 
+    if (input.requestKey && service.colorFormulas.some((formula) => formula.requestKey === input.requestKey)) {
+      return getAppointmentOutput(ctx.db, service.appointmentId);
+    }
+
     await ctx.db.colorFormula.create({
       data: {
         appointmentServiceId: service.id,
         formula: input.formula,
-        placement: input.placement ?? ""
+        placement: input.placement ?? "",
+        requestKey: input.requestKey
       }
     });
 
@@ -1446,7 +1567,8 @@ export const appointmentRouter = createTRPCRouter({
         stylistId: ctx.stylist.id
       },
       include: {
-        participants: true
+        participants: true,
+        services: existingServices
       }
     });
 
@@ -1455,6 +1577,10 @@ export const appointmentRouter = createTRPCRouter({
         code: "NOT_FOUND",
         message: "Target Appointment not found."
       });
+    }
+
+    if (input.requestKey && targetAppointment.services.some((service) => service.requestKey === input.requestKey)) {
+      return getAppointmentOutput(ctx.db, targetAppointment.id);
     }
 
     const sourceAppointment = input.sourceAppointmentId
@@ -1520,6 +1646,11 @@ export const appointmentRouter = createTRPCRouter({
     );
     const servicesToCopy = sourceAppointment.services.filter((service) => sharedClientIds.has(service.clientId));
 
+    refuseTotalAboveMaximum(
+      targetAppointment.services,
+      servicesToCopy.reduce((total, service) => total + service.priceCents, 0)
+    );
+
     for (const service of servicesToCopy) {
       await ctx.db.appointmentService.create({
         data: {
@@ -1529,6 +1660,7 @@ export const appointmentRouter = createTRPCRouter({
           name: service.name,
           priceCents: service.priceCents,
           note: service.note ?? "",
+          requestKey: input.requestKey,
           colorFormulas: {
             create: service.colorFormulas.map((formula) => ({
               formula: formula.formula,

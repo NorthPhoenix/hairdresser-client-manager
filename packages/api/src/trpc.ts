@@ -1,7 +1,18 @@
 import { initTRPC, TRPCError } from "@trpc/server";
+import { z } from "zod";
 import type { TRPCContext } from "./context";
+import { timezoneText } from "./input";
 
-const t = initTRPC.context<TRPCContext>().create();
+const t = initTRPC.context<TRPCContext>().create({
+  // No reply carries a stack trace, also not in development: failures are logged by the server
+  // that hosts the router.
+  isDev: false,
+  errorFormatter({ shape, error }) {
+    // An unexpected failure carries the text of whatever was thrown, such as a database statement
+    // with server paths. A refusal thrown on purpose has its own code and keeps its message.
+    return error.code === "INTERNAL_SERVER_ERROR" ? { ...shape, message: "Internal server error." } : shape;
+  }
+});
 
 // Database failures a caller can act on, by Prisma error code. Prisma's own message names tables,
 // constraints and server paths, so it is replaced.
@@ -71,23 +82,44 @@ export const protectedProcedure = publicProcedure.use(({ ctx, next }) => {
   });
 });
 
+// What the device suggests for a Stylist who does not exist yet. The input of any procedure can
+// carry them, because the Stylist is created by whichever call comes first.
+const deviceDefaultsInput = z.object({
+  deviceLanguage: z.enum(["ru", "en"]).optional(),
+  deviceTimezone: timezoneText.optional()
+});
+
 export const stylistProcedure = protectedProcedure.use(async ({ ctx, getRawInput, next }) => {
+  const where = {
+    clerkId: ctx.clerkAuth.userId
+  };
   const rawInput = await getRawInput();
-  const input =
-    rawInput && typeof rawInput === "object" && !Array.isArray(rawInput)
-      ? (rawInput as { deviceLanguage?: "ru" | "en"; deviceTimezone?: string })
-      : {};
-  const stylist = await ctx.db.stylist.upsert({
-    where: {
-      clerkId: ctx.clerkAuth.userId
-    },
-    update: {},
-    create: {
-      clerkId: ctx.clerkAuth.userId,
-      language: input.deviceLanguage ?? "ru",
-      timezone: input.deviceTimezone ?? "UTC"
-    }
-  });
+  const deviceDefaults = deviceDefaultsInput.safeParse(
+    rawInput && typeof rawInput === "object" && !Array.isArray(rawInput) ? rawInput : {}
+  );
+  // Defaults that are not valid create no Stylist. A Stylist who already exists does not need
+  // them and is not held up by them, for instance on a device whose timezone this server does
+  // not know.
+  const stylist = deviceDefaults.success
+    ? await ctx.db.stylist.upsert({
+        where,
+        update: {},
+        create: {
+          ...where,
+          language: deviceDefaults.data.deviceLanguage ?? "ru",
+          timezone: deviceDefaults.data.deviceTimezone ?? "UTC"
+        }
+      })
+    : await ctx.db.stylist.findUnique({
+        where
+      });
+
+  if (!stylist) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      cause: deviceDefaults.error
+    });
+  }
 
   return next({
     ctx: {

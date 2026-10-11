@@ -225,8 +225,16 @@ async function handle(request: Request): Promise<Response> {
       router: appRouter,
       createContext: () =>
         createTRPCContext({
-          auth: async () => ({ userId: getDevUserId(request.headers.get("authorization")) })
-        })
+          auth: async () => ({ userId: getDevUserId(request.headers.get("authorization")) }),
+          // Photos live in the storage emulator below, not at UploadThing.
+          photoOrigins: [new URL(origin).origin]
+        }),
+      // The reply to an unexpected failure says nothing about it, so the log has to.
+      onError: ({ error, path }) => {
+        if (error.code === "INTERNAL_SERVER_ERROR") {
+          console.error(`tRPC ${path ?? "request"} failed:`, error.cause ?? error);
+        }
+      }
     });
   }
 

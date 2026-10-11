@@ -59,6 +59,9 @@ model Client {
   email        String?
   address      String?
   note         String?
+  // The request key of the call that created this record, when it sent one: the same call sent
+  // again finds the record instead of creating another (docs/adr/0015). The same on the models below.
+  requestKey   String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -84,6 +87,7 @@ model Appointment {
   locationAddressIsCustom Boolean?
   note         String?
   finalTotalCentsOverride Int?
+  requestKey   String?
   createdAt    DateTime                @default(now())
   updatedAt    DateTime                @updatedAt
 
@@ -111,6 +115,7 @@ model ServiceMenuItem {
   stylistId         String
   name              String
   defaultPriceCents Int      @default(0)
+  requestKey        String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -125,6 +130,8 @@ model AppointmentService {
   name           String
   priceCents     Int      @default(0)
   note           String?
+  // Services copied by one Appointment Copying share its key.
+  requestKey     String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -138,6 +145,7 @@ model ColorFormula {
   appointmentServiceId String
   formula              String
   placement            String?
+  requestKey           String?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
@@ -157,6 +165,7 @@ model AppointmentPhoto {
   width         Int?
   height        Int?
   uploadError   String?
+  requestKey    String?
   createdAt     DateTime                @default(now())
   updatedAt     DateTime                @updatedAt
 

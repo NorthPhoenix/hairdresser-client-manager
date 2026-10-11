@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { maxAmountCents } from "./input";
 import { appRouter } from "./root";
 import type { TRPCContext } from "./context";
 import { withTransaction } from "./testSupport";
@@ -14,12 +15,13 @@ const stylist = {
   updatedAt: new Date()
 };
 
-function createContext(db: TRPCContext["db"]): TRPCContext {
+function createContext(db: TRPCContext["db"], photoOrigins: string[] = []): TRPCContext {
   return {
     clerkAuth: {
       userId: "clerk_1"
     },
     db: withTransaction(db),
+    photoOrigins,
     stylist
   } as unknown as TRPCContext;
 }
@@ -641,7 +643,8 @@ describe("appointment router", () => {
               {
                 clientId: "client_1"
               }
-            ]
+            ],
+            services: []
           }),
           findUniqueOrThrow: vi.fn().mockResolvedValue({
             id: "appointment_1",
@@ -741,6 +744,12 @@ describe("appointment router", () => {
               },
               {
                 clientId: "client_2"
+              }
+            ],
+            services: [
+              {
+                priceCents: 8000,
+                requestKey: null
               }
             ]
           }),
@@ -1048,7 +1057,8 @@ describe("appointment router", () => {
           {
             clientId: "client_1"
           }
-        ]
+        ],
+        services: []
       })
       .mockResolvedValueOnce({
         id: "source_last",
@@ -1158,7 +1168,8 @@ describe("appointment router", () => {
           {
             clientId: "client_1"
           }
-        ]
+        ],
+        services: []
       })
       .mockResolvedValueOnce({
         id: "older_source",
@@ -1231,7 +1242,8 @@ describe("appointment router", () => {
                 {
                   clientId: "client_1"
                 }
-              ]
+              ],
+              services: []
             })
             .mockResolvedValueOnce({
               id: "source_1",
@@ -1513,7 +1525,8 @@ describe("appointment router", () => {
               {
                 clientId: "client_1"
               }
-            ]
+            ],
+            photos: []
           }),
           findUniqueOrThrow: vi.fn().mockResolvedValue(appointmentOutput)
         },
@@ -2285,6 +2298,337 @@ describe("appointment router", () => {
         id: "appointment_1",
         stylistId: "stylist_1"
       }
+    });
+  });
+
+  // An Appointment whose Services are given by price, with the calls the Service mutations make.
+  function createPricedDb(priceCents: number[]) {
+    const services = priceCents.map((price, index) => ({
+      id: `service_${index + 1}`,
+      appointmentId: "appointment_1",
+      clientId: "client_1",
+      menuItemId: null,
+      name: `Service ${index + 1}`,
+      priceCents: price,
+      note: "",
+      requestKey: null,
+      createdAt: new Date("2026-06-13T15:00:00.000Z")
+    }));
+    const read = () => ({
+      ...scheduledAppointment,
+      participants: [
+        {
+          clientId: "client_1",
+          client: {
+            id: "client_1",
+            name: "Anna",
+            address: ""
+          }
+        }
+      ],
+      services: [...services]
+    });
+    const create = vi.fn(({ data }: { data: { name: string; priceCents: number } }) => {
+      services.push({
+        ...services[0]!,
+        ...data,
+        id: `service_${services.length + 1}`
+      });
+
+      return Promise.resolve({});
+    });
+    const update = vi.fn(({ where, data }: { where: { id: string }; data: { priceCents: number } }) => {
+      Object.assign(services.find((service) => service.id === where.id) ?? {}, data);
+
+      return Promise.resolve({});
+    });
+    const db = {
+      stylist: {
+        upsert: vi.fn().mockResolvedValue(stylist)
+      },
+      appointment: {
+        findFirst: vi.fn(() => Promise.resolve(read())),
+        findUniqueOrThrow: vi.fn(() => Promise.resolve(read()))
+      },
+      appointmentService: {
+        findFirst: vi.fn(({ where }: { where: { id: string } }) => {
+          const service = services.find((candidate) => candidate.id === where.id);
+
+          return Promise.resolve(service ? { ...service, appointment: { services: [...services] } } : null);
+        }),
+        create,
+        update
+      },
+      serviceMenuItem: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: "menu_1",
+          name: "Extensions",
+          defaultPriceCents: maxAmountCents
+        })
+      }
+    };
+
+    return {
+      create,
+      update,
+      db,
+      caller: appRouter.createCaller(createContext(db as unknown as TRPCContext["db"]))
+    };
+  }
+
+  const totalTooLarge = {
+    code: "BAD_REQUEST",
+    message: "Appointment total is too large."
+  };
+
+  it("refuses a Service that would take the Appointment's Services total past the maximum", async () => {
+    const { caller, create } = createPricedDb([maxAmountCents - 1000]);
+    const service = {
+      appointmentId: "appointment_1",
+      clientId: "client_1",
+      name: "Second Ten"
+    };
+
+    await expect(caller.appointment.addService({ ...service, priceCents: 1001 })).rejects.toMatchObject(totalTooLarge);
+    // A Service Menu Item's default price counts the same.
+    await expect(caller.appointment.addService({ ...service, menuItemId: "menu_1" })).rejects.toMatchObject(totalTooLarge);
+    expect(create).not.toHaveBeenCalled();
+
+    // Up to the maximum is fine, and every total in the reply stays within it.
+    await expect(caller.appointment.addService({ ...service, priceCents: 1000 })).resolves.toMatchObject({
+      serviceTotalCents: maxAmountCents,
+      finalTotalCents: maxAmountCents,
+      participants: [
+        {
+          subtotalCents: maxAmountCents
+        }
+      ]
+    });
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a Service price change that would take the total past the maximum", async () => {
+    const { caller, update } = createPricedDb([maxAmountCents - 1000, 500]);
+
+    await expect(
+      caller.appointment.updateService({
+        id: "service_2",
+        name: "Service 2",
+        priceCents: 1001
+      })
+    ).rejects.toMatchObject(totalTooLarge);
+    expect(update).not.toHaveBeenCalled();
+
+    await expect(
+      caller.appointment.updateService({
+        id: "service_2",
+        name: "Service 2",
+        priceCents: 1000
+      })
+    ).resolves.toMatchObject({
+      serviceTotalCents: maxAmountCents
+    });
+    expect(update).toHaveBeenCalledWith({
+      where: {
+        id: "service_2"
+      },
+      data: {
+        name: "Service 2",
+        priceCents: 1000,
+        note: ""
+      }
+    });
+  });
+
+  it("lets a Service be renamed or made cheaper in an Appointment that is already past the maximum", async () => {
+    // Saved before the limit existed.
+    const { caller, update } = createPricedDb([2_147_483_647, 1000]);
+
+    await caller.appointment.updateService({
+      id: "service_2",
+      name: "Renamed",
+      priceCents: 1000
+    });
+    await caller.appointment.updateService({
+      id: "service_2",
+      name: "Renamed",
+      priceCents: 0
+    });
+
+    expect(update).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses to copy Services that would take the total past the maximum and copies none of them", async () => {
+    const appointmentServiceCreate = vi.fn();
+    const source = (priceCents: number) => ({
+      id: "source_1",
+      participants: [
+        {
+          clientId: "client_1"
+        }
+      ],
+      services: [
+        {
+          clientId: "client_1",
+          menuItemId: null,
+          name: "Cut",
+          priceCents: 1000,
+          note: "",
+          colorFormulas: []
+        },
+        {
+          clientId: "client_1",
+          menuItemId: null,
+          name: "Extensions",
+          priceCents,
+          note: "",
+          colorFormulas: []
+        }
+      ]
+    });
+    const target = {
+      id: "target_1",
+      participants: [
+        {
+          clientId: "client_1"
+        }
+      ],
+      services: [
+        {
+          priceCents: 5000,
+          requestKey: null
+        }
+      ]
+    };
+    const appointmentFindFirst = vi.fn()
+      .mockResolvedValueOnce(target)
+      .mockResolvedValueOnce(source(maxAmountCents - 6000 + 1))
+      .mockResolvedValueOnce(target)
+      .mockResolvedValueOnce(source(maxAmountCents - 6000));
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: {
+          upsert: vi.fn().mockResolvedValue(stylist)
+        },
+        appointment: {
+          findFirst: appointmentFindFirst,
+          findUniqueOrThrow: vi.fn().mockResolvedValue({
+            ...scheduledAppointment,
+            id: "target_1",
+            participants: [],
+            services: []
+          })
+        },
+        appointmentService: {
+          create: appointmentServiceCreate
+        }
+      } as unknown as TRPCContext["db"])
+    );
+    const copy = {
+      targetAppointmentId: "target_1",
+      sourceAppointmentId: "source_1"
+    };
+
+    await expect(caller.appointment.copyServices(copy)).rejects.toMatchObject(totalTooLarge);
+    expect(appointmentServiceCreate).not.toHaveBeenCalled();
+
+    await caller.appointment.copyServices(copy);
+    expect(appointmentServiceCreate).toHaveBeenCalledTimes(2);
+  });
+
+  // An Appointment Photo is loaded by the app as an image from its URL.
+  function createPhotoCaller(photoOrigins: string[] = []) {
+    const photoCreate = vi.fn().mockResolvedValue({
+      id: "photo_1"
+    });
+    const caller = appRouter.createCaller(
+      createContext(
+        {
+          stylist: {
+            upsert: vi.fn().mockResolvedValue(stylist)
+          },
+          appointment: {
+            findFirst: vi.fn().mockResolvedValue({
+              id: "appointment_1",
+              participants: [
+                {
+                  clientId: "client_1"
+                }
+              ],
+              photos: []
+            }),
+            findUniqueOrThrow: vi.fn().mockResolvedValue({
+              ...scheduledAppointment,
+              participants: [],
+              services: [],
+              photos: []
+            })
+          },
+          appointmentPhoto: {
+            create: photoCreate
+          }
+        } as unknown as TRPCContext["db"],
+        photoOrigins
+      )
+    );
+
+    return {
+      photoCreate,
+      addPhoto: (url: string, thumbnailUrl?: string) =>
+        caller.appointment.addPhoto({
+          appointmentId: "appointment_1",
+          clientId: "client_1",
+          category: "other",
+          fileKey: "x",
+          url,
+          thumbnailUrl
+        })
+    };
+  }
+
+  it.each([
+    ["another website", "https://example.com/x.jpg"],
+    ["this server", "http://10.0.2.2:3000/profile-shares/token/image?probe=1"],
+    ["a script", "javascript:alert(1)"],
+    ["a local file", "file:///etc/passwd"],
+    ["the photo storage without https", "http://utfs.io/f/x"],
+    ["a host that only ends like the photo storage", "https://evilutfs.io/f/x"],
+    ["a host that only starts like the photo storage", "https://utfs.io.example.com/f/x"],
+    ["the photo storage on another port", "https://app.ufs.sh:8443/f/x"]
+  ])("refuses to store %s as an Appointment Photo", async (_label, url) => {
+    const { addPhoto, photoCreate } = createPhotoCaller();
+    const refusal = {
+      code: "BAD_REQUEST",
+      message: "Appointment Photo URLs must point at UploadThing storage."
+    };
+
+    await expect(addPhoto(url)).rejects.toMatchObject(refusal);
+    // The thumbnail is loaded by the app as well.
+    await expect(addPhoto("https://utfs.io/f/x", url)).rejects.toMatchObject(refusal);
+    expect(photoCreate).not.toHaveBeenCalled();
+  });
+
+  it("stores Appointment Photos that are in the photo storage", async () => {
+    const { addPhoto, photoCreate } = createPhotoCaller();
+
+    await addPhoto("https://app-id.ufs.sh/f/x", "https://app-id.ufs.sh/f/x");
+    await addPhoto("https://utfs.io/f/x");
+
+    expect(photoCreate).toHaveBeenCalledTimes(2);
+  });
+
+  it("accepts the storage emulator of the dev backend only when the server names its origin", async () => {
+    const emulatorUrl = "http://127.0.0.1:3000/_ut/f/x";
+    const devBackend = createPhotoCaller(["http://127.0.0.1:3000"]);
+
+    await devBackend.addPhoto(emulatorUrl, emulatorUrl);
+    expect(devBackend.photoCreate).toHaveBeenCalledTimes(1);
+    await expect(devBackend.addPhoto("http://127.0.0.1:3001/_ut/f/x")).rejects.toMatchObject({
+      code: "BAD_REQUEST"
+    });
+
+    await expect(createPhotoCaller().addPhoto(emulatorUrl)).rejects.toMatchObject({
+      code: "BAD_REQUEST"
     });
   });
 });
