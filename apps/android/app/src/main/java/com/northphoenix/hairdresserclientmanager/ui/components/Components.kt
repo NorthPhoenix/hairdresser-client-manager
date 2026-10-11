@@ -71,6 +71,7 @@ import androidx.compose.ui.unit.sp
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.domain.Amount
+import com.northphoenix.hairdresserclientmanager.domain.ClientRules
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.i18n.refusalRes
@@ -454,9 +455,7 @@ private val avatarPalette = listOf(
 @Composable
 fun Avatar(name: String, modifier: Modifier = Modifier, size: Dp = 44.dp) {
     val (container, content) = remember(name) { avatarPalette[Math.floorMod(name.hashCode(), avatarPalette.size)] }
-    val initials = remember(name) {
-        name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.take(2).joinToString("") { it.first().uppercase() }.ifEmpty { "·" }
-    }
+    val initials = remember(name) { ClientRules.initials(name) }
 
     Box(modifier.size(size).clip(CircleShape).background(container), contentAlignment = Alignment.Center) {
         Text(
@@ -465,6 +464,9 @@ fun Avatar(name: String, modifier: Modifier = Modifier, size: Dp = 44.dp) {
             fontFamily = DisplayFamily,
             fontWeight = FontWeight.SemiBold,
             fontSize = MaterialTheme.typography.titleMedium.fontSize * (size.value / 44f),
+            // Initials wider than the circle (two emoji at a large font size) show the first one whole, not two cut lines.
+            maxLines = 1,
+            textAlign = TextAlign.Center,
         )
     }
 }

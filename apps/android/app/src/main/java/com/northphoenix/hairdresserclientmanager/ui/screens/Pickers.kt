@@ -1,10 +1,10 @@
 package com.northphoenix.hairdresserclientmanager.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.PersonAddAlt1
@@ -34,7 +34,7 @@ import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
-import com.northphoenix.hairdresserclientmanager.ui.components.HcmBottomSheet
+import com.northphoenix.hairdresserclientmanager.ui.components.HcmListBottomSheet
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmTextField
 import com.northphoenix.hairdresserclientmanager.ui.components.InlineEmpty
 import com.northphoenix.hairdresserclientmanager.ui.components.InlineLoadFailed
@@ -61,46 +61,49 @@ fun ClientPickerSheet(
     var search by rememberSaveable { mutableStateOf("") }
     val filtered = remember(clients, search) { ClientRules.filter(clients, search) }
 
-    HcmBottomSheet(title = title, onDismiss = onDismiss) {
-        HcmTextField(
-            value = search,
-            onValueChange = { search = it },
-            label = "",
-            placeholder = stringResource(if (onCreateInline != null) R.string.client_name_label else R.string.client_search_label),
-            leadingIcon = Icons.Rounded.Search,
-            capitalization = KeyboardCapitalization.Words,
-        )
-
-        if (onCreateInline != null && search.isNotBlank()) {
-            SecondaryButton(
-                text = stringResource(R.string.inline_client_label) + ": " + search.trim(),
-                onClick = { onCreateInline(search.trim()) },
-                modifier = Modifier.fillMaxWidth(),
-                icon = Icons.Rounded.PersonAddAlt1,
+    // A lazy list: a Stylist with hundreds of Clients gets the sheet as fast as one with ten.
+    HcmListBottomSheet(
+        title = title,
+        onDismiss = onDismiss,
+        content = {
+            HcmTextField(
+                value = search,
+                onValueChange = { search = it },
+                label = "",
+                placeholder = stringResource(if (onCreateInline != null) R.string.client_name_label else R.string.client_search_label),
+                leadingIcon = Icons.Rounded.Search,
+                capitalization = KeyboardCapitalization.Words,
             )
-        }
 
-        // "No Clients yet" is only true of a list that has loaded.
-        when (load) {
-            is LoadState.Failed -> InlineLoadFailed(load.message, onRetry)
-            LoadState.Loaded -> if (filtered.isEmpty()) {
-                InlineEmpty(stringResource(if (clients.isEmpty()) R.string.no_clients_title else R.string.no_client_results))
-            }
-            else -> LoadingRow(Modifier.heightIn(max = 96.dp))
-        }
-
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            filtered.forEach { client ->
-                ClientRow(
-                    client,
-                    onClick = { onPick(client) },
-                    trailing = {
-                        if (client.id in selectedIds) {
-                            Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        }
-                    },
+            if (onCreateInline != null && search.isNotBlank()) {
+                SecondaryButton(
+                    text = stringResource(R.string.inline_client_label) + ": " + search.trim(),
+                    onClick = { onCreateInline(search.trim()) },
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = Icons.Rounded.PersonAddAlt1,
                 )
             }
+
+            // "No Clients yet" is only true of a list that has loaded.
+            when (load) {
+                is LoadState.Failed -> InlineLoadFailed(load.message, onRetry)
+                LoadState.Loaded -> if (filtered.isEmpty()) {
+                    InlineEmpty(stringResource(if (clients.isEmpty()) R.string.no_clients_title else R.string.no_client_results))
+                }
+                else -> LoadingRow(Modifier.heightIn(max = 96.dp))
+            }
+        },
+    ) {
+        items(filtered, key = { it.id }) { client ->
+            ClientRow(
+                client,
+                onClick = { onPick(client) },
+                trailing = {
+                    if (client.id in selectedIds) {
+                        Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    }
+                },
+            )
         }
     }
 }

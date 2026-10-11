@@ -117,12 +117,12 @@ fun ClientRow(client: ClientProfile, onClick: () -> Unit, modifier: Modifier = M
             Avatar(client.name)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(client.name, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // No line limit: where the phone and the language do not fit on one line, the language goes on
+                // the next one whole. The no-break space keeps it with its dot.
                 Text(
-                    listOf(client.phone, stringResource(client.language.label)).filter { it.isNotBlank() }.joinToString(" · "),
+                    listOf(client.phone, stringResource(client.language.label)).filter { it.isNotBlank() }.joinToString(" ·\u00A0"),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
             if (trailing != null) {

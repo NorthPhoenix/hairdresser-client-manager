@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -151,9 +153,43 @@ fun BottomActionBar(content: @Composable ColumnScope.() -> Unit) {
  * raised while it is open lies over the top of the sheet: it stays in view above the keyboard
  * wherever the sheet is scrolled to, and the content does not move for it.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HcmBottomSheet(title: String, onDismiss: () -> Unit, subtitle: String? = null, content: @Composable ColumnScope.() -> Unit) {
+    SheetFrame(onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(SheetPadding),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            SheetTitle(title, subtitle)
+            content()
+        }
+    }
+}
+
+/**
+ * [HcmBottomSheet] for a list that may be long. [content] is above the list and scrolls with it.
+ * Of the [rows] only those in view are composed, so the sheet opens as fast with hundreds of rows as with ten.
+ */
+@Composable
+fun HcmListBottomSheet(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit, rows: LazyListScope.() -> Unit) {
+    SheetFrame(onDismiss) {
+        LazyColumn(Modifier.fillMaxWidth(), contentPadding = SheetPadding, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            item {
+                Column(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    SheetTitle(title, subtitle = null)
+                    content()
+                }
+            }
+            rows()
+        }
+    }
+}
+
+private val SheetPadding = PaddingValues(start = ScreenPadding, end = ScreenPadding, top = 16.dp, bottom = 28.dp)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SheetFrame(onDismiss: () -> Unit, scrollingContent: @Composable () -> Unit) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -164,24 +200,20 @@ fun HcmBottomSheet(title: String, onDismiss: () -> Unit, subtitle: String? = nul
         ),
     ) {
         Box {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(start = ScreenPadding, end = ScreenPadding, top = 16.dp, bottom = 28.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(title, style = MaterialTheme.typography.headlineMedium)
-                    if (subtitle != null) {
-                        Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                content()
-            }
+            scrollingContent()
             // The sheet is its own window, so notices raised while it is open are shown inside it too.
-            // Not a child of the scrolling column: there a notice was added above what is in view.
+            // Not a child of the scrolling content: there a notice was added above what is in view.
             HcmSnackbarHost(Modifier.align(Alignment.TopCenter))
+        }
+    }
+}
+
+@Composable
+private fun SheetTitle(title: String, subtitle: String?) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, style = MaterialTheme.typography.headlineMedium)
+        if (subtitle != null) {
+            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

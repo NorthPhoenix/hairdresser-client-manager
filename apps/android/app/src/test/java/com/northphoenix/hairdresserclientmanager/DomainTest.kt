@@ -33,6 +33,8 @@ class DomainTest {
     private fun client(id: String, name: String, phone: String = "") =
         ClientProfile(id = id, name = name, language = Language.RU, phone = phone)
 
+    private fun found(clients: List<ClientProfile>, search: String) = ClientRules.filter(clients, search).map { it.id }
+
     private fun assertAmount(cents: Long, text: String) = assertEquals(text, Amount.Valid(cents), Money.parse(text))
 
     private fun assertRefused(reason: Amount, vararg texts: String) = texts.forEach { assertEquals(it, reason, Money.parse(it)) }
@@ -142,6 +144,136 @@ class DomainTest {
         assertTrue(ClientRules.isDuplicatePhone(clients, editingClientId = null, phone = "+1 (512) 555-0100"))
         assertFalse(ClientRules.isDuplicatePhone(clients, editingClientId = "1", phone = "+1 512 555 0100"))
         assertFalse(ClientRules.isDuplicatePhone(clients, editingClientId = null, phone = "  "))
+    }
+
+    @Test
+    fun `client search reads ё as е and ignores case`() {
+        val clients = listOf(client("1", "Семён Смирнов"), client("2", "Мария Ёлкина"), client("3", "Елена Белова"))
+
+        assertEquals(listOf("1"), found(clients, "Семен"))
+        assertEquals(listOf("1"), found(clients, "СЕМЁН"))
+        assertEquals(listOf("2"), found(clients, "елк"))
+        assertEquals(listOf("2"), found(clients, "Ёлк"))
+        assertEquals(listOf("3"), found(clients, "ёлена"))
+        assertEquals(listOf("2", "3"), found(clients, "ел"))
+        // "ё" saved as "е" and a combining diaeresis (a contact imported from another system) is the same letter.
+        assertEquals(listOf("9"), found(listOf(client("9", "Семён")), "семен"))
+        assertEquals(listOf("9"), found(listOf(client("9", "Семён")), "семён"))
+    }
+
+    @Test
+    fun `a client search with letters is not matched through its digits`() {
+        val clients = listOf(
+            client("1", "Offline Oscar"),
+            client("2", "Boris Plus", "+7 903 000-11-22"),
+            client("3", "Anna 2", "555 0134"),
+            client("4", "Ivy Moore", "(555) 0234 ext 7"),
+        )
+
+        assertTrue(found(clients, "oscar 7").isEmpty())
+        assertTrue(found(clients, "zzz 7").isEmpty())
+        assertTrue(found(clients, "Moore 0134").isEmpty())
+        assertEquals(listOf("3"), found(clients, "anna 2"))
+        // The phone as typed is still found, letters and all.
+        assertEquals(listOf("4"), found(clients, "ext 7"))
+        // A search that is only a number is a name or a phone.
+        assertEquals(listOf("2", "4"), found(clients, "7"))
+        assertEquals(listOf("2", "3", "4"), found(clients, "2"))
+        assertEquals(listOf("3"), found(clients, "(555) 01"))
+        assertEquals(listOf("2"), found(clients, "903 000–11–22"))
+    }
+
+    @Test
+    fun `a Russian mobile is found by its number after 7 and after 8`() {
+        val clients = listOf(
+            client("1", "Seven", "+7 916 555-01-01"),
+            client("2", "Eight", "8 916 555-01-01"),
+            client("3", "Bare", "916 555 01 02"),
+            client("4", "Emily", "+1 512 555 0102"),
+        )
+
+        assertEquals(listOf("1", "2", "3"), found(clients, "7916"))
+        assertEquals(listOf("1", "2", "3"), found(clients, "8916"))
+        assertEquals(listOf("1", "2", "3"), found(clients, "916555"))
+        assertEquals(listOf("1", "2"), found(clients, "8 (916) 555-01-01"))
+        assertEquals(listOf("3"), found(clients, "+7 916 555 01 02"))
+        // Any other number is found by its own digits only.
+        assertEquals(listOf("4"), found(clients, "1512"))
+        assertTrue(found(clients, "8512").isEmpty())
+        assertTrue(found(clients, "7512").isEmpty())
+    }
+
+    @Test
+    fun `a phone without a digit is never a duplicate`() {
+        val clients = listOf(client("1", "Nick Nophone"), client("2", "Dana Dash", "-"), client("3", "Eve Ext", "ext"))
+
+        listOf("-", "ext", "—", "n/a", "").forEach { phone ->
+            assertFalse(phone, ClientRules.isDuplicatePhone(clients, editingClientId = null, phone = phone))
+        }
+    }
+
+    @Test
+    fun `a Russian mobile written with 8, with +7 or with neither is one number`() {
+        val rita = listOf(client("1", "Rita", "+7 916 123-45-67"))
+
+        listOf("8 916 123 45 67", "8(916)123-45-67", "916 123 45 67", "+7(916)1234567", "79161234567").forEach { phone ->
+            assertTrue(phone, ClientRules.isDuplicatePhone(rita, editingClientId = null, phone = phone))
+        }
+        assertTrue(ClientRules.isDuplicatePhone(listOf(client("1", "Olga", "8 916 123 45 67")), null, "+7 916 123-45-67"))
+        assertTrue(ClientRules.isDuplicatePhone(listOf(client("1", "Olga", "916 123 45 67")), null, "8 916 123-45-67"))
+        assertTrue(ClientRules.isDuplicatePhone(listOf(client("1", "Boris", "8 903 000 11 22")), null, "+7 903 000-11-22"))
+
+        assertFalse(ClientRules.isDuplicatePhone(rita, editingClientId = null, phone = "8 916 123 45 68"))
+        assertFalse(ClientRules.isDuplicatePhone(rita, editingClientId = "1", phone = "8 916 123 45 67"))
+    }
+
+    @Test
+    fun `no number but a Russian mobile is rewritten for the duplicate check`() {
+        // Eleven digits that start with 8: Japan's +81, not a Russian number written with 8.
+        assertFalse(ClientRules.isDuplicatePhone(listOf(client("1", "Yuki", "+81 3 1234 5678")), null, "+7 131 234 56 78"))
+        // The app cannot know the country of a number that has no country code.
+        assertFalse(ClientRules.isDuplicatePhone(listOf(client("1", "Anna", "+1 512 555 0100")), null, "512 555 0100"))
+        assertEquals("15125550100", ClientRules.comparablePhone("+1 (512) 555-0100"))
+        assertEquals("79161234567", ClientRules.comparablePhone("8 (916) 123-45-67"))
+        assertEquals("", ClientRules.comparablePhone("ext"))
+    }
+
+    @Test
+    fun `avatar initials are the first letters of the first two words`() {
+        assertEquals("АП", ClientRules.initials("анна петрова"))
+        assertEquals("АП", ClientRules.initials("  Анна   Петрова Сергеевна "))
+        assertEquals("Ё", ClientRules.initials("ёлкина"))
+        assertEquals("E", ClientRules.initials("emily@example.com"))
+        assertEquals("·", ClientRules.initials("   "))
+    }
+
+    @Test
+    fun `an avatar initial is a whole character, never half of an emoji`() {
+        val haircut = "💇" // 💇, two UTF-16 units
+        val nails = "💅" // 💅
+        val mediumSkin = "🏽" // skin tone modifier
+        val family = "👩‍👩‍👧" // three people joined into one emoji
+        val flag = "🇷🇺" // 🇷🇺, two regional indicators
+        val heart = "❤️" // ❤️, a symbol and its emoji variation selector
+
+        val initials = mapOf(
+            "$haircut Мария" to "${haircut}М",
+            "$haircut Зоя" to "${haircut}З",
+            "Rita $nails" to "R$nails",
+            "$haircut$nails" to haircut,
+            "$haircut$mediumSkin Мария" to "$haircut${mediumSkin}М",
+            "$family Ivanovs" to "${family}I",
+            "$flag Rita" to "${flag}R",
+            "$heart anna" to "${heart}A",
+            "élodie" to "É",
+        )
+
+        initials.forEach { (name, expected) ->
+            val actual = ClientRules.initials(name)
+
+            assertEquals(name, expected, actual)
+            assertTrue(name, actual.codePoints().noneMatch { it in 0xD800..0xDFFF })
+        }
     }
 
     @Test
