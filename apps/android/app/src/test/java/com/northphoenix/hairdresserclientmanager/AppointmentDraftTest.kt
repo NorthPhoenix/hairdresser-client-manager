@@ -7,7 +7,9 @@ import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft.Times
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
 import java.time.LocalDate
@@ -228,13 +230,14 @@ class AppointmentDraftTest {
         endsAt: String? = null,
         locationType: LocationType = LocationType.IN_SALON,
         customLocationAddress: String = "",
+        status: AppointmentStatus = AppointmentStatus.SCHEDULED,
     ) = Appointment(
         id = "a1",
         primaryClientId = "c1",
         primaryClientName = "Alice",
         startsAt = startsAt,
         endsAt = endsAt,
-        status = AppointmentStatus.SCHEDULED,
+        status = status,
         locationType = locationType,
         locationAddress = customLocationAddress.ifEmpty { "12 Salon Street" },
         customLocationAddress = customLocationAddress,
@@ -272,6 +275,47 @@ class AppointmentDraftTest {
         // M9: the address of a former primary Client that stayed on the Appointment is in the field, to be changed or emptied.
         assertEquals(alice, AppointmentDraft.shownAddress(custom.ownAddress, carol))
         assertNull(AppointmentDraft.ownAddress(typed = "", primaryClientAddress = carol))
+    }
+
+    @Test
+    fun `an Appointment with an outcome keeps its place until the Stylist changes it in the form`() {
+        val start = "2026-10-24T10:00:00.000Z"
+        val outcomes = AppointmentStatus.entries - AppointmentStatus.SCHEDULED
+
+        outcomes.forEach { status ->
+            // At its primary Client's address, which was another one when the visit took place: a save of the time alone must not replace it.
+            val atClients = AppointmentDraft.saved(appointment(start, locationType = LocationType.AT_HOME, status = status), utc)
+
+            assertTrue(AppointmentDraft.keepsPlace(atClients, LocationType.AT_HOME, typed = atClients.ownAddress))
+            // Emptied, or the Client's address of today typed out: the Stylist asks for that Client's address, and it is sent.
+            assertFalse(AppointmentDraft.keepsPlace(atClients, LocationType.AT_HOME, typed = ""))
+            assertFalse(AppointmentDraft.keepsPlace(atClients, LocationType.AT_HOME, typed = carol))
+            assertFalse(AppointmentDraft.keepsPlace(atClients, LocationType.IN_SALON, typed = null))
+
+            val custom = AppointmentDraft.saved(appointment(start, locationType = LocationType.AT_HOME, customLocationAddress = alice, status = status), utc)
+
+            assertTrue(AppointmentDraft.keepsPlace(custom, LocationType.AT_HOME, typed = alice))
+            assertFalse(AppointmentDraft.keepsPlace(custom, LocationType.AT_HOME, typed = "$alice, flat 2"))
+            assertFalse(AppointmentDraft.keepsPlace(custom, LocationType.AT_HOME, typed = null))
+
+            // In the salon there is no address field: an address left from a look at 'At home' changes nothing.
+            val inSalon = AppointmentDraft.saved(appointment(start, status = status), utc)
+
+            assertTrue(AppointmentDraft.keepsPlace(inSalon, LocationType.IN_SALON, typed = null))
+            assertTrue(AppointmentDraft.keepsPlace(inSalon, LocationType.IN_SALON, typed = alice))
+            assertFalse(AppointmentDraft.keepsPlace(inSalon, LocationType.AT_HOME, typed = null))
+        }
+    }
+
+    @Test
+    fun `a Scheduled Appointment sends its place with every save`() {
+        val start = "2026-10-24T10:00:00.000Z"
+        val inSalon = AppointmentDraft.saved(appointment(start), utc)
+        val atHome = AppointmentDraft.saved(appointment(start, locationType = LocationType.AT_HOME), utc)
+
+        // The save brings it the address its salon or its primary Client has now.
+        assertFalse(AppointmentDraft.keepsPlace(inSalon, LocationType.IN_SALON, typed = null))
+        assertFalse(AppointmentDraft.keepsPlace(atHome, LocationType.AT_HOME, typed = null))
     }
 
     @Test

@@ -160,14 +160,15 @@ class HcmApi(private val trpc: TrpcClient) {
 
     /**
      * Edit Appointment. The start and the end are sent together or not at all: without [startsAt]
-     * both stay as they are, and with it an [endsAt] of null clears the end time.
+     * both stay as they are, and with it an [endsAt] of null clears the end time. Without
+     * [locationType] the place stays as it is, address included.
      * [customLocationAddress] counts at home only, where empty means the primary Client's address.
      */
     suspend fun updateAppointmentTimeAndPlace(
         id: String,
         startsAt: Instant?,
         endsAt: Instant?,
-        locationType: LocationType,
+        locationType: LocationType?,
         customLocationAddress: String,
     ): UpdatedAppointment =
         updateAppointment(id) {
@@ -175,7 +176,9 @@ class HcmApi(private val trpc: TrpcClient) {
                 put("startsAt", startsAt.toString())
                 put("endsAt", endsAt?.toString())
             }
-            put("locationType", locationType.wire)
+            if (locationType != null) {
+                put("locationType", locationType.wire)
+            }
             if (locationType == LocationType.AT_HOME) {
                 put("customLocationAddress", customLocationAddress)
             }

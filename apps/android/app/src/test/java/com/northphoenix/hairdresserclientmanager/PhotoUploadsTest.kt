@@ -425,15 +425,34 @@ class PhotoUploadsTest {
         val queue = uploads()
 
         // L29: the Client was removed from the Appointment on another device while this one still listed them.
-        record = { throw ApiException("Photo Client must be attached to the Appointment.", code = "BAD_REQUEST") }
+        // The upload route refuses the picture before it is stored (UploadThingClient gives the refusal the API's code).
+        send = { throw ApiException("Photo Client must be attached to the Appointment.", code = "BAD_REQUEST") }
         queue.addPictures(1)
         runCurrent()
 
         // The picture is not thrown away: it is the Stylist's, and the Client can be added again.
         assertEquals(listOf("photo-1" to UploadState.FAILED), queue.states())
         assertEquals(listOf(true), store.all().map { it.failed })
+        assertNull(store.all().single().stored)
+        assertTrue(recorded.isEmpty())
         assertEquals(listOf("Photo Client must be attached to the Appointment."), failures.map { it.message })
         // The screen stops listing the Client.
+        assertEquals(listOf("appointment-1" to false), reloads)
+    }
+
+    @Test
+    fun `a stored picture whose Client was removed before it was recorded stays on the device as well`() = runTest {
+        val queue = uploads()
+
+        // The file was stored, and the Client removed before the photo was recorded: appointment.addPhoto refuses it.
+        record = { throw ApiException("Photo Client must be attached to the Appointment.", code = "BAD_REQUEST") }
+        queue.addPictures(1)
+        runCurrent()
+
+        assertEquals(listOf("photo-1" to UploadState.FAILED), queue.states())
+        // With the file it has: once the Client is added again, 'Upload again' records it without sending the picture twice.
+        assertEquals(listOf(file(queue.uploads.value.single().photo)), store.all().map { it.stored })
+        assertEquals(listOf("Photo Client must be attached to the Appointment."), failures.map { it.message })
         assertEquals(listOf("appointment-1" to false), reloads)
     }
 

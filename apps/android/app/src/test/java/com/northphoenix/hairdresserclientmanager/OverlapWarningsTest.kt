@@ -1,6 +1,7 @@
 package com.northphoenix.hairdresserclientmanager
 
 import com.northphoenix.hairdresserclientmanager.data.Appointment
+import com.northphoenix.hairdresserclientmanager.data.AppointmentParticipant
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.state.OverlapWarnings
@@ -86,6 +87,28 @@ class OverlapWarningsTest {
         warnings.gone("wanda")
 
         assertEquals(emptyMap<String, List<Appointment>>(), shown())
+    }
+
+    @Test
+    fun `an Appointment deleted with its only Client leaves the warnings, and one that remains is named without them`() {
+        fun client(id: String, name: String) = AppointmentParticipant(clientId = id, name = name)
+
+        val bobAlone = bob.copy(participants = listOf(client("client-bob", "Bob Noaddress")))
+        val bobAndAlice = alice.copy(participants = listOf(client("client-bob", "Bob Noaddress"), client("client-alice", "Alice Home")))
+
+        warnings.answered("wanda", listOf(bobAlone, bobAndAlice))
+        warnings.answered("carol", listOf(bobAlone))
+        // Named as its primary Client without being listed as one: such an Appointment is deleted with that Client as well.
+        warnings.answered("dora", listOf(bob))
+
+        warnings.clientDeleted("client-bob")
+
+        // Bob's own Appointment went with him. The group Appointment stays, Alice's now.
+        assertEquals(mapOf("wanda" to listOf(bobAndAlice.copy(participants = listOf(client("client-alice", "Alice Home"))))), shown())
+
+        // A Client that no named Appointment has changes nothing.
+        warnings.clientDeleted("client-zed")
+        assertEquals(listOf("alice"), shown()["wanda"]?.map { it.id })
     }
 
     @Test

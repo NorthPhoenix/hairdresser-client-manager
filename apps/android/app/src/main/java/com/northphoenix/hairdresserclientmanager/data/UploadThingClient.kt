@@ -110,7 +110,7 @@ class UploadThingClient(
 
         if (status !in 200..299) {
             val message = parseObject(body)?.get("message").textOrNull()
-            throw ApiException(message ?: "Upload could not start ($status).", code = "UPLOAD_REJECTED")
+            throw ApiException(message ?: "Upload could not start ($status).", code = refusalCode(status, message))
         }
 
         return try {
@@ -119,6 +119,19 @@ class UploadThingClient(
             throw ApiException("Unexpected upload response.", code = "BAD_RESPONSE", cause = error)
         }
     }
+
+    /**
+     * The code of a refusal of the route. A refusal the API also has, recognised by its HTTP status
+     * together with its exact words, gets the API's code for it: it is then the same failure as
+     * from `appointment.addPhoto`, to the Stylist and to the screen. Any other one is an upload
+     * that could not start.
+     */
+    private fun refusalCode(status: Int, message: String?): String =
+        when {
+            // The Client is no longer one of the Appointment's Clients (ApiException.isClientNotAttached).
+            status == 400 && message == "Photo Client must be attached to the Appointment." -> "BAD_REQUEST"
+            else -> "UPLOAD_REJECTED"
+        }
 
     /** UploadThing reports how many bytes it already holds so an interrupted upload can resume. */
     private suspend fun resumeOffset(presignedUrl: String, trace: TraceHeaders): Int {

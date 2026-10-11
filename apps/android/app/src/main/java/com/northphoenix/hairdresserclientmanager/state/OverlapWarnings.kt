@@ -35,6 +35,19 @@ internal class OverlapWarnings {
     /** The Appointment was deleted: it has no warning and overlaps nothing. */
     fun gone(appointmentId: String) = answered(appointmentId, emptyList())
 
+    /**
+     * A Client was deleted. An Appointment that had no other Client went with them and overlaps
+     * nothing; one that remains is named by the Clients it still has. Worked out from the named
+     * Appointments themselves: one on a day that is not loaded is known nowhere else in the app.
+     */
+    fun clientDeleted(clientId: String) {
+        _shown.update { shown ->
+            shown
+                .mapValues { (_, overlapping) -> overlapping.mapNotNull { it.withoutClient(clientId) } }
+                .filterValues { it.isNotEmpty() }
+        }
+    }
+
     /** The Stylist has read the warning of [appointmentId]. */
     fun dismiss(appointmentId: String) {
         _shown.update { it - appointmentId }
@@ -50,4 +63,15 @@ internal class OverlapWarnings {
         (this - appointmentId)
             .mapValues { (_, overlapping) -> overlapping.filterNot { it.id == appointmentId } }
             .filterValues { it.isNotEmpty() }
+
+    /** This Appointment after [clientId] was deleted, as the server leaves it: null when it had no other Client. */
+    private fun Appointment.withoutClient(clientId: String): Appointment? {
+        val others = participants.filterNot { it.clientId == clientId }
+
+        return when {
+            others.size == participants.size && primaryClientId != clientId -> this
+            others.isEmpty() -> null
+            else -> copy(participants = others)
+        }
+    }
 }

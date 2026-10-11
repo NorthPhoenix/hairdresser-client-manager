@@ -25,8 +25,9 @@ import java.time.LocalDate
  * The form is filled from the Appointment when the sheet opens. A part of it starts again from the
  * Appointment when that part changes underneath it, so the form never puts back a time or a place
  * that was changed elsewhere in the meantime. [onSave] gets the times only when the Stylist changed
- * them (see [AppointmentDraft.editedTimes]), and the at-home address only when it is the Stylist's
- * own; [onRefused] gets the reason, a string resource, for times that cannot be saved.
+ * them (see [AppointmentDraft.editedTimes]), the location only when it is sent (null for a place
+ * that is kept, see [AppointmentDraft.keepsPlace]), and the at-home address only when it is the
+ * Stylist's own; [onRefused] gets the reason, a string resource, for times that cannot be saved.
  */
 @Composable
 internal fun EditAppointmentSheet(
@@ -35,7 +36,7 @@ internal fun EditAppointmentSheet(
     busy: Boolean,
     onDismiss: () -> Unit,
     onRefused: (Int) -> Unit,
-    onSave: (times: AppointmentDraft.Times.Valid?, locationType: LocationType, ownAddress: String?) -> Unit,
+    onSave: (times: AppointmentDraft.Times.Valid?, locationType: LocationType?, ownAddress: String?) -> Unit,
 ) {
     val format = LocalTimeFormat.current
     val saved = AppointmentDraft.saved(appointment, format)
@@ -52,9 +53,13 @@ internal fun EditAppointmentSheet(
     var picker by rememberSaveable { mutableStateOf<AppointmentTimeField?>(null) }
 
     val ownAddress = AppointmentDraft.ownAddress(typedAddress, primaryClientAddress)
+    // An Appointment with an outcome keeps the place it had, and the form shows that address, until the Stylist changes the place here.
+    val placeKept = AppointmentDraft.keepsPlace(saved, locationType, typedAddress)
 
     fun save() {
-        val place = { times: AppointmentDraft.Times.Valid? -> onSave(times, locationType, ownAddress.takeIf { locationType == LocationType.AT_HOME }) }
+        val place = { times: AppointmentDraft.Times.Valid? ->
+            onSave(times, locationType.takeUnless { placeKept }, ownAddress.takeIf { locationType == LocationType.AT_HOME })
+        }
 
         when (val times = AppointmentDraft.editedTimes(saved, date, startTime, endTime, format)) {
             AppointmentDraft.Times.StartSkipped -> onRefused(R.string.appointment_start_time_skipped)
@@ -82,7 +87,7 @@ internal fun EditAppointmentSheet(
                 // An address that is not the Stylist's own does not stay for the other kind of place.
                 typedAddress = ownAddress
             },
-            address = AppointmentDraft.shownAddress(typedAddress, primaryClientAddress),
+            address = if (placeKept) appointment.locationAddress else AppointmentDraft.shownAddress(typedAddress, primaryClientAddress),
             onAddress = { typedAddress = it },
         )
         PrimaryButton(stringResource(R.string.save_appointment_time_and_place), onClick = ::save, modifier = Modifier.fillMaxWidth(), loading = busy)

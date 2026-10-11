@@ -1,6 +1,7 @@
 package com.northphoenix.hairdresserclientmanager.domain
 
 import com.northphoenix.hairdresserclientmanager.data.Appointment
+import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.LocationType
 import java.time.Duration
 import java.time.Instant
@@ -95,7 +96,8 @@ object AppointmentDraft {
     /**
      * The time and place an Appointment has, as the edit form opens with them: its day and times in
      * the Stylist's timezone. [ownAddress] is the at-home address the Stylist typed, null when the
-     * Appointment is at its primary Client's address or in the salon.
+     * Appointment is at its primary Client's address or in the salon. [hasOutcome] is true for an
+     * Appointment that is Completed, Canceled or a No-show.
      */
     data class Saved(
         val date: LocalDate,
@@ -104,6 +106,7 @@ object AppointmentDraft {
         val endTime: LocalTime?,
         val locationType: LocationType,
         val ownAddress: String?,
+        val hasOutcome: Boolean,
     )
 
     fun saved(appointment: Appointment, format: TimeFormat): Saved {
@@ -117,8 +120,20 @@ object AppointmentDraft {
             endTime = end?.toLocalTime(),
             locationType = appointment.locationType,
             ownAddress = appointment.customLocationAddress.takeIf { it.isNotEmpty() },
+            hasOutcome = appointment.status != AppointmentStatus.SCHEDULED,
         )
     }
+
+    /**
+     * Whether an edit leaves the place of the Appointment as it is, so that it is not sent. An
+     * Appointment with an outcome keeps the address it had until the Stylist changes the place in
+     * the form: sent again, a place at the primary Client's address would become the address that
+     * Client has today, with a save that was only about the time. A Scheduled Appointment sends its
+     * place with every save, which brings it the address its salon or its primary Client has now.
+     * [typed] is what the address field holds, as in [shownAddress].
+     */
+    fun keepsPlace(saved: Saved, locationType: LocationType, typed: String?): Boolean =
+        saved.hasOutcome && locationType == saved.locationType && (locationType == LocationType.IN_SALON || typed == saved.ownAddress)
 
     private fun Saved.hasTimes(date: LocalDate, start: LocalTime, end: LocalTime?): Boolean =
         date == this.date && start == startTime && end == endTime

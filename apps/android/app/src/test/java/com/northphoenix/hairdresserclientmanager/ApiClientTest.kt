@@ -8,6 +8,7 @@ import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
 import com.northphoenix.hairdresserclientmanager.data.TrpcClient
 import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
+import com.northphoenix.hairdresserclientmanager.i18n.messageRes
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -146,6 +147,20 @@ class ApiClientTest {
         assertEquals("9 Lamar Blvd, Austin", saved.locationAddress)
         assertEquals("", saved.customLocationAddress)
         assertEquals("https://www.google.com/maps/search/?api=1&query=9%20Lamar%20Blvd%2C%20Austin", saved.mapUrl)
+    }
+
+    @Test
+    fun `an edit of the times alone sends no place, so the Appointment keeps the address it has`() = runTest {
+        enqueue("""{"result":{"data":$updated}}""")
+        enqueue("""{"result":{"data":$updated}}""")
+
+        // An at-home Appointment with an outcome whose time is corrected: an empty address would be answered with the address its Client has today.
+        api.updateAppointmentTimeAndPlace("a1", startsAt = Instant.parse("2026-10-21T20:00:00Z"), endsAt = null, locationType = null, customLocationAddress = "")
+        // Nothing was changed at all.
+        api.updateAppointmentTimeAndPlace("a1", startsAt = null, endsAt = null, locationType = null, customLocationAddress = "1 Lost Lane")
+
+        assertEquals("""{"id":"a1","startsAt":"2026-10-21T20:00:00Z","endsAt":null}""", server.takeRequest().body?.utf8())
+        assertEquals("""{"id":"a1"}""", server.takeRequest().body?.utf8())
     }
 
     @Test
@@ -641,6 +656,39 @@ class ApiClientTest {
             fail("expected an ApiException")
         } catch (error: ApiException) {
             assertEquals("Appointment not found.", error.message)
+        }
+    }
+
+    @Test
+    fun `the route's refusal of a Client who is no longer in the Appointment is the API's own, and no other refusal is`() = runTest {
+        val uploads = UploadThingClient(server.url("/api/uploadthing").toString(), http) { "token-1" }
+
+        suspend fun refusal(message: String, status: Int): ApiException {
+            enqueue("""{"message":"$message"}""", code = status)
+
+            return try {
+                uploads.upload("appointmentPhoto", buildJsonObject {}, "photo.jpg", "image/jpeg", ByteArray(1))
+                throw AssertionError("expected an ApiException")
+            } catch (error: ApiException) {
+                error
+            }
+        }
+
+        // L29: the Client was removed on another device. The route answers before any picture is stored.
+        val removed = refusal("Photo Client must be attached to the Appointment.", status = 400)
+
+        assertTrue(removed.isClientNotAttached)
+        assertTrue(removed.screenOutOfDate)
+        assertEquals(R.string.error_client_not_in_appointment, removed.messageRes())
+
+        // Told by the status together with the words: neither alone makes it that refusal.
+        listOf(
+            refusal("Invalid config: InvalidFileType", status = 400),
+            refusal("Photo Client must be attached to the Appointment.", status = 500),
+        ).forEach { other ->
+            assertEquals("UPLOAD_REJECTED", other.code)
+            assertFalse(other.screenOutOfDate)
+            assertEquals(R.string.appointment_photo_upload_failed, other.messageRes())
         }
     }
 }

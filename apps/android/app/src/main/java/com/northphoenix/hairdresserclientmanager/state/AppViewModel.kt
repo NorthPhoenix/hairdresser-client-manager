@@ -474,7 +474,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         loadedAppointments.update(id, change)
     }
 
-    /** Drops an Appointment the server has just deleted from everything loaded. */
+    /** Drops an Appointment the server has just deleted from everything loaded, and from the overlap warnings. */
     private fun forgetAppointment(id: String) {
         val without = { appointments: List<Appointment> -> appointments.filterNot { it.id == id } }
 
@@ -482,13 +482,20 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         _calendar.update(without)
         copySources.forget(id)
         loadedAppointments.forget(id)
+        overlaps.gone(id)
     }
 
     /**
      * Fetches one Appointment again, by its id: its start time can be another one by now. An
-     * Appointment the server no longer has counts as gone.
+     * Appointment the server no longer has counts as gone, and no overlap warning names it any more.
      */
-    private suspend fun reloadAppointment(id: String) = loadedAppointments.reload(id) { api.findAppointment(id) }
+    private suspend fun reloadAppointment(id: String) {
+        loadedAppointments.reload(id) { api.findAppointment(id) }
+
+        if (loadedAppointments[id] == null) {
+            overlaps.gone(id)
+        }
+    }
 
     private suspend fun reloadAppointmentAndLists(id: String) = together(::loadAppointmentLists, { reloadAppointment(id) })
 
@@ -726,6 +733,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             api.deleteClient(id)
             _clients.update { clients -> clients.filterNot { it.id == id } }
             photos.removeAll { it.clientId == id }
+            overlaps.clientDeleted(id)
             affected = appointments.value.values.filter { appointment -> appointment.participants.any { it.clientId == id } }
             // An Appointment left without Clients is deleted with its last one. The reload checks each of them again.
             affected.filter { appointment -> appointment.participants.all { it.clientId == id } }.forEach { forgetAppointment(it.id) }
@@ -851,13 +859,14 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     /**
      * Edit Appointment: saves the day, the times and the place of an Appointment. [times] is null
-     * when the Stylist left them as they were, and they are then not sent. [ownAddress] is the
-     * at-home address the Stylist typed, null for the primary Client's.
+     * when the Stylist left them as they were, and they are then not sent; so is [locationType] for
+     * a place that is kept ([AppointmentDraft.keepsPlace]). [ownAddress] is the at-home address the
+     * Stylist typed, null for the primary Client's.
      */
     fun editAppointment(
         id: String,
         times: AppointmentDraft.Times.Valid?,
-        locationType: LocationType,
+        locationType: LocationType?,
         ownAddress: String?,
         onSuccess: () -> Unit,
     ) = actOnAppointment(id, "editAppointment:$id", R.string.appointment_time_and_place_saved, onSuccess) {
@@ -893,7 +902,6 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         actOnAppointment(id, "deleteAppointment:$id", onSuccess = onSuccess) {
             api.deleteAppointment(id)
             forgetAppointment(id)
-            overlaps.gone(id)
             photos.removeAll { it.appointmentId == id }
         }
 
