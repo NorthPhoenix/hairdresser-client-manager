@@ -550,7 +550,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
         // No key: the choices are ordered by [language], as in [saveLatest]. Nothing to reload once the server
         // has confirmed the language; after a request that got no reply, the settings show whether it was saved.
-        act(key = null, reload = { if (!confirmed) refreshSettings() }) {
+        act(key = null, reload = { if (!confirmed) loadEverything() }) {
             language.save(saved = { _stylist.value?.language }) { next ->
                 settingsRequests.save {
                     // The settings as they are now, not as they were at the tap: a save that has ended since must not be undone.
