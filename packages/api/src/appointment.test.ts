@@ -626,6 +626,102 @@ describe("appointment router", () => {
     });
   });
 
+  it("takes the salon's current address when a Scheduled Appointment is saved as in salon again", async () => {
+    const findFirst = vi.fn();
+    const update = vi.fn().mockResolvedValue(scheduledAppointment);
+    const caller = appRouter.createCaller(
+      createContext(
+        createDb({
+          findFirst,
+          update
+        })
+      )
+    );
+
+    // Stored before the salon address changed, and before there was one.
+    for (const locationAddress of ["1 Old Salon St", ""]) {
+      findFirst.mockResolvedValueOnce({
+        ...scheduledAppointment,
+        locationAddress
+      });
+      await caller.appointment.update({
+        id: "appointment_1",
+        locationType: "inSalon"
+      });
+      expect(update).toHaveBeenLastCalledWith({
+        where: {
+          id: "appointment_1"
+        },
+        data: {
+          locationType: "inSalon",
+          locationAddress: "500 Salon Ave",
+          locationAddressIsCustom: false
+        },
+        include: expect.any(Object)
+      });
+    }
+
+    // Without the location in the call the stored address is left alone.
+    findFirst.mockResolvedValueOnce({
+      ...scheduledAppointment,
+      locationAddress: "1 Old Salon St"
+    });
+    await caller.appointment.update({
+      id: "appointment_1",
+      note: "Bring the toner."
+    });
+    expect(update).toHaveBeenLastCalledWith({
+      where: {
+        id: "appointment_1"
+      },
+      data: {
+        note: "Bring the toner."
+      },
+      include: expect.any(Object)
+    });
+
+    // An Appointment with an outcome keeps the address it had, also when the outcome is set in
+    // the same call.
+    findFirst.mockResolvedValueOnce({
+      ...scheduledAppointment,
+      status: "completed",
+      locationAddress: "1 Old Salon St"
+    });
+    await caller.appointment.update({
+      id: "appointment_1",
+      locationType: "inSalon"
+    });
+    expect(update).toHaveBeenLastCalledWith({
+      where: {
+        id: "appointment_1"
+      },
+      data: {
+        locationType: "inSalon"
+      },
+      include: expect.any(Object)
+    });
+
+    findFirst.mockResolvedValueOnce({
+      ...scheduledAppointment,
+      locationAddress: "1 Old Salon St"
+    });
+    await caller.appointment.update({
+      id: "appointment_1",
+      status: "completed",
+      locationType: "inSalon"
+    });
+    expect(update).toHaveBeenLastCalledWith({
+      where: {
+        id: "appointment_1"
+      },
+      data: {
+        status: "completed",
+        locationType: "inSalon"
+      },
+      include: expect.any(Object)
+    });
+  });
+
   it("adds a Service from a menu default as an appointment-specific snapshot", async () => {
     const startsAt = new Date("2026-06-13T15:00:00.000Z");
     const appointmentServiceCreate = vi.fn().mockResolvedValue({

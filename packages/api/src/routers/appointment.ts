@@ -824,12 +824,15 @@ export const appointmentRouter = createTRPCRouter({
     const locationType = input.locationType ?? appointment.locationType;
     const becomesScheduled = status === "scheduled" && appointment.status !== "scheduled";
     const locationTypeChanges = locationType !== appointment.locationType;
+    // Saved as in salon while Scheduled, also when it already was in salon: its stored address
+    // can be older than the salon's.
+    const savedAsInSalon = input.locationType === "inSalon" && status === "scheduled";
     let location: { locationAddress: string; locationAddressIsCustom: boolean } | undefined;
 
     if (locationType === "inSalon") {
       // A Scheduled in-salon Appointment shows the salon's current address; one with an outcome
       // keeps the address it had.
-      if (locationTypeChanges || becomesScheduled) {
+      if (locationTypeChanges || becomesScheduled || savedAsInSalon) {
         location = {
           locationAddress: await getSalonAddress(ctx.db, ctx.stylist.id),
           locationAddressIsCustom: false
