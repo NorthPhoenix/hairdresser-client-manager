@@ -492,6 +492,94 @@ class DomainTest {
         assertEquals("14:00", russian.time(LocalTime.of(14, 0)))
     }
 
+    @Test
+    fun `times follow the device's 12 or 24-hour setting, whatever the app language`() {
+        val utc = ZoneId.of("UTC")
+        val afternoon = LocalTime.of(14, 0)
+        val appointment = Appointment(
+            id = "a",
+            primaryClientId = "c",
+            primaryClientName = "Anna",
+            startsAt = "2026-06-13T14:00:00.000Z",
+            endsAt = "2026-06-13T15:30:00.000Z",
+            status = AppointmentStatus.SCHEDULED,
+            locationType = LocationType.IN_SALON,
+        )
+        // Which space stands before AM/PM depends on the platform's locale data.
+        fun TimeFormat.plain(time: LocalTime) = time(time).replace(Regex("\\p{Zs}"), " ")
+
+        // English on a device set to 24 hours: no AM/PM anywhere, and the time picker has none either.
+        val english24 = TimeFormat(Locale.US, utc, uses24HourClock = true)
+        assertFalse(english24.uses12HourClock)
+        assertEquals("14:00", english24.time(afternoon))
+        assertEquals("09:05", english24.time(LocalTime.of(9, 5)))
+        assertEquals("14:00", english24.time(appointment.startsAt))
+        assertEquals("14:00 – 15:30", english24.timeRange(appointment))
+
+        // Russian on a device set to 12 hours.
+        val russian12 = TimeFormat(Locale.forLanguageTag("ru-RU"), utc, uses24HourClock = false)
+        assertTrue(russian12.uses12HourClock)
+        assertEquals("2:00 PM", russian12.plain(afternoon))
+        assertEquals("9:05 AM", russian12.plain(LocalTime.of(9, 5)))
+
+        // The setting that agrees with the language changes nothing.
+        val english12 = TimeFormat(Locale.US, utc, uses24HourClock = false)
+        assertTrue(english12.uses12HourClock)
+        assertEquals("2:00 PM", english12.plain(afternoon))
+        assertEquals(TimeFormat(Locale.US, utc).time(afternoon), english12.time(afternoon))
+        assertEquals("14:00", TimeFormat(Locale.forLanguageTag("ru-RU"), utc, uses24HourClock = true).time(afternoon))
+    }
+
+    @Test
+    fun `a day of another year is shown with its year`() {
+        val utc = ZoneId.of("UTC")
+        val english = TimeFormat(Locale.US, utc, thisYear = 2026)
+        val russian = TimeFormat(Locale.forLanguageTag("ru-RU"), utc, thisYear = 2026)
+        val thisYear = LocalDate.of(2026, 10, 8)
+        val lastYear = LocalDate.of(2025, 1, 10)
+        val nextYear = LocalDate.of(2027, 10, 9)
+        fun String.plain() = replace(Regex("\\p{Zs}"), " ")
+
+        // The New Appointment date field, the Appointment title and the Calendar's day label.
+        assertEquals("Thursday, October 8", english.longDay(thisYear))
+        assertEquals("Friday, January 10, 2025", english.longDay(lastYear))
+        // The same day and month as today, in the wrong year: only the year tells.
+        assertEquals("Saturday, October 9, 2027", english.longDay(nextYear))
+        assertEquals("Четверг, 8 октября", russian.longDay(thisYear))
+        assertEquals("Пятница, 10 января 2025 г.", russian.longDay(lastYear).plain())
+
+        // The date over an Appointment card that needs an outcome.
+        assertEquals("Oct 8", english.shortDate(thisYear))
+        assertEquals("Jan 10, 2025", english.shortDate(lastYear))
+        assertEquals("Oct 9, 2027", english.shortDate(nextYear))
+        assertFalse(russian.shortDate(thisYear).contains("2026"))
+        assertTrue(russian.shortDate(lastYear), russian.shortDate(lastYear).matches(Regex("10 янв\\.? 2025")))
+
+        // A format that was not told the year shows none.
+        assertEquals("Friday, January 10", TimeFormat(Locale.US, utc).longDay(lastYear))
+        assertEquals("Jan 10", TimeFormat(Locale.US, utc).shortDate(lastYear))
+    }
+
+    @Test
+    fun `a time the clocks skip when they go forward is no instant`() {
+        val berlin = TimeFormat(Locale.US, ZoneId.of("Europe/Berlin"))
+        val springForward = LocalDate.of(2027, 3, 28)
+
+        // 2:00 to 2:59 does not exist that night; it used to be moved an hour later without a word.
+        assertNull(berlin.toInstant(springForward, LocalTime.of(2, 0)))
+        assertNull(berlin.toInstant(springForward, LocalTime.of(2, 30)))
+        assertNull(berlin.toInstant(springForward, LocalTime.of(2, 59)))
+        assertEquals(Instant.parse("2027-03-28T00:59:00Z"), berlin.toInstant(springForward, LocalTime.of(1, 59)))
+        assertEquals(Instant.parse("2027-03-28T01:00:00Z"), berlin.toInstant(springForward, LocalTime.of(3, 0)))
+        assertNull(TimeFormat(Locale.US, ZoneId.of("America/New_York")).toInstant(LocalDate.of(2027, 3, 14), LocalTime.of(2, 30)))
+
+        // The same time on any other day, and the hour that comes twice when the clocks go back, are times like any other.
+        assertEquals(Instant.parse("2027-03-27T01:30:00Z"), berlin.toInstant(springForward.minusDays(1), LocalTime.of(2, 30)))
+        assertEquals(Instant.parse("2027-10-31T00:30:00Z"), berlin.toInstant(LocalDate.of(2027, 10, 31), LocalTime.of(2, 30)))
+        // A timezone without daylight saving skips nothing.
+        assertEquals(Instant.parse("2027-03-28T02:30:00Z"), TimeFormat(Locale.US, ZoneId.of("UTC")).toInstant(springForward, LocalTime.of(2, 30)))
+    }
+
     // --- date picker ---
 
     @Test

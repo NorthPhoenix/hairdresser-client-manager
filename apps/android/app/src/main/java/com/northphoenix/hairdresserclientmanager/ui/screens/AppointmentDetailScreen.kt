@@ -445,7 +445,8 @@ private fun AppointmentDetail(
     when (val current = sheet) {
         DetailSheet.AddClient -> ClientPickerSheet(
             title = stringResource(R.string.add_client_to_appointment),
-            clients = clients.filter { client -> appointment.participants.none { it.clientId == client.id } },
+            clients = clients,
+            takenIds = appointment.participants.map { it.clientId }.toSet(),
             load = clientsLoad,
             onRetry = viewModel::retryLoad,
             selectedIds = emptySet(),

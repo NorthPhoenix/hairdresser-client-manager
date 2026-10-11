@@ -13,6 +13,7 @@
     <string name="add_photo_from_gallery">Gallery</string>
     <string name="additional_clients_label">Additional Clients</string>
     <string name="address_label">Salon address</string>
+    <string name="all_clients_in_appointment">All your Clients are already in this Appointment.</string>
     <string name="amount_negative">An amount can\'t be negative.</string>
     <string name="amount_required">Enter an amount.</string>
     <string name="amount_too_large">An amount can\'t be more than %1$s.</string>
@@ -24,6 +25,8 @@
     <string name="appointment_date_label">Date</string>
     <string name="appointment_end_before_start">End time must be after start time.</string>
     <string name="appointment_end_label">End time</string>
+    <string name="appointment_end_time_skipped">The clocks go forward on that day, so this end time does not exist. Choose another end time.</string>
+    <string name="appointment_ends_next_day">Ends the next day</string>
     <string name="appointment_final_total">Final total</string>
     <string name="appointment_final_total_override">Override final total</string>
     <string name="appointment_history_empty">This Client has no Appointments yet.</string>
@@ -55,6 +58,7 @@
     <string name="appointment_service_total">Services total</string>
     <string name="appointment_services_title">Services</string>
     <string name="appointment_start_label">Start time</string>
+    <string name="appointment_start_time_skipped">The clocks go forward on that day, so this start time does not exist. Choose another start time.</string>
     <string name="appointment_status_canceled">Canceled</string>
     <string name="appointment_status_completed">Completed</string>
     <string name="appointment_status_label">Status</string>

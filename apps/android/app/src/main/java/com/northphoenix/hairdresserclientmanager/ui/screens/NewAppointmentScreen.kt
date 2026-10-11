@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -30,6 +29,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.LocationType
+import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
 import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
@@ -58,40 +58,53 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
     val clientsLoad by viewModel.clientsLoad.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val today by viewModel.today.collectAsStateWithLifecycle()
-    // Default start: the next full hour, in the Stylist's timezone.
-    val nextHour = remember { ZonedDateTime.now(format.zone).withMinute(0).withSecond(0).withNano(0).plusHours(1) }
+    // The next full hour in the Stylist's timezone, on the day chosen in the Calendar when that is another day.
+    val defaultStart = remember { AppointmentDraft.defaultStart(ZonedDateTime.now(format.zone), initialDate) }
 
     var primaryClientId by rememberSaveable { mutableStateOf<String?>(null) }
     var inlineClientName by rememberSaveable { mutableStateOf("") }
     var additionalClientIds by rememberSaveable { mutableStateOf(listOf<String>()) }
-    var date by rememberSaveable { mutableStateOf(initialDate ?: nextHour.toLocalDate()) }
-    var startTime by rememberSaveable { mutableStateOf(nextHour.toLocalTime()) }
+    var date by rememberSaveable { mutableStateOf(defaultStart.toLocalDate()) }
+    var startTime by rememberSaveable { mutableStateOf(defaultStart.toLocalTime()) }
     var endTime by rememberSaveable { mutableStateOf<LocalTime?>(null) }
     var locationType by rememberSaveable { mutableStateOf(LocationType.IN_SALON) }
-    var address by rememberSaveable { mutableStateOf("") }
+    // What the Stylist typed into the at-home address field. Null until they type: the field then shows the primary Client's address.
+    var typedAddress by rememberSaveable { mutableStateOf<String?>(null) }
     var picker by rememberSaveable { mutableStateOf<AppointmentPicker?>(null) }
-
-    // Back asks before it discards the draft, once it differs from what the form opened with.
-    val content = UnsavedInput.newAppointment(primaryClientId, inlineClientName, additionalClientIds, date, startTime, endTime, locationType, address)
-    val opened = rememberSaveable { content }
 
     val primaryClient = clients.firstOrNull { it.id == primaryClientId }
     val additionalClients = clients.filter { it.id in additionalClientIds }
+    val ownAddress = AppointmentDraft.ownAddress(typedAddress, primaryClient?.address)
+    // An end time at or before the start time is on the next day.
+    val endDate = endTime?.let { AppointmentDraft.endDate(date, startTime, it) }
+
+    // Back asks before it discards the draft, once it differs from what the form opened with.
+    val content = UnsavedInput.newAppointment(primaryClientId, inlineClientName, additionalClientIds, date, startTime, endTime, locationType, ownAddress.orEmpty())
+    val opened = rememberSaveable { content }
+
+    // Called before the primary Client or the location changes: an address that is not the Stylist's own must not stay for the next one.
+    fun keepOnlyOwnAddress() {
+        typedAddress = ownAddress
+    }
 
     fun submit() {
-        val end = endTime
+        if (primaryClientId == null && inlineClientName.isBlank()) {
+            viewModel.notify(R.string.appointment_client_required, isError = true)
+            return
+        }
 
-        when {
-            primaryClientId == null && inlineClientName.isBlank() -> viewModel.notify(R.string.appointment_client_required, isError = true)
-            end != null && !end.isAfter(startTime) -> viewModel.notify(R.string.appointment_end_before_start, isError = true)
-            else -> viewModel.createAppointment(
+        when (val times = AppointmentDraft.times(date, startTime, endTime, format)) {
+            AppointmentDraft.Times.StartSkipped -> viewModel.notify(R.string.appointment_start_time_skipped, isError = true)
+            AppointmentDraft.Times.EndSkipped -> viewModel.notify(R.string.appointment_end_time_skipped, isError = true)
+            is AppointmentDraft.Times.Valid -> viewModel.createAppointment(
                 primaryClientId = primaryClientId,
                 additionalClientIds = additionalClientIds,
                 inlineClientName = inlineClientName.takeIf { primaryClientId == null },
-                startsAt = format.toInstant(date, startTime),
-                endsAt = end?.let { format.toInstant(date, it) },
+                startsAt = times.startsAt,
+                endsAt = times.endsAt,
                 locationType = locationType,
-                customLocationAddress = address.takeIf { locationType == LocationType.AT_HOME },
+                // Sent only when it is the Stylist's own: otherwise the Appointment takes the address of its primary Client.
+                customLocationAddress = ownAddress.takeIf { locationType == LocationType.AT_HOME },
                 onSuccess = { onCreated(it.appointment) },
             )
         }
@@ -119,8 +132,8 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
                         onClick = { picker = AppointmentPicker.PRIMARY },
                     )
 
-                    // Group Appointments need an existing primary Client, as on the server.
-                    if (primaryClient != null) {
+                    // A Client created inline can be the primary Client of a group Appointment as well.
+                    if (primaryClient != null || inlineClientName.isNotBlank()) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(stringResource(R.string.additional_clients_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -136,32 +149,42 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
 
             HcmCard {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    // One field to a line, each showing its value whole: side by side the times were cut on narrow screens and at large font sizes.
                     PickerField(
                         label = stringResource(R.string.appointment_date_label),
                         value = format.longDay(date),
                         icon = Icons.Rounded.CalendarMonth,
                         onClick = { picker = AppointmentPicker.DATE },
+                        wraps = true,
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        PickerField(
-                            label = stringResource(R.string.appointment_start_label),
-                            value = format.time(startTime),
-                            icon = Icons.Rounded.Schedule,
-                            onClick = { picker = AppointmentPicker.START },
-                            modifier = Modifier.weight(1f),
-                        )
+                    PickerField(
+                        label = stringResource(R.string.appointment_start_label),
+                        value = format.time(startTime),
+                        icon = Icons.Rounded.Schedule,
+                        onClick = { picker = AppointmentPicker.START },
+                        wraps = true,
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         PickerField(
                             label = stringResource(R.string.appointment_end_label),
                             value = endTime?.let(format::time) ?: stringResource(R.string.optional),
                             isPlaceholder = endTime == null,
+                            icon = Icons.Rounded.Schedule,
                             onClick = { picker = AppointmentPicker.END },
-                            modifier = Modifier.weight(1f),
                             trailing = if (endTime != null) {
                                 { IconButton(onClick = { endTime = null }) { Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.clear)) } }
                             } else {
                                 null
                             },
+                            wraps = true,
                         )
+                        if (endDate != null && endDate != date) {
+                            Text(
+                                stringResource(R.string.appointment_ends_next_day) + " · " + format.longDay(endDate),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
@@ -175,18 +198,16 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
                             selected = locationType,
                             onSelect = {
                                 locationType = it
-                                // An at-home Appointment defaults to the primary Client's address.
-                                if (it == LocationType.AT_HOME && address.isBlank()) {
-                                    address = primaryClient?.address.orEmpty()
-                                }
+                                keepOnlyOwnAddress()
                             },
                             label = { stringResource(it.label) },
                         )
                     }
                     if (locationType == LocationType.AT_HOME) {
+                        // An at-home Appointment is at the primary Client's address unless the Stylist types another one.
                         HcmTextField(
-                            value = address,
-                            onValueChange = { address = it },
+                            value = AppointmentDraft.shownAddress(typedAddress, primaryClient?.address),
+                            onValueChange = { typedAddress = it },
                             label = stringResource(R.string.appointment_address_label),
                             placeholder = stringResource(R.string.client_address_label),
                             singleLine = false,
@@ -208,24 +229,23 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
             selectedIds = setOfNotNull(primaryClientId),
             onDismiss = { picker = null },
             onPick = { client ->
+                keepOnlyOwnAddress()
                 primaryClientId = client.id
                 inlineClientName = ""
                 additionalClientIds = additionalClientIds - client.id
-                if (locationType == LocationType.AT_HOME && address.isBlank()) {
-                    address = client.address
-                }
                 picker = null
             },
             onCreateInline = { name ->
+                keepOnlyOwnAddress()
                 inlineClientName = name
                 primaryClientId = null
-                additionalClientIds = emptyList()
                 picker = null
             },
         )
         AppointmentPicker.ADDITIONAL -> ClientPickerSheet(
             title = stringResource(R.string.additional_clients_label),
-            clients = clients.filter { it.id != primaryClientId },
+            clients = clients,
+            takenIds = setOfNotNull(primaryClientId),
             load = clientsLoad,
             onRetry = viewModel::retryLoad,
             selectedIds = additionalClientIds.toSet(),

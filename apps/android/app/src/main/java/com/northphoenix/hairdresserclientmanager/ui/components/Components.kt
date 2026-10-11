@@ -303,7 +303,10 @@ fun AmountField(value: String, onValueChange: (String) -> Unit, label: String, p
     HcmTextField(value, onValueChange, label, modifier, placeholder = placeholder, prefix = "$", keyboardType = KeyboardType.Decimal, error = error)
 }
 
-/** A read-only field that opens a picker, styled to sit beside [HcmTextField]. */
+/**
+ * A read-only field that opens a picker, styled to sit beside [HcmTextField].
+ * With [wraps] the value is shown whole, on as many lines as it takes: a date or a time cut short says another one.
+ */
 @Composable
 fun PickerField(
     label: String,
@@ -313,6 +316,7 @@ fun PickerField(
     icon: ImageVector? = null,
     isPlaceholder: Boolean = false,
     trailing: (@Composable () -> Unit)? = null,
+    wraps: Boolean = false,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -333,10 +337,11 @@ fun PickerField(
                 }
                 Text(
                     value,
-                    modifier = Modifier.weight(1f),
+                    // The padding only shows once the value takes more lines than the field's least height holds.
+                    modifier = Modifier.weight(1f).padding(vertical = 8.dp),
                     style = MaterialTheme.typography.bodyLarge,
                     color = if (isPlaceholder) HcmColors.Faint else MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
+                    maxLines = if (wraps) Int.MAX_VALUE else 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 trailing?.invoke()

@@ -5,6 +5,7 @@ import com.northphoenix.hairdresserclientmanager.auth.SessionCheck
 import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.data.isConnectionFailure
 import com.northphoenix.hairdresserclientmanager.domain.Amount
+import com.northphoenix.hairdresserclientmanager.i18n.emptyClientPickerText
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
 import com.northphoenix.hairdresserclientmanager.i18n.refusalRes
 import com.northphoenix.hairdresserclientmanager.i18n.refusedSignInMessage
@@ -81,6 +82,16 @@ class TranslationsTest {
         assertEquals(R.string.error_generic, ApiException("boom").messageRes())
         assertEquals(R.string.error_appointment_total_too_large, ApiException("Appointment total is too large.", code = "BAD_REQUEST").messageRes())
         assertEquals(R.string.client_email_invalid, ApiException("Email is not valid.", code = "BAD_REQUEST").messageRes())
+    }
+
+    @Test
+    fun `a Client picker with nothing to list says why`() {
+        assertEquals(R.string.no_clients_title, emptyClientPickerText(clients = 0, offered = 0))
+        // 'Add Client' on an Appointment that every Client is in already: not "No Clients yet", with or without a search.
+        assertEquals(R.string.all_clients_in_appointment, emptyClientPickerText(clients = 8, offered = 0))
+        assertEquals(R.string.all_clients_in_appointment, emptyClientPickerText(clients = 1, offered = 0))
+        // Clients are offered, and the search finds none of them.
+        assertEquals(R.string.no_client_results, emptyClientPickerText(clients = 8, offered = 3))
     }
 
     @Test

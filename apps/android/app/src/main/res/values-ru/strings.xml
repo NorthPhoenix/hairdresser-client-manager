@@ -12,6 +12,7 @@
     <string name="add_photo_from_gallery">Галерея</string>
     <string name="additional_clients_label">Дополнительные клиенты</string>
     <string name="address_label">Адрес салона</string>
+    <string name="all_clients_in_appointment">Все ваши клиенты уже в этой записи.</string>
     <string name="amount_negative">Сумма не может быть отрицательной.</string>
     <string name="amount_required">Введите сумму.</string>
     <string name="amount_too_large">Сумма не может быть больше %1$s.</string>
@@ -23,6 +24,8 @@
     <string name="appointment_date_label">Дата</string>
     <string name="appointment_end_before_start">Окончание должно быть позже начала.</string>
     <string name="appointment_end_label">Окончание</string>
+    <string name="appointment_end_time_skipped">В этот день часы переводят вперёд, и такого времени окончания нет. Выберите другое время.</string>
+    <string name="appointment_ends_next_day">Закончится на следующий день</string>
     <string name="appointment_final_total">Итоговая сумма</string>
     <string name="appointment_final_total_override">Своя итоговая сумма</string>
     <string name="appointment_history_empty">У этого клиента пока нет записей.</string>
@@ -54,6 +57,7 @@
     <string name="appointment_service_total">Сумма услуг</string>
     <string name="appointment_services_title">Услуги</string>
     <string name="appointment_start_label">Начало</string>
+    <string name="appointment_start_time_skipped">В этот день часы переводят вперёд, и такого времени начала нет. Выберите другое время.</string>
     <string name="appointment_status_canceled">Отменена</string>
     <string name="appointment_status_completed">Завершена</string>
     <string name="appointment_status_label">Статус</string>

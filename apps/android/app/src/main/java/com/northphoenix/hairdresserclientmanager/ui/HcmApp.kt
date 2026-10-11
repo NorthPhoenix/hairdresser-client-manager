@@ -1,5 +1,6 @@
 package com.northphoenix.hairdresserclientmanager.ui
 
+import android.text.format.DateFormat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,13 +20,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.northphoenix.hairdresserclientmanager.R
@@ -59,11 +64,16 @@ fun HcmApp(container: AppContainer) {
 
             val viewModel: AppViewModel = viewModel(factory = AppViewModel.factory(container, auth))
             val zone by viewModel.zone.collectAsStateWithLifecycle()
+            val today by viewModel.today.collectAsStateWithLifecycle()
             // The per-app language shows up here as the configuration's locale.
             val locale = LocalConfiguration.current.locales[0]
-            val timeFormat = remember(locale, zone) { TimeFormat(locale, zone) }
-            val snackbarHostState = remember { SnackbarHostState() }
             val context = LocalContext.current
+            // The device's 12/24-hour setting; while it is left to the language, Android answers for the app language.
+            // It is read again on every return to the app, since it can only be changed outside it.
+            var uses24HourClock by remember(context, locale) { mutableStateOf(DateFormat.is24HourFormat(context)) }
+            LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { uses24HourClock = DateFormat.is24HourFormat(context) }
+            val timeFormat = remember(locale, zone, today.year, uses24HourClock) { TimeFormat(locale, zone, today.year, uses24HourClock) }
+            val snackbarHostState = remember { SnackbarHostState() }
 
             LaunchedEffect(viewModel, context) {
                 viewModel.notices.collect { notice ->

@@ -163,3 +163,14 @@ val LocationType.label: Int
 @get:StringRes
 val Language.label: Int
     get() = if (this == Language.RU) R.string.language_russian else R.string.language_english
+
+/**
+ * What a Client picker with nothing to list says: the Stylist has no Clients, every one of them
+ * is in the Appointment already (whatever is searched for), or none of the [offered] ones matches the search.
+ */
+@StringRes
+fun emptyClientPickerText(clients: Int, offered: Int): Int = when {
+    clients == 0 -> R.string.no_clients_title
+    offered == 0 -> R.string.all_clients_in_appointment
+    else -> R.string.no_client_results
+}

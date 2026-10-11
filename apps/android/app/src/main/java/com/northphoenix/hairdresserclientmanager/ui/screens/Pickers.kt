@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
+import com.northphoenix.hairdresserclientmanager.i18n.emptyClientPickerText
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmListBottomSheet
@@ -45,7 +46,9 @@ import java.time.LocalTime
 /**
  * Sheet for choosing Clients. With [onCreateInline] it also offers creating a
  * minimal Client from just the typed name, for walk-ins.
- * [load] is the state of the Stylist's Client list, which [clients] may be only a part of.
+ * [clients] is the Stylist's whole Client list and [load] its state. The Clients in [takenIds]
+ * are in the Appointment already and are not offered; the sheet needs the whole list all the
+ * same, to tell a Stylist without Clients from one whose Clients are all taken.
  */
 @Composable
 fun ClientPickerSheet(
@@ -57,9 +60,11 @@ fun ClientPickerSheet(
     onPick: (ClientProfile) -> Unit,
     onDismiss: () -> Unit,
     onCreateInline: ((String) -> Unit)? = null,
+    takenIds: Set<String> = emptySet(),
 ) {
     var search by rememberSaveable { mutableStateOf("") }
-    val filtered = remember(clients, search) { ClientRules.filter(clients, search) }
+    val offered = remember(clients, takenIds) { clients.filter { it.id !in takenIds } }
+    val filtered = remember(offered, search) { ClientRules.filter(offered, search) }
 
     // A lazy list: a Stylist with hundreds of Clients gets the sheet as fast as one with ten.
     HcmListBottomSheet(
@@ -88,7 +93,7 @@ fun ClientPickerSheet(
             when (load) {
                 is LoadState.Failed -> InlineLoadFailed(load.message, onRetry)
                 LoadState.Loaded -> if (filtered.isEmpty()) {
-                    InlineEmpty(stringResource(if (clients.isEmpty()) R.string.no_clients_title else R.string.no_client_results))
+                    InlineEmpty(stringResource(emptyClientPickerText(clients = clients.size, offered = offered.size)))
                 }
                 else -> LoadingRow(Modifier.heightIn(max = 96.dp))
             }

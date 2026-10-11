@@ -34,11 +34,28 @@ fun zoneOrSystem(timezone: String?): ZoneId =
         ZoneId.systemDefault()
     }
 
-/** All Appointment times are shown in the Stylist's configured timezone. */
-class TimeFormat(val locale: Locale, val zone: ZoneId) {
+/**
+ * All Appointment times are shown in the Stylist's configured timezone.
+ *
+ * [thisYear] is the year of the Stylist's today: a day of another year is shown with its year.
+ * Without it the short forms never show a year. [uses24HourClock] is the device's 12/24-hour
+ * setting, which times and the time picker follow; without it the clock is the one of [locale].
+ */
+class TimeFormat(val locale: Locale, val zone: ZoneId, private val thisYear: Int? = null, uses24HourClock: Boolean? = null) {
     // "8 октября" in Russian, "October 8" in English.
     private val dayFirst = locale.language == "ru"
-    private val time = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale)
+    private val localeUses12HourClock =
+        DateTimeFormatterBuilder.getLocalizedDateTimePattern(null, FormatStyle.SHORT, IsoChronology.INSTANCE, locale).contains('a')
+
+    /** Twelve-hour clock with AM/PM, as opposed to a 24-hour clock. */
+    val uses12HourClock: Boolean = uses24HourClock?.not() ?: localeUses12HourClock
+
+    // The locale's own way of writing a time when that is the clock in use, otherwise the usual way of the other clock.
+    private val time = when {
+        uses12HourClock == localeUses12HourClock -> DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale)
+        uses12HourClock -> DateTimeFormatter.ofPattern("h:mm a", locale)
+        else -> DateTimeFormatter.ofPattern("HH:mm", locale)
+    }
     private val mediumDate = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale)
     private val fullDate = DateTimeFormatter.ofLocalizedDate(FormatStyle.FULL).withLocale(locale)
     private val dayAndMonth = DateTimeFormatter.ofPattern(if (dayFirst) "d MMMM" else "MMMM d", locale)
@@ -46,10 +63,7 @@ class TimeFormat(val locale: Locale, val zone: ZoneId) {
     private val shortWeekday = DateTimeFormatter.ofPattern("EEE", locale)
     private val monthAndYear = DateTimeFormatter.ofPattern("LLLL yyyy", locale)
     private val shortDate = DateTimeFormatter.ofPattern(if (dayFirst) "d MMM" else "MMM d", locale)
-
-    /** Twelve-hour clock with AM/PM, as opposed to a 24-hour clock. */
-    val uses12HourClock: Boolean =
-        DateTimeFormatterBuilder.getLocalizedDateTimePattern(null, FormatStyle.SHORT, IsoChronology.INSTANCE, locale).contains('a')
+    private val shortDateWithYear = DateTimeFormatter.ofPattern(if (dayFirst) "d MMM yyyy" else "MMM d, yyyy", locale)
 
     /** Monday in Russian, Sunday in US English. */
     val firstDayOfWeek: DayOfWeek = WeekFields.of(locale).firstDayOfWeek
@@ -62,13 +76,15 @@ class TimeFormat(val locale: Locale, val zone: ZoneId) {
 
     fun mediumDate(date: LocalDate): String = mediumDate.format(date)
 
-    fun shortDate(date: LocalDate): String = shortDate.format(date)
+    /** "Oct 8", and "Oct 8, 2025" for a day of another year. */
+    fun shortDate(date: LocalDate): String = (if (isThisYear(date)) shortDate else shortDateWithYear).format(date)
 
     /** "Thursday, October 8, 2026" */
     fun fullDate(date: LocalDate): String = capitalize(fullDate.format(date))
 
-    /** "Thursday, October 8" */
-    fun longDay(date: LocalDate): String = capitalize(weekday.format(date)) + ", " + dayAndMonth.format(date)
+    /** "Thursday, October 8", and in full ("Wednesday, October 8, 2025") for a day of another year. */
+    fun longDay(date: LocalDate): String =
+        if (isThisYear(date)) capitalize(weekday.format(date)) + ", " + dayAndMonth.format(date) else fullDate(date)
 
     fun shortWeekday(date: LocalDate): String = capitalize(shortWeekday.format(date)).trimEnd('.')
 
@@ -86,7 +102,17 @@ class TimeFormat(val locale: Locale, val zone: ZoneId) {
     fun dayRange(date: LocalDate): Pair<Instant, Instant> =
         date.atStartOfDay(zone).toInstant() to date.plusDays(1).atStartOfDay(zone).toInstant()
 
-    fun toInstant(date: LocalDate, time: LocalTime): Instant = LocalDateTime.of(date, time).atZone(zone).toInstant()
+    /**
+     * Null when the clock never shows [time] on [date] in the Stylist's timezone: the night the
+     * clocks go forward skips an hour. java.time would move such a time an hour later without a word.
+     */
+    fun toInstant(date: LocalDate, time: LocalTime): Instant? {
+        val local = LocalDateTime.of(date, time)
+
+        return if (zone.rules.getValidOffsets(local).isEmpty()) null else local.atZone(zone).toInstant()
+    }
+
+    private fun isThisYear(date: LocalDate): Boolean = thisYear == null || date.year == thisYear
 
     private fun capitalize(text: String): String = text.replaceFirstChar { it.titlecase(locale) }
 }
