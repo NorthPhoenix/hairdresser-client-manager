@@ -469,6 +469,82 @@ describe("appointment router", () => {
     });
   });
 
+  it("returns one owned Appointment by its id, whatever its start time is", async () => {
+    const findFirst = vi.fn().mockResolvedValue({
+      id: "appointment_1"
+    });
+    const findUniqueOrThrow = vi.fn().mockResolvedValue({
+      ...scheduledAppointment,
+      startsAt: new Date("2026-06-20T18:30:00.000Z"),
+      participants: [
+        {
+          clientId: "client_1",
+          client: {
+            id: "client_1",
+            name: "Anna",
+            address: "10 Client St"
+          }
+        }
+      ],
+      services: [],
+      photos: []
+    });
+    const caller = appRouter.createCaller(
+      createContext(
+        createDb({
+          findFirst,
+          findUniqueOrThrow
+        })
+      )
+    );
+
+    const appointment = await caller.appointment.get({
+      id: "appointment_1"
+    });
+
+    // Asked for by id and Stylist alone: no time is part of the question.
+    expect(findFirst).toHaveBeenCalledWith({
+      where: {
+        id: "appointment_1",
+        stylistId: "stylist_1"
+      },
+      select: {
+        id: true
+      }
+    });
+    expect(appointment).toMatchObject({
+      id: "appointment_1",
+      startsAt: "2026-06-20T18:30:00.000Z",
+      primaryClientName: "Anna",
+      locationAddress: "500 Salon Ave",
+      photos: []
+    });
+  });
+
+  it("answers that an Appointment is not found when it is gone or belongs to another Stylist", async () => {
+    const findFirst = vi.fn().mockResolvedValue(null);
+    const findUniqueOrThrow = vi.fn();
+    const caller = appRouter.createCaller(
+      createContext(
+        createDb({
+          findFirst,
+          findUniqueOrThrow
+        })
+      )
+    );
+
+    await expect(
+      caller.appointment.get({
+        id: "appointment_of_another_stylist"
+      })
+    ).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "Appointment not found."
+    });
+    // Nothing of it is read.
+    expect(findUniqueOrThrow).not.toHaveBeenCalled();
+  });
+
   it("keeps past scheduled Appointments in the Home View as unresolved", async () => {
     const findMany = vi.fn().mockResolvedValue([
       {

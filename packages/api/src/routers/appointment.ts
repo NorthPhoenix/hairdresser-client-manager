@@ -105,6 +105,10 @@ const completedSourcesInput = z.object({
   targetAppointmentId: z.string().optional()
 }).optional();
 
+const appointmentGetInput = z.object({
+  id: z.string()
+});
+
 const appointmentDeleteInput = z.object({
   id: z.string()
 });
@@ -558,6 +562,28 @@ export const appointmentRouter = createTRPCRouter({
     });
 
     return appointments.map(toAppointmentOutput);
+  }),
+  // One Appointment by its id. Its start time can change, so the app cannot find it again by the
+  // time it had.
+  get: stylistProcedure.input(appointmentGetInput).query(async ({ ctx, input }) => {
+    const appointment = await ctx.db.appointment.findFirst({
+      where: {
+        id: input.id,
+        stylistId: ctx.stylist.id
+      },
+      select: {
+        id: true
+      }
+    });
+
+    if (!appointment) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Appointment not found."
+      });
+    }
+
+    return getAppointmentOutput(ctx.db, appointment.id);
   }),
   home: stylistProcedure.input(dateRangeInput).query(async ({ ctx, input }) => {
     const now = new Date();
