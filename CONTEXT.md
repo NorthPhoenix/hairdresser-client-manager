@@ -5,7 +5,7 @@ This context describes the client-management domain for independent hair and bea
 ## Language
 
 **Stylist**:
-The solo professional who uses the app to manage clients, appointments, visit history, photos, reminders, and shared client records. A Stylist can have one optional salon or business address and has a configurable timezone that defaults from the device timezone.
+The solo professional who uses the app to manage clients, appointments, visit history, photos, reminders, and shared client records. A Stylist can have one optional salon or business address and has a configurable timezone, always a named IANA timezone, that defaults from the device timezone.
 _Avoid_: Hair dresser, hairdresser, provider, user
 
 **Stylist Account Deletion**:
@@ -13,7 +13,7 @@ Not a v1 concept. Removing a Stylist account and all stylist-owned data is defer
 _Avoid_: Account closure, data purge
 
 **Stylist Display Name**:
-Not a v1 concept. Client-facing Stylist identity uses the Stylist account identity rather than a separate app-specific display name.
+Not a v1 concept. Client-facing Stylist identity uses the Stylist account identity rather than a separate app-specific display name: the first and last name on the Stylist's sign-in account, when the account has them. The account's email address is a personal contact detail and never stands in for the name; an account without a name shows none.
 _Avoid_: Business name, public name
 
 **Stylist Availability**:
@@ -33,11 +33,11 @@ The Stylist's list and search view for finding, creating, importing, and opening
 _Avoid_: Contacts view, customer list, address book
 
 **Client**:
-A person whose relationship, contact details, appointments, visit history, notes, photos, and shared records are managed by exactly one Stylist. In v1, a Client has one display name, has an editable language that defaults from the Stylist's current language at creation, and may have one primary phone number, one email address, and one address.
+A person whose relationship, contact details, appointments, visit history, notes, photos, and shared records are managed by exactly one Stylist. In v1, a Client has one display name on a single line with at least one visible character, has an editable language that defaults from the Stylist's current language at creation, and may have one primary phone number, one email address in the form of an email address, and one address.
 _Avoid_: Customer, guest, contact
 
 **Appointment**:
-A scheduled or completed session between a Stylist and one or more Clients, with one primary Client and optional additional Clients. An Appointment has a start time in the Stylist's timezone, can optionally have an end time, scheduled Appointments produce conflict warnings using a 30-minute minimum duration when no end time is set, past scheduled Appointments remain unresolved until the Stylist marks an outcome, can have zero or more Services, can be completed with zero Services, outcome states remain editable, can have one appointment-level note, defaults to an in-salon location, can be changed to an at-home location using the primary Client address or a custom address, can be scheduled, explicitly completed, canceled, or marked as a no-show, its final total defaults to the sum of Service prices and can be overridden by the Stylist, each Client's subtotal is derived from that Client's Services, the primary Client can be changed to another Client attached to the Appointment, a Client can be removed from the Appointment only when no Services or Appointment Photos are attached to that Client in the Appointment, and deletion removes its Services, Color Formulas, and Appointment Photos.
+A scheduled or completed session between a Stylist and one or more Clients, with one primary Client and optional additional Clients. An Appointment has a start time in the Stylist's timezone, can optionally have an end time, start time, end time, and location stay editable after creation, scheduled Appointments produce conflict warnings that name the overlapping Appointments when an Appointment is created, moved, or set back to scheduled, using a 30-minute minimum duration when no end time is set, past scheduled Appointments remain unresolved until the Stylist marks an outcome, can have zero or more Services, can be completed with zero Services, outcome states remain editable, can have one appointment-level note, defaults to an in-salon location that shows the Stylist's salon address and follows changes to it while the Appointment is scheduled, can be changed to an at-home location using the primary Client address or a custom address, an at-home Appointment without a custom address takes the address of the new primary Client whenever its primary Client changes so a former primary Client's address never stays on it, can be scheduled, explicitly completed, canceled, or marked as a no-show, its final total defaults to the sum of Service prices and can be overridden by the Stylist, neither the sum of its Service prices nor an overridden total exceeds 9,999,999.99, each Client's subtotal is derived from that Client's Services, the primary Client can be changed to another Client attached to the Appointment and is always one of its Clients, Clients are listed with the primary Client first and then in the order they were added, a Client can be removed from the Appointment only when no Services or Appointment Photos are attached to that Client in the Appointment, and deletion removes its Services, Color Formulas, and Appointment Photos.
 _Avoid_: Visit, session, booking
 
 **Map Opening**:
@@ -53,7 +53,7 @@ Not a v1 concept. The app does not manage recurring appointment rules, skipped o
 _Avoid_: Repeat booking, recurring series
 
 **Appointment Copying**:
-A convenience action that copies Services and Color Formulas, but not Appointment Photos, from any completed Appointment into another Appointment, defaulting to the last completed Appointment. For group Appointments, copying only applies to Clients already attached to both Appointments, and copied details can be edited for the new Appointment.
+A convenience action that copies Services and Color Formulas, but not Appointment Photos, from any completed Appointment into another Appointment. Copying only applies to Clients already attached to both Appointments, so a completed Appointment can be copied from only when one of those Clients has Services in it, and the default is the last completed Appointment that can be copied from. Copied Services and Color Formulas keep the order they have in the source, and copied details can be edited for the new Appointment.
 _Avoid_: Recurrence, repeat appointment, template appointment
 
 **Payment Tracking**:
@@ -69,15 +69,15 @@ Not a v1 concept. The app does not manage a dedicated client-facing aftercare no
 _Avoid_: Aftercare note, care note, instructions
 
 **Service**:
-A type of work performed for exactly one Client during an Appointment, such as a haircut, root touch-up, toner, balayage, blowout, or extensions. A Service records the actual price for that Appointment, can have one service-level note, and color details belong to the Service they describe when applicable.
+A type of work performed for exactly one Client during an Appointment, such as a haircut, root touch-up, toner, balayage, blowout, or extensions. A Service has a one-line name, records the actual price for that Appointment up to 9,999,999.99, can have one service-level note, its name, price, and note stay editable after it is added and an edit keeps its Color Formulas, and color details belong to the Service they describe when applicable.
 _Avoid_: Work item, treatment, procedure
 
 **Service Menu Item**:
-A reusable service option configured by a Stylist with a default name and price. A Service can start from a Service Menu Item or be added ad hoc, appointment history stores the Service as it actually happened, and deleting a Service Menu Item does not change existing Services.
+A reusable service option configured by a Stylist with a default one-line name and a default price up to 9,999,999.99. A Service can start from a Service Menu Item or be added ad hoc, appointment history stores the Service as it actually happened, and deleting a Service Menu Item does not change existing Services.
 _Avoid_: Template service, catalog item
 
 **Color Formula**:
-The formula text and optional placement used for a Service. A Service can have multiple Color Formulas.
+The formula text and optional placement used for a Service. A Service can have multiple Color Formulas. The formula text can have several lines; Profile Share pages and Share Images keep its line breaks.
 _Avoid_: Dye, recipe, mix
 
 **Color Formula Library**:
@@ -85,7 +85,7 @@ Not a v1 concept. Color Formulas live on Services, and reuse happens through App
 _Avoid_: Formula template, formula catalog, saved formula
 
 **Appointment Photo**:
-A photo stored by the app, associated with an Appointment, and categorized as before, after, or other. Appointment Photos can be captured with the camera or selected from the gallery, can be attached to a specific Client in the Appointment, show upload failure state with retry or remove options, an Appointment can have multiple Appointment Photos in each category, an Appointment Photo category can be changed, and an Appointment Photo can be deleted independently.
+A photo stored by the app in its own photo storage and nowhere else, associated with an Appointment, and categorized as before, after, or other. Appointment Photos can be captured with the camera or selected from the gallery, can be attached to a specific Client in the Appointment, show upload failure state with retry or remove options, an Appointment can have multiple Appointment Photos in each category, an Appointment Photo category can be changed, and an Appointment Photo can be deleted independently. Deleting an Appointment Photo, or the Appointment or Client it belongs to, also deletes its file from photo storage. Photo storage takes JPEG files only, which is what the app makes of every picture, and a failed upload is a state without a stored reason: the app words it in the Stylist's language. A server without photo storage says so, and the app then offers no upload and says why. A picture that is not uploaded yet waits on the Stylist's device; signing out deletes it together with every other copy of a Client's pictures the app kept on that device, after asking the Stylist when photos are still waiting.
 _Avoid_: Image, picture, reference photo
 
 **Photo Editing**:
@@ -141,7 +141,7 @@ A Stylist-initiated SMS reminder message before an Appointment. In v1, the app c
 _Avoid_: Client notification, appointment text, confirmation message
 
 **Profile Share**:
-A revocable Stylist-selected subset of a Client Profile intended for the Client to view. In v1, each Client has at most one active Profile Share, Profile Shares default to the target Client's language and can be toggled between supported languages on the share page, do not require Client contact details, revoked Profile Share links are not reused, Profile Shares do not expire by default, and Profile Shares expose all future Appointments and the last completed Appointment by default through unguessable links or share images; group Appointments are scoped to the target Client and do not show other Clients by default; future Appointments show scheduling and location details only, while completed Appointment details can include Color Formulas and successfully stored after photos by default with the option to exclude them, can include successfully stored before or other photos when selected, show the Stylist name and optional business address, exclude Client contact details except appointment location when relevant, exclude Stylist personal contact details, prices, canceled and no-show Appointments, and internal notes, and do not require a Client Account or passcode.
+A revocable Stylist-selected subset of a Client Profile intended for the Client to view. In v1, each Client has at most one active Profile Share, Profile Shares default to the target Client's language and can be toggled between supported languages on the share page, do not require Client contact details, revoked Profile Share links are not reused and stop showing the page together with its photos (the Client is told, in the Client's language, that the link is no longer available), Profile Shares do not expire by default, and Profile Shares expose all future Appointments and the last completed Appointment by default through unguessable links or share images; group Appointments are scoped to the target Client and do not show other Clients by default; future Appointments show scheduling and location details only, while completed Appointment details can include Color Formulas and successfully stored after photos by default with the option to exclude them, can include successfully stored before or other photos when selected, show every date and time in the Stylist's timezone, show the Stylist name and optional business address, exclude Client contact details except appointment location when relevant, exclude Stylist personal contact details, prices, canceled and no-show Appointments, and internal notes, and do not require a Client Account or passcode. The Stylist makes the three choices (Color Formulas, after photos, before and other photos) when creating a Profile Share and can change them later without changing its link; a Service is still listed by name when its Color Formulas are excluded.
 _Avoid_: Shared profile, export, client portal
 
 **Profile Share Analytics**:
@@ -153,7 +153,7 @@ Not a v1 concept. The app does not record consent events, signatures, or permiss
 _Avoid_: Release form, consent record, signed waiver
 
 **Share Image**:
-A static image generated on demand from selected Client Profile information for sharing outside the app. A Share Image language is chosen at generation time, defaults to the Client's language, and is not revocable after it leaves the app.
+A static image generated on demand from selected Client Profile information for sharing outside the app. A Share Image language is chosen at generation time, defaults to the Client's language, and is not revocable after it leaves the app. It shows what the Client's Profile Share page shows, with the same choices of the Stylist, and carries its photos inside itself; where a list or the photos are too many for one picture, or long texts have made it tall, it says how many it leaves out. Text is shown as it was typed and stays inside the picture: a text too long for one line continues on the next, between words where it can, and a Client name with a long word is drawn in smaller letters before the word is cut.
 _Avoid_: Profile image, export image, card
 
 **Share Branding**:

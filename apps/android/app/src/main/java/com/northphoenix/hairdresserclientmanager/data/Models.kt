@@ -69,8 +69,33 @@ data class Stylist(
     val timezone: String,
     val salonAddress: String = "",
     val onboardingCompletedAt: String? = null,
+    /** When the settings were last saved, as the server states it: the version a save names (see [HcmApi.saveSettings]). */
+    val updatedAt: String? = null,
+    /**
+     * Whether the server has photo storage. It is about the server, not the Stylist: without it no
+     * Appointment Photo can be added, and the app says so instead of offering an upload that cannot
+     * work. A server that does not say (an older one) has it.
+     */
+    val photoStorageConfigured: Boolean = true,
 ) {
     val onboardingComplete: Boolean get() = onboardingCompletedAt != null
+}
+
+/**
+ * What a Profile Share can show of the last completed Appointment, each for the Stylist to include
+ * or leave out. [field] is its name in the API; [default] is what a new Profile Share starts with.
+ */
+enum class ShareChoice(val field: String, val default: Boolean) {
+    COLOR_FORMULAS("includeColorFormulas", true),
+    AFTER_PHOTOS("includeAfterPhotos", true),
+
+    /** Before photos and other photos: one choice for both kinds. */
+    OTHER_PHOTOS("includeOtherPhotos", false),
+    ;
+
+    companion object {
+        val defaults: Set<ShareChoice> = entries.filter { it.default }.toSet()
+    }
 }
 
 @Serializable
@@ -79,7 +104,18 @@ data class ProfileShare(
     val token: String,
     val language: Language,
     val createdAt: String,
-)
+    val includeColorFormulas: Boolean = ShareChoice.COLOR_FORMULAS.default,
+    val includeAfterPhotos: Boolean = ShareChoice.AFTER_PHOTOS.default,
+    val includeOtherPhotos: Boolean = ShareChoice.OTHER_PHOTOS.default,
+) {
+    /** What the Stylist chose to show. */
+    val included: Set<ShareChoice>
+        get() = setOfNotNull(
+            ShareChoice.COLOR_FORMULAS.takeIf { includeColorFormulas },
+            ShareChoice.AFTER_PHOTOS.takeIf { includeAfterPhotos },
+            ShareChoice.OTHER_PHOTOS.takeIf { includeOtherPhotos },
+        )
+}
 
 @Serializable
 data class ClientProfile(
@@ -91,13 +127,17 @@ data class ClientProfile(
     val address: String = "",
     val note: String = "",
     val activeProfileShare: ProfileShare? = null,
+    /** When the Client Profile was last saved, as the server states it: the version a save names (see [HcmApi.saveClient]). */
+    val updatedAt: String? = null,
 )
+
+// Every amount is whole cents in a Long: the totals of one Appointment can be more than an Int holds.
 
 @Serializable
 data class ServiceMenuItem(
     val id: String,
     val name: String,
-    val defaultPriceCents: Int,
+    val defaultPriceCents: Long,
 )
 
 @Serializable
@@ -108,7 +148,7 @@ data class AppointmentParticipant(
     val phone: String = "",
     val language: Language = Language.RU,
     val isPrimary: Boolean = false,
-    val subtotalCents: Int = 0,
+    val subtotalCents: Long = 0,
 )
 
 @Serializable
@@ -124,11 +164,15 @@ data class AppointmentService(
     val clientId: String,
     val menuItemId: String? = null,
     val name: String,
-    val priceCents: Int,
+    val priceCents: Long,
     val note: String = "",
     val colorFormulas: List<ColorFormula> = emptyList(),
 )
 
+/**
+ * A failed upload is a state without a reason: the app words it itself, in the Stylist's language.
+ * Whatever text a reply may still carry for it is not read.
+ */
 @Serializable
 data class AppointmentPhoto(
     val id: String,
@@ -137,7 +181,6 @@ data class AppointmentPhoto(
     val status: PhotoStatus = PhotoStatus.STORED,
     val url: String = "",
     val thumbnailUrl: String = "",
-    val uploadError: String = "",
 )
 
 @Serializable
@@ -148,16 +191,45 @@ data class Appointment(
     val participants: List<AppointmentParticipant> = emptyList(),
     val services: List<AppointmentService> = emptyList(),
     val photos: List<AppointmentPhoto> = emptyList(),
-    val serviceTotalCents: Int = 0,
-    val finalTotalCents: Int = 0,
-    val finalTotalCentsOverride: Int? = null,
+    val serviceTotalCents: Long = 0,
+    val finalTotalCents: Long = 0,
+    val finalTotalCentsOverride: Long? = null,
     val startsAt: String,
     val endsAt: String? = null,
     val status: AppointmentStatus,
     val locationType: LocationType,
     val locationAddress: String = "",
+    /** The at-home address the Stylist typed. Empty when [locationAddress] is the salon's or the primary Client's. */
+    val customLocationAddress: String = "",
     val note: String = "",
     val mapUrl: String? = null,
+    /**
+     * Only in the list of what can be copied into one Appointment (`appointment.completedSources`
+     * for that target): how many Services a copy from this one adds to it.
+     */
+    val copyableServiceCount: Int = 0,
+    /** Only in that list too: the Clients whose Services are copied, those attached to both Appointments. */
+    val copyableClientIds: List<String> = emptyList(),
+)
+
+/** What the app reads of the reply of `appointment.copyServices`: how many Services the copy added. */
+@Serializable
+data class CopiedServices(val copiedServiceCount: Int? = null)
+
+/**
+ * What the app reads of the reply of `appointment.update`: the time and the place as they are
+ * saved, and the other Scheduled Appointments the Appointment overlaps now that it was moved or
+ * set back to Scheduled ([conflicts], which name an Appointment and have no Services or photos).
+ */
+@Serializable
+data class UpdatedAppointment(
+    val startsAt: String,
+    val endsAt: String? = null,
+    val locationType: LocationType,
+    val locationAddress: String = "",
+    val customLocationAddress: String = "",
+    val mapUrl: String? = null,
+    val conflicts: List<Appointment> = emptyList(),
 )
 
 @Serializable
@@ -166,17 +238,19 @@ data class CreateAppointmentResult(
     val conflicts: List<Appointment> = emptyList(),
 )
 
+/**
+ * One Appointment in a Client's Appointment history. [services] and [photos] are that Client's
+ * alone, also in a group Appointment, and every photo is a stored one.
+ */
 @Serializable
 data class ClientHistoryEntry(
     val id: String,
     val primaryClientName: String,
     val startsAt: String,
     val status: AppointmentStatus,
-    val services: List<HistoryService> = emptyList(),
-) {
-    @Serializable
-    data class HistoryService(val id: String, val clientId: String, val name: String, val priceCents: Int)
-}
+    val services: List<AppointmentService> = emptyList(),
+    val photos: List<AppointmentPhoto> = emptyList(),
+)
 
 @Serializable
 data class ShareImage(val svg: String)

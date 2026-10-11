@@ -1,8 +1,11 @@
 package com.northphoenix.hairdresserclientmanager.data
 
+import android.content.ContentResolver
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Matrix
 import android.net.Uri
 import androidx.exifinterface.media.ExifInterface
@@ -11,45 +14,91 @@ import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import kotlin.math.max
 
-class PreparedPhoto(val bytes: ByteArray, val fileName: String, val mimeType: String)
-
 /** Turns a camera or gallery image into an upright JPEG small enough for the 8 MB upload limit. */
 object PhotoPreparer {
     private const val MAX_DIMENSION = 2048
     private const val JPEG_QUALITY = 85
 
-    suspend fun prepare(context: Context, uri: Uri): PreparedPhoto =
+    /** What every prepared picture is. Photo storage takes nothing else. */
+    const val MIME_TYPE = "image/jpeg"
+
+    /** The [ApiException.code] of a source that cannot be read as an image. */
+    const val UNREADABLE = "BAD_IMAGE"
+
+    /** The [ApiException.code] of a picture that is over the upload limit even after it was prepared. */
+    const val TOO_LARGE = "PHOTO_TOO_LARGE"
+
+    /** The picked or captured file at [uri] as it is. */
+    suspend fun copy(context: Context, uri: Uri): ByteArray =
+        reading { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: throw unreadable() }
+
+    /** The JPEG made of the image at [uri]. */
+    suspend fun prepare(context: Context, uri: Uri): ByteArray = reading { jpeg(context.contentResolver, uri) }
+
+    /**
+     * Whatever keeps a picture from being read is an [ApiException] with the code [UNREADABLE]: a
+     * file that is not an image, one that was deleted after it was picked, a permission that has
+     * lapsed, an image too large for the device's memory.
+     */
+    private suspend fun reading(read: () -> ByteArray): ByteArray =
         withContext(Dispatchers.IO) {
-            val resolver = context.contentResolver
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
-                throw ApiException("The selected image could not be read.", code = "BAD_IMAGE")
+            try {
+                read()
+            } catch (error: ApiException) {
+                throw error
+            } catch (error: Exception) {
+                throw unreadable(error)
+            } catch (error: OutOfMemoryError) {
+                throw unreadable(error)
             }
-
-            // Power-of-two subsampling first so a very large original never has to fit in memory.
-            var sampleSize = 1
-            while (max(bounds.outWidth, bounds.outHeight) / (sampleSize * 2) >= MAX_DIMENSION) {
-                sampleSize *= 2
-            }
-
-            val decoded = resolver.openInputStream(uri)?.use {
-                BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sampleSize })
-            } ?: throw ApiException("The selected image could not be read.", code = "BAD_IMAGE")
-            val orientation = resolver.openInputStream(uri)?.use {
-                ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
-            } ?: ExifInterface.ORIENTATION_NORMAL
-            val upright = transform(decoded, orientation)
-            val output = ByteArrayOutputStream()
-            upright.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output)
-
-            PreparedPhoto(
-                bytes = output.toByteArray(),
-                fileName = "appointment-photo-${System.currentTimeMillis()}.jpg",
-                mimeType = "image/jpeg",
-            )
         }
+
+    private fun unreadable(cause: Throwable? = null) = ApiException("The selected image could not be read.", code = UNREADABLE, cause = cause)
+
+    private fun jpeg(resolver: ContentResolver, uri: Uri): ByteArray {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            throw unreadable()
+        }
+
+        // Power-of-two subsampling first so a very large original never has to fit in memory.
+        var sampleSize = 1
+        while (max(bounds.outWidth, bounds.outHeight) / (sampleSize * 2) >= MAX_DIMENSION) {
+            sampleSize *= 2
+        }
+
+        val decoded = resolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sampleSize })
+        } ?: throw unreadable()
+        val orientation = resolver.openInputStream(uri)?.use {
+            ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+        } ?: ExifInterface.ORIENTATION_NORMAL
+        val upright = opaque(transform(decoded, orientation))
+        val output = ByteArrayOutputStream()
+        upright.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output)
+
+        return output.toByteArray()
+    }
+
+    /**
+     * [bitmap] on white. A JPEG has no transparency: of a PNG or WebP that has, the see-through
+     * parts would come out black, where the gallery shows them light.
+     */
+    private fun opaque(bitmap: Bitmap): Bitmap {
+        if (!bitmap.hasAlpha()) {
+            return bitmap
+        }
+
+        val flat = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+
+        Canvas(flat).apply {
+            drawColor(Color.WHITE)
+            drawBitmap(bitmap, 0f, 0f, null)
+        }
+        return flat
+    }
 
     private fun transform(bitmap: Bitmap, orientation: Int): Bitmap {
         val scale = minOf(1f, MAX_DIMENSION.toFloat() / max(bitmap.width, bitmap.height))

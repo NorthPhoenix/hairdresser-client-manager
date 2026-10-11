@@ -1,9 +1,10 @@
 package com.northphoenix.hairdresserclientmanager.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.PersonAddAlt1
@@ -21,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,10 +32,14 @@ import androidx.compose.ui.unit.dp
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
+import com.northphoenix.hairdresserclientmanager.domain.TextLimits
+import com.northphoenix.hairdresserclientmanager.i18n.emptyClientPickerText
+import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
-import com.northphoenix.hairdresserclientmanager.ui.components.HcmBottomSheet
+import com.northphoenix.hairdresserclientmanager.ui.components.HcmListBottomSheet
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmTextField
 import com.northphoenix.hairdresserclientmanager.ui.components.InlineEmpty
+import com.northphoenix.hairdresserclientmanager.ui.components.InlineLoadFailed
 import com.northphoenix.hairdresserclientmanager.ui.components.SecondaryButton
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 import java.time.LocalTime
@@ -41,54 +47,71 @@ import java.time.LocalTime
 /**
  * Sheet for choosing Clients. With [onCreateInline] it also offers creating a
  * minimal Client from just the typed name, for walk-ins.
+ * [clients] is the Stylist's whole Client list and [load] its state. The Clients in [takenIds]
+ * are in the Appointment already and are not offered; the sheet needs the whole list all the
+ * same, to tell a Stylist without Clients from one whose Clients are all taken.
  */
 @Composable
 fun ClientPickerSheet(
     title: String,
     clients: List<ClientProfile>,
+    load: LoadState,
+    onRetry: () -> Unit,
     selectedIds: Set<String>,
     onPick: (ClientProfile) -> Unit,
     onDismiss: () -> Unit,
     onCreateInline: ((String) -> Unit)? = null,
+    takenIds: Set<String> = emptySet(),
 ) {
-    var search by remember { mutableStateOf("") }
-    val filtered = remember(clients, search) { ClientRules.filter(clients, search) }
+    var search by rememberSaveable { mutableStateOf("") }
+    val offered = remember(clients, takenIds) { clients.filter { it.id !in takenIds } }
+    val filtered = remember(offered, search) { ClientRules.filter(offered, search) }
 
-    HcmBottomSheet(title = title, onDismiss = onDismiss) {
-        HcmTextField(
-            value = search,
-            onValueChange = { search = it },
-            label = "",
-            placeholder = stringResource(if (onCreateInline != null) R.string.client_name_label else R.string.client_search_label),
-            leadingIcon = Icons.Rounded.Search,
-            capitalization = KeyboardCapitalization.Words,
-        )
-
-        if (onCreateInline != null && search.isNotBlank()) {
-            SecondaryButton(
-                text = stringResource(R.string.inline_client_label) + ": " + search.trim(),
-                onClick = { onCreateInline(search.trim()) },
-                modifier = Modifier.fillMaxWidth(),
-                icon = Icons.Rounded.PersonAddAlt1,
+    // A lazy list: a Stylist with hundreds of Clients gets the sheet as fast as one with ten.
+    HcmListBottomSheet(
+        title = title,
+        onDismiss = onDismiss,
+        content = {
+            HcmTextField(
+                value = search,
+                onValueChange = { search = it },
+                label = "",
+                placeholder = stringResource(if (onCreateInline != null) R.string.client_name_label else R.string.client_search_label),
+                leadingIcon = Icons.Rounded.Search,
+                capitalization = KeyboardCapitalization.Words,
+                // What is typed here can become the name of a new Client.
+                maxLength = TextLimits.NAME.takeIf { onCreateInline != null },
             )
-        }
 
-        if (filtered.isEmpty()) {
-            InlineEmpty(stringResource(if (clients.isEmpty()) R.string.no_clients_title else R.string.no_client_results))
-        }
-
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            filtered.forEach { client ->
-                ClientRow(
-                    client,
-                    onClick = { onPick(client) },
-                    trailing = {
-                        if (client.id in selectedIds) {
-                            Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        }
-                    },
+            if (onCreateInline != null && search.isNotBlank()) {
+                SecondaryButton(
+                    text = stringResource(R.string.inline_client_label) + ": " + search.trim(),
+                    onClick = { onCreateInline(search.trim()) },
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = Icons.Rounded.PersonAddAlt1,
                 )
             }
+
+            // "No Clients yet" is only true of a list that has loaded.
+            when (load) {
+                is LoadState.Failed -> InlineLoadFailed(load.message, onRetry)
+                LoadState.Loaded -> if (filtered.isEmpty()) {
+                    InlineEmpty(stringResource(emptyClientPickerText(clients = clients.size, offered = offered.size)))
+                }
+                else -> LoadingRow(Modifier.heightIn(max = 96.dp))
+            }
+        },
+    ) {
+        items(filtered, key = { it.id }) { client ->
+            ClientRow(
+                client,
+                onClick = { onPick(client) },
+                trailing = {
+                    if (client.id in selectedIds) {
+                        Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    }
+                },
+            )
         }
     }
 }

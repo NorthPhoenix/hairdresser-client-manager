@@ -5,13 +5,11 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
@@ -58,15 +56,15 @@ class UploadThingClient(
                 .build()
             val (status, body) = execute(request)
             val result = parseObject(body)
-            val error = result?.get("error")?.jsonPrimitive?.contentOrNull
+            val error = result?.get("error")?.takeUnless { it is JsonNull }
 
             if (status !in 200..299 || result == null || error != null) {
-                throw ApiException(error ?: "Upload failed ($status).", code = "UPLOAD_FAILED")
+                throw ApiException(error.textOrNull() ?: "Upload failed ($status).", code = "UPLOAD_FAILED")
             }
 
             UploadedFile(
                 key = presigned.key,
-                ufsUrl = result["ufsUrl"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                ufsUrl = result["ufsUrl"].textOrNull().orEmpty(),
                 serverData = result["serverData"],
             )
         }
@@ -111,8 +109,8 @@ class UploadThingClient(
         val (status, body) = execute(request)
 
         if (status !in 200..299) {
-            val message = parseObject(body)?.get("message")?.jsonPrimitive?.contentOrNull
-            throw ApiException(message ?: "Upload could not start ($status).", code = "UPLOAD_REJECTED")
+            val message = parseObject(body)?.get("message").textOrNull()
+            throw ApiException(message ?: "Upload could not start ($status).", code = refusalCode(status, message))
         }
 
         return try {
@@ -121,6 +119,23 @@ class UploadThingClient(
             throw ApiException("Unexpected upload response.", code = "BAD_RESPONSE", cause = error)
         }
     }
+
+    /**
+     * The code of a refusal of the route. A refusal the API also has, recognised by its HTTP status
+     * together with its exact words, gets the API's code for it: it is then the same failure as
+     * from `appointment.addPhoto`, to the Stylist and to the screen. Any other one is an upload
+     * that could not start.
+     */
+    private fun refusalCode(status: Int, message: String?): String =
+        when {
+            // Not signed in, or the session has ended. The route's own answer is 403: UploadThing has no 401, which only something in between can answer.
+            status == 401 || (status == 403 && message == "Authentication required.") -> "UNAUTHORIZED"
+            // The Appointment was deleted, on another device too: there is nothing to add the photo to, so trying again cannot work.
+            status == 404 && message == "Appointment not found." -> "NOT_FOUND"
+            // The Client is no longer one of the Appointment's Clients (ApiException.isClientNotAttached).
+            status == 400 && message == "Photo Client must be attached to the Appointment." -> "BAD_REQUEST"
+            else -> "UPLOAD_REJECTED"
+        }
 
     /** UploadThing reports how many bytes it already holds so an interrupted upload can resume. */
     private suspend fun resumeOffset(presignedUrl: String, trace: TraceHeaders): Int {
@@ -147,7 +162,7 @@ class UploadThingClient(
 
     private fun parseObject(body: String): JsonObject? =
         try {
-            hcmJson.parseToJsonElement(body).jsonObject
+            hcmJson.parseToJsonElement(body) as? JsonObject
         } catch (_: Exception) {
             null
         }
@@ -174,6 +189,13 @@ class UploadThingClient(
         const val CLIENT_PACKAGE = "hcm-android"
         const val APPOINTMENT_PHOTO_SLUG = "appointmentPhoto"
         const val MAX_PHOTO_BYTES = 8 * 1024 * 1024
+
+        /**
+         * The code of the failure of an upload that was not tried because the server has no photo
+         * storage. Its settings say so (`Stylist.photoStorageConfigured`); the route itself only
+         * answers such an upload with a failure of its own.
+         */
+        const val NO_PHOTO_STORAGE = "NO_PHOTO_STORAGE"
 
         fun decodeUploadedPhoto(serverData: JsonElement?): UploadedPhoto? =
             try {

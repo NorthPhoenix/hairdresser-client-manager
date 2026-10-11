@@ -8,23 +8,31 @@ import android.provider.ContactsContract.CommonDataKinds.StructuredName
 import android.provider.ContactsContract.CommonDataKinds.StructuredPostal
 import android.provider.ContactsContract.Contacts
 import android.provider.ContactsContract.Data
+import android.provider.ContactsContract.DisplayNameSources
 import com.northphoenix.hairdresserclientmanager.domain.DeviceContact
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /** Reads one contact the Stylist picked. Requires READ_CONTACTS; nothing is synced or stored. */
 object DeviceContacts {
+    /**
+     * The name a contact is saved under. Android lists a contact that has no name under its phone
+     * number or its email address; [source] (`Contacts.DISPLAY_NAME_SOURCE`) tells, and that is no name.
+     */
+    internal fun savedName(displayName: String?, source: Int): String? =
+        displayName.takeUnless { source == DisplayNameSources.PHONE || source == DisplayNameSources.EMAIL }
+
     suspend fun read(context: Context, contactUri: Uri): DeviceContact? =
         withContext(Dispatchers.IO) {
             val resolver = context.contentResolver
             val (contactId, displayName) = resolver.query(
                 contactUri,
-                arrayOf(Contacts._ID, Contacts.DISPLAY_NAME),
+                arrayOf(Contacts._ID, Contacts.DISPLAY_NAME, Contacts.DISPLAY_NAME_SOURCE),
                 null,
                 null,
                 null,
             )?.use { cursor ->
-                if (cursor.moveToFirst()) cursor.getLong(0) to cursor.getString(1) else null
+                if (cursor.moveToFirst()) cursor.getLong(0) to savedName(cursor.getString(1), cursor.getInt(2)) else null
             } ?: return@withContext null
 
             var givenName: String? = null

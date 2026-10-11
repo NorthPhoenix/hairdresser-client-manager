@@ -4,7 +4,7 @@ This repo is a Turborepo with a Profile Share-only Next.js web app that also hos
 
 Because this is a new application, use current stable APIs and package names by default. Do not add legacy or compatibility APIs unless a current API is blocked and the reason plus removal path are documented.
 
-Before extending the mobile/API stack, read ADRs `0010`, `0011`, `0012`, and `0013`. They define the Next.js-hosted tRPC backend, lazy Clerk-to-Stylist identity model, the v1 stack, and the native Android app that replaced the original Expo app.
+Before extending the mobile/API stack, read ADRs `0010`, `0011`, `0012`, `0013`, `0014`, and `0015`. They define the Next.js-hosted tRPC backend, lazy Clerk-to-Stylist identity model, the v1 stack, the native Android app that replaced the original Expo app, how mutations that check before they write stay consistent, and how a request that is sent again or a save from an out-of-date form is handled. The limits on text and amounts that every input shares are in `packages/api/src/input.ts`.
 
 For building, configuring, and running the Android app, including a local backend that needs no provider credentials, read `apps/android/README.md`.
 
@@ -99,7 +99,7 @@ Run these steps locally when you are ready to wire providers:
    UPLOADTHING_CALLBACK_URL=http://127.0.0.1:3000/api/uploadthing
    ```
 
-   Keep `UPLOADTHING_TOKEN` server-only. `UPLOADTHING_CALLBACK_URL` is not secret; it is needed for local Android emulator testing because the device calls the web app through `10.0.2.2`, while UploadThing's local dev callback must reach the host Next.js server. The Android app uploads through the web app's `/api/uploadthing` endpoint, using the same base URL as `hcm.apiBaseUrl`. UploadThing has no Android SDK, so the app implements the upload protocol itself; keep `UploadThingClient.CLIENT_VERSION` in step with the `uploadthing` package version.
+   Keep `UPLOADTHING_TOKEN` server-only. The API reads the UploadThing app id from the same token and accepts as an Appointment Photo only a file of that app (`https://<app id>.ufs.sh/f/<file key>`), so without the token no photo can be stored. `UPLOADTHING_CALLBACK_URL` is not secret; it is needed for local Android emulator testing because the device calls the web app through `10.0.2.2`, while UploadThing's local dev callback must reach the host Next.js server. The Android app uploads through the web app's `/api/uploadthing` endpoint, using the same base URL as `hcm.apiBaseUrl`. UploadThing has no Android SDK, so the app implements the upload protocol itself; keep `UploadThingClient.CLIENT_VERSION` in step with the `uploadthing` package version.
 
 10. Run the apps:
 
@@ -114,7 +114,11 @@ Run these steps locally when you are ready to wire providers:
 
 The Android app intentionally renders a clear setup screen when no Clerk publishable key is configured.
 
-The web app currently exposes only public Profile Share placeholder routes. Clerk is installed for future shared auth/provider compatibility, but the v1 web app does not create a Stylist management surface.
+The web app exposes only public pages: a home page that says what the product is, in Russian or with `?lang=en` in English, and Profile Share pages with their Share Images and photos. Clerk is installed for future shared auth/provider compatibility, but the v1 web app does not create a Stylist management surface.
+
+Every answer of the web app carries security headers and no `X-Powered-By` (`apps/web/next.config.mjs`). Profile Share addresses also answer `X-Robots-Tag: noindex, nofollow`; `/robots.txt` closes only `/api/`, because a search engine reads "noindex" only where it may read the address. Outside `/api/` the web app answers only `GET` and `HEAD` and refuses other methods with 405 (`apps/web/proxy.ts`). `TRACE` never reaches the proxy, so it is refused in `apps/web/instrumentation.ts`, which works where the app runs on Node's HTTP server (`next dev`, `next start`); a host that hands requests over in another way has to refuse `TRACE` itself.
+
+Profile Share pages and Share Images name the Stylist with the first and last name of the Stylist's Clerk user. The app signs up with an email address and a password only, so a Clerk user has no name until it is given one (in the Clerk dashboard, or through Clerk's user API); until then, and whenever Clerk does not answer within three seconds, a share shows no Stylist name and still works. The name is read from Clerk with the server's `CLERK_SECRET_KEY`; public share pages and pictures reuse it for one minute, while a Share Image the signed-in Stylist generates asks Clerk every time, so a name that was just entered is on it. The share page does not link to photo storage: the server passes each shared photo on from storage under the share's own link, which stops with a revoke. A Share Image embeds the shared Appointment Photos: the server reads each from photo storage and shrinks it with `sharp` (a dependency of `apps/web`); a photo it cannot read is counted in the picture as not shown.
 
 UploadThing, Google Calendar, and Stylist Reminder push notification credentials are optional provider setup points. Until those providers are configured, core Client, Appointment, Service, Color Formula, Contact Import, Profile Share, Share Image, and Client Reminder SMS compose flows should remain usable, while provider-specific controls should show clear setup or unavailable behavior.
 

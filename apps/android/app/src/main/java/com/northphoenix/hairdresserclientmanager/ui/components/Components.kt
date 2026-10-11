@@ -1,5 +1,6 @@
 package com.northphoenix.hairdresserclientmanager.ui.components
 
+import androidx.annotation.StringRes
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -8,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -18,51 +20,80 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.error
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
+import com.northphoenix.hairdresserclientmanager.data.ColorFormula
+import com.northphoenix.hairdresserclientmanager.domain.Amount
+import com.northphoenix.hairdresserclientmanager.domain.ClientRules
+import com.northphoenix.hairdresserclientmanager.domain.Money
+import com.northphoenix.hairdresserclientmanager.domain.OneLine
+import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.i18n.label
+import com.northphoenix.hairdresserclientmanager.i18n.refusalRes
 import com.northphoenix.hairdresserclientmanager.ui.theme.DisplayFamily
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 import com.northphoenix.hairdresserclientmanager.ui.theme.colors
@@ -77,13 +108,15 @@ fun HcmCard(
     color: Color = MaterialTheme.colorScheme.surface,
     borderColor: Color = MaterialTheme.colorScheme.outlineVariant,
     contentPadding: PaddingValues = PaddingValues(18.dp),
+    /** For a card with [onClick]: whether a tap does anything now. */
+    enabled: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val shape = MaterialTheme.shapes.large
     val body: @Composable () -> Unit = { Column(Modifier.fillMaxWidth().padding(contentPadding), content = content) }
 
     if (onClick != null) {
-        Surface(onClick = onClick, modifier = modifier, shape = shape, color = color, border = BorderStroke(1.dp, borderColor), content = body)
+        Surface(onClick = onClick, modifier = modifier, enabled = enabled, shape = shape, color = color, border = BorderStroke(1.dp, borderColor), content = body)
     } else {
         Surface(modifier = modifier, shape = shape, color = color, border = BorderStroke(1.dp, borderColor), content = body)
     }
@@ -93,6 +126,29 @@ fun HcmCard(
 @Composable
 fun Kicker(text: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
     Text(text.uppercase(), modifier = modifier, style = MaterialTheme.typography.labelSmall, color = color)
+}
+
+/**
+ * A Color Formula as it reads wherever it is shown: the formula under where it was placed, or
+ * under what it is when no placement was noted. With [onClick] the card is a button.
+ */
+@Composable
+fun ColorFormulaCard(formula: ColorFormula, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
+    val shape = MaterialTheme.shapes.medium
+    val color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+    val body: @Composable () -> Unit = {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Kicker(formula.placement.ifBlank { stringResource(R.string.color_formula_label) }, color = MaterialTheme.colorScheme.primary)
+            Text(formula.formula, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+        }
+    }
+
+    if (onClick != null) {
+        Surface(onClick = onClick, shape = shape, color = color, modifier = modifier.fillMaxWidth(), content = body)
+    } else {
+        // Not a Surface: one that is no button takes the taps meant for what it lies in.
+        Box(modifier.fillMaxWidth().clip(shape).background(color)) { body() }
+    }
 }
 
 @Composable
@@ -158,24 +214,81 @@ fun SecondaryButton(
     enabled: Boolean = true,
     icon: ImageVector? = null,
     danger: Boolean = false,
+    /** As on [PrimaryButton]: what the button starts is running, so it is off and shows a spinner in the icon's place. */
+    loading: Boolean = false,
 ) {
     val tint = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    val on = enabled && !loading
 
     OutlinedButton(
         onClick = onClick,
         modifier = modifier.heightIn(min = 50.dp),
-        enabled = enabled,
+        enabled = on,
         shape = MaterialTheme.shapes.medium,
-        border = BorderStroke(1.dp, if (enabled) tint.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outlineVariant),
+        border = BorderStroke(1.dp, if (on) tint.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outlineVariant),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = tint),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        if (icon != null) {
+        if (loading) {
+            CircularProgressIndicator(Modifier.size(17.dp), color = LocalContentColor.current, strokeWidth = 2.dp)
+            Spacer(Modifier.width(8.dp))
+        } else if (icon != null) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(19.dp))
             Spacer(Modifier.width(8.dp))
         }
         Text(text, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center)
     }
+}
+
+/**
+ * Actions of equal weight, such as two buttons: side by side in equal widths while each is as
+ * wide there as it asks to be with its label on one line, and one under the other at full width
+ * when it is not. A one-word label has nowhere to break, so at a large font size on a narrow
+ * screen a button of half the width would break it inside the word.
+ */
+@Composable
+fun SideBySideOrStacked(modifier: Modifier = Modifier, spacing: Dp = 10.dp, content: @Composable () -> Unit) {
+    Layout(content, modifier) { measurables, constraints ->
+        val gap = spacing.roundToPx()
+        val gaps = gap * (measurables.size - 1).coerceAtLeast(0)
+        val asked = measurables.map { it.maxIntrinsicWidth(constraints.maxHeight) }
+        // Without a limit to the width they are as wide as they ask to be.
+        val width = if (constraints.hasBoundedWidth) constraints.maxWidth else asked.sum() + gaps
+        val each = sideBySideWidth(asked, width, gap)
+
+        if (each != null) {
+            val placeables = measurables.map { it.measure(Constraints.fixedWidth(each)) }
+
+            layout(width, placeables.maxOf { it.height }) {
+                placeables.forEachIndexed { index, placeable -> placeable.placeRelative(index * (each + gap), 0) }
+            }
+        } else {
+            val placeables = measurables.map { it.measure(Constraints.fixedWidth(width)) }
+
+            layout(width, placeables.sumOf { it.height } + gaps) {
+                var y = 0
+
+                placeables.forEach { placeable ->
+                    placeable.placeRelative(0, y)
+                    y += placeable.height + gap
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The width each of several things has side by side in [available], [gap] apart and all equally
+ * wide, or null when that is less than the widest of them [asked] for: then they do not fit side by side.
+ */
+internal fun sideBySideWidth(asked: List<Int>, available: Int, gap: Int): Int? {
+    if (asked.isEmpty()) {
+        return null
+    }
+
+    val each = (available - gap * (asked.size - 1)) / asked.size
+
+    return each.takeIf { it >= asked.max() }
 }
 
 @Composable
@@ -204,7 +317,42 @@ fun TextAction(
     }
 }
 
-/** Text field with its label above, the way forms read throughout the app. */
+/**
+ * Something that is on or off, with its name beside the switch. The whole row is the switch, for
+ * a finger and for a screen reader, which is told the name and the state together. Only the
+ * switch is drawn as off while the row is not [enabled]: that is for the moment a change takes,
+ * and the names of a whole list should not flicker with it.
+ */
+@Composable
+fun SwitchRow(text: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.small)
+            .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onCheckedChange)
+            .heightIn(min = 48.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(text, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+        // Drawn only: the row takes the tap.
+        Switch(checked = checked, onCheckedChange = null, enabled = enabled)
+    }
+}
+
+/**
+ * Text field with its label above, the way forms read throughout the app. [error] is why the
+ * text was refused: it is shown under the field, which scrolls into view when it appears. Where
+ * the Stylist can scroll away and be refused for the same text again, count the refusals in
+ * [errorAttempt]: the field then comes back into view on each of them. [onImeAction] is what the
+ * keyboard's own action key ([imeAction]) does. [contentType] says what the field holds to the
+ * device's password manager, which then offers what it has saved for it and to save what is typed.
+ *
+ * [maxLength] is the most the server takes for this text (see [TextLimits]). The field takes no
+ * more than that and says so under it once it is full. Text that was not typed into it can be
+ * longer (a record saved before there were limits, a copied contact): the same words are then an
+ * error, until the text is shortened.
+ */
 @Composable
 fun HcmTextField(
     value: String,
@@ -221,16 +369,50 @@ fun HcmTextField(
     trailing: (@Composable () -> Unit)? = null,
     prefix: String? = null,
     enabled: Boolean = true,
+    error: String? = null,
+    errorAttempt: Int = 0,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    onImeAction: (() -> Unit)? = null,
+    contentType: ContentType? = null,
+    maxLength: Int? = null,
 ) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(7.dp)) {
+    val intoView = remember { BringIntoViewRequester() }
+    val limit = maxLength?.takeIf { value.length >= it }?.let { stringResource(R.string.text_limit, it) }
+    val tooLong = maxLength != null && value.length > maxLength
+    // Why a save refused the text comes first: it is what the Stylist has just asked for.
+    val refusal = error ?: limit.takeIf { tooLong }
+
+    LaunchedEffect(error, errorAttempt) {
+        if (error != null) {
+            intoView.bringIntoView()
+        }
+    }
+
+    Column(modifier.bringIntoViewRequester(intoView), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         if (label.isNotEmpty()) {
             Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         OutlinedTextField(
             value = value,
-            onValueChange = onValueChange,
-            modifier = Modifier.fillMaxWidth().semantics { contentDescription = label },
+            // A one-line field shows one line only; text pasted with a line break or a control character must not hold more.
+            onValueChange = { changed ->
+                val text = if (singleLine) OneLine.typed(changed) else changed
+
+                onValueChange(if (maxLength == null) text else TextLimits.typed(text, maxLength, before = value))
+            },
+            modifier = Modifier.fillMaxWidth().semantics {
+                contentDescription = label
+                // The reason itself is what a screen reader says, in place of Material's "Invalid input".
+                if (refusal != null) {
+                    this.error(refusal)
+                }
+                if (contentType != null) {
+                    this.contentType = contentType
+                }
+            },
             enabled = enabled,
+            isError = refusal != null,
+            supportingText = (refusal ?: limit)?.let { { Text(it) } },
             placeholder = placeholder?.let { { Text(it, color = HcmColors.Faint) } },
             leadingIcon = leadingIcon?.let { { Icon(it, contentDescription = null, modifier = Modifier.size(20.dp)) } },
             trailingIcon = trailing,
@@ -240,7 +422,9 @@ fun HcmTextField(
             maxLines = if (singleLine) 1 else 8,
             textStyle = MaterialTheme.typography.bodyLarge,
             shape = MaterialTheme.shapes.medium,
+            visualTransformation = visualTransformation,
             keyboardOptions = KeyboardOptions(capitalization = capitalization, keyboardType = keyboardType, imeAction = imeAction),
+            keyboardActions = onImeAction?.let { action -> KeyboardActions { action() } } ?: KeyboardActions.Default,
             colors = OutlinedTextFieldDefaults.colors(
                 focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
@@ -254,7 +438,26 @@ fun HcmTextField(
     }
 }
 
-/** A read-only field that opens a picker, styled to sit beside [HcmTextField]. */
+/**
+ * A field for an amount of money. [refusal] is what a save made of its text when it refused it,
+ * and null otherwise: see [Money.parse]. Nothing but an [Amount.Valid] is ever saved.
+ */
+@Composable
+fun AmountField(value: String, onValueChange: (String) -> Unit, label: String, placeholder: String, modifier: Modifier = Modifier, refusal: Amount? = null) {
+    val error = when (val reason = refusal?.refusalRes()) {
+        null -> null
+        R.string.amount_too_large -> stringResource(reason, Money.format(Money.MAX_CENTS))
+        else -> stringResource(reason)
+    }
+
+    HcmTextField(value, onValueChange, label, modifier, placeholder = placeholder, prefix = "$", keyboardType = KeyboardType.Decimal, error = error)
+}
+
+/**
+ * A read-only field that opens a picker, styled to sit beside [HcmTextField].
+ * With [wraps] the value is shown whole, on as many lines as it takes: a date or a time cut short says another one.
+ * [error] is what is wrong with the value: it is shown under the field, as under a text field.
+ */
 @Composable
 fun PickerField(
     label: String,
@@ -264,15 +467,22 @@ fun PickerField(
     icon: ImageVector? = null,
     isPlaceholder: Boolean = false,
     trailing: (@Composable () -> Unit)? = null,
+    wraps: Boolean = false,
+    error: String? = null,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Surface(
             onClick = onClick,
-            modifier = Modifier.fillMaxWidth().semantics { contentDescription = label },
+            modifier = Modifier.fillMaxWidth().semantics {
+                contentDescription = label
+                if (error != null) {
+                    this.error(error)
+                }
+            },
             shape = MaterialTheme.shapes.medium,
             color = MaterialTheme.colorScheme.surfaceContainerLowest,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            border = BorderStroke(1.dp, if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline),
         ) {
             Row(
                 Modifier.heightIn(min = 56.dp).padding(start = 14.dp, end = if (trailing != null) 4.dp else 14.dp),
@@ -284,19 +494,33 @@ fun PickerField(
                 }
                 Text(
                     value,
-                    modifier = Modifier.weight(1f),
+                    // The padding only shows once the value takes more lines than the field's least height holds.
+                    modifier = Modifier.weight(1f).padding(vertical = 8.dp),
                     style = MaterialTheme.typography.bodyLarge,
                     color = if (isPlaceholder) HcmColors.Faint else MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
+                    maxLines = if (wraps) Int.MAX_VALUE else 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 trailing?.invoke()
             }
         }
+        if (error != null) {
+            // Where a text field has its reason. A screen reader is told it with the field.
+            Text(
+                error,
+                modifier = Modifier.padding(horizontal = 16.dp).clearAndSetSemantics {},
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
     }
 }
 
-/** Two-or-more option pill selector. */
+/**
+ * Two-or-more option pill selector. A screen reader is told which option is the chosen one. The
+ * labels are all in one size, in which the longest of them takes one line of its segment: at a
+ * large font size on a narrow screen they get smaller together instead of being cut.
+ */
 @Composable
 fun <T> SegmentedControl(
     options: List<T>,
@@ -305,51 +529,107 @@ fun <T> SegmentedControl(
     label: @Composable (T) -> String,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.medium)
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        options.forEach { option ->
-            val isSelected = option == selected
-            val container by animateColorAsState(if (isSelected) HcmColors.Ink else Color.Transparent, label = "segment")
-            val content by animateColorAsState(if (isSelected) HcmColors.Surface else MaterialTheme.colorScheme.onSurface, label = "segmentText")
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val labels = options.map { label(it) }
+        val labelStyle = fittedTextStyle(labels, MaterialTheme.typography.labelLarge, segmentLabelWidth(maxWidth, options.size))
 
-            Box(
-                Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(container)
-                    .clickable(role = Role.RadioButton) { onSelect(option) }
-                    .defaultMinSize(minHeight = 44.dp)
-                    .padding(horizontal = 10.dp, vertical = 10.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(label(option), style = MaterialTheme.typography.labelLarge, color = content, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.medium)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .padding(SegmentGap)
+                .selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(SegmentGap),
+        ) {
+            options.forEachIndexed { index, option ->
+                val isSelected = option == selected
+                val container by animateColorAsState(if (isSelected) HcmColors.Ink else Color.Transparent, label = "segment")
+                val content by animateColorAsState(if (isSelected) HcmColors.Surface else MaterialTheme.colorScheme.onSurface, label = "segmentText")
+
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(container)
+                        .selectable(selected = isSelected, role = Role.RadioButton) { onSelect(option) }
+                        .defaultMinSize(minHeight = 44.dp)
+                        .padding(horizontal = SegmentPadding, vertical = 10.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(labels[index], style = labelStyle, color = content, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
     }
 }
 
-/** A tappable chip for picking one of a few values inline. */
+private val SegmentGap = 4.dp
+private val SegmentPadding = 10.dp
+
+/**
+ * The width the label of one segment has in a [SegmentedControl] [width] wide with [options]
+ * segments: an equal share of the control less its gaps, less the segment's own padding, and 2 dp
+ * more for the rounding to whole pixels. The gaps and the padding are rounded one by one and some
+ * segments get their share rounded down, so the place can be narrower than the division says, and
+ * a label fitted to more than it has is cut.
+ */
+internal fun segmentLabelWidth(width: Dp, options: Int): Dp = (width - SegmentGap * (options + 1)) / options - SegmentPadding * 2 - 2.dp
+
+/**
+ * A tappable chip for picking one of a few values inline. A screen reader is told whether it is
+ * the chosen one: put the chips of one choice in a `selectableGroup()`. A chip with [wraps] shows
+ * all of its text on as many lines as that takes; the others cut it at one line.
+ */
 @Composable
-fun ChoiceChip(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, icon: ImageVector? = null) {
+fun ChoiceChip(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, wraps: Boolean = false) {
+    Chip(
+        text,
+        highlighted = selected,
+        onClick = onClick,
+        modifier = modifier.semantics {
+            role = Role.RadioButton
+            this.selected = selected
+        },
+        wraps = wraps,
+    )
+}
+
+/**
+ * A chip that does something when tapped ('Add Client', a chosen Client that the tap takes away
+ * again): a button, where a [ChoiceChip] is an option. [description] is read out in place of
+ * [text] when the text alone does not say what the tap does.
+ */
+@Composable
+fun ActionChip(text: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier, highlighted: Boolean = false, description: String? = null) {
+    Chip(
+        text,
+        highlighted = highlighted,
+        onClick = onClick,
+        modifier = modifier.semantics {
+            role = Role.Button
+            if (description != null) contentDescription = description
+        },
+        icon = icon,
+    )
+}
+
+@Composable
+private fun Chip(text: String, highlighted: Boolean, onClick: () -> Unit, modifier: Modifier, icon: ImageVector? = null, wraps: Boolean = false) {
     val container by animateColorAsState(
-        if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLowest,
+        if (highlighted) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLowest,
         label = "chip",
     )
-    val border = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-    val content = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+    val border = if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+    val content = if (highlighted) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
 
     Surface(
         onClick = onClick,
         modifier = modifier,
-        shape = CircleShape,
+        // The corners of a one-line chip, kept at that size when the chip grows taller.
+        shape = if (wraps) RoundedCornerShape(20.dp) else CircleShape,
         color = container,
-        border = BorderStroke(if (selected) 1.5.dp else 1.dp, border),
+        border = BorderStroke(if (highlighted) 1.5.dp else 1.dp, border),
     ) {
         Row(
             Modifier.heightIn(min = 40.dp).padding(horizontal = 14.dp, vertical = 8.dp),
@@ -359,7 +639,7 @@ fun ChoiceChip(text: String, selected: Boolean, onClick: () -> Unit, modifier: M
             if (icon != null) {
                 Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = content)
             }
-            Text(text, style = MaterialTheme.typography.labelMedium, color = content, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(text, style = MaterialTheme.typography.labelMedium, color = content, maxLines = if (wraps) Int.MAX_VALUE else 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -378,18 +658,26 @@ fun Tag(
     content: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     container: Color = MaterialTheme.colorScheme.surfaceVariant,
     dot: Boolean = false,
+    style: TextStyle = tagTextStyle,
 ) {
     Row(
-        modifier.clip(CircleShape).background(container).padding(horizontal = 10.dp, vertical = 5.dp),
+        modifier.clip(CircleShape).background(container).padding(horizontal = TagPadding, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (dot) {
             Box(Modifier.size(6.dp).clip(CircleShape).background(content))
         }
-        Text(text, style = MaterialTheme.typography.labelSmall.copy(letterSpacing = MaterialTheme.typography.labelMedium.letterSpacing), color = content, maxLines = 1)
+        Text(text, style = style, color = content, maxLines = 1)
     }
 }
+
+/** The text of a [Tag]. A tag in a narrow place is given this fitted to the place (`fittedTextStyle`). */
+val tagTextStyle: TextStyle
+    @Composable get() = MaterialTheme.typography.labelSmall.copy(letterSpacing = MaterialTheme.typography.labelMedium.letterSpacing)
+
+/** What a [Tag] keeps clear at both sides of its text. */
+internal val TagPadding = 10.dp
 
 private val avatarPalette = listOf(
     Color(0xFFF3E0D6) to Color(0xFF7D2F1B),
@@ -404,9 +692,7 @@ private val avatarPalette = listOf(
 @Composable
 fun Avatar(name: String, modifier: Modifier = Modifier, size: Dp = 44.dp) {
     val (container, content) = remember(name) { avatarPalette[Math.floorMod(name.hashCode(), avatarPalette.size)] }
-    val initials = remember(name) {
-        name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.take(2).joinToString("") { it.first().uppercase() }.ifEmpty { "·" }
-    }
+    val initials = remember(name) { ClientRules.initials(name) }
 
     Box(modifier.size(size).clip(CircleShape).background(container), contentAlignment = Alignment.Center) {
         Text(
@@ -415,6 +701,9 @@ fun Avatar(name: String, modifier: Modifier = Modifier, size: Dp = 44.dp) {
             fontFamily = DisplayFamily,
             fontWeight = FontWeight.SemiBold,
             fontSize = MaterialTheme.typography.titleMedium.fontSize * (size.value / 44f),
+            // Initials wider than the circle (two emoji at a large font size) show the first one whole, not two cut lines.
+            maxLines = 1,
+            textAlign = TextAlign.Center,
         )
     }
 }
@@ -450,6 +739,32 @@ fun InlineEmpty(text: String, modifier: Modifier = Modifier) {
     Text(text, modifier = modifier, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
+/** Stands where data that failed to load would be: why it failed and a way to try again. Never an empty state. */
+@Composable
+fun LoadFailed(@StringRes message: Int, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    EmptyState(Icons.Rounded.CloudOff, stringResource(R.string.load_failed_title), modifier, body = stringResource(message)) {
+        PrimaryButton(stringResource(R.string.retry), onClick = onRetry)
+    }
+}
+
+/** [LoadFailed] for the inside of a card or sheet. */
+@Composable
+fun InlineLoadFailed(@StringRes message: Int, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier) {
+        Text(stringResource(message), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+        // Pull the text button's own padding back so its label lines up with the message.
+        TextAction(stringResource(R.string.retry), onClick = onRetry, modifier = Modifier.offset(x = (-10).dp))
+    }
+}
+
+/** Stands where one item would be that the server no longer has, with the way back. */
+@Composable
+fun ItemMissing(title: String, body: String, onBack: () -> Unit, modifier: Modifier = Modifier) {
+    EmptyState(Icons.Rounded.SearchOff, title, modifier, body = body) {
+        SecondaryButton(stringResource(R.string.back), onClick = onBack)
+    }
+}
+
 @Composable
 fun BackButton(onBack: () -> Unit) {
     IconButton(onClick = onBack) {
@@ -457,17 +772,19 @@ fun BackButton(onBack: () -> Unit) {
     }
 }
 
+/** A 44 dp circle. It takes the 48 dp of a touch target wherever it stands: do not give it a smaller size. */
 @Composable
 fun CircleIconButton(icon: ImageVector, contentDescription: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
     Surface(
         onClick = onClick,
-        modifier = modifier.size(44.dp),
+        modifier = modifier,
         enabled = enabled,
         shape = CircleShape,
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
-        Box(contentAlignment = Alignment.Center) {
+        // The size is the circle's own, inside the Surface: on the Surface it would also cut the touch target down to 44 dp.
+        Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
             Icon(icon, contentDescription = contentDescription, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurface)
         }
     }
@@ -481,13 +798,14 @@ fun ConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     danger: Boolean = false,
+    dismissText: String = stringResource(R.string.cancel),
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title, style = MaterialTheme.typography.headlineSmall) },
         text = { Text(body, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) },
         confirmButton = { TextAction(confirmText, onClick = onConfirm, danger = danger) },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(dismissText, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
         containerColor = MaterialTheme.colorScheme.surface,
         shape = MaterialTheme.shapes.extraLarge,
     )

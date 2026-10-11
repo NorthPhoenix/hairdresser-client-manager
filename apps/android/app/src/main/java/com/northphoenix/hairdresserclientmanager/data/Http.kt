@@ -2,6 +2,9 @@ package com.northphoenix.hairdresserclientmanager.data
 
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.Response
@@ -15,7 +18,10 @@ val hcmJson: Json = Json {
     coerceInputValues = true
 }
 
-/** A failure the UI can show. [isNetwork] means the server was never reached. */
+/**
+ * A failure the UI can show. [isNetwork] means there was no usable connection to the server;
+ * for a change it also means the change was never sent.
+ */
 class ApiException(
     override val message: String,
     val code: String = "UNKNOWN",
@@ -23,7 +29,96 @@ class ApiException(
     cause: Throwable? = null,
 ) : Exception(message, cause) {
     val isUnauthorized: Boolean get() = code == "UNAUTHORIZED"
+
+    /** Something the request refers to no longer exists on the server, so what the screen shows is out of date. */
+    val isNotFound: Boolean get() = code == "NOT_FOUND"
+
+    /**
+     * A change was sent but the API's reply to it never came: none at all, or a gateway's failure
+     * in its place. It may or may not have been saved.
+     */
+    val outcomeUnknown: Boolean get() = code == NO_REPLY
+
+    /** The API refused what was sent to it: a value breaks one of its rules, or what is asked for cannot be done as things are. */
+    val isRefusedInput: Boolean get() = code == "BAD_REQUEST"
+
+    /** The change names a Client who is no longer one of the Appointment's Clients. */
+    val isClientNotAttached: Boolean get() = code == "BAD_REQUEST" && message in CLIENT_NOT_ATTACHED
+
+    /**
+     * The API does not take the stored file as an Appointment Photo: it is not a file of this
+     * server's photo storage, or another photo already names it. Sending the same file again is
+     * refused again, so the picture has to be uploaded anew.
+     */
+    val isStoredFileRefused: Boolean get() = code == "BAD_REQUEST" && message in STORED_FILE_REFUSED
+
+    /**
+     * The API refused a change by who the Clients of an Appointment are now, or by what they have
+     * in it. The app offers such a change only where its own copy of the Appointment allows it, so
+     * that copy is out of date and the Appointment is loaded again.
+     * A copy from an Appointment that has nothing to copy is such a change as well: the copy sheet
+     * lists only Appointments that have, so its list is out of date.
+     * So are a save from a form that is older than its record, and a creation the server has
+     * already carried out: what the server has is loaded, and the Stylist goes on from there.
+     */
+    val screenOutOfDate: Boolean
+        get() = isClientNotAttached ||
+            (code == "BAD_REQUEST" && (message in CLIENT_KEPT || message == SOURCE_HAS_NOTHING_TO_COPY)) ||
+            isChangedElsewhere ||
+            isMadeWithOtherValues
+
+    /**
+     * A save named the version of the record its form was loaded from, and the server has another
+     * one: the record was saved elsewhere since, on another device. Nothing was written. The record
+     * is loaded again, and the form keeps what the Stylist changed in it (see `ChangedElsewhere`).
+     */
+    val isChangedElsewhere: Boolean get() = code == "CONFLICT" && message == RECORD_CHANGED
+
+    /**
+     * A creating request named a key the server has already carried out, with other values: an
+     * earlier try of the same form was saved although its reply never came, and the form was
+     * changed since. Nothing was written, and the record of the earlier try is loaded. The form
+     * must not be sent again under another key: that would create a second record.
+     */
+    val isMadeWithOtherValues: Boolean get() = code == "CONFLICT" && message == REQUEST_MADE_WITH_OTHER_VALUES
+
+    companion object {
+        const val NO_REPLY = "NO_REPLY"
+
+        /** The server's refusal of a form that is older than its record ([isChangedElsewhere]), for a save the app can tell that of before it is sent. */
+        fun changedElsewhere() = ApiException(RECORD_CHANGED, code = "CONFLICT")
+
+        // The API's own words. They are the only way it tells these refusals apart.
+        private val CLIENT_NOT_ATTACHED = setOf(
+            "Client must be attached to the Appointment.",
+            "Primary Client must be attached to the Appointment.",
+            "Service Client must be attached to the Appointment.",
+            "Photo Client must be attached to the Appointment.",
+        )
+        private val CLIENT_KEPT = setOf(
+            "Appointment must keep at least one Client.",
+            "Client has Services attached to this Appointment.",
+            "Client has Appointment Photos attached to this Appointment.",
+        )
+        private val STORED_FILE_REFUSED = setOf(
+            "Appointment Photo URLs must point at UploadThing storage.",
+            "This file already belongs to another Appointment Photo.",
+        )
+        const val SOURCE_HAS_NOTHING_TO_COPY = "Source Appointment has no Services to copy."
+        private const val RECORD_CHANGED = "This record was changed since it was loaded."
+        private const val REQUEST_MADE_WITH_OTHER_VALUES = "This request was already carried out with other values."
+    }
 }
+
+/** Anything that went wrong, as a failure the UI can show. Callers rethrow cancellation before using this. */
+internal fun Exception.toApiException(): ApiException =
+    this as? ApiException ?: ApiException("Unexpected failure.", code = "UNEXPECTED", cause = this)
+
+/** True when this failure, or what caused it, is the connection: no network, an unknown host, a timeout. */
+internal fun Throwable.isConnectionFailure(): Boolean = generateSequence(this) { it.cause }.take(8).any { it is IOException }
+
+/** The content of a JSON string or other primitive, null for anything else. Replies are not trusted to have the expected shape. */
+internal fun JsonElement?.textOrNull(): String? = (this as? JsonPrimitive)?.contentOrNull
 
 internal suspend fun Call.await(): Response =
     suspendCancellableCoroutine { continuation ->

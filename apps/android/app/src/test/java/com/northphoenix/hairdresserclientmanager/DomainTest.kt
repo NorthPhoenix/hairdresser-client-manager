@@ -4,23 +4,36 @@ import com.northphoenix.hairdresserclientmanager.core.AppConfig
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
+import com.northphoenix.hairdresserclientmanager.data.DeviceContacts
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.LocationType
+import com.northphoenix.hairdresserclientmanager.domain.Amount
+import com.northphoenix.hairdresserclientmanager.domain.ChangedElsewhere
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
+import com.northphoenix.hairdresserclientmanager.domain.ContactFields
 import com.northphoenix.hairdresserclientmanager.domain.ContactImport
 import com.northphoenix.hairdresserclientmanager.domain.DeviceContact
+import com.northphoenix.hairdresserclientmanager.domain.ImportedContact
 import com.northphoenix.hairdresserclientmanager.domain.Money
+import com.northphoenix.hairdresserclientmanager.domain.OneLine
+import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
+import com.northphoenix.hairdresserclientmanager.domain.weeksOf
+import com.northphoenix.hairdresserclientmanager.domain.zoneOrNull
+import com.northphoenix.hairdresserclientmanager.domain.zoneOrSystem
 import com.northphoenix.hairdresserclientmanager.i18n.normalizeLanguage
+import com.northphoenix.hairdresserclientmanager.i18n.stringsLanguage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.YearMonth
 import java.time.ZoneId
 import java.util.Locale
 
@@ -28,16 +41,97 @@ class DomainTest {
     private fun client(id: String, name: String, phone: String = "") =
         ClientProfile(id = id, name = name, language = Language.RU, phone = phone)
 
+    private fun found(clients: List<ClientProfile>, search: String) = ClientRules.filter(clients, search).map { it.id }
+
+    private fun assertAmount(cents: Long, text: String) = assertEquals(text, Amount.Valid(cents), Money.parse(text))
+
+    private fun assertRefused(reason: Amount, vararg texts: String) = texts.forEach { assertEquals(it, reason, Money.parse(it)) }
+
     @Test
-    fun `prices round-trip between text and cents`() {
-        assertEquals(8500, Money.priceToCents("85"))
-        assertEquals(8550, Money.priceToCents(" 85,5 "))
-        assertEquals(22050, Money.priceToCents("220.50"))
-        assertEquals(0, Money.priceToCents(""))
-        assertEquals(0, Money.priceToCents("abc"))
-        assertEquals(0, Money.priceToCents("-4"))
+    fun `an amount is read with a decimal point or a decimal comma and at most two decimals`() {
+        assertAmount(8500, "85")
+        assertAmount(8550, " 85,5 ")
+        assertAmount(22050, "220.50")
+        assertAmount(22050, "220,50")
+        assertAmount(0, "0")
+        assertAmount(0, "0.00")
+        assertAmount(8500, "085")
+        // A separator with digits on one side only is still one amount.
+        assertAmount(50, ".5")
+        assertAmount(50, ",50")
+        assertAmount(8500, "85.")
+        assertAmount(120000, "1200")
+    }
+
+    @Test
+    fun `a separator followed by exactly three digits separates thousands`() {
+        // M21: this was saved as 1.20.
+        assertAmount(120000, "1,200")
+        assertAmount(120000, "1.200")
+        assertAmount(120000, "1 200")
+        assertAmount(120000, "1\u00A0200")
+        assertAmount(123456, "1,234.56")
+        assertAmount(123450, "1,234.50")
+        assertAmount(120050, "1.200,50")
+        assertAmount(150050, "1 500,50")
+        assertAmount(150050, "1 500.50")
+        assertAmount(150000, "1 500")
+        assertAmount(123456789, "1,234,567.89")
+        assertAmount(100000000, "1.000.000")
+        // Three digits cannot be cents, so this is not 12.35 rounded.
+        assertAmount(1234500, "12.345")
+        assertAmount(9999900, "99.999")
+    }
+
+    @Test
+    fun `text that is not one amount is refused, never read as zero`() {
+        assertRefused(Amount.Empty, "", "   ")
+        assertRefused(Amount.Unreadable, "abc", "12abc", "1e3", "$85", "+5", "12.50.5", ".", ",", "8 5", "85 .50")
+        // More decimals than cents have, in a shape that cannot be thousands either.
+        assertRefused(Amount.Unreadable, "1,2345", "0.125", "0,500", "1234,567", "12,34,567")
+        // Two separators, each followed by three digits: either could be the decimal one.
+        assertRefused(Amount.Unreadable, "1,000.000", "1.234.56", "1,234,56", "1 234,567", "1,200,")
+        assertRefused(Amount.Negative, "-20", "-4", "-0.5", "\u22125", "-1,200", "-99999999999")
+        assertRefused(Amount.Unreadable, "-", "-abc", "--5")
+    }
+
+    @Test
+    fun `only an amount is saved, and an empty field only where none is required`() {
+        val notAmounts = listOf(Amount.Unreadable, Amount.Negative, Amount.TooLarge)
+
+        assertFalse(Amount.Valid(0).isRefused())
+        assertFalse(Amount.Valid(8500).isRefused(required = false))
+        // A Service Menu Item and an ad hoc Service state their price. A Service from the menu may leave it to the menu.
+        assertTrue(Amount.Empty.isRefused())
+        assertFalse(Amount.Empty.isRefused(required = false))
+        assertTrue(notAmounts.all { it.isRefused() })
+        assertTrue(notAmounts.all { it.isRefused(required = false) })
+    }
+
+    @Test
+    fun `an amount above the maximum is refused, never capped`() {
+        assertAmount(Money.MAX_CENTS, "9999999.99")
+        assertAmount(Money.MAX_CENTS, "9,999,999.99")
+        // H7: these were saved as 21474836.47, the most an Int holds.
+        assertRefused(Amount.TooLarge, "10000000", "10000000.00", "99999999999", "89161234567", "21474836.47", "10,000,000", "9".repeat(40))
+        assertAmount(999999900, "0009999999")
+    }
+
+    @Test
+    fun `amounts are written out exactly, also above what an Int holds`() {
         assertEquals("85.00", Money.centsToPrice(8500))
+        assertEquals("0.05", Money.centsToPrice(5))
         assertEquals("$220.50", Money.format(22050))
+        // The Services total of an Appointment saved before amounts had a maximum.
+        assertEquals("$42949672.94", Money.format(4294967294))
+        assertEquals("$9999999.99", Money.format(Money.MAX_CENTS))
+    }
+
+    @Test
+    fun `what the app writes into an amount field is read back as the same amount`() {
+        listOf(0L, 5L, 50L, 8500L, 22050L, 120000L, Money.MAX_CENTS).forEach { cents ->
+            assertEquals(Amount.Valid(cents), Money.parse(Money.centsToPrice(cents)))
+        }
     }
 
     @Test
@@ -58,6 +152,136 @@ class DomainTest {
         assertTrue(ClientRules.isDuplicatePhone(clients, editingClientId = null, phone = "+1 (512) 555-0100"))
         assertFalse(ClientRules.isDuplicatePhone(clients, editingClientId = "1", phone = "+1 512 555 0100"))
         assertFalse(ClientRules.isDuplicatePhone(clients, editingClientId = null, phone = "  "))
+    }
+
+    @Test
+    fun `client search reads ё as е and ignores case`() {
+        val clients = listOf(client("1", "Семён Смирнов"), client("2", "Мария Ёлкина"), client("3", "Елена Белова"))
+
+        assertEquals(listOf("1"), found(clients, "Семен"))
+        assertEquals(listOf("1"), found(clients, "СЕМЁН"))
+        assertEquals(listOf("2"), found(clients, "елк"))
+        assertEquals(listOf("2"), found(clients, "Ёлк"))
+        assertEquals(listOf("3"), found(clients, "ёлена"))
+        assertEquals(listOf("2", "3"), found(clients, "ел"))
+        // "ё" saved as "е" and a combining diaeresis (a contact imported from another system) is the same letter.
+        assertEquals(listOf("9"), found(listOf(client("9", "Семён")), "семен"))
+        assertEquals(listOf("9"), found(listOf(client("9", "Семён")), "семён"))
+    }
+
+    @Test
+    fun `a client search with letters is not matched through its digits`() {
+        val clients = listOf(
+            client("1", "Offline Oscar"),
+            client("2", "Boris Plus", "+7 903 000-11-22"),
+            client("3", "Anna 2", "555 0134"),
+            client("4", "Ivy Moore", "(555) 0234 ext 7"),
+        )
+
+        assertTrue(found(clients, "oscar 7").isEmpty())
+        assertTrue(found(clients, "zzz 7").isEmpty())
+        assertTrue(found(clients, "Moore 0134").isEmpty())
+        assertEquals(listOf("3"), found(clients, "anna 2"))
+        // The phone as typed is still found, letters and all.
+        assertEquals(listOf("4"), found(clients, "ext 7"))
+        // A search that is only a number is a name or a phone.
+        assertEquals(listOf("2", "4"), found(clients, "7"))
+        assertEquals(listOf("2", "3", "4"), found(clients, "2"))
+        assertEquals(listOf("3"), found(clients, "(555) 01"))
+        assertEquals(listOf("2"), found(clients, "903 000–11–22"))
+    }
+
+    @Test
+    fun `a Russian mobile is found by its number after 7 and after 8`() {
+        val clients = listOf(
+            client("1", "Seven", "+7 916 555-01-01"),
+            client("2", "Eight", "8 916 555-01-01"),
+            client("3", "Bare", "916 555 01 02"),
+            client("4", "Emily", "+1 512 555 0102"),
+        )
+
+        assertEquals(listOf("1", "2", "3"), found(clients, "7916"))
+        assertEquals(listOf("1", "2", "3"), found(clients, "8916"))
+        assertEquals(listOf("1", "2", "3"), found(clients, "916555"))
+        assertEquals(listOf("1", "2"), found(clients, "8 (916) 555-01-01"))
+        assertEquals(listOf("3"), found(clients, "+7 916 555 01 02"))
+        // Any other number is found by its own digits only.
+        assertEquals(listOf("4"), found(clients, "1512"))
+        assertTrue(found(clients, "8512").isEmpty())
+        assertTrue(found(clients, "7512").isEmpty())
+    }
+
+    @Test
+    fun `a phone without a digit is never a duplicate`() {
+        val clients = listOf(client("1", "Nick Nophone"), client("2", "Dana Dash", "-"), client("3", "Eve Ext", "ext"))
+
+        listOf("-", "ext", "—", "n/a", "").forEach { phone ->
+            assertFalse(phone, ClientRules.isDuplicatePhone(clients, editingClientId = null, phone = phone))
+        }
+    }
+
+    @Test
+    fun `a Russian mobile written with 8, with +7 or with neither is one number`() {
+        val rita = listOf(client("1", "Rita", "+7 916 123-45-67"))
+
+        listOf("8 916 123 45 67", "8(916)123-45-67", "916 123 45 67", "+7(916)1234567", "79161234567").forEach { phone ->
+            assertTrue(phone, ClientRules.isDuplicatePhone(rita, editingClientId = null, phone = phone))
+        }
+        assertTrue(ClientRules.isDuplicatePhone(listOf(client("1", "Olga", "8 916 123 45 67")), null, "+7 916 123-45-67"))
+        assertTrue(ClientRules.isDuplicatePhone(listOf(client("1", "Olga", "916 123 45 67")), null, "8 916 123-45-67"))
+        assertTrue(ClientRules.isDuplicatePhone(listOf(client("1", "Boris", "8 903 000 11 22")), null, "+7 903 000-11-22"))
+
+        assertFalse(ClientRules.isDuplicatePhone(rita, editingClientId = null, phone = "8 916 123 45 68"))
+        assertFalse(ClientRules.isDuplicatePhone(rita, editingClientId = "1", phone = "8 916 123 45 67"))
+    }
+
+    @Test
+    fun `no number but a Russian mobile is rewritten for the duplicate check`() {
+        // Eleven digits that start with 8: Japan's +81, not a Russian number written with 8.
+        assertFalse(ClientRules.isDuplicatePhone(listOf(client("1", "Yuki", "+81 3 1234 5678")), null, "+7 131 234 56 78"))
+        // The app cannot know the country of a number that has no country code.
+        assertFalse(ClientRules.isDuplicatePhone(listOf(client("1", "Anna", "+1 512 555 0100")), null, "512 555 0100"))
+        assertEquals("15125550100", ClientRules.comparablePhone("+1 (512) 555-0100"))
+        assertEquals("79161234567", ClientRules.comparablePhone("8 (916) 123-45-67"))
+        assertEquals("", ClientRules.comparablePhone("ext"))
+    }
+
+    @Test
+    fun `avatar initials are the first letters of the first two words`() {
+        assertEquals("АП", ClientRules.initials("анна петрова"))
+        assertEquals("АП", ClientRules.initials("  Анна   Петрова Сергеевна "))
+        assertEquals("Ё", ClientRules.initials("ёлкина"))
+        assertEquals("E", ClientRules.initials("emily@example.com"))
+        assertEquals("·", ClientRules.initials("   "))
+    }
+
+    @Test
+    fun `an avatar initial is a whole character, never half of an emoji`() {
+        val haircut = "💇" // 💇, two UTF-16 units
+        val nails = "💅" // 💅
+        val mediumSkin = "🏽" // skin tone modifier
+        val family = "👩‍👩‍👧" // three people joined into one emoji
+        val flag = "🇷🇺" // 🇷🇺, two regional indicators
+        val heart = "❤️" // ❤️, a symbol and its emoji variation selector
+
+        val initials = mapOf(
+            "$haircut Мария" to "${haircut}М",
+            "$haircut Зоя" to "${haircut}З",
+            "Rita $nails" to "R$nails",
+            "$haircut$nails" to haircut,
+            "$haircut$mediumSkin Мария" to "$haircut${mediumSkin}М",
+            "$family Ivanovs" to "${family}I",
+            "$flag Rita" to "${flag}R",
+            "$heart anna" to "${heart}A",
+            "élodie" to "É",
+        )
+
+        initials.forEach { (name, expected) ->
+            val actual = ClientRules.initials(name)
+
+            assertEquals(name, expected, actual)
+            assertTrue(name, actual.codePoints().noneMatch { it in 0xD800..0xDFFF })
+        }
     }
 
     @Test
@@ -92,8 +316,270 @@ class DomainTest {
     }
 
     @Test
+    fun `a contact's name and phone are imported as one line without control characters`() {
+        val imported = ContactImport.normalize(
+            DeviceContact(fullName = "Kim\u000BVert Importa", phones = listOf("+1 555\n0100"), emails = listOf(" kim@example.com\n")),
+        )
+
+        assertEquals("Kim Vert Importa", imported.name)
+        assertEquals("+1 555 0100", imported.phone)
+        assertEquals("kim@example.com", imported.email)
+        assertEquals("Zoe Ctrl", ContactImport.normalize(DeviceContact(givenName = "Zoe\u0001", familyName = "\tCtrl")).name)
+        // A name of nothing but a control character is no name: the given and family names are used.
+        assertEquals("Anna", ContactImport.normalize(DeviceContact(fullName = "\u0001", givenName = "Anna")).name)
+    }
+
+    @Test
+    fun `a contact saved without a name gives no Client name`() {
+        // Android lists such a contact under its phone number (source 20) or its email address (source 10).
+        assertNull(DeviceContacts.savedName("+1 650 555 0144", source = 20))
+        assertNull(DeviceContacts.savedName("nameless@example.com", source = 10))
+        assertNull(DeviceContacts.savedName(null, source = 0))
+        // A structured name (40), a nickname (35) and an organization (30) are what the contact is called.
+        assertEquals("Anna Petrova", DeviceContacts.savedName("Anna Petrova", source = 40))
+        assertEquals("Anya", DeviceContacts.savedName("Anya", source = 35))
+        assertEquals("Salon Supplies", DeviceContacts.savedName("Salon Supplies", source = 30))
+
+        val imported = ContactImport.normalize(DeviceContact(fullName = null, phones = listOf("+1 650 555 0144")))
+
+        assertNull(imported.name)
+        assertEquals("+1 650 555 0144", imported.phone)
+        assertTrue(imported.hasFields)
+    }
+
+    @Test
+    fun `contact import asks before it replaces what is in the form`() {
+        val nameAndPhone = ImportedContact(name = "Paula Phoneonly", phone = "+1 415 555 0123")
+
+        fun asks(existingClient: Boolean = false, name: String = "", phone: String = "", email: String = "", address: String = "") =
+            ContactImport.asksFirst(ContactFields(name, phone, email, address), nameAndPhone, existingClient)
+
+        // An existing Client is always asked about, whatever the form holds and whether its Client is loaded yet.
+        assertTrue(asks(existingClient = true))
+        assertTrue(asks(existingClient = true, name = "Vera Full", phone = "+7 916 123-45-67"))
+
+        // A new Client: only when something that was entered would be replaced.
+        assertFalse(asks())
+        assertFalse(asks(name = "  ", phone = " "))
+        assertTrue(asks(name = "Typed Name"))
+        assertTrue(asks(phone = "+1 415 555 0199"))
+        assertTrue(asks(name = "Paula Phoneonly", phone = "+1 415 555 0199"))
+        // The contact has no email and no address, so what was typed there stays and is not asked about.
+        assertFalse(asks(email = "typed@example.com", address = "77 Typed Ave"))
+        // The same value again replaces nothing.
+        assertFalse(asks(name = " Paula Phoneonly ", phone = "+1 415 555 0123"))
+        // Text with a space at its end that the contact leaves alone is not replaced either.
+        assertFalse(asks(email = " typed@example.com ", address = "77 Typed Ave\n"))
+    }
+
+    @Test
+    fun `contact import copies only what the contact has`() {
+        val form = ContactFields(name = "Typed Name", phone = "+1 415 555 0199", email = "typed@example.com", address = "77 Typed Ave")
+
+        assertEquals(
+            form.copy(name = "Paula Phoneonly", phone = "+1 415 555 0123"),
+            ContactImport.copy(form, ImportedContact(name = "Paula Phoneonly", phone = "+1 415 555 0123")).after,
+        )
+        assertEquals(form.copy(email = "paula@example.com"), ContactImport.copy(form, ImportedContact(email = "paula@example.com")).after)
+        assertEquals(form, ContactImport.copy(form, ImportedContact()).after)
+    }
+
+    @Test
+    fun `a second contact import takes the place of the first one`() {
+        val wrong = ImportedContact(name = "Anna Wrong", phone = "+1 415 555 0100", email = "wrong@example.com", address = "1 Wrong St")
+        val right = ImportedContact(name = "Anna Right", phone = "+1 415 555 0123")
+
+        // A new Client: the email and the address of the wrong contact do not stay with the right one.
+        val first = ContactImport.copy(ContactFields(), wrong)
+        assertEquals(ContactFields("Anna Wrong", "+1 415 555 0100", "wrong@example.com", "1 Wrong St"), first.after)
+        assertTrue(ContactImport.asksFirst(first.after, right, existingClient = false, last = first))
+        val second = ContactImport.copy(first.after, right, first)
+        assertEquals(ContactFields(name = "Anna Right", phone = "+1 415 555 0123"), second.after)
+
+        // The question is also asked when the contact only takes details out: this one has no name and no phone.
+        val emailOnly = ImportedContact(email = "wrong@example.com")
+        assertTrue(ContactImport.asksFirst(first.after, emailOnly, existingClient = false, last = first))
+        assertEquals(ContactFields(email = "wrong@example.com"), ContactImport.copy(first.after, emailOnly, first).after)
+        // The same contact again changes nothing and asks nothing.
+        assertFalse(ContactImport.asksFirst(first.after, wrong, existingClient = false, last = first))
+        assertEquals(first, ContactImport.copy(first.after, wrong, first))
+
+        // A third import takes back the second, not the first again.
+        val third = ContactImport.copy(second.after, ImportedContact(address = "3 Third Rd"), second)
+        assertEquals(ContactFields(address = "3 Third Rd"), third.after)
+
+        // What the Stylist typed is kept: text from before the first import comes back, text changed after it stays.
+        val typedFirst = ContactImport.copy(ContactFields(email = "typed@example.com"), wrong)
+        assertEquals("wrong@example.com", typedFirst.after.email)
+        val edited = typedFirst.after.copy(address = "77 Typed Ave")
+        assertEquals(
+            ContactFields("Anna Right", "+1 415 555 0123", "typed@example.com", "77 Typed Ave"),
+            ContactImport.copy(edited, right, typedFirst).after,
+        )
+        // A field the Stylist emptied after the import stays empty.
+        assertEquals("", ContactImport.copy(typedFirst.after.copy(email = ""), right, typedFirst).after.email)
+
+        // An existing Client gets the saved email and address back, not those of the wrong contact.
+        val saved = ContactFields("Vera Full", "+7 916 123-45-67", "vera@example.com", "ул. Садовая, 12")
+        val overSaved = ContactImport.copy(saved, wrong)
+        assertEquals(
+            ContactFields("Anna Right", "+1 415 555 0123", "vera@example.com", "ул. Садовая, 12"),
+            ContactImport.copy(overSaved.after, right, overSaved).after,
+        )
+
+        // After a save there is no import to take back: what the first contact gave is the Client's own.
+        assertEquals(
+            ContactFields("Anna Right", "+1 415 555 0123", "wrong@example.com", "1 Wrong St"),
+            ContactImport.copy(first.after, right).after,
+        )
+    }
+
+    @Test
+    fun `one-line text is cleaned the way the server cleans it`() {
+        assertEquals("Paste Test second line", OneLine.clean("Paste Test\nsecond line"))
+        assertEquals("ZoeCtrl", OneLine.clean("Zoe\u0001Ctrl"))
+        assertEquals("Kim Vert", OneLine.clean("Kim\u000BVert"))
+        assertEquals("a b", OneLine.clean("a \n \r\n b"))
+        assertEquals("a b c", OneLine.clean("\ta b\u0085 c\r\n"))
+        assertEquals("Anna Petrova", OneLine.clean("  Anna Petrova ﻿"))
+        assertEquals("Anna  Petrova", OneLine.clean("Anna  Petrova"))
+        assertEquals("", OneLine.clean("\u0001"))
+        assertEquals("", OneLine.clean(" \n\t "))
+        assertEquals("", OneLine.clean(""))
+        // A zero-width joiner inside a name is kept: emoji and some scripts need it.
+        assertEquals("a‍b", OneLine.clean("a‍b"))
+    }
+
+    @Test
+    fun `a one-line field keeps what is typed and takes pasted text as one line`() {
+        // Typing: nothing is touched, so a space can be typed before the next word.
+        listOf("", "Anna", "Anna ", "  Anna  Petrova ", "Жан-Поль д’Арк", "👩🏽‍🦰 Zoë").forEach { assertEquals(it, it, OneLine.typed(it)) }
+
+        assertEquals("Paste Test second line", OneLine.typed("Paste Test\nsecond line"))
+        assertEquals("Paste Test second line", OneLine.typed("Paste Test \r\n\n  second line"))
+        assertEquals("ZoeCtrl", OneLine.typed("Zoe\u0001Ctrl"))
+        assertEquals("Anna Petrova ", OneLine.typed("Anna\tPetrova "))
+        assertEquals("Anna", OneLine.typed("Anna\n"))
+        assertEquals("", OneLine.typed("\n"))
+
+        // What the field holds is saved as the server would save the pasted text.
+        listOf("Paste Test\nsecond line", " a \u0001\n b ", "\u0001\nb", "a\n \u0001 \nb", "x\u007F\u009Fy ").forEach {
+            assertEquals(OneLine.clean(it), OneLine.typed(it).trim())
+        }
+    }
+
+    @Test
+    fun `a field takes no more text than the server does`() {
+        // L82: typed at the end of a full field, nothing more is taken.
+        assertEquals("abcde", TextLimits.typed("abcdef", 5, before = "abcde"))
+        assertEquals("abcd", TextLimits.typed("abcd", 5, before = "abc"))
+        assertEquals("abcde", TextLimits.typed("abcde", 5, before = "abcd"))
+        // A paste is taken as far as there is room, and what was in the field around it stays whole.
+        assertEquals("abXYc", TextLimits.typed("abXYZWc", 5, before = "abc"))
+        assertEquals("XYabc", TextLimits.typed("XYZabc", 5, before = "abc"))
+        assertEquals("abcXY", TextLimits.typed("abcXYZ", 5, before = "abc"))
+        assertEquals("12345", TextLimits.typed("1234567890", 5, before = ""))
+        // Pasted over a selection: the selection is gone, and what replaces it fits.
+        assertEquals("aXYZe", TextLimits.typed("aXYZWVe", 5, before = "abcde"))
+        // A megabyte pasted into a name is a name of a hundred characters.
+        assertEquals(TextLimits.NAME, TextLimits.typed("x".repeat(1_000_000), TextLimits.NAME, before = "").length)
+        // An emoji is two code units: it is taken whole or not at all.
+        assertEquals("abcd", TextLimits.typed("abcd😀", 5, before = "abcd"))
+        assertEquals("abc😀", TextLimits.typed("abc😀😀", 5, before = "abc"))
+        assertEquals("a😀bc", TextLimits.typed("a😀😀bc", 5, before = "a😀bc"))
+    }
+
+    @Test
+    fun `text that is longer than the limit already can be shortened and never grows`() {
+        // Saved before there was a limit, or copied from a contact: the field did not take it, so it does not cut it.
+        val long = "abcdefghij"
+
+        assertEquals("abcdefghi", TextLimits.typed("abcdefghi", 5, before = long))
+        assertEquals("bcdefghij", TextLimits.typed("bcdefghij", 5, before = long))
+        assertEquals("abcghij", TextLimits.typed("abcghij", 5, before = long))
+        assertEquals(long, TextLimits.typed(long, 5, before = long))
+        // Nothing is added to it, wherever it is typed, and none of it is lost for the try.
+        assertEquals(long, TextLimits.typed(long + "k", 5, before = long))
+        assertEquals(long, TextLimits.typed("abcXdefghij", 5, before = long))
+        assertEquals(long, TextLimits.typed("X$long", 5, before = long))
+    }
+
+    @Test
+    fun `the limits are the server's`() {
+        // packages/api/src/input.ts, textLimits. The server refuses a longer text, it never cuts one.
+        assertEquals(
+            listOf(100, 40, 254, 300, 5000, 2000, 200),
+            listOf(TextLimits.NAME, TextLimits.PHONE, TextLimits.EMAIL, TextLimits.ADDRESS, TextLimits.NOTE, TextLimits.FORMULA, TextLimits.PLACEMENT),
+        )
+    }
+
+    @Test
+    fun `a timezone the device does not know is none, and times are then in the device's own`() {
+        // L65: a Stylist saved before the server checked timezones can hold any text.
+        assertNull(zoneOrNull("Mars/Phobos"))
+        assertNull(zoneOrNull(""))
+        assertNull(zoneOrNull("  "))
+        assertNull(zoneOrNull(null))
+        assertEquals(ZoneId.of("Europe/Moscow"), zoneOrNull("Europe/Moscow"))
+        assertEquals(ZoneId.of("Europe/Moscow"), zoneOrNull(" Europe/Moscow "))
+        assertEquals(ZoneId.of("UTC"), zoneOrNull("UTC"))
+
+        assertEquals(ZoneId.systemDefault(), zoneOrSystem("Mars/Phobos"))
+        assertEquals(ZoneId.systemDefault(), zoneOrSystem(null))
+        assertEquals(ZoneId.of("Asia/Tokyo"), zoneOrSystem("Asia/Tokyo"))
+    }
+
+    @Test
+    fun `a name needs a character that can be seen`() {
+        listOf("", " ", "\u0001", "​", "  ", "﻿", "󠀁").forEach { assertFalse(OneLine.hasVisibleCharacter(it)) }
+        listOf("A", " я ", "😀", "​x", "-").forEach { assertTrue(it, OneLine.hasVisibleCharacter(it)) }
+    }
+
+    @Test
+    fun `an email is empty or one address with a domain`() {
+        listOf("", "  ", "name@example.com", " name@example.com ", "first.last+tag@mail.example.co.uk", "анна@почта.рф", "a@b.c").forEach {
+            assertTrue(it, ClientRules.isEmail(it))
+        }
+        listOf(
+            "not an email@@", "plainaddress", "name@", "@example.com", "name@example", "name@.com", "name@example.",
+            "name@example..com", "na me@example.com", "name@exa mple.com", "a@b@example.com", "name@example.com, other@example.com",
+        ).forEach {
+            assertFalse(it, ClientRules.isEmail(it))
+        }
+    }
+
+    @Test
+    fun `a Client whose saved name holds a control character is found by the name as it reads`() {
+        val clients = listOf(client("1", "Zoe\u0001Ctrl"), client("2", "Vera\tTab"), client("3", "Anna Petrova"))
+
+        assertEquals(listOf("1"), found(clients, "zoectrl"))
+        assertEquals(listOf("2"), found(clients, "veratab"))
+        assertEquals(listOf("1"), found(clients, "zoe"))
+        assertEquals(listOf("3"), found(clients, "anna p"))
+    }
+
+    @Test
     fun `reminder recipient keeps only digits and the plus sign`() {
         assertEquals("+15125550100", ClientReminder.recipient(" +1 (512) 555-0100 "))
+        assertEquals("5550100", ClientReminder.recipient("555-0100 (mobile)"))
+    }
+
+    @Test
+    fun `a phone with no digit to dial is no phone for a reminder`() {
+        // Each of these used to open the SMS app with an empty recipient.
+        for (phone in listOf("", "   ", "-", "n/a", "abc-CALL-me", "+", "+ ()")) {
+            assertNull(phone, ClientReminder.recipient(phone))
+        }
+    }
+
+    @Test
+    fun `a reminder is offered only for a scheduled Appointment`() {
+        fun offered(status: AppointmentStatus) = ClientReminder.isOffered(
+            Appointment(id = "a", primaryClientId = "c", primaryClientName = "Rita", startsAt = "2026-10-09T09:00:00.000Z", status = status, locationType = LocationType.IN_SALON),
+        )
+
+        // Its text says "your appointment is scheduled for", which no other status makes true.
+        assertEquals(listOf(AppointmentStatus.SCHEDULED), AppointmentStatus.entries.filter(::offered))
     }
 
     @Test
@@ -102,6 +588,16 @@ class DomainTest {
         assertEquals(Language.RU, normalizeLanguage("ru-RU"))
         assertEquals(Language.RU, normalizeLanguage("de-DE"))
         assertEquals(Language.RU, normalizeLanguage(null))
+    }
+
+    @Test
+    fun `only a Russian locale is shown in Russian, whatever the fallback would choose`() {
+        assertEquals(Language.RU, stringsLanguage("ru"))
+        assertEquals(Language.RU, stringsLanguage("ru-KZ"))
+        assertEquals(Language.EN, stringsLanguage("en-GB"))
+        // No German strings: Android shows the default set, which is English.
+        assertEquals(Language.EN, stringsLanguage("de-DE"))
+        assertEquals(Language.EN, stringsLanguage(null))
     }
 
     @Test
@@ -143,5 +639,246 @@ class DomainTest {
         assertTrue(english.uses12HourClock)
         assertFalse(russian.uses12HourClock)
         assertEquals("14:00", russian.time(LocalTime.of(14, 0)))
+    }
+
+    @Test
+    fun `an overlapping Appointment is named by its times, with its date when it starts on another day`() {
+        val format = TimeFormat(Locale.US, ZoneId.of("UTC"), thisYear = 2026, uses24HourClock = true)
+        fun appointment(startsAt: String, endsAt: String?) = Appointment(
+            id = "a",
+            primaryClientId = "c",
+            primaryClientName = "Carol Other",
+            startsAt = startsAt,
+            endsAt = endsAt,
+            status = AppointmentStatus.SCHEDULED,
+            locationType = LocationType.IN_SALON,
+        )
+        val day = LocalDate.of(2026, 10, 9)
+
+        assertEquals("09:00 – 10:00", format.timeRangeSeenFrom(day, appointment("2026-10-09T09:00:00.000Z", "2026-10-09T10:00:00.000Z")))
+        assertEquals("09:00", format.timeRangeSeenFrom(day, appointment("2026-10-09T09:00:00.000Z", endsAt = null)))
+        // Started the evening before and still running after midnight: without its date it would read as an Appointment of this day.
+        assertEquals("Oct 8, 23:30 – 00:30", format.timeRangeSeenFrom(day, appointment("2026-10-08T23:30:00.000Z", "2026-10-09T00:30:00.000Z")))
+    }
+
+    @Test
+    fun `times follow the device's 12 or 24-hour setting, whatever the app language`() {
+        val utc = ZoneId.of("UTC")
+        val afternoon = LocalTime.of(14, 0)
+        val appointment = Appointment(
+            id = "a",
+            primaryClientId = "c",
+            primaryClientName = "Anna",
+            startsAt = "2026-06-13T14:00:00.000Z",
+            endsAt = "2026-06-13T15:30:00.000Z",
+            status = AppointmentStatus.SCHEDULED,
+            locationType = LocationType.IN_SALON,
+        )
+        // Which space stands before AM/PM depends on the platform's locale data.
+        fun TimeFormat.plain(time: LocalTime) = time(time).replace(Regex("\\p{Zs}"), " ")
+
+        // English on a device set to 24 hours: no AM/PM anywhere, and the time picker has none either.
+        val english24 = TimeFormat(Locale.US, utc, uses24HourClock = true)
+        assertFalse(english24.uses12HourClock)
+        assertEquals("14:00", english24.time(afternoon))
+        assertEquals("09:05", english24.time(LocalTime.of(9, 5)))
+        assertEquals("14:00", english24.time(appointment.startsAt))
+        assertEquals("14:00 – 15:30", english24.timeRange(appointment))
+
+        // Russian on a device set to 12 hours.
+        val russian12 = TimeFormat(Locale.forLanguageTag("ru-RU"), utc, uses24HourClock = false)
+        assertTrue(russian12.uses12HourClock)
+        assertEquals("2:00 PM", russian12.plain(afternoon))
+        assertEquals("9:05 AM", russian12.plain(LocalTime.of(9, 5)))
+
+        // The setting that agrees with the language changes nothing.
+        val english12 = TimeFormat(Locale.US, utc, uses24HourClock = false)
+        assertTrue(english12.uses12HourClock)
+        assertEquals("2:00 PM", english12.plain(afternoon))
+        assertEquals(TimeFormat(Locale.US, utc).time(afternoon), english12.time(afternoon))
+        assertEquals("14:00", TimeFormat(Locale.forLanguageTag("ru-RU"), utc, uses24HourClock = true).time(afternoon))
+    }
+
+    @Test
+    fun `a day of another year is shown with its year`() {
+        val utc = ZoneId.of("UTC")
+        val english = TimeFormat(Locale.US, utc, thisYear = 2026)
+        val russian = TimeFormat(Locale.forLanguageTag("ru-RU"), utc, thisYear = 2026)
+        val thisYear = LocalDate.of(2026, 10, 8)
+        val lastYear = LocalDate.of(2025, 1, 10)
+        val nextYear = LocalDate.of(2027, 10, 9)
+        fun String.plain() = replace(Regex("\\p{Zs}"), " ")
+
+        // The New Appointment date field and the Calendar's day label.
+        assertEquals("Thursday, October 8", english.longDay(thisYear))
+        assertEquals("Friday, January 10, 2025", english.longDay(lastYear))
+        // The same day and month as today, in the wrong year: only the year tells.
+        assertEquals("Saturday, October 9, 2027", english.longDay(nextYear))
+        assertEquals("Четверг, 8 октября", russian.longDay(thisYear))
+        assertEquals("Пятница, 10 января 2025 г.", russian.longDay(lastYear).plain())
+
+        // The date over an Appointment card that needs an outcome.
+        assertEquals("Oct 8", english.shortDate(thisYear))
+        assertEquals("Jan 10, 2025", english.shortDate(lastYear))
+        assertEquals("Oct 9, 2027", english.shortDate(nextYear))
+        assertFalse(russian.shortDate(thisYear).contains("2026"))
+        assertTrue(russian.shortDate(lastYear), russian.shortDate(lastYear).matches(Regex("10 янв\\.? 2025")))
+
+        // A format that was not told the year shows none.
+        assertEquals("Friday, January 10", TimeFormat(Locale.US, utc).longDay(lastYear))
+        assertEquals("Friday, January 10", TimeFormat(Locale.US, utc).dayTitle(lastYear))
+        assertEquals("Jan 10", TimeFormat(Locale.US, utc).shortDate(lastYear))
+    }
+
+    @Test
+    fun `the Appointment title of a day of another year keeps its year on one line`() {
+        val utc = ZoneId.of("UTC")
+        val english = TimeFormat(Locale.US, utc, thisYear = 2026)
+        val russian = TimeFormat(Locale.forLanguageTag("ru-RU"), utc, thisYear = 2026)
+
+        // A day of this year is titled as before.
+        assertEquals("Thursday, October 8", english.dayTitle(LocalDate.of(2026, 10, 8)))
+        assertEquals("Четверг, 8 октября", russian.dayTitle(LocalDate.of(2026, 10, 8)))
+
+        assertEquals("Fri, Jan 10, 2025", english.dayTitle(LocalDate.of(2025, 1, 10)))
+        assertEquals("Sat, Oct 9, 2027", english.dayTitle(LocalDate.of(2027, 10, 9)))
+        // In full these are longer than the line and their year was cut: "Tuesday, September 30, 2025", "Понедельник, 22 декабря 2025 г.".
+        assertEquals("Tue, Sep 30, 2025", english.dayTitle(LocalDate.of(2025, 9, 30)))
+        assertTrue(russian.dayTitle(LocalDate.of(2025, 12, 22)), russian.dayTitle(LocalDate.of(2025, 12, 22)).matches(Regex("Пн, 22 дек\\.? 2025")))
+        assertTrue(russian.dayTitle(LocalDate.of(2025, 9, 28)), russian.dayTitle(LocalDate.of(2025, 9, 28)).matches(Regex("Вс, 28 сент\\.? 2025")))
+
+        // Whatever the day, the title of another year ends with the year and is shorter than every title of this year that fills the line.
+        for (format in listOf(english, russian)) {
+            for (year in listOf(2025, 2027)) {
+                for (date in (0L until 365).map { LocalDate.of(year, 1, 1).plusDays(it) }) {
+                    val title = format.dayTitle(date)
+
+                    assertTrue(title, title.endsWith(" $year"))
+                    // "Wed, Sep 30, 2025" and "Ср, 30 сент. 2025"; the longest of this year, "Понедельник, 30 сентября", has 24.
+                    assertTrue(title, title.length <= 17)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `a time the clocks skip when they go forward is no instant`() {
+        val berlin = TimeFormat(Locale.US, ZoneId.of("Europe/Berlin"))
+        val springForward = LocalDate.of(2027, 3, 28)
+
+        // 2:00 to 2:59 does not exist that night; it used to be moved an hour later without a word.
+        assertNull(berlin.toInstant(springForward, LocalTime.of(2, 0)))
+        assertNull(berlin.toInstant(springForward, LocalTime.of(2, 30)))
+        assertNull(berlin.toInstant(springForward, LocalTime.of(2, 59)))
+        assertEquals(Instant.parse("2027-03-28T00:59:00Z"), berlin.toInstant(springForward, LocalTime.of(1, 59)))
+        assertEquals(Instant.parse("2027-03-28T01:00:00Z"), berlin.toInstant(springForward, LocalTime.of(3, 0)))
+        assertNull(TimeFormat(Locale.US, ZoneId.of("America/New_York")).toInstant(LocalDate.of(2027, 3, 14), LocalTime.of(2, 30)))
+
+        // The same time on any other day, and the hour that comes twice when the clocks go back, are times like any other.
+        assertEquals(Instant.parse("2027-03-27T01:30:00Z"), berlin.toInstant(springForward.minusDays(1), LocalTime.of(2, 30)))
+        assertEquals(Instant.parse("2027-10-31T00:30:00Z"), berlin.toInstant(LocalDate.of(2027, 10, 31), LocalTime.of(2, 30)))
+        // A timezone without daylight saving skips nothing.
+        assertEquals(Instant.parse("2027-03-28T02:30:00Z"), TimeFormat(Locale.US, ZoneId.of("UTC")).toInstant(springForward, LocalTime.of(2, 30)))
+    }
+
+    // --- date picker ---
+
+    @Test
+    fun `a day in the date picker is named in full, in the app language`() {
+        val day = LocalDate.of(2026, 10, 8)
+
+        assertEquals("Thursday, October 8, 2026", TimeFormat(Locale.US, ZoneId.of("UTC")).fullDate(day))
+        // Which no-break space keeps the year and its "г." together depends on the platform's locale data.
+        assertEquals(
+            "Четверг, 8 октября 2026 г.",
+            TimeFormat(Locale.forLanguageTag("ru-RU"), ZoneId.of("UTC")).fullDate(day).replace(Regex("\\p{Zs}"), " "),
+        )
+    }
+
+    @Test
+    fun `the week starts on Sunday in US English and on Monday in Russian`() {
+        assertEquals(DayOfWeek.SUNDAY, TimeFormat(Locale.US, ZoneId.of("UTC")).firstDayOfWeek)
+        assertEquals(DayOfWeek.MONDAY, TimeFormat(Locale.forLanguageTag("ru-RU"), ZoneId.of("UTC")).firstDayOfWeek)
+    }
+
+    @Test
+    fun `a month is laid out in whole weeks from the first day of the week`() {
+        // 1 October 2026 is a Thursday.
+        val sundayFirst = weeksOf(YearMonth.of(2026, 10), DayOfWeek.SUNDAY)
+        val mondayFirst = weeksOf(YearMonth.of(2026, 10), DayOfWeek.MONDAY)
+
+        assertEquals(listOf(null, null, null, null, 1, 2, 3), sundayFirst.first().map { it?.dayOfMonth })
+        assertEquals(listOf(25, 26, 27, 28, 29, 30, 31), sundayFirst.last().map { it?.dayOfMonth })
+        assertEquals(listOf(null, null, null, 1, 2, 3, 4), mondayFirst.first().map { it?.dayOfMonth })
+        assertEquals(listOf(26, 27, 28, 29, 30, 31, null), mondayFirst.last().map { it?.dayOfMonth })
+        assertEquals(5, mondayFirst.size)
+        assertEquals((1..31).map { LocalDate.of(2026, 10, it) }, mondayFirst.flatten().filterNotNull())
+    }
+
+    @Test
+    fun `a month takes between four and six weeks`() {
+        // February 2026 starts on a Sunday, August 2026 on a Saturday.
+        val shortest = weeksOf(YearMonth.of(2026, 2), DayOfWeek.SUNDAY)
+        val longest = weeksOf(YearMonth.of(2026, 8), DayOfWeek.MONDAY)
+
+        assertEquals(4, shortest.size)
+        assertTrue(shortest.flatten().none { it == null })
+        assertEquals(6, longest.size)
+        assertEquals(listOf(null, null, null, null, null, 1, 2), longest.first().map { it?.dayOfMonth })
+        assertEquals(listOf(31, null, null, null, null, null, null), longest.last().map { it?.dayOfMonth })
+        assertTrue(longest.all { it.size == 7 })
+    }
+
+    @Test
+    fun `a form takes in a record that was saved elsewhere without losing what was changed in it`() {
+        // A15: the form was filled with phone 5550141 and 'old note'. The Stylist added to the note,
+        // and another device saved a new phone. The phone was not touched here: it is the saved one now.
+        assertEquals("5550999", ChangedElsewhere.field(loaded = "5550141", typed = "5550141", now = "5550999"))
+        // The note was changed here: it stays as typed, whatever was saved since.
+        assertEquals("old note app-note", ChangedElsewhere.field(loaded = "old note", typed = "old note app-note", now = "old note"))
+        assertEquals("old note app-note", ChangedElsewhere.field(loaded = "old note", typed = "old note app-note", now = "their note"))
+        // Emptied here is changed here.
+        assertEquals("", ChangedElsewhere.field(loaded = "old note", typed = "", now = "their note"))
+        // Spaces around a text are not a change: a save does not send them.
+        assertEquals("9 Other Road", ChangedElsewhere.field(loaded = "12 Salon Street", typed = " 12 Salon Street ", now = "9 Other Road"))
+        // After the Stylist's own save the record is what was typed, and the field is not touched.
+        assertEquals("12 Salon StreetX ", ChangedElsewhere.field(loaded = "12 Salon Street", typed = "12 Salon StreetX ", now = "12 Salon StreetX"))
+        assertEquals("9 Other Road", ChangedElsewhere.field(loaded = "12 Salon StreetX", typed = "12 Salon StreetX ", now = "9 Other Road"))
+        // Nothing saved elsewhere: nothing moves.
+        assertEquals("UTC", ChangedElsewhere.field(loaded = "UTC", typed = "UTC", now = "UTC"))
+        assertEquals("Asia/Tokyo", ChangedElsewhere.field(loaded = "UTC", typed = "Asia/Tokyo", now = "UTC"))
+    }
+
+    @Test
+    fun `a field changed both in the form and elsewhere is one the Stylist is told about`() {
+        // A15: the Stylist typed a new phone, and another device saved a different one. The form keeps
+        // what was typed, and the next save replaces a number the Stylist never saw.
+        assertEquals("5550222", ChangedElsewhere.field(loaded = "5550141", typed = "5550222", now = "5550999"))
+        assertTrue(ChangedElsewhere.collides(loaded = "5550141", typed = "5550222", now = "5550999"))
+        // Emptied here and changed there.
+        assertTrue(ChangedElsewhere.collides(loaded = "old note", typed = "", now = "their note"))
+        // L67: the same for a setting.
+        assertTrue(ChangedElsewhere.collides(loaded = "UTC", typed = "Asia/Tokyo", now = "Europe/Moscow"))
+
+        // Changed on one side only: the form shows the one value there is to show.
+        assertFalse(ChangedElsewhere.collides(loaded = "5550141", typed = "5550141", now = "5550999"))
+        assertFalse(ChangedElsewhere.collides(loaded = "old note", typed = "old note app-note", now = "old note"))
+        // Both changed it to the same.
+        assertFalse(ChangedElsewhere.collides(loaded = "5550141", typed = "5550999", now = "5550999"))
+        // Spaces around a text are not a change, on either side.
+        assertFalse(ChangedElsewhere.collides(loaded = "12 Salon Street", typed = " 12 Salon Street ", now = "9 Other Road"))
+        assertFalse(ChangedElsewhere.collides(loaded = "12 Salon Street", typed = "9 Other Road ", now = "9 Other Road"))
+        assertFalse(ChangedElsewhere.collides(loaded = "UTC", typed = "UTC", now = "UTC"))
+    }
+
+    @Test
+    fun `what the form itself saved does not count as changed elsewhere`() {
+        // The form sent 'Salon St 1' and the Stylist typed on before the reply came, or the reply never came
+        // and the record was loaded again: what is saved now is this form's own.
+        assertFalse(ChangedElsewhere.collides(loaded = "Salon St", typed = "Salon St 12", now = "Salon St 1", sent = "Salon St 1 "))
+        // Something else was saved after all: another device's.
+        assertTrue(ChangedElsewhere.collides(loaded = "Salon St", typed = "Salon St 12", now = "9 Other Road", sent = "Salon St 1"))
+        // Nothing was sent yet.
+        assertTrue(ChangedElsewhere.collides(loaded = "Salon St", typed = "Salon St 12", now = "Salon St 1", sent = null))
     }
 }

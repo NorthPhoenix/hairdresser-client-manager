@@ -1,0 +1,190 @@
+import { cache } from "react";
+import { clerkClient } from "@clerk/nextjs/server";
+import {
+  getUploadThingOrigins,
+  loadProfileShareContent,
+  resolveProfileShareOptions,
+  type SharePhotoImage
+} from "@hcm/api";
+import { db } from "@hcm/db";
+import { defaultLocale, requestedLocale, t } from "@hcm/shared";
+import { findShareLink } from "./shareLink";
+
+// Appointment Photos are stored by /api/uploadthing, in the UploadThing app of the same token.
+export const photoOrigins = getUploadThingOrigins(process.env.UPLOADTHING_TOKEN);
+
+// How long a share waits for the sign-in provider, and how long a name it answered is reused: a
+// Profile Share page is public, and not every view of it should ask the provider. The Stylist's
+// own requests ask every time (`fresh`), so a name entered a moment ago is on the next Share Image.
+const accountNameTimeoutMs = 3_000;
+const accountNameLifetimeMs = 60_000;
+const accountNames = new Map<string, { name: string | null; until: number }>();
+
+/**
+ * The name on a Stylist's Clerk account: its first and last name, which is what Clients see as
+ * the Stylist's identity. Null for an account without a name. The email address is a personal
+ * contact detail and is never used in its place.
+ */
+export async function accountName(clerkId: string, { fresh = false } = {}) {
+  const known = accountNames.get(clerkId);
+
+  if (!fresh && known && known.until > Date.now()) {
+    return known.name;
+  }
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    const clerk = await clerkClient();
+    const user = await Promise.race([
+      clerk.users.getUser(clerkId),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("The sign-in provider did not answer in time.")), accountNameTimeoutMs);
+      })
+    ]);
+    const name = [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || null;
+
+    if (accountNames.size >= 1_000) {
+      accountNames.clear();
+    }
+
+    accountNames.set(clerkId, { name, until: Date.now() + accountNameLifetimeMs });
+
+    return name;
+  } catch (error) {
+    // Asked afresh and not answered: the name that would have been reused is better than none.
+    if (known && known.until > Date.now()) {
+      return known.name;
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const photoReadTimeoutMs = 8_000;
+// The upload route takes files of up to 8 MB.
+const photoMaxBytes = 16 * 1024 * 1024;
+// A photo column of a Share Image is 476 px wide.
+const photoMaxSide = 720;
+// A stored file never changes, so a photo that was read once is kept for the next picture: the
+// same Share Image is built again for its other language, and anyone with the link can ask for it.
+const readPhotos = new Map<string, SharePhotoImage>();
+const readPhotosKept = 60;
+
+/**
+ * Reads a stored Appointment Photo for a Share Image: turned upright as the camera recorded it
+ * (the app's SVG renderer ignores that record), made small enough for a picture that holds
+ * several of them, and without the camera's own data such as the place it was taken.
+ */
+export async function readSharePhoto(url: string): Promise<SharePhotoImage | null> {
+  const known = readPhotos.get(url);
+
+  if (known) {
+    return known;
+  }
+
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(photoReadTimeoutMs) });
+
+    if (!response.ok || Number(response.headers.get("content-length") ?? 0) > photoMaxBytes) {
+      return null;
+    }
+
+    // Loaded here, so that a server without this image library still serves everything else.
+    const { default: sharp } = await import("sharp");
+    const { data, info } = await sharp(Buffer.from(await response.arrayBuffer()))
+      .rotate()
+      .resize({ width: photoMaxSide, height: photoMaxSide, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 78 })
+      .toBuffer({ resolveWithObject: true });
+
+    const photo = {
+      dataUri: `data:image/jpeg;base64,${data.toString("base64")}`,
+      width: info.width,
+      height: info.height
+    };
+
+    if (readPhotos.size >= readPhotosKept) {
+      // The one that was read first.
+      readPhotos.delete(readPhotos.keys().next().value ?? "");
+    }
+
+    readPhotos.set(url, photo);
+
+    return photo;
+  } catch (error) {
+    console.error("A photo could not be read for a Share Image:", error);
+
+    return null;
+  }
+}
+
+// What a browser shows as a picture and as nothing else: an answer of this server is never a
+// document that could run in the name of its pages.
+const photoTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif", "image/heic", "image/heif"]);
+
+/**
+ * Opens a stored Appointment Photo for a Profile Share page, to be passed on as it is stored.
+ * Null: photo storage did not answer in time, or what it answered is not a picture.
+ */
+export async function openSharePhoto(url: string) {
+  // Only the answer is waited for. The file itself is passed on as fast as the Client's phone
+  // takes it, which can be slow.
+  const waiting = new AbortController();
+  const timer = setTimeout(() => waiting.abort(), photoReadTimeoutMs);
+
+  try {
+    const response = await fetch(url, { signal: waiting.signal });
+    const type = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ?? "";
+
+    if (!response.ok || !response.body || !photoTypes.has(type)) {
+      await response.body?.cancel();
+
+      return null;
+    }
+
+    return { body: response.body, type };
+  } catch (error) {
+    console.error("A photo could not be read for a Profile Share page:", error);
+
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * What the Profile Share behind a link shows. Null: the link is unknown or was revoked. Loaded
+ * once for a page, which asks for it twice: for what it shows and for its title.
+ */
+export const loadProfileShare = cache(async (token: string) => {
+  const share = await findShareLink(token);
+
+  if (!share || share.revokedAt !== null) {
+    return null;
+  }
+
+  return {
+    language: share.client.language,
+    content: await loadProfileShareContent({ db, photoOrigins, accountName }, share.client, resolveProfileShareOptions(share))
+  };
+});
+
+/**
+ * What the address of a picture or a photo answers when its link shows nothing, in the language
+ * the address asks for, else of the Client the link was made for, else in the primary language
+ * (proxy.ts chooses the same way for the page).
+ */
+export async function unavailableShareResponse(token: string, lang?: string | null) {
+  const locale = requestedLocale(lang) ?? (await findShareLink(token))?.client.language ?? defaultLocale;
+
+  return new Response(t(locale, "profileShareUnavailableTitle"), {
+    status: 404,
+    headers: {
+      "Content-Language": locale,
+      "Content-Type": "text/plain; charset=utf-8"
+    }
+  });
+}

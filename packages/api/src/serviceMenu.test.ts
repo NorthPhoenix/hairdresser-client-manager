@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { appRouter } from "./root";
 import type { TRPCContext } from "./context";
+import { withTransaction } from "./testSupport";
 
 const stylist = {
   id: "stylist_1",
@@ -18,7 +19,7 @@ function createContext(db: TRPCContext["db"]): TRPCContext {
     clerkAuth: {
       userId: "clerk_1"
     },
-    db,
+    db: withTransaction(db),
     stylist
   } as unknown as TRPCContext;
 }

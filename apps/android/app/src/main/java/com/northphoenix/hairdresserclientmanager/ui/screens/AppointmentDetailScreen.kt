@@ -7,56 +7,88 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.EditCalendar
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.Sms
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
-import androidx.core.content.FileProvider
+import androidx.compose.ui.unit.Dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.northphoenix.hairdresserclientmanager.R
@@ -69,16 +101,29 @@ import com.northphoenix.hairdresserclientmanager.data.ColorFormula
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
 import com.northphoenix.hairdresserclientmanager.data.PhotoStatus
 import com.northphoenix.hairdresserclientmanager.data.ServiceMenuItem
+import com.northphoenix.hairdresserclientmanager.domain.Amount
+import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
+import com.northphoenix.hairdresserclientmanager.domain.AppointmentCopying
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.Money
+import com.northphoenix.hairdresserclientmanager.domain.ServiceEdit
+import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
+import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
+import com.northphoenix.hairdresserclientmanager.i18n.clientReminderTemplate
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.i18n.inLanguage
+import com.northphoenix.hairdresserclientmanager.i18n.messageRes
 import com.northphoenix.hairdresserclientmanager.i18n.toLocale
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
+import com.northphoenix.hairdresserclientmanager.state.LoadState
+import com.northphoenix.hairdresserclientmanager.state.PhotoUpload
+import com.northphoenix.hairdresserclientmanager.state.UploadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
+import com.northphoenix.hairdresserclientmanager.ui.components.AmountField
 import com.northphoenix.hairdresserclientmanager.ui.components.Avatar
 import com.northphoenix.hairdresserclientmanager.ui.components.ChoiceChip
+import com.northphoenix.hairdresserclientmanager.ui.components.ColorFormulaCard
 import com.northphoenix.hairdresserclientmanager.ui.components.ConfirmDialog
 import com.northphoenix.hairdresserclientmanager.ui.components.Hairline
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmBottomSheet
@@ -86,36 +131,95 @@ import com.northphoenix.hairdresserclientmanager.ui.components.HcmCard
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmTextField
 import com.northphoenix.hairdresserclientmanager.ui.components.IconLine
 import com.northphoenix.hairdresserclientmanager.ui.components.InlineEmpty
+import com.northphoenix.hairdresserclientmanager.ui.components.InlineLoadFailed
+import com.northphoenix.hairdresserclientmanager.ui.components.ItemMissing
 import com.northphoenix.hairdresserclientmanager.ui.components.Kicker
 import com.northphoenix.hairdresserclientmanager.ui.components.LabeledValue
+import com.northphoenix.hairdresserclientmanager.ui.components.LoadFailed
 import com.northphoenix.hairdresserclientmanager.ui.components.PrimaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenColumn
 import com.northphoenix.hairdresserclientmanager.ui.components.SecondaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.SegmentedControl
+import com.northphoenix.hairdresserclientmanager.ui.components.SideBySideOrStacked
 import com.northphoenix.hairdresserclientmanager.ui.components.StatusChip
 import com.northphoenix.hairdresserclientmanager.ui.components.SubScreen
 import com.northphoenix.hairdresserclientmanager.ui.components.Tag
+import com.northphoenix.hairdresserclientmanager.ui.components.TagPadding
 import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
+import com.northphoenix.hairdresserclientmanager.ui.components.fittedTextStyle
 import com.northphoenix.hairdresserclientmanager.ui.components.icon
+import com.northphoenix.hairdresserclientmanager.ui.components.rememberRequestKey
+import com.northphoenix.hairdresserclientmanager.ui.components.tagTextStyle
 import com.northphoenix.hairdresserclientmanager.ui.openUri
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
-import java.io.File
+import kotlinx.coroutines.flow.drop
 
 private const val MAX_GALLERY_PHOTOS = 10
 
-private sealed interface DetailSheet {
+/**
+ * The sheet that is open. It is saved state, so that an open sheet survives Android recreating the
+ * screen, and it names what it is about by id only: the Service, Color Formula, Client or photo is
+ * looked up in the Appointment as it is now.
+ */
+internal sealed interface DetailSheet {
     data object AddClient : DetailSheet
 
     data object AddService : DetailSheet
 
     data object CopyServices : DetailSheet
 
-    data class Formula(val service: AppointmentService, val formula: ColorFormula?) : DetailSheet
+    /** Edit Appointment: the day, the times and the place. */
+    data object Edit : DetailSheet
 
-    /** [replacing] is a failed photo being retried. */
-    data class AddPhoto(val participant: AppointmentParticipant, val replacing: AppointmentPhoto? = null) : DetailSheet
+    /** A Service of the Appointment that is being edited: its name, its price and its note. */
+    data class Service(val serviceId: String) : DetailSheet
+
+    /** [formulaId] is null for a Color Formula that is being added. */
+    data class Formula(val serviceId: String, val formulaId: String? = null) : DetailSheet
+
+    /** [replacingPhotoId] is a failed photo being retried. */
+    data class AddPhoto(val clientId: String, val replacingPhotoId: String? = null) : DetailSheet
 
     data class Photo(val photoId: String) : DetailSheet
+
+    /** A photo that is not on the server yet: it is still being uploaded, or its upload failed. */
+    data class Upload(val uploadId: String) : DetailSheet
+
+    companion object {
+        /** A sheet is saved as its kind followed by its ids, and no sheet as nothing. */
+        val Saver = listSaver<DetailSheet?, String>(
+            save = { sheet ->
+                when (sheet) {
+                    null -> emptyList()
+                    AddClient -> listOf("addClient")
+                    AddService -> listOf("addService")
+                    CopyServices -> listOf("copyServices")
+                    Edit -> listOf("edit")
+                    is Service -> listOf("service", sheet.serviceId)
+                    is Formula -> listOfNotNull("formula", sheet.serviceId, sheet.formulaId)
+                    is AddPhoto -> listOfNotNull("addPhoto", sheet.clientId, sheet.replacingPhotoId)
+                    is Photo -> listOf("photo", sheet.photoId)
+                    is Upload -> listOf("upload", sheet.uploadId)
+                }
+            },
+            restore = { saved ->
+                val id = saved.getOrNull(1)
+
+                when (saved.firstOrNull()) {
+                    "addClient" -> AddClient
+                    "addService" -> AddService
+                    "copyServices" -> CopyServices
+                    "edit" -> Edit
+                    "service" -> id?.let(::Service)
+                    "formula" -> id?.let { Formula(it, saved.getOrNull(2)) }
+                    "addPhoto" -> id?.let { AddPhoto(it, saved.getOrNull(2)) }
+                    "photo" -> id?.let(::Photo)
+                    "upload" -> id?.let(::Upload)
+                    else -> null
+                }
+            },
+        )
+    }
 }
 
 /** Everything about one Appointment: outcome, Clients, Services with Color Formulas, totals, photos and note. */
@@ -123,22 +227,32 @@ private sealed interface DetailSheet {
 fun AppointmentDetailScreen(
     viewModel: AppViewModel,
     appointmentId: String,
-    startsAt: String,
     onBack: () -> Unit,
     onOpenClient: (String) -> Unit,
 ) {
     val appointments by viewModel.appointments.collectAsStateWithLifecycle()
+    val absent by viewModel.absentAppointments.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val appointment = appointments[appointmentId]
 
-    LaunchedEffect(appointmentId) {
-        if (startsAt.isNotEmpty()) {
-            viewModel.ensureAppointment(appointmentId, startsAt)
-        }
-    }
+    // Asked for again each time the screen comes into view, from another screen or from the
+    // background: the Appointment may have changed or gone since it was loaded.
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.loadAppointment(appointmentId) }
 
     if (appointment == null) {
-        SubScreen(title = "", onBack = onBack, busy = busy) { padding -> LoadingRow(Modifier.padding(padding)) }
+        SubScreen(title = "", onBack = onBack, busy = busy) { padding ->
+            when (val load = absent[appointmentId]) {
+                is LoadState.Failed ->
+                    LoadFailed(load.message, onRetry = { viewModel.loadAppointment(appointmentId) }, Modifier.padding(padding))
+                LoadState.Missing -> ItemMissing(
+                    stringResource(R.string.appointment_missing_title),
+                    stringResource(R.string.appointment_missing_body),
+                    onBack,
+                    Modifier.padding(padding),
+                )
+                else -> LoadingRow(Modifier.padding(padding))
+            }
+        }
         return
     }
 
@@ -157,12 +271,35 @@ private fun AppointmentDetail(
     val context = LocalContext.current
     val format = LocalTimeFormat.current
     val clients by viewModel.clients.collectAsStateWithLifecycle()
+    val clientsLoad by viewModel.clientsLoad.collectAsStateWithLifecycle()
     val serviceMenu by viewModel.serviceMenu.collectAsStateWithLifecycle()
+    val serviceMenuLoad by viewModel.serviceMenuLoad.collectAsStateWithLifecycle()
     val completedSources by viewModel.completedSources.collectAsStateWithLifecycle()
-    val uploadingPhoto by viewModel.uploadingPhoto.collectAsStateWithLifecycle()
+    val completedSourcesLoad by viewModel.completedSourcesLoad.collectAsStateWithLifecycle()
+    val copyingInto by viewModel.copyingInto.collectAsStateWithLifecycle()
+    // The photos of this Appointment that are not on the server yet.
+    val uploads = viewModel.photoUploads.collectAsStateWithLifecycle().value.filter { it.photo.appointmentId == appointment.id }
+    // False on a server without photo storage: no upload can work there, so none is offered. The photos it has are still shown.
+    val canAddPhotos = viewModel.stylist.collectAsStateWithLifecycle().value?.photoStorageConfigured != false
+    val today by viewModel.today.collectAsStateWithLifecycle()
+    // The other Scheduled Appointments at this one's time, until the Stylist dismisses the warning.
+    val overlapping = viewModel.overlapWarnings.collectAsStateWithLifecycle().value[appointment.id].orEmpty()
+    val scroll = rememberScrollState()
     val isGroup = appointment.participants.size > 1
-    var sheet by remember { mutableStateOf<DetailSheet?>(null) }
-    var confirmDelete by remember { mutableStateOf(false) }
+    var sheet by rememberSaveable(stateSaver = DetailSheet.Saver) { mutableStateOf<DetailSheet?>(null) }
+    var confirmDelete by rememberSaveable { mutableStateOf(false) }
+    // The Service whose delete is being asked about. By id, like an open sheet: it is looked up again on every composition.
+    var deletingServiceId by rememberSaveable { mutableStateOf<String?>(null) }
+    // The Client whose removal from the Appointment is being asked about, by id as well.
+    var removingClientId by rememberSaveable { mutableStateOf<String?>(null) }
+    // Null for all but an Appointment that changes at the same moment once left without its primary Client among its Clients.
+    val clientsFault = AppointmentClients.fault(appointment)
+
+    // The two inline fields. Back asks before it discards what is typed into them and not saved yet.
+    var noteDraft by rememberDraft(appointment.id, saved = appointment.note)
+    var finalTotalDraft by rememberDraft(appointment.id, saved = appointment.finalTotalCentsOverride?.let(Money::centsToPrice).orEmpty())
+    val unsaved = UnsavedInput.appointmentNote(noteDraft, appointment.note) ||
+        UnsavedInput.finalTotal(finalTotalDraft, appointment.finalTotalCentsOverride)
 
     // The photo target has to survive the trip to the camera or gallery and back.
     var photoClientId by rememberSaveable { mutableStateOf("") }
@@ -179,6 +316,9 @@ private fun AppointmentDetail(
         val uri = cameraUri
         if (saved && uri != null) {
             upload(listOf(uri))
+        } else if (uri != null) {
+            // Back from the camera without a photo: what it may have written is not kept.
+            viewModel.discardCameraCapture(uri)
         }
     }
 
@@ -190,8 +330,7 @@ private fun AppointmentDetail(
 
         try {
             if (fromCamera) {
-                val file = File(File(context.cacheDir, "camera").apply { mkdirs() }, "capture-${System.currentTimeMillis()}.jpg")
-                val uri = FileProvider.getUriForFile(context, context.packageName + ".files", file)
+                val uri = viewModel.newCameraCapture()
                 cameraUri = uri
                 camera.launch(uri)
             } else {
@@ -203,12 +342,25 @@ private fun AppointmentDetail(
         }
     }
 
+    // A warning that arrives while the screen is scrolled down is at its top: the screen goes there.
+    // Not for the one the screen opens with, which would move a screen the Stylist comes back to.
+    val latestOverlapping by rememberUpdatedState(overlapping)
+
+    LaunchedEffect(scroll) {
+        snapshotFlow { latestOverlapping }.drop(1).collect { if (it.isNotEmpty()) scroll.animateScrollTo(0) }
+    }
+
     SubScreen(
-        title = format.longDay(format.zoned(appointment.startsAt).toLocalDate()),
+        title = format.dayTitle(format.zoned(appointment.startsAt).toLocalDate()),
         onBack = onBack,
         busy = busy,
+        unsaved = unsaved,
     ) { padding ->
-        ScreenColumn(padding) {
+        ScreenColumn(padding, scroll = scroll) {
+            if (overlapping.isNotEmpty()) {
+                OverlapWarning(appointment, overlapping, onDismiss = { viewModel.dismissOverlapWarning(appointment.id) })
+            }
+
             // --- summary ---
             HcmCard {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -232,6 +384,12 @@ private fun AppointmentDetail(
                             icon = Icons.Rounded.Map,
                         )
                     }
+                    SecondaryButton(
+                        stringResource(R.string.edit_appointment),
+                        onClick = { sheet = DetailSheet.Edit },
+                        modifier = Modifier.fillMaxWidth(),
+                        icon = Icons.Rounded.EditCalendar,
+                    )
                 }
             }
 
@@ -239,12 +397,12 @@ private fun AppointmentDetail(
             HcmCard {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(stringResource(R.string.appointment_status_label), style = MaterialTheme.typography.headlineSmall)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         AppointmentStatus.entries.forEach { status ->
                             ChoiceChip(
                                 stringResource(status.label),
                                 selected = appointment.status == status,
-                                onClick = { if (appointment.status != status) viewModel.setAppointmentStatus(appointment.id, status) },
+                                onClick = { viewModel.setAppointmentStatus(appointment.id, status) },
                             )
                         }
                     }
@@ -252,6 +410,14 @@ private fun AppointmentDetail(
             }
 
             // --- clients ---
+            clientsFault?.let { fault ->
+                ClientsFaultWarning(
+                    fault,
+                    primaryClientName = appointment.primaryClientName,
+                    enabled = !busy,
+                    onRestore = { viewModel.addParticipant(appointment.id, appointment.primaryClientId) },
+                )
+            }
             HcmCard(contentPadding = PaddingValues(top = 18.dp, bottom = 8.dp)) {
                 Text(stringResource(R.string.clients_title), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(horizontal = 18.dp))
                 appointment.participants.forEach { participant ->
@@ -259,9 +425,20 @@ private fun AppointmentDetail(
                         participant = participant,
                         showSubtotal = isGroup,
                         canRemove = isGroup,
+                        // The Clients of an Appointment change one at a time: the next change is offered by what the one before it left.
+                        canChange = !busy,
                         onOpen = { onOpenClient(participant.clientId) },
                         onMakePrimary = { viewModel.setAppointmentPrimary(appointment.id, participant.clientId) },
-                        onRemove = { viewModel.removeParticipant(appointment.id, participant.clientId) },
+                        onRemove = {
+                            // Asked only about a removal that can happen. What keeps the Client in the Appointment is said instead.
+                            val kept = AppointmentClients.keptBy(appointment, participant.clientId, uploads.any { it.photo.clientId == participant.clientId })
+
+                            if (kept == null) {
+                                removingClientId = participant.clientId
+                            } else {
+                                viewModel.notify(kept.messageRes(), isError = true)
+                            }
+                        },
                     )
                 }
                 TextAction(
@@ -269,6 +446,7 @@ private fun AppointmentDetail(
                     onClick = { sheet = DetailSheet.AddClient },
                     icon = Icons.Rounded.Add,
                     modifier = Modifier.padding(horizontal = 8.dp),
+                    enabled = !busy,
                 )
             }
 
@@ -288,13 +466,22 @@ private fun AppointmentDetail(
                         ServiceBlock(
                             service = service,
                             clientName = appointment.participants.firstOrNull { it.clientId == service.clientId }?.name.takeIf { isGroup },
-                            onDelete = { viewModel.deleteService(appointment.id, service.id) },
-                            onAddFormula = { sheet = DetailSheet.Formula(service, null) },
-                            onEditFormula = { sheet = DetailSheet.Formula(service, it) },
+                            busy = busy,
+                            onEdit = { sheet = DetailSheet.Service(service.id) },
+                            onDelete = { deletingServiceId = service.id },
+                            onAddFormula = { sheet = DetailSheet.Formula(service.id) },
+                            onEditFormula = { sheet = DetailSheet.Formula(service.id, it.id) },
                         )
                     }
 
-                    SecondaryButton(stringResource(R.string.add_appointment_service), onClick = { sheet = DetailSheet.AddService }, modifier = Modifier.fillMaxWidth(), icon = Icons.Rounded.Add)
+                    SecondaryButton(
+                        stringResource(R.string.add_appointment_service),
+                        onClick = { sheet = DetailSheet.AddService },
+                        modifier = Modifier.fillMaxWidth(),
+                        // A Service is for one of the Appointment's Clients. Without any, the warning above the Clients says what to do first.
+                        enabled = clientsFault != AppointmentClients.Fault.NO_CLIENTS,
+                        icon = Icons.Rounded.Add,
+                    )
                     TextAction(
                         stringResource(R.string.copy_completed_services),
                         onClick = { sheet = DetailSheet.CopyServices },
@@ -307,6 +494,8 @@ private fun AppointmentDetail(
             // --- totals ---
             TotalsCard(
                 appointment = appointment,
+                overrideText = finalTotalDraft,
+                onOverrideText = { finalTotalDraft = it },
                 onSaveOverride = { viewModel.setAppointmentFinalTotal(appointment.id, it) },
             )
 
@@ -315,47 +504,88 @@ private fun AppointmentDetail(
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Text(stringResource(R.string.appointment_photos_title), style = MaterialTheme.typography.headlineSmall)
 
-                    if (appointment.photos.isEmpty() && !uploadingPhoto) {
+                    if (appointment.photos.isEmpty() && uploads.isEmpty()) {
                         InlineEmpty(stringResource(R.string.appointment_no_photos))
+                    }
+                    if (!canAddPhotos) {
+                        // In the place of every 'Add photo': why there is none.
+                        Text(
+                            stringResource(R.string.appointment_photos_unavailable),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
 
                     appointment.participants.forEach { participant ->
                         val photos = appointment.photos.filter { it.clientId == participant.clientId }
+                        val onTheirWay = uploads.filter { it.photo.clientId == participant.clientId }
+                        val failed = onTheirWay.count { it.state == UploadState.FAILED }
+                        val uploading = onTheirWay.size - failed
 
-                        if (isGroup) {
+                        // Without 'Add photo' a Client who has no photos has nothing under their name.
+                        if (isGroup && (canAddPhotos || photos.isNotEmpty() || onTheirWay.isNotEmpty())) {
                             Kicker(participant.name)
                         }
-                        if (photos.isNotEmpty()) {
-                            PhotoGrid(photos, onOpen = { sheet = DetailSheet.Photo(it.id) })
+                        if (photos.isNotEmpty() || onTheirWay.isNotEmpty()) {
+                            PhotoGrid(
+                                photos,
+                                onTheirWay,
+                                onOpen = { sheet = DetailSheet.Photo(it.id) },
+                                onOpenUpload = { sheet = DetailSheet.Upload(it.id) },
+                            )
                         }
-                        SecondaryButton(
-                            stringResource(R.string.add_appointment_photo),
-                            onClick = { sheet = DetailSheet.AddPhoto(participant) },
-                            modifier = Modifier.fillMaxWidth(),
-                            icon = Icons.Rounded.CameraAlt,
-                            enabled = !uploadingPhoto,
-                        )
-                    }
-
-                    if (uploadingPhoto) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                            Text(stringResource(R.string.appointment_photo_uploading), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        // What is on its way is said here, with the Client it is for and above the button that started it.
+                        if (uploading > 0) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                Text(
+                                    pluralStringResource(R.plurals.appointment_photos_uploading, uploading, uploading),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        if (failed > 0) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text(
+                                    pluralStringResource(R.plurals.appointment_photos_not_saved, failed, failed),
+                                    modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                                if (canAddPhotos) {
+                                    TextAction(
+                                        stringResource(R.string.retry_appointment_photo),
+                                        onClick = { viewModel.retryPhotoUploads(appointment.id, participant.clientId) },
+                                    )
+                                }
+                            }
+                        }
+                        // Not held back while photos upload: more pictures wait for their turn.
+                        if (canAddPhotos) {
+                            SecondaryButton(
+                                stringResource(R.string.add_appointment_photo),
+                                onClick = { sheet = DetailSheet.AddPhoto(participant.clientId) },
+                                modifier = Modifier.fillMaxWidth(),
+                                icon = Icons.Rounded.CameraAlt,
+                            )
                         }
                     }
                 }
             }
 
             // --- note ---
-            NoteCard(appointment, onSave = { viewModel.saveAppointmentNote(appointment.id, it) })
+            NoteCard(appointment, note = noteDraft, onNote = { noteDraft = it }, onSave = { viewModel.saveAppointmentNote(appointment.id, it) })
 
             // --- actions ---
-            SecondaryButton(
-                stringResource(R.string.compose_client_reminder),
-                onClick = { composeReminder(context, viewModel, appointment, format) },
-                modifier = Modifier.fillMaxWidth(),
-                icon = Icons.Rounded.Sms,
-            )
+            if (ClientReminder.isOffered(appointment)) {
+                SecondaryButton(
+                    stringResource(R.string.compose_client_reminder),
+                    onClick = { composeReminder(context, viewModel, appointment, format) },
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = Icons.Rounded.Sms,
+                )
+            }
             TextAction(
                 stringResource(R.string.delete_appointment),
                 onClick = { confirmDelete = true },
@@ -369,7 +599,10 @@ private fun AppointmentDetail(
     when (val current = sheet) {
         DetailSheet.AddClient -> ClientPickerSheet(
             title = stringResource(R.string.add_client_to_appointment),
-            clients = clients.filter { client -> appointment.participants.none { it.clientId == client.id } },
+            clients = clients,
+            takenIds = appointment.participants.map { it.clientId }.toSet(),
+            load = clientsLoad,
+            onRetry = viewModel::retryLoad,
             selectedIds = emptySet(),
             onDismiss = { sheet = null },
             onPick = {
@@ -377,37 +610,108 @@ private fun AppointmentDetail(
                 sheet = null
             },
         )
-        DetailSheet.AddService -> AddServiceSheet(
+        DetailSheet.AddService -> {
+            // One key for the Service this sheet is opened to add, so that a second try of it adds no second one.
+            val requestKey = rememberRequestKey(appointment.id)
+
+            AddServiceSheet(
+                appointment = appointment,
+                menu = serviceMenu,
+                menuLoad = serviceMenuLoad,
+                onRetry = viewModel::retryLoad,
+                busy = busy,
+                onDismiss = { sheet = null },
+                onMissingName = { viewModel.notify(R.string.service_name_required, isError = true) },
+                onAdd = { clientId, menuItemId, name, priceCents, note ->
+                    viewModel.addService(appointment.id, clientId, menuItemId, name, priceCents, note, requestKey) { sheet = null }
+                },
+            )
+        }
+        DetailSheet.CopyServices -> {
+            // One key for the copy this sheet is opened for, so that it is made once however often it is sent.
+            val requestKey = rememberRequestKey(appointment.id)
+            val clientIds = appointment.participants.map { it.clientId }
+
+            // What can be copied depends on the Appointment's Clients: loaded when the sheet opens, and again when they change under it.
+            LaunchedEffect(appointment.id, clientIds) { viewModel.showCopySources(appointment.id) }
+            DisposableEffect(appointment.id) { onDispose { viewModel.closeCopySources(appointment.id) } }
+
+            CopyServicesSheet(
+                sources = completedSources,
+                load = completedSourcesLoad,
+                onRetry = viewModel::retryLoad,
+                copying = copyingInto == appointment.id,
+                busy = busy,
+                format = format,
+                onDismiss = { sheet = null },
+                onCopy = { sourceId -> viewModel.copyServices(appointment.id, sourceId, requestKey) { sheet = null } },
+            )
+        }
+        DetailSheet.Edit -> EditAppointmentSheet(
             appointment = appointment,
-            menu = serviceMenu,
+            today = today,
             busy = busy,
             onDismiss = { sheet = null },
-            onMissingName = { viewModel.notify(R.string.service_name_required, isError = true) },
-            onAdd = { clientId, menuItemId, name, priceCents, note ->
-                viewModel.addService(appointment.id, clientId, menuItemId, name, priceCents, note) { sheet = null }
+            onRefused = { viewModel.notify(it, isError = true) },
+            onSave = { times, locationType, ownAddress ->
+                viewModel.editAppointment(appointment.id, times, locationType, ownAddress) { sheet = null }
             },
         )
-        DetailSheet.CopyServices -> CopyServicesSheet(
-            sources = completedSources.filter { it.id != appointment.id },
-            format = format,
-            onDismiss = { sheet = null },
-            onCopy = { sourceId -> viewModel.copyServices(appointment.id, sourceId) { sheet = null } },
-        )
-        is DetailSheet.Formula -> FormulaSheet(
-            current = current,
-            busy = busy,
-            onDismiss = { sheet = null },
-            onMissingFormula = { viewModel.notify(R.string.color_formula_required, isError = true) },
-            onSave = { formula, placement ->
-                viewModel.saveColorFormula(appointment.id, current.service.id, current.formula?.id, formula, placement) { sheet = null }
-            },
-            onDelete = { formulaId -> viewModel.deleteColorFormula(appointment.id, formulaId) { sheet = null } },
-        )
-        is DetailSheet.AddPhoto -> AddPhotoSheet(
-            current = current,
-            onDismiss = { sheet = null },
-            onPick = { category, fromCamera -> startPhoto(current.participant, category, current.replacing, fromCamera) },
-        )
+        // A sheet about something that is no longer in the Appointment closes.
+        is DetailSheet.Service -> {
+            val service = appointment.services.firstOrNull { it.id == current.serviceId }
+
+            if (service == null) {
+                sheet = null
+            } else {
+                EditServiceSheet(
+                    service = service,
+                    clientName = appointment.participants.firstOrNull { it.clientId == service.clientId }?.name.takeIf { isGroup },
+                    busy = busy,
+                    onDismiss = { sheet = null },
+                    onSave = { edit -> viewModel.updateService(appointment.id, service.id, edit) { sheet = null } },
+                )
+            }
+        }
+        is DetailSheet.Formula -> {
+            val service = appointment.services.firstOrNull { it.id == current.serviceId }
+            val formula = service?.colorFormulas?.firstOrNull { it.id == current.formulaId }
+
+            if (service == null || (formula == null && current.formulaId != null)) {
+                sheet = null
+            } else {
+                // One key for the Color Formula this sheet is opened to add, as for a Service.
+                val requestKey = rememberRequestKey(service.id, current.formulaId)
+
+                FormulaSheet(
+                    service = service,
+                    formula = formula,
+                    busy = busy,
+                    onDismiss = { sheet = null },
+                    onMissingFormula = { viewModel.notify(R.string.color_formula_required, isError = true) },
+                    onSave = { text, placement ->
+                        viewModel.saveColorFormula(appointment.id, service.id, formula?.id, text, placement, requestKey) { sheet = null }
+                    },
+                    onDelete = { formulaId -> viewModel.deleteColorFormula(appointment.id, formulaId) { sheet = null } },
+                )
+            }
+        }
+        is DetailSheet.AddPhoto -> {
+            val participant = appointment.participants.firstOrNull { it.clientId == current.clientId }
+            val replacing = appointment.photos.firstOrNull { it.id == current.replacingPhotoId }
+
+            // Also a sheet that was open when the server turned out to have no photo storage.
+            if (participant == null || (replacing == null && current.replacingPhotoId != null) || !canAddPhotos) {
+                sheet = null
+            } else {
+                AddPhotoSheet(
+                    participant = participant,
+                    replacing = replacing,
+                    onDismiss = { sheet = null },
+                    onPick = { category, fromCamera -> startPhoto(participant, category, replacing, fromCamera) },
+                )
+            }
+        }
         is DetailSheet.Photo -> {
             val photo = appointment.photos.firstOrNull { it.id == current.photoId }
 
@@ -417,6 +721,7 @@ private fun AppointmentDetail(
                 PhotoSheet(
                     photo = photo,
                     clientName = appointment.participants.firstOrNull { it.clientId == photo.clientId }?.name.orEmpty(),
+                    canUpload = canAddPhotos,
                     onDismiss = { sheet = null },
                     onCategory = { viewModel.setPhotoCategory(appointment.id, photo.id, it) },
                     onRemove = {
@@ -424,7 +729,27 @@ private fun AppointmentDetail(
                         viewModel.deletePhoto(appointment.id, photo.id)
                     },
                     onRetry = {
-                        appointment.participants.firstOrNull { it.clientId == photo.clientId }?.let { sheet = DetailSheet.AddPhoto(it, replacing = photo) }
+                        appointment.participants.firstOrNull { it.clientId == photo.clientId }?.let { sheet = DetailSheet.AddPhoto(it.clientId, replacingPhotoId = photo.id) }
+                    },
+                )
+            }
+        }
+        // Closes once the photo is on the server: it is among the stored ones then.
+        is DetailSheet.Upload -> {
+            val upload = uploads.firstOrNull { it.id == current.uploadId }
+
+            if (upload == null) {
+                sheet = null
+            } else {
+                UploadSheet(
+                    upload = upload,
+                    clientName = appointment.participants.firstOrNull { it.clientId == upload.photo.clientId }?.name.orEmpty(),
+                    canUpload = canAddPhotos,
+                    onDismiss = { sheet = null },
+                    onRetry = { viewModel.retryPhotoUpload(upload.id) },
+                    onRemove = {
+                        sheet = null
+                        viewModel.removePhotoUpload(upload.id)
                     },
                 )
             }
@@ -445,27 +770,152 @@ private fun AppointmentDetail(
             onDismiss = { confirmDelete = false },
         )
     }
+
+    removingClientId?.let { clientId ->
+        val participant = appointment.participants.firstOrNull { it.clientId == clientId }
+
+        if (participant == null || !isGroup) {
+            // Removed on another device by now, or the only Client left. The question is over, also
+            // if that Client is added again later: unlike a Service, a Client can come back.
+            removingClientId = null
+        } else {
+            ConfirmDialog(
+                title = stringResource(R.string.remove_client_from_appointment) + "?",
+                body = stringResource(
+                    if (participant.isPrimary) R.string.remove_primary_client_confirm_body else R.string.remove_client_confirm_body,
+                    participant.name,
+                ),
+                confirmText = stringResource(R.string.remove_client_confirm),
+                danger = true,
+                onConfirm = {
+                    removingClientId = null
+                    viewModel.removeParticipant(appointment.id, participant.clientId)
+                },
+                onDismiss = { removingClientId = null },
+            )
+        }
+    }
+
+    // A Service that is gone by now has nothing left to ask about.
+    appointment.services.firstOrNull { it.id == deletingServiceId }?.let { service ->
+        ConfirmDialog(
+            title = stringResource(R.string.delete_appointment_service) + "?",
+            body = stringResource(R.string.delete_appointment_service_confirm_body, service.name),
+            confirmText = stringResource(R.string.delete),
+            danger = true,
+            onConfirm = {
+                deletingServiceId = null
+                viewModel.deleteService(appointment.id, service.id)
+            },
+            onDismiss = { deletingServiceId = null },
+        )
+    }
 }
+
+/**
+ * The overlap warning of this Appointment: the other Scheduled Appointments at its time, each by
+ * its time and its Clients. It is on screen until the Stylist dismisses it, and a screen reader
+ * reads it out when it appears.
+ */
+@Composable
+private fun OverlapWarning(appointment: Appointment, overlapping: List<Appointment>, onDismiss: () -> Unit) {
+    val format = LocalTimeFormat.current
+    val day = format.zoned(appointment.startsAt).toLocalDate()
+
+    WarningCard(
+        title = stringResource(R.string.appointment_overlap_title),
+        action = stringResource(R.string.appointment_overlap_dismiss),
+        onAction = onDismiss,
+        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+    ) {
+        Text(stringResource(R.string.appointment_overlap_intro), style = MaterialTheme.typography.bodyMedium, color = HcmColors.Ink)
+        overlapping.forEach { other ->
+            val clients = other.participants.joinToString(", ") { it.name }.ifEmpty { other.primaryClientName }
+
+            Text(format.timeRangeSeenFrom(day, other) + " · " + clients, style = MaterialTheme.typography.titleSmall, color = HcmColors.Ink)
+        }
+    }
+}
+
+/**
+ * Shown above the Clients of an Appointment whose primary Client is not one of them: what is wrong
+ * and how to put it right. [onRestore] adds the primary Client back, which mends either [fault];
+ * 'Make primary' on a Client that is listed mends it as well.
+ */
+@Composable
+private fun ClientsFaultWarning(fault: AppointmentClients.Fault, primaryClientName: String, enabled: Boolean, onRestore: () -> Unit) {
+    val (title, body) = when (fault) {
+        AppointmentClients.Fault.NO_CLIENTS -> R.string.appointment_no_clients_title to R.string.appointment_no_clients_body
+        AppointmentClients.Fault.NO_PRIMARY -> R.string.appointment_no_primary_client_title to R.string.appointment_no_primary_client_body
+    }
+
+    WarningCard(
+        title = stringResource(title),
+        action = stringResource(R.string.restore_primary_client),
+        onAction = onRestore,
+        actionEnabled = enabled,
+    ) {
+        Text(stringResource(body, primaryClientName), style = MaterialTheme.typography.bodyMedium, color = HcmColors.Ink)
+    }
+}
+
+/** A warning about the Appointment: its title, what [content] says about it, and one action under that. */
+@Composable
+private fun WarningCard(
+    title: String,
+    action: String,
+    onAction: () -> Unit,
+    modifier: Modifier = Modifier,
+    actionEnabled: Boolean = true,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    HcmCard(
+        modifier,
+        color = HcmColors.WarningSoft,
+        borderColor = HcmColors.Warning,
+        contentPadding = PaddingValues(start = 18.dp, top = 16.dp, end = 8.dp, bottom = 6.dp),
+    ) {
+        Column(Modifier.padding(end = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Rounded.WarningAmber, contentDescription = null, modifier = Modifier.size(20.dp), tint = HcmColors.Warning)
+                Text(title, style = MaterialTheme.typography.titleMedium, color = HcmColors.Warning)
+            }
+            content()
+        }
+        TextAction(action, onClick = onAction, modifier = Modifier.align(Alignment.End), enabled = actionEnabled)
+    }
+}
+
+/**
+ * The text of an inline field of the Appointment. It starts from [saved], and again whenever
+ * [saved] changes. Text that differs from it is kept in saved state, so it survives Android
+ * recreating the screen; an untouched field is not kept and shows what is saved by then.
+ */
+@Composable
+private fun rememberDraft(appointmentId: String, saved: String): MutableState<String> =
+    rememberSaveable(
+        appointmentId,
+        saved,
+        saver = Saver<MutableState<String>, String>(save = { draft -> draft.value.takeIf { it != saved } }, restore = { mutableStateOf(it) }),
+    ) { mutableStateOf(saved) }
 
 /** Opens the SMS app with a reminder in the primary Client's language. Nothing is sent automatically. */
 private fun composeReminder(context: Context, viewModel: AppViewModel, appointment: Appointment, stylistFormat: TimeFormat) {
     val recipient = appointment.participants.firstOrNull { it.isPrimary }
+    val number = recipient?.let { ClientReminder.recipient(it.phone) }
 
-    if (recipient == null || recipient.phone.isBlank()) {
-        viewModel.notify(R.string.client_reminder_missing_phone, isError = true)
+    if (recipient == null || number == null) {
+        // No primary Client among the Appointment's Clients is not a Client without a phone.
+        viewModel.notify(if (recipient == null) R.string.client_reminder_no_primary_client else R.string.client_reminder_missing_phone, isError = true)
         return
     }
 
     // Written in the Client's language, whatever language the app is in.
-    val clientContext = context.inLanguage(recipient.language)
-    val message = clientContext.getString(
-        R.string.client_reminder_message,
-        TimeFormat(recipient.language.toLocale(), stylistFormat.zone).dateAndTimeRange(appointment),
-        appointment.locationAddress.ifBlank { clientContext.getString(appointment.locationType.label) },
-    )
+    val template = context.inLanguage(recipient.language).getString(clientReminderTemplate(appointment))
+    val message = ClientReminder.message(template, appointment, recipient.language.toLocale(), stylistFormat.zone)
 
     try {
-        context.startActivity(Intent(Intent.ACTION_SENDTO, ClientReminder.smsUri(recipient.phone)).putExtra("sms_body", message))
+        context.startActivity(Intent(Intent.ACTION_SENDTO, ClientReminder.smsUri(number)).putExtra("sms_body", message))
     } catch (_: ActivityNotFoundException) {
         viewModel.notify(R.string.sms_app_unavailable, isError = true)
     }
@@ -477,6 +927,8 @@ private fun ParticipantRow(
     participant: AppointmentParticipant,
     showSubtotal: Boolean,
     canRemove: Boolean,
+    /** False while a change is running: 'Make primary' and 'Remove from Appointment' wait for it. */
+    canChange: Boolean,
     onOpen: () -> Unit,
     onMakePrimary: () -> Unit,
     onRemove: () -> Unit,
@@ -523,15 +975,24 @@ private fun ParticipantRow(
                             menuOpen = false
                             onMakePrimary()
                         },
+                        enabled = canChange,
                     )
                 }
                 if (canRemove) {
                     DropdownMenuItem(
-                        text = { Text(stringResource(R.string.remove_client_from_appointment), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error) },
+                        text = {
+                            Text(
+                                stringResource(R.string.remove_client_from_appointment),
+                                style = MaterialTheme.typography.bodyLarge,
+                                // Its own colour only while it can be tapped: disabled, it is as pale as the menu makes the others.
+                                color = if (canChange) MaterialTheme.colorScheme.error else Color.Unspecified,
+                            )
+                        },
                         onClick = {
                             menuOpen = false
                             onRemove()
                         },
+                        enabled = canChange,
                     )
                 }
             }
@@ -539,10 +1000,13 @@ private fun ParticipantRow(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ServiceBlock(
     service: AppointmentService,
     clientName: String?,
+    busy: Boolean,
+    onEdit: () -> Unit,
     onDelete: () -> Unit,
     onAddFormula: () -> Unit,
     onEditFormula: (ColorFormula) -> Unit,
@@ -556,7 +1020,7 @@ private fun ServiceBlock(
                 }
             }
             Text(Money.format(service.priceCents), style = MaterialTheme.typography.titleMedium)
-            IconButton(onClick = onDelete) {
+            IconButton(onClick = onDelete, enabled = !busy) {
                 Icon(Icons.Rounded.DeleteOutline, contentDescription = stringResource(R.string.delete_appointment_service), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -564,28 +1028,21 @@ private fun ServiceBlock(
             Text(service.note, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         service.colorFormulas.forEach { formula ->
-            Surface(
-                onClick = { onEditFormula(formula) },
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Kicker(formula.placement.ifBlank { stringResource(R.string.color_formula_label) }, color = MaterialTheme.colorScheme.primary)
-                    Text(formula.formula, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                }
-            }
+            ColorFormulaCard(formula, onClick = { onEditFormula(formula) })
         }
-        // Pull the text button's own padding back so its label lines up with the Service name.
-        TextAction(stringResource(R.string.add_color_formula), onClick = onAddFormula, icon = Icons.Rounded.Add, modifier = Modifier.offset(x = (-10).dp))
+        // Pull the text buttons' own padding back so the first label lines up with the Service name.
+        // Side by side while both fit, and one under the other when they do not.
+        FlowRow(Modifier.offset(x = (-10).dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextAction(stringResource(R.string.add_color_formula), onClick = onAddFormula, icon = Icons.Rounded.Add)
+            TextAction(stringResource(R.string.edit_appointment_service), onClick = onEdit, icon = Icons.Rounded.Edit)
+        }
     }
 }
 
 @Composable
-private fun TotalsCard(appointment: Appointment, onSaveOverride: (Int?) -> Unit) {
-    var overrideText by remember(appointment.id, appointment.finalTotalCentsOverride) {
-        mutableStateOf(appointment.finalTotalCentsOverride?.let(Money::centsToPrice).orEmpty())
-    }
+private fun TotalsCard(appointment: Appointment, overrideText: String, onOverrideText: (String) -> Unit, onSaveOverride: (Long?) -> Unit) {
+    // The text a save was refused for. The reason stays under the field for as long as the text is that one.
+    var refusedText by rememberSaveable(appointment.id) { mutableStateOf<String?>(null) }
 
     HcmCard {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -593,23 +1050,33 @@ private fun TotalsCard(appointment: Appointment, onSaveOverride: (Int?) -> Unit)
             LabeledValue(stringResource(R.string.appointment_service_total), Money.format(appointment.serviceTotalCents))
             Hairline()
             LabeledValue(stringResource(R.string.appointment_final_total), Money.format(appointment.finalTotalCents), emphasized = true)
-            HcmTextField(
+            AmountField(
                 value = overrideText,
-                onValueChange = { overrideText = it },
+                onValueChange = onOverrideText,
                 label = stringResource(R.string.appointment_final_total_override),
                 placeholder = Money.centsToPrice(appointment.finalTotalCents),
-                prefix = "$",
-                keyboardType = KeyboardType.Decimal,
+                refusal = Money.parse(overrideText).takeIf { overrideText == refusedText },
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            // As tall as the taller of the two, whichever label takes more lines.
+            Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 SecondaryButton(
                     stringResource(R.string.save_final_total),
-                    onClick = { onSaveOverride(Money.priceToCents(overrideText)) },
-                    modifier = Modifier.weight(1f),
+                    // An empty field is no override, and the button is off for it. Anything else is saved only as the amount it states.
+                    onClick = {
+                        when (val amount = Money.parse(overrideText)) {
+                            is Amount.Valid -> onSaveOverride(amount.cents)
+                            else -> refusedText = overrideText
+                        }
+                    },
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
                     enabled = overrideText.isNotBlank(),
                 )
                 if (appointment.finalTotalCentsOverride != null) {
-                    SecondaryButton(stringResource(R.string.clear_final_total_override), onClick = { onSaveOverride(null) }, modifier = Modifier.weight(1f))
+                    SecondaryButton(
+                        stringResource(R.string.clear_final_total_override),
+                        onClick = { onSaveOverride(null) },
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    )
                 }
             }
         }
@@ -617,63 +1084,179 @@ private fun TotalsCard(appointment: Appointment, onSaveOverride: (Int?) -> Unit)
 }
 
 @Composable
-private fun NoteCard(appointment: Appointment, onSave: (String) -> Unit) {
-    var note by remember(appointment.id, appointment.note) { mutableStateOf(appointment.note) }
-
+private fun NoteCard(appointment: Appointment, note: String, onNote: (String) -> Unit, onSave: (String) -> Unit) {
     HcmCard {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.appointment_note_title), style = MaterialTheme.typography.headlineSmall)
-            HcmTextField(note, { note = it }, label = "", placeholder = stringResource(R.string.appointment_note_placeholder), singleLine = false, minLines = 3)
+            HcmTextField(note, onNote, label = "", placeholder = stringResource(R.string.appointment_note_placeholder), singleLine = false, minLines = 3, maxLength = TextLimits.NOTE)
             SecondaryButton(
                 stringResource(R.string.save_appointment_note),
                 onClick = { onSave(note) },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = note.trim() != appointment.note,
+                enabled = UnsavedInput.appointmentNote(note, appointment.note),
             )
         }
     }
 }
 
+/** The stored photos, then the ones that are not on the server yet: those are the newest. */
 @Composable
-private fun PhotoGrid(photos: List<AppointmentPhoto>, onOpen: (AppointmentPhoto) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        photos.chunked(3).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { photo ->
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .aspectRatio(1f)
-                            .clip(MaterialTheme.shapes.medium)
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .clickable { onOpen(photo) },
-                    ) {
-                        if (photo.status == PhotoStatus.STORED && photo.url.isNotBlank()) {
-                            AsyncImage(
-                                model = photo.thumbnailUrl.ifBlank { photo.url },
-                                contentDescription = stringResource(photo.category.label),
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize(),
-                            )
+private fun PhotoGrid(
+    photos: List<AppointmentPhoto>,
+    uploads: List<PhotoUpload>,
+    onOpen: (AppointmentPhoto) -> Unit,
+    onOpenUpload: (PhotoUpload) -> Unit,
+) {
+    BoxWithConstraints {
+        // Every tag in one size, in which the longest category takes one line of a tile.
+        val tagStyle = fittedTextStyle(PhotoCategory.entries.map { stringResource(it.label) }, tagTextStyle, photoTagWidth(maxWidth))
+
+        Column(verticalArrangement = Arrangement.spacedBy(PhotoGridGap)) {
+            (0 until photos.size + uploads.size).chunked(PHOTOS_IN_A_ROW).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(PhotoGridGap)) {
+                    row.forEach { index ->
+                        if (index < photos.size) {
+                            StoredPhotoTile(photos[index], tagStyle, onOpen)
                         } else {
-                            Icon(
-                                Icons.Rounded.BrokenImage,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.align(Alignment.Center),
-                            )
+                            UploadTile(uploads[index - photos.size], tagStyle, onOpenUpload)
                         }
-                        Tag(
-                            stringResource(photo.category.label),
-                            modifier = Modifier.align(Alignment.BottomStart).padding(6.dp),
-                            content = HcmColors.Surface,
-                            container = HcmColors.Ink.copy(alpha = 0.72f),
-                        )
                     }
+                    // Keep cells square when the last row is short.
+                    repeat(PHOTOS_IN_A_ROW - row.size) { Box(Modifier.weight(1f)) }
                 }
-                // Keep cells square when the last row is short.
-                repeat(3 - row.size) { Box(Modifier.weight(1f)) }
             }
+        }
+    }
+}
+
+private const val PHOTOS_IN_A_ROW = 3
+private val PhotoGridGap = 8.dp
+private val PhotoTagMargin = 6.dp
+
+/**
+ * The width the category has in the tag of a photo tile, in a grid [gridWidth] wide: a tile less
+ * the tag's margin and padding, and 2 dp more for the rounding to whole pixels (see `segmentLabelWidth`).
+ */
+internal fun photoTagWidth(gridWidth: Dp): Dp =
+    (gridWidth - PhotoGridGap * (PHOTOS_IN_A_ROW - 1)) / PHOTOS_IN_A_ROW - (PhotoTagMargin + TagPadding) * 2 - 2.dp
+
+/**
+ * Whether there is a stored picture to show. A photo that is recorded as failed has none, and
+ * neither has one whose address is not a web address ([isWebAddress]).
+ */
+internal val AppointmentPhoto.hasPicture: Boolean get() = status == PhotoStatus.STORED && isWebAddress(url)
+
+/** What a tile shows of a photo that has a picture: the smaller one, when it has one. */
+internal val AppointmentPhoto.tilePicture: String get() = thumbnailUrl.takeIf(::isWebAddress) ?: url
+
+/**
+ * An address that is fetched from the web, which is the only kind a stored photo has. The server
+ * records only addresses in its own photo storage, but a photo recorded before it checked can
+ * hold any text, and the image loader reads whatever it is handed: a file or other content of
+ * the device as well. Anything else is a photo without a picture.
+ */
+internal fun isWebAddress(address: String): Boolean =
+    address.startsWith("https://", ignoreCase = true) || address.startsWith("http://", ignoreCase = true)
+
+/**
+ * What a screen reader is told a photo tile is, with the category as its argument: a photo, and
+ * the state it is in unless it is simply stored. A photo that failed must not sound like a stored one.
+ */
+@StringRes
+internal fun photoTileDescription(photo: AppointmentPhoto): Int =
+    if (photo.hasPicture) R.string.appointment_photo_description else R.string.appointment_photo_failed_description
+
+/** The same for a photo that is not on the server yet: it is on its way there or it failed. */
+@StringRes
+internal fun photoTileDescription(upload: PhotoUpload): Int =
+    if (upload.state == UploadState.FAILED) R.string.appointment_photo_failed_description else R.string.appointment_photo_uploading_description
+
+/**
+ * One square of the photo grid: a button. [description] is all a screen reader is told (see
+ * [photoTileDescription]): the picture, the mark over it and the tag are not read out as well.
+ */
+@Composable
+private fun RowScope.PhotoTile(description: String, category: String, tagStyle: TextStyle, onClick: () -> Unit, picture: @Composable BoxScope.() -> Unit) {
+    Box(
+        Modifier
+            .weight(1f)
+            .aspectRatio(1f)
+            .clip(MaterialTheme.shapes.medium)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = description },
+    ) {
+        picture()
+        Tag(
+            category,
+            modifier = Modifier.align(Alignment.BottomStart).padding(PhotoTagMargin).clearAndSetSemantics {},
+            content = HcmColors.Surface,
+            container = HcmColors.Ink.copy(alpha = 0.72f),
+            style = tagStyle,
+        )
+    }
+}
+
+@Composable
+private fun RowScope.StoredPhotoTile(photo: AppointmentPhoto, tagStyle: TextStyle, onOpen: (AppointmentPhoto) -> Unit) {
+    val category = stringResource(photo.category.label)
+
+    PhotoTile(stringResource(photoTileDescription(photo), category), category, tagStyle, onClick = { onOpen(photo) }) {
+        if (photo.hasPicture) {
+            StoredPicture(photo.tilePicture, contentDescription = null, ContentScale.Crop, Modifier.fillMaxSize())
+        } else {
+            Icon(
+                Icons.Rounded.BrokenImage,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.Center),
+            )
+        }
+    }
+}
+
+/**
+ * The picture of a stored photo, from its web [address]. A picture that does not load (no
+ * connection, a file that is gone, an address that serves no image) leaves no empty place: it is
+ * marked like a photo without a picture, with [failedText] under the mark where there is room for it.
+ */
+@Composable
+internal fun StoredPicture(address: String, contentDescription: String?, contentScale: ContentScale, modifier: Modifier = Modifier, failedText: String? = null) {
+    var failed by remember(address) { mutableStateOf(false) }
+
+    Box(modifier, contentAlignment = Alignment.Center) {
+        AsyncImage(
+            model = address,
+            contentDescription = contentDescription,
+            contentScale = contentScale,
+            modifier = Modifier.fillMaxSize(),
+            onSuccess = { failed = false },
+            onError = { failed = true },
+        )
+        if (failed) {
+            Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Rounded.BrokenImage, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                failedText?.let {
+                    Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                }
+            }
+        }
+    }
+}
+
+/** A photo that is not on the server yet: the picture as it is on the device, dimmed, under a spinner or a failure mark. */
+@Composable
+private fun RowScope.UploadTile(upload: PhotoUpload, tagStyle: TextStyle, onOpen: (PhotoUpload) -> Unit) {
+    val category = stringResource(upload.photo.category.label)
+
+    PhotoTile(stringResource(photoTileDescription(upload), category), category, tagStyle, onClick = { onOpen(upload) }) {
+        AsyncImage(model = upload.picture, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        Box(Modifier.fillMaxSize().background(HcmColors.Ink.copy(alpha = 0.5f)))
+        if (upload.state == UploadState.FAILED) {
+            Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = HcmColors.Surface, modifier = Modifier.align(Alignment.Center))
+        } else {
+            // The description says that it is uploading: the spinner adds nothing for a screen reader.
+            CircularProgressIndicator(Modifier.align(Alignment.Center).size(24.dp).clearAndSetSemantics {}, color = HcmColors.Surface, strokeWidth = 2.dp)
         }
     }
 }
@@ -683,45 +1266,60 @@ private fun PhotoGrid(photos: List<AppointmentPhoto>, onOpen: (AppointmentPhoto)
 private fun AddServiceSheet(
     appointment: Appointment,
     menu: List<ServiceMenuItem>,
+    menuLoad: LoadState,
+    onRetry: () -> Unit,
     busy: Boolean,
     onDismiss: () -> Unit,
     onMissingName: () -> Unit,
-    onAdd: (clientId: String, menuItemId: String?, name: String?, priceCents: Int?, note: String?) -> Unit,
+    onAdd: (clientId: String, menuItemId: String?, name: String?, priceCents: Long?, note: String?) -> Unit,
 ) {
-    var clientId by remember { mutableStateOf(appointment.primaryClientId) }
-    var menuItemId by remember { mutableStateOf<String?>(null) }
-    var name by remember { mutableStateOf("") }
-    var price by remember { mutableStateOf("") }
-    var note by remember { mutableStateOf("") }
+    // The Client picked here, if any. They can have been removed from the Appointment while the sheet is open.
+    var pickedClientId by rememberSaveable { mutableStateOf<String?>(null) }
+    val clientId = AppointmentClients.serviceClientId(appointment, pickedClientId)
+    var menuItemId by rememberSaveable { mutableStateOf<String?>(null) }
+    var name by rememberSaveable { mutableStateOf("") }
+    var price by rememberSaveable { mutableStateOf("") }
+    var note by rememberSaveable { mutableStateOf("") }
+    // The price text a save was refused for. The reason stays under the field for as long as the text is that one.
+    var refusedPrice by rememberSaveable { mutableStateOf<String?>(null) }
     val selectedItem = menu.firstOrNull { it.id == menuItemId }
 
     HcmBottomSheet(title = stringResource(R.string.add_appointment_service), onDismiss = onDismiss) {
         if (appointment.participants.size > 1) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.appointment_service_client_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     appointment.participants.forEach { participant ->
-                        ChoiceChip(participant.name, selected = clientId == participant.clientId, onClick = { clientId = participant.clientId })
+                        ChoiceChip(participant.name, selected = clientId == participant.clientId, onClick = { pickedClientId = participant.clientId })
                     }
                 }
             }
         }
 
-        if (menu.isNotEmpty()) {
+        // A Service Menu that has loaded empty has nothing to offer here. One that is not loaded says so in the chips' place.
+        if (menu.isNotEmpty() || menuLoad != LoadState.Loaded) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.add_menu_service), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    menu.forEach { item ->
-                        ChoiceChip(
-                            item.name + " · " + Money.format(item.defaultPriceCents),
-                            selected = menuItemId == item.id,
-                            onClick = {
-                                // Picking a menu item takes its name and default price; the price stays editable.
-                                menuItemId = item.id
-                                name = ""
-                                price = Money.centsToPrice(item.defaultPriceCents)
-                            },
-                        )
+                if (menu.isEmpty() && menuLoad is LoadState.Failed) {
+                    InlineLoadFailed(menuLoad.message, onRetry)
+                } else if (menu.isEmpty()) {
+                    LoadingRow(Modifier.heightIn(max = 96.dp))
+                } else {
+                    FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        menu.forEach { item ->
+                            ChoiceChip(
+                                // The price stays with its dot when a long name takes the chip onto more lines.
+                                item.name + " ·\u00A0" + Money.format(item.defaultPriceCents),
+                                selected = menuItemId == item.id,
+                                wraps = true,
+                                onClick = {
+                                    // Picking a menu item takes its name and default price; the price stays editable.
+                                    menuItemId = item.id
+                                    name = ""
+                                    price = Money.centsToPrice(item.defaultPriceCents)
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -736,16 +1334,30 @@ private fun AddServiceSheet(
             },
             label = stringResource(R.string.appointment_service_name_label),
             placeholder = selectedItem?.name ?: stringResource(R.string.placeholder_service_name),
+            maxLength = TextLimits.NAME,
         )
-        HcmTextField(price, { price = it }, label = stringResource(R.string.appointment_service_price_label), placeholder = "85.00", prefix = "$", keyboardType = KeyboardType.Decimal)
-        HcmTextField(note, { note = it }, label = stringResource(R.string.appointment_service_note_label), placeholder = stringResource(R.string.optional), singleLine = false, minLines = 2)
+        AmountField(
+            price,
+            { price = it },
+            label = stringResource(R.string.appointment_service_price_label),
+            // Left empty, a Service from the menu takes the price of its Service Menu Item.
+            placeholder = selectedItem?.let { Money.centsToPrice(it.defaultPriceCents) } ?: "85.00",
+            // An empty price is refused only for an ad hoc Service: the reason goes once a Service from the menu is chosen.
+            refusal = Money.parse(price).takeIf { price == refusedPrice && it.isRefused(required = selectedItem == null) },
+        )
+        HcmTextField(note, { note = it }, label = stringResource(R.string.appointment_service_note_label), placeholder = stringResource(R.string.optional), singleLine = false, minLines = 2, maxLength = TextLimits.NOTE)
         PrimaryButton(
             stringResource(if (menuItemId != null) R.string.add_menu_service else R.string.add_ad_hoc_service),
             onClick = {
+                val amount = Money.parse(price)
+                // An ad hoc Service has to state its price. Only one from the menu may leave it out.
+                val priceRefused = amount.isRefused(required = selectedItem == null)
+
+                refusedPrice = price.takeIf { priceRefused }
                 if (name.isBlank() && selectedItem == null) {
                     onMissingName()
-                } else {
-                    onAdd(clientId, selectedItem?.id, name.ifBlank { null }, price.takeIf { it.isNotBlank() }?.let(Money::priceToCents), note.ifBlank { null })
+                } else if (!priceRefused) {
+                    onAdd(clientId, selectedItem?.id, name.ifBlank { null }, (amount as? Amount.Valid)?.cents, note.ifBlank { null })
                 }
             },
             modifier = Modifier.fillMaxWidth(),
@@ -754,27 +1366,128 @@ private fun AddServiceSheet(
     }
 }
 
+/**
+ * Edit Service: the name, the price and the note of a Service that is on the Appointment. They are
+ * saved together, as the form shows them. Its Client and its Color Formulas are not part of it.
+ */
 @Composable
-private fun CopyServicesSheet(sources: List<Appointment>, format: TimeFormat, onDismiss: () -> Unit, onCopy: (String?) -> Unit) {
+private fun EditServiceSheet(
+    service: AppointmentService,
+    clientName: String?,
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (ServiceEdit.Values) -> Unit,
+) {
+    // Filled from the Service when the sheet opens; what is typed after that is kept as it is.
+    var name by rememberSaveable(service.id) { mutableStateOf(service.name) }
+    var price by rememberSaveable(service.id) { mutableStateOf(Money.centsToPrice(service.priceCents)) }
+    var note by rememberSaveable(service.id) { mutableStateOf(service.note) }
+    // The texts a save was refused for. Each reason stays under its field for as long as the text is that one.
+    var refusedName by rememberSaveable(service.id) { mutableStateOf<String?>(null) }
+    var refusedPrice by rememberSaveable(service.id) { mutableStateOf<String?>(null) }
+
+    HcmBottomSheet(title = stringResource(R.string.edit_appointment_service), subtitle = clientName, onDismiss = onDismiss) {
+        HcmTextField(
+            name,
+            { name = it },
+            label = stringResource(R.string.appointment_service_name_label),
+            placeholder = stringResource(R.string.placeholder_service_name),
+            error = stringResource(R.string.service_name_required).takeIf { name == refusedName },
+            maxLength = TextLimits.NAME,
+        )
+        AmountField(
+            price,
+            { price = it },
+            label = stringResource(R.string.appointment_service_price_label),
+            placeholder = "85.00",
+            refusal = Money.parse(price).takeIf { price == refusedPrice },
+        )
+        HcmTextField(note, { note = it }, label = stringResource(R.string.appointment_service_note_label), placeholder = stringResource(R.string.optional), singleLine = false, minLines = 2, maxLength = TextLimits.NOTE)
+        PrimaryButton(
+            stringResource(R.string.save_appointment_service),
+            onClick = {
+                refusedName = name.takeIf(ServiceEdit::isNameRefused)
+                refusedPrice = price.takeIf(ServiceEdit::isPriceRefused)
+                ServiceEdit.values(name, price, note)?.let(onSave)
+            },
+            modifier = Modifier.fillMaxWidth(),
+            loading = busy,
+        )
+    }
+}
+
+/**
+ * Appointment Copying: the Completed Appointments that have something to copy into this one,
+ * each with whose Services and how many a copy from it adds. [copying] is a copy into this
+ * Appointment whose request is running: the sheet says so and takes no second tap. [busy] is
+ * any change in flight.
+ */
+@Composable
+private fun CopyServicesSheet(
+    sources: List<Appointment>,
+    load: LoadState,
+    onRetry: () -> Unit,
+    copying: Boolean,
+    busy: Boolean,
+    format: TimeFormat,
+    onDismiss: () -> Unit,
+    onCopy: (String?) -> Unit,
+) {
     HcmBottomSheet(title = stringResource(R.string.copy_completed_services), onDismiss = onDismiss) {
-        if (sources.isEmpty()) {
+        if (load is LoadState.Failed) {
+            InlineLoadFailed(load.message, onRetry)
+        } else if (load != LoadState.Loaded) {
+            LoadingRow(Modifier.heightIn(max = 96.dp))
+        } else if (sources.isEmpty()) {
+            // "Nothing to copy" is only true of a list that has loaded.
             InlineEmpty(stringResource(R.string.copy_services_empty))
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SecondaryButton(stringResource(R.string.copy_services_latest), onClick = { onCopy(null) }, modifier = Modifier.fillMaxWidth(), icon = Icons.Rounded.ContentCopy)
+                if (copying) {
+                    // In the button's place and as tall as it, so that nothing moves under a second tap.
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 50.dp).semantics { liveRegion = LiveRegionMode.Polite },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                    ) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text(stringResource(R.string.copy_services_running), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else {
+                    // The first source of the list is the one a copy takes when it names none.
+                    SecondaryButton(
+                        stringResource(R.string.copy_services_latest),
+                        onClick = { onCopy(null) },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !busy,
+                        icon = Icons.Rounded.ContentCopy,
+                    )
+                }
                 sources.forEach { source ->
-                    HcmCard(Modifier.fillMaxWidth(), onClick = { onCopy(source.id) }, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)) {
-                        Text(source.primaryClientName, style = MaterialTheme.typography.titleMedium)
+                    HcmCard(
+                        // Off, and dimmed to show it, while the copy runs and until the screen is loaded again after it,
+                        // which is also after a copy that was refused: the sources stay where they are and take no tap.
+                        Modifier.fillMaxWidth().alpha(if (busy) 0.5f else 1f),
+                        onClick = { onCopy(source.id) },
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                        enabled = !busy,
+                    ) {
+                        // What the copy takes of the source: in a group Appointment that is not all of it.
+                        Text(AppointmentCopying.clientNames(source).joinToString(", "), style = MaterialTheme.typography.titleMedium)
                         Text(format.dateAndTimeRange(source), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (source.services.isNotEmpty()) {
-                            Text(
-                                source.services.joinToString(", ") { it.name },
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+                        Text(
+                            AppointmentCopying.services(source).joinToString(", ") { it.name },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        // How many, because the names above are cut off after two lines.
+                        Text(
+                            pluralStringResource(R.plurals.copy_services_count, source.copyableServiceCount, source.copyableServiceCount),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
                     }
                 }
             }
@@ -784,49 +1497,73 @@ private fun CopyServicesSheet(sources: List<Appointment>, format: TimeFormat, on
 
 @Composable
 private fun FormulaSheet(
-    current: DetailSheet.Formula,
+    service: AppointmentService,
+    formula: ColorFormula?,
     busy: Boolean,
     onDismiss: () -> Unit,
     onMissingFormula: () -> Unit,
     onSave: (formula: String, placement: String) -> Unit,
     onDelete: (String) -> Unit,
 ) {
-    var formula by remember(current) { mutableStateOf(current.formula?.formula.orEmpty()) }
-    var placement by remember(current) { mutableStateOf(current.formula?.placement.orEmpty()) }
+    // Filled from the Color Formula when the sheet opens; what is typed after that is kept as it is.
+    var text by rememberSaveable(service.id, formula?.id) { mutableStateOf(formula?.formula.orEmpty()) }
+    var placement by rememberSaveable(service.id, formula?.id) { mutableStateOf(formula?.placement.orEmpty()) }
+    var confirmDelete by rememberSaveable(service.id, formula?.id) { mutableStateOf(false) }
 
-    HcmBottomSheet(title = stringResource(R.string.color_formula_label), subtitle = current.service.name, onDismiss = onDismiss) {
-        HcmTextField(formula, { formula = it }, label = stringResource(R.string.color_formula_label), placeholder = "7N + 20 vol", singleLine = false, minLines = 2)
-        HcmTextField(placement, { placement = it }, label = stringResource(R.string.color_formula_placement_label), placeholder = stringResource(R.string.placeholder_formula_placement))
+    HcmBottomSheet(title = stringResource(R.string.color_formula_label), subtitle = service.name, onDismiss = onDismiss) {
+        HcmTextField(text, { text = it }, label = stringResource(R.string.color_formula_label), placeholder = "7N + 20 vol", singleLine = false, minLines = 2, maxLength = TextLimits.FORMULA)
+        HcmTextField(placement, { placement = it }, label = stringResource(R.string.color_formula_placement_label), placeholder = stringResource(R.string.placeholder_formula_placement), maxLength = TextLimits.PLACEMENT)
         PrimaryButton(
-            stringResource(if (current.formula != null) R.string.save_color_formula else R.string.add_color_formula),
-            onClick = { if (formula.isBlank()) onMissingFormula() else onSave(formula, placement) },
+            stringResource(if (formula != null) R.string.save_color_formula else R.string.add_color_formula),
+            onClick = { if (text.isBlank()) onMissingFormula() else onSave(text, placement) },
             modifier = Modifier.fillMaxWidth(),
             loading = busy,
         )
-        current.formula?.let { existing ->
+        formula?.let { existing ->
             TextAction(
                 stringResource(R.string.delete_color_formula),
-                onClick = { onDelete(existing.id) },
+                onClick = { confirmDelete = true },
                 icon = Icons.Rounded.DeleteOutline,
                 danger = true,
+                enabled = !busy,
                 modifier = Modifier.align(Alignment.CenterHorizontally),
             )
         }
     }
+
+    if (confirmDelete && formula != null) {
+        ConfirmDialog(
+            title = stringResource(R.string.delete_color_formula) + "?",
+            body = stringResource(R.string.delete_color_formula_confirm_body, service.name),
+            confirmText = stringResource(R.string.delete),
+            danger = true,
+            onConfirm = {
+                confirmDelete = false
+                onDelete(formula.id)
+            },
+            onDismiss = { confirmDelete = false },
+        )
+    }
 }
 
 @Composable
-private fun AddPhotoSheet(current: DetailSheet.AddPhoto, onDismiss: () -> Unit, onPick: (PhotoCategory, fromCamera: Boolean) -> Unit) {
-    var category by remember(current) { mutableStateOf(current.replacing?.category ?: PhotoCategory.AFTER) }
+private fun AddPhotoSheet(
+    participant: AppointmentParticipant,
+    replacing: AppointmentPhoto?,
+    onDismiss: () -> Unit,
+    onPick: (PhotoCategory, fromCamera: Boolean) -> Unit,
+) {
+    var category by rememberSaveable(participant.clientId, replacing?.id) { mutableStateOf(replacing?.category ?: PhotoCategory.AFTER) }
 
-    HcmBottomSheet(title = stringResource(R.string.appointment_photos_title), subtitle = current.participant.name, onDismiss = onDismiss) {
+    HcmBottomSheet(title = stringResource(R.string.appointment_photos_title), subtitle = participant.name, onDismiss = onDismiss) {
         Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Text(stringResource(R.string.appointment_photo_category_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             SegmentedControl(PhotoCategory.entries, category, { category = it }, label = { stringResource(it.label) })
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            PrimaryButton(stringResource(R.string.add_photo_from_camera), onClick = { onPick(category, true) }, modifier = Modifier.weight(1f), icon = Icons.Rounded.CameraAlt)
-            PrimaryButton(stringResource(R.string.add_photo_from_gallery), onClick = { onPick(category, false) }, modifier = Modifier.weight(1f), icon = Icons.Rounded.PhotoLibrary)
+        // One under the other where half the sheet is too narrow for 'Camera' or 'Gallery' on one line.
+        SideBySideOrStacked(Modifier.fillMaxWidth()) {
+            PrimaryButton(stringResource(R.string.add_photo_from_camera), onClick = { onPick(category, true) }, icon = Icons.Rounded.CameraAlt)
+            PrimaryButton(stringResource(R.string.add_photo_from_gallery), onClick = { onPick(category, false) }, icon = Icons.Rounded.PhotoLibrary)
         }
     }
 }
@@ -835,39 +1572,125 @@ private fun AddPhotoSheet(current: DetailSheet.AddPhoto, onDismiss: () -> Unit, 
 private fun PhotoSheet(
     photo: AppointmentPhoto,
     clientName: String,
+    canUpload: Boolean,
     onDismiss: () -> Unit,
     onCategory: (PhotoCategory) -> Unit,
     onRemove: () -> Unit,
     onRetry: () -> Unit,
 ) {
-    val stored = photo.status == PhotoStatus.STORED && photo.url.isNotBlank()
+    var confirmRemove by rememberSaveable(photo.id) { mutableStateOf(false) }
 
     HcmBottomSheet(title = stringResource(photo.category.label), subtitle = clientName, onDismiss = onDismiss) {
-        if (stored) {
-            AsyncImage(
-                model = photo.url,
+        if (photo.hasPicture) {
+            StoredPicture(
+                photo.url,
                 contentDescription = stringResource(photo.category.label),
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(MaterialTheme.shapes.large).background(MaterialTheme.colorScheme.surfaceVariant),
+                failedText = stringResource(R.string.appointment_photo_not_loaded),
             )
         } else {
-            Text(
-                photo.uploadError.ifBlank { stringResource(R.string.appointment_photo_upload_failed) },
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.error,
-            )
-            SecondaryButton(stringResource(R.string.retry_appointment_photo), onClick = onRetry, modifier = Modifier.fillMaxWidth())
+            // Worded here, in the Stylist's language. A text that a record carries as its reason is never shown.
+            NotSavedPhoto(canUpload, onRetry)
         }
         Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Text(stringResource(R.string.appointment_photo_category_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            SegmentedControl(PhotoCategory.entries, photo.category, { if (it != photo.category) onCategory(it) }, label = { stringResource(it.label) })
+            // Not compared with the category shown: while a change is being saved, a tap back to it is a change again.
+            SegmentedControl(PhotoCategory.entries, photo.category, onCategory, label = { stringResource(it.label) })
         }
         TextAction(
             stringResource(R.string.remove_appointment_photo),
-            onClick = onRemove,
+            onClick = { confirmRemove = true },
             icon = Icons.Rounded.DeleteOutline,
             danger = true,
             modifier = Modifier.align(Alignment.CenterHorizontally),
+        )
+    }
+
+    if (confirmRemove) {
+        ConfirmRemovePhoto(
+            onConfirm = {
+                confirmRemove = false
+                onRemove()
+            },
+            onDismiss = { confirmRemove = false },
+        )
+    }
+}
+
+/**
+ * What the sheet of a photo that was not saved says and offers: 'Upload again', or, on a server
+ * without photo storage ([canUpload] is false), why another try cannot work.
+ */
+@Composable
+private fun NotSavedPhoto(canUpload: Boolean, onRetry: () -> Unit) {
+    Text(
+        stringResource(if (canUpload) R.string.appointment_photo_upload_failed else R.string.appointment_photos_unavailable),
+        style = MaterialTheme.typography.bodyLarge,
+        color = MaterialTheme.colorScheme.error,
+    )
+    if (canUpload) {
+        SecondaryButton(stringResource(R.string.retry_appointment_photo), onClick = onRetry, modifier = Modifier.fillMaxWidth())
+    }
+}
+
+/** 'Remove photo' asks first, for a stored photo and for one that is not on the server yet: a slip must not cost the photo. */
+@Composable
+private fun ConfirmRemovePhoto(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    ConfirmDialog(
+        title = stringResource(R.string.remove_appointment_photo) + "?",
+        body = stringResource(R.string.remove_appointment_photo_confirm_body),
+        confirmText = stringResource(R.string.delete),
+        danger = true,
+        onConfirm = onConfirm,
+        onDismiss = onDismiss,
+    )
+}
+
+/** A photo that is not on the server yet. One that failed is uploaded again or removed from here; one on its way can be removed. */
+@Composable
+private fun UploadSheet(
+    upload: PhotoUpload,
+    clientName: String,
+    canUpload: Boolean,
+    onDismiss: () -> Unit,
+    onRetry: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    var confirmRemove by rememberSaveable(upload.id) { mutableStateOf(false) }
+
+    HcmBottomSheet(title = stringResource(upload.photo.category.label), subtitle = clientName, onDismiss = onDismiss) {
+        AsyncImage(
+            model = upload.picture,
+            contentDescription = stringResource(upload.photo.category.label),
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(MaterialTheme.shapes.large).background(MaterialTheme.colorScheme.surfaceVariant),
+        )
+        if (upload.state == UploadState.FAILED) {
+            NotSavedPhoto(canUpload, onRetry)
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                Text(stringResource(R.string.appointment_photo_uploading), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        TextAction(
+            stringResource(R.string.remove_appointment_photo),
+            onClick = { confirmRemove = true },
+            icon = Icons.Rounded.DeleteOutline,
+            danger = true,
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+        )
+    }
+
+    // Gone with the sheet when the photo is stored while the question is open: there is nothing to remove from the device then.
+    if (confirmRemove) {
+        ConfirmRemovePhoto(
+            onConfirm = {
+                confirmRemove = false
+                onRemove()
+            },
+            onDismiss = { confirmRemove = false },
         )
     }
 }

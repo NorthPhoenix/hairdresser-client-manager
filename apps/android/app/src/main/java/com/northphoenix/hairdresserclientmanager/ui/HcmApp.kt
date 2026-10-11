@@ -1,5 +1,6 @@
 package com.northphoenix.hairdresserclientmanager.ui
 
+import android.text.format.DateFormat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,24 +14,30 @@ import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.auth.AuthState
 import com.northphoenix.hairdresserclientmanager.core.AppContainer
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
+import com.northphoenix.hairdresserclientmanager.i18n.messageRes
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.BootstrapState
 import com.northphoenix.hairdresserclientmanager.ui.components.EmptyState
@@ -57,19 +64,28 @@ fun HcmApp(container: AppContainer) {
 
             val viewModel: AppViewModel = viewModel(factory = AppViewModel.factory(container, auth))
             val zone by viewModel.zone.collectAsStateWithLifecycle()
+            val today by viewModel.today.collectAsStateWithLifecycle()
             // The per-app language shows up here as the configuration's locale.
             val locale = LocalConfiguration.current.locales[0]
-            val timeFormat = remember(locale, zone) { TimeFormat(locale, zone) }
-            val snackbarHostState = remember { SnackbarHostState() }
             val context = LocalContext.current
+            // The device's 12/24-hour setting; while it is left to the language, Android answers for the app language.
+            // It is read again on every return to the app, since it can only be changed outside it.
+            var uses24HourClock by remember(context, locale) { mutableStateOf(DateFormat.is24HourFormat(context)) }
+            LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { uses24HourClock = DateFormat.is24HourFormat(context) }
+            val timeFormat = remember(locale, zone, today.year, uses24HourClock) { TimeFormat(locale, zone, today.year, uses24HourClock) }
+            val snackbarHostState = remember { SnackbarHostState() }
 
             LaunchedEffect(viewModel, context) {
                 viewModel.notices.collect { notice ->
                     // Replace whatever is showing instead of queueing behind it.
                     snackbarHostState.currentSnackbarData?.dismiss()
-                    launch { snackbarHostState.showSnackbar(NoticeVisuals(context.getString(notice.message), notice.isError)) }
+                    launch { snackbarHostState.showSnackbar(NoticeVisuals(context.noticeText(notice.message, notice.args), notice.message, notice.isError, notice.args)) }
                 }
             }
+
+            // Another locale is another app language. One chosen in Android's settings arrives this way too,
+            // while the app is open or on the way back to it, and the view model saves it as the Stylist's choice.
+            LaunchedEffect(viewModel, locale) { viewModel.followLanguage() }
 
             CompositionLocalProvider(
                 LocalTimeFormat provides timeFormat,
@@ -79,12 +95,32 @@ fun HcmApp(container: AppContainer) {
 
                 when (val state = authState) {
                     AuthState.Loading -> LoadingScreen()
-                    is AuthState.Failed -> FailureScreen(message = stringResource(R.string.error_generic), onRetry = auth::retry)
-                    AuthState.SignedOut -> auth.SignInContent(Modifier.fillMaxSize().safeDrawingPadding())
+                    is AuthState.Failed -> FailureScreen(message = stringResource(state.messageRes()), onRetry = auth::retry)
+                    AuthState.SignedOut -> SignedOutContent(viewModel)
                     is AuthState.SignedIn -> SignedInContent(viewModel)
                 }
             }
         }
+    }
+}
+
+/** The provider's sign-in screen. When the session ended on its own, the reason stays above it until someone signs in. */
+@Composable
+private fun SignedOutContent(viewModel: AppViewModel) {
+    val sessionEnded by viewModel.sessionEnded.collectAsStateWithLifecycle()
+
+    Column(Modifier.fillMaxSize().safeDrawingPadding()) {
+        if (sessionEnded) {
+            Surface(color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    stringResource(R.string.error_session_ended),
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+            }
+        }
+        viewModel.auth.SignInContent(Modifier.weight(1f).fillMaxWidth())
     }
 }
 

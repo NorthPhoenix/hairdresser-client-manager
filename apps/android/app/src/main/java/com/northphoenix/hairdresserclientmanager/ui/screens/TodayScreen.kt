@@ -27,9 +27,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
+import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.AppointmentCard
 import com.northphoenix.hairdresserclientmanager.ui.components.EmptyState
+import com.northphoenix.hairdresserclientmanager.ui.components.LoadFailed
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenPadding
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenTitle
 import com.northphoenix.hairdresserclientmanager.ui.components.Tag
@@ -38,13 +40,14 @@ import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 /** Home View: today's Appointments plus past ones still marked scheduled, which need an outcome. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String, String) -> Unit) {
+fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit) {
     val format = LocalTimeFormat.current
     val appointments by viewModel.home.collectAsStateWithLifecycle()
-    val loaded by viewModel.loaded.collectAsStateWithLifecycle()
+    val load by viewModel.homeLoad.collectAsStateWithLifecycle()
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
-    val today = format.today()
-    val (unresolved, todays) = remember(appointments, today) {
+    // The day the list was loaded for: the view model moves both on together when the day ends.
+    val today by viewModel.today.collectAsStateWithLifecycle()
+    val (unresolved, todays) = remember(appointments, today, format) {
         appointments.partition {
             it.status == AppointmentStatus.SCHEDULED && format.zoned(it.startsAt).toLocalDate().isBefore(today)
         }
@@ -64,44 +67,52 @@ fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String, String) -> 
                 )
             }
 
-            if (!loaded) {
-                item { LoadingRow() }
-            } else if (appointments.isEmpty()) {
-                item {
-                    EmptyState(Icons.Rounded.EventAvailable, stringResource(R.string.appointments_empty_title), body = stringResource(R.string.home_empty_body))
+            when (val state = load) {
+                is LoadState.Failed -> item { LoadFailed(state.message, onRetry = viewModel::retryLoad) }
+                LoadState.Loaded -> if (appointments.isEmpty()) {
+                    item {
+                        EmptyState(Icons.Rounded.EventAvailable, stringResource(R.string.appointments_empty_title), body = stringResource(R.string.home_empty_body))
+                    }
                 }
+                else -> item { LoadingRow() }
             }
 
             if (unresolved.isNotEmpty()) {
                 item { ListSectionLabel(stringResource(R.string.home_unresolved_section), unresolved.size, warning = true) }
                 items(unresolved, key = { "unresolved-${it.id}" }) { appointment ->
-                    AppointmentCard(appointment, onClick = { onOpenAppointment(appointment.id, appointment.startsAt) }, showDate = true)
+                    AppointmentCard(appointment, onClick = { onOpenAppointment(appointment.id) }, showDate = true)
                 }
             }
 
             if (todays.isNotEmpty()) {
                 item { ListSectionLabel(stringResource(R.string.home_today_section), todays.size) }
                 items(todays, key = { "today-${it.id}" }) { appointment ->
-                    AppointmentCard(appointment, onClick = { onOpenAppointment(appointment.id, appointment.startsAt) })
+                    AppointmentCard(appointment, onClick = { onOpenAppointment(appointment.id) })
                 }
             }
         }
     }
 }
 
+/**
+ * [count] is null while the list is not loaded: a number, even 0, would say that it is. The count
+ * keeps its place beside a [title] of any length, which goes on as many lines as it takes.
+ */
 @Composable
-fun ListSectionLabel(title: String, count: Int, modifier: Modifier = Modifier, warning: Boolean = false) {
+fun ListSectionLabel(title: String, count: Int?, modifier: Modifier = Modifier, warning: Boolean = false) {
     Row(
         modifier.fillMaxWidth().padding(top = 10.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(title, style = MaterialTheme.typography.headlineSmall)
-        Tag(
-            count.toString(),
-            content = if (warning) HcmColors.Warning else MaterialTheme.colorScheme.onSurfaceVariant,
-            container = if (warning) HcmColors.WarningSoft else MaterialTheme.colorScheme.surfaceVariant,
-        )
+        Text(title, modifier = Modifier.weight(1f, fill = false), style = MaterialTheme.typography.headlineSmall)
+        if (count != null) {
+            Tag(
+                count.toString(),
+                content = if (warning) HcmColors.Warning else MaterialTheme.colorScheme.onSurfaceVariant,
+                container = if (warning) HcmColors.WarningSoft else MaterialTheme.colorScheme.surfaceVariant,
+            )
+        }
     }
 }
 

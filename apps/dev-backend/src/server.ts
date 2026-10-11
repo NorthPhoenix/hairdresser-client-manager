@@ -7,12 +7,12 @@
 //
 // Never deploy this. It binds to loopback only and trusts the caller's identity.
 import { createHash, createHmac } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { Readable } from "node:stream";
-import { appRouter, createTRPCContext } from "@hcm/api";
+import { appointmentPhotoFiles, appRouter, authorizePhotoUpload, createTRPCContext } from "@hcm/api";
 import { db } from "@hcm/db";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { createRouteHandler, createUploadthing, UploadThingError, type FileRouter } from "uploadthing/server";
@@ -32,7 +32,7 @@ const f = createUploadthing();
 
 // Mirrors apps/web/app/api/uploadthing/core.ts, with dev auth in place of Clerk.
 const uploadRouter = {
-  appointmentPhoto: f({ image: { maxFileSize: "8MB", maxFileCount: 10 } })
+  appointmentPhoto: f(appointmentPhotoFiles)
     .input(
       z.object({
         appointmentId: z.string(),
@@ -41,26 +41,13 @@ const uploadRouter = {
       })
     )
     .middleware(async ({ req, input }) => {
-      const userId = getDevUserId(req.headers.get("authorization"));
+      const upload = await authorizePhotoUpload(db, getDevUserId(req.headers.get("authorization")), input);
 
-      if (!userId) {
-        throw new UploadThingError("Authentication required.");
+      if ("refusal" in upload) {
+        throw new UploadThingError(upload.refusal);
       }
 
-      const appointment = await db.appointment.findFirst({
-        where: { id: input.appointmentId, stylist: { clerkId: userId } },
-        include: { participants: true }
-      });
-
-      if (!appointment) {
-        throw new UploadThingError("Appointment not found.");
-      }
-
-      if (!appointment.participants.some((participant) => participant.clientId === input.clientId)) {
-        throw new UploadThingError("Photo Client must be attached to the Appointment.");
-      }
-
-      return { userId, appointmentId: input.appointmentId, clientId: input.clientId, category: input.category };
+      return upload.metadata;
     })
     .onUploadComplete(({ metadata, file }) => ({
       appointmentId: metadata.appointmentId,
@@ -97,6 +84,15 @@ function json(body: unknown, status = 200, headers: Record<string, string> = {})
     status,
     headers: { "content-type": "application/json", ...headers }
   });
+}
+
+// Stands in for UploadThing's file deletion: the files of deleted Appointment Photos leave the disk.
+async function deleteStoredFiles(fileKeys: string[]) {
+  // A key is a file name in the storage directory and never a path out of it.
+  for (const fileKey of fileKeys.filter((fileKey) => basename(fileKey) === fileKey)) {
+    await rm(join(storageDir, fileKey), { force: true });
+    await rm(join(storageDir, `${fileKey}.type`), { force: true });
+  }
 }
 
 // Stands in for UploadThing's ingest service: accepts the presigned PUT, stores
@@ -225,8 +221,17 @@ async function handle(request: Request): Promise<Response> {
       router: appRouter,
       createContext: () =>
         createTRPCContext({
-          auth: async () => ({ userId: getDevUserId(request.headers.get("authorization")) })
-        })
+          auth: async () => ({ userId: getDevUserId(request.headers.get("authorization")) }),
+          // Photos live in the storage emulator below, not at UploadThing.
+          photoOrigins: [new URL(origin).origin],
+          deleteStoredFiles
+        }),
+      // The reply to an unexpected failure says nothing about it, so the log has to.
+      onError: ({ error, path }) => {
+        if (error.code === "INTERNAL_SERVER_ERROR") {
+          console.error(`tRPC ${path ?? "request"} failed:`, error.cause ?? error);
+        }
+      }
     });
   }
 

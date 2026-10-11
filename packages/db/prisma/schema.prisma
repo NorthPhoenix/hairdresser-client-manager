@@ -59,6 +59,9 @@ model Client {
   email        String?
   address      String?
   note         String?
+  // The request key of the call that created this record, when it sent one: the same call sent
+  // again finds the record instead of creating another (docs/adr/0015). The same on the models below.
+  requestKey   String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -79,8 +82,12 @@ model Appointment {
   status       AppointmentStatus       @default(scheduled)
   locationType AppointmentLocationType @default(inSalon)
   locationAddress String?
+  // true: the Stylist typed this address. false: it is the salon's (in salon) or the primary
+  // Client's (at home). null: created before this column existed.
+  locationAddressIsCustom Boolean?
   note         String?
   finalTotalCentsOverride Int?
+  requestKey   String?
   createdAt    DateTime                @default(now())
   updatedAt    DateTime                @updatedAt
 
@@ -108,6 +115,7 @@ model ServiceMenuItem {
   stylistId         String
   name              String
   defaultPriceCents Int      @default(0)
+  requestKey        String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -122,6 +130,8 @@ model AppointmentService {
   name           String
   priceCents     Int      @default(0)
   note           String?
+  // Services copied by one Appointment Copying share its key.
+  requestKey     String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -135,6 +145,7 @@ model ColorFormula {
   appointmentServiceId String
   formula              String
   placement            String?
+  requestKey           String?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
@@ -154,6 +165,7 @@ model AppointmentPhoto {
   width         Int?
   height        Int?
   uploadError   String?
+  requestKey    String?
   createdAt     DateTime                @default(now())
   updatedAt     DateTime                @updatedAt
 
@@ -166,6 +178,11 @@ model ProfileShare {
   clientId  String
   token     String   @unique
   language  Language @default(ru)
+  // What the Stylist chose to show of the last completed Appointment. "Other" photos are the
+  // before and the other photos.
+  includeColorFormulas Boolean @default(true)
+  includeAfterPhotos   Boolean @default(true)
+  includeOtherPhotos   Boolean @default(false)
   revokedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

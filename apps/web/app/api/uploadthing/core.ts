@@ -1,4 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
+import { appointmentPhotoFiles, authorizePhotoUpload } from "@hcm/api";
 import { db } from "@hcm/db";
 import { z } from "zod";
 import { createUploadthing, type FileRouter } from "uploadthing/next";
@@ -13,46 +14,17 @@ const appointmentPhotoInput = z.object({
 });
 
 export const uploadRouter = {
-  appointmentPhoto: f({
-    image: {
-      maxFileSize: "8MB",
-      maxFileCount: 10
-    }
-  })
+  appointmentPhoto: f(appointmentPhotoFiles)
     .input(appointmentPhotoInput)
     .middleware(async ({ input }) => {
-      const clerkAuth = await auth();
+      const upload = await authorizePhotoUpload(db, (await auth()).userId, input);
 
-      if (!clerkAuth.userId) {
-        throw new UploadThingError("Authentication required.");
+      // With its code a refusal is answered 403, 404 or 400. A bare message would be a 500.
+      if ("refusal" in upload) {
+        throw new UploadThingError(upload.refusal);
       }
 
-      const appointment = await db.appointment.findFirst({
-        where: {
-          id: input.appointmentId,
-          stylist: {
-            clerkId: clerkAuth.userId
-          }
-        },
-        include: {
-          participants: true
-        }
-      });
-
-      if (!appointment) {
-        throw new UploadThingError("Appointment not found.");
-      }
-
-      if (!appointment.participants.some((participant) => participant.clientId === input.clientId)) {
-        throw new UploadThingError("Photo Client must be attached to the Appointment.");
-      }
-
-      return {
-        userId: clerkAuth.userId,
-        appointmentId: input.appointmentId,
-        clientId: input.clientId,
-        category: input.category
-      };
+      return upload.metadata;
     })
     .onUploadComplete(({ metadata, file }) => ({
       appointmentId: metadata.appointmentId,

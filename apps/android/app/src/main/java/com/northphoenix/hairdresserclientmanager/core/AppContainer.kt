@@ -7,6 +7,8 @@ import com.northphoenix.hairdresserclientmanager.auth.createDevAuthGateway
 import com.northphoenix.hairdresserclientmanager.data.HcmApi
 import com.northphoenix.hairdresserclientmanager.data.TrpcClient
 import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
+import com.northphoenix.hairdresserclientmanager.i18n.AndroidAppLocales
+import com.northphoenix.hairdresserclientmanager.i18n.AppLanguageSetting
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -17,6 +19,7 @@ import java.util.concurrent.TimeUnit
 class AppContainer(context: Context) {
     val appContext: Context = context.applicationContext
     val config: AppConfig = AppConfig.fromBuildConfig()
+    val appLanguage = AppLanguageSetting(AndroidAppLocales(appContext))
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 

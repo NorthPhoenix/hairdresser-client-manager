@@ -1,20 +1,39 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { buildShareImageSvg } from "../shareImage";
-import { createTRPCRouter, stylistProcedure } from "../trpc";
+import { addedOrder } from "../addedOrder";
+import { getPrimaryClientChange } from "../appointmentLocation";
+import {
+  emailText,
+  expectedUpdatedAt,
+  nameText,
+  oneLineText,
+  refuseChangedRepeat,
+  refuseOutdatedSave,
+  requestKey,
+  text,
+  textLimits
+} from "../input";
+import { markFilesUnused } from "../photoStorage";
+import { loadProfileShareContent, resolveProfileShareOptions } from "../profileShare";
+import { buildShareImage } from "../shareImage";
+import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from "../trpc";
 
 const clientListInput = z.object({
-  search: z.string().trim().optional()
+  search: text(textLimits.name).optional()
 }).optional();
 
 const clientSaveInput = z.object({
   id: z.string().optional(),
-  name: z.string().trim().min(1),
+  name: nameText,
   language: z.enum(["ru", "en"]).optional(),
-  phone: z.string().trim().optional(),
-  email: z.string().trim().optional(),
-  address: z.string().trim().optional(),
-  note: z.string().trim().optional()
+  phone: oneLineText(textLimits.phone).optional(),
+  email: emailText.optional(),
+  address: text(textLimits.address).optional(),
+  note: text(textLimits.note).optional(),
+  // With an id: the updatedAt of the Client the form was loaded from.
+  expectedUpdatedAt: expectedUpdatedAt.optional(),
+  // Without an id: see requestKey.
+  requestKey: requestKey.optional()
 });
 
 const clientDeleteInput = z.object({
@@ -29,10 +48,34 @@ const clientProfileShareInput = z.object({
   clientId: z.string()
 });
 
+// What the Stylist chose to show of the last completed Appointment, see ProfileShareOptions.
+const profileShareOptionsInput = {
+  includeColorFormulas: z.boolean().optional(),
+  includeAfterPhotos: z.boolean().optional(),
+  includeOtherPhotos: z.boolean().optional()
+};
+
+const clientProfileShareOptionsInput = z.object({
+  clientId: z.string(),
+  ...profileShareOptionsInput
+});
+
 const clientProfileShareImageInput = z.object({
   clientId: z.string(),
-  language: z.enum(["ru", "en"])
+  language: z.enum(["ru", "en"]),
+  ...profileShareOptionsInput
 });
+
+// The one Profile Share of a Client that is not revoked.
+const activeProfileShare = {
+  where: {
+    revokedAt: null
+  },
+  orderBy: {
+    createdAt: "desc"
+  },
+  take: 1
+} as const;
 
 function createProfileShareToken(): string {
   const bytes = new Uint8Array(32);
@@ -47,6 +90,27 @@ function createProfileShareToken(): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+type ProfileShareRow = {
+  id: string;
+  token: string;
+  language: "ru" | "en";
+  includeColorFormulas?: boolean;
+  includeAfterPhotos?: boolean;
+  includeOtherPhotos?: boolean;
+  revokedAt?: Date | null;
+  createdAt: Date;
+};
+
+function toProfileShareOutput(share: ProfileShareRow) {
+  return {
+    id: share.id,
+    token: share.token,
+    language: share.language,
+    ...resolveProfileShareOptions(share),
+    createdAt: share.createdAt.toISOString()
+  };
+}
+
 function toClientOutput(client: {
   id: string;
   stylistId: string;
@@ -58,15 +122,9 @@ function toClientOutput(client: {
   note: string | null;
   createdAt: Date;
   updatedAt: Date;
-  profileShares?: {
-    id: string;
-    token: string;
-    language: "ru" | "en";
-    revokedAt: Date | null;
-    createdAt: Date;
-  }[];
+  profileShares?: ProfileShareRow[];
 }) {
-  const activeProfileShare = client.profileShares?.find((share) => !share.revokedAt);
+  const activeShare = client.profileShares?.find((share) => !share.revokedAt);
 
   return {
     id: client.id,
@@ -79,14 +137,7 @@ function toClientOutput(client: {
     note: client.note ?? "",
     createdAt: client.createdAt.toISOString(),
     updatedAt: client.updatedAt.toISOString(),
-    activeProfileShare: activeProfileShare
-      ? {
-          id: activeProfileShare.id,
-          token: activeProfileShare.token,
-          language: activeProfileShare.language,
-          createdAt: activeProfileShare.createdAt.toISOString()
-        }
-      : null
+    activeProfileShare: activeShare ? toProfileShareOutput(activeShare) : null
   };
 }
 
@@ -118,15 +169,7 @@ export const clientRouter = createTRPCRouter({
         updatedAt: "desc"
       },
       include: {
-        profileShares: {
-          where: {
-            revokedAt: null
-          },
-          orderBy: {
-            createdAt: "desc"
-          },
-          take: 1
-        }
+        profileShares: activeProfileShare
       }
     });
 
@@ -164,17 +207,18 @@ export const clientRouter = createTRPCRouter({
             createdAt: "asc"
           }
         },
+        // A Client Profile shows only this Client's part of a group Appointment: the Services
+        // and the stored Appointment Photos attached to this Client.
         services: {
+          where: {
+            clientId: input.id
+          },
           include: {
             colorFormulas: {
-              orderBy: {
-                createdAt: "asc"
-              }
+              orderBy: addedOrder
             }
           },
-          orderBy: {
-            createdAt: "asc"
-          }
+          orderBy: addedOrder
         },
         photos: {
           where: {
@@ -223,7 +267,7 @@ export const clientRouter = createTRPCRouter({
       }))
     }));
   }),
-  save: stylistProcedure.input(clientSaveInput).mutation(async ({ ctx, input }) => {
+  save: stylistTransactionProcedure.input(clientSaveInput).mutation(async ({ ctx, input }) => {
     const data = {
       name: input.name,
       language: input.language ?? ctx.stylist.language,
@@ -234,10 +278,29 @@ export const clientRouter = createTRPCRouter({
     };
 
     if (!input.id) {
+      const repeatedClient = input.requestKey
+        ? await ctx.db.client.findFirst({
+            where: {
+              stylistId: ctx.stylist.id,
+              requestKey: input.requestKey
+            }
+          })
+        : null;
+
+      if (repeatedClient) {
+        refuseChangedRepeat(repeatedClient, {
+          ...data,
+          language: input.language
+        });
+
+        return toClientOutput(repeatedClient);
+      }
+
       const client = await ctx.db.client.create({
         data: {
           ...data,
-          stylistId: ctx.stylist.id
+          stylistId: ctx.stylist.id,
+          requestKey: input.requestKey
         }
       });
 
@@ -258,6 +321,12 @@ export const clientRouter = createTRPCRouter({
       });
     }
 
+    refuseOutdatedSave(
+      existingClient,
+      input.expectedUpdatedAt,
+      (Object.keys(data) as (keyof typeof data)[]).some((field) => (existingClient[field] ?? "") !== data[field])
+    );
+
     const client = await ctx.db.client.update({
       where: {
         id: existingClient.id
@@ -267,22 +336,17 @@ export const clientRouter = createTRPCRouter({
 
     return toClientOutput(client);
   }),
-  createProfileShare: stylistProcedure.input(clientProfileShareInput).mutation(async ({ ctx, input }) => {
+  // Under the Stylist lock, so two requests at once cannot both find no active Profile Share and
+  // each create one. A request sent again gets the Profile Share the first one created, as it is
+  // now: what an existing Profile Share shows is changed with updateProfileShare.
+  createProfileShare: stylistTransactionProcedure.input(clientProfileShareOptionsInput).mutation(async ({ ctx, input }) => {
     const client = await ctx.db.client.findFirst({
       where: {
         id: input.clientId,
         stylistId: ctx.stylist.id
       },
       include: {
-        profileShares: {
-          where: {
-            revokedAt: null
-          },
-          orderBy: {
-            createdAt: "desc"
-          },
-          take: 1
-        }
+        profileShares: activeProfileShare
       }
     });
 
@@ -296,28 +360,61 @@ export const clientRouter = createTRPCRouter({
     const existingShare = client.profileShares[0];
 
     if (existingShare) {
-      return {
-        id: existingShare.id,
-        token: existingShare.token,
-        language: existingShare.language,
-        createdAt: existingShare.createdAt.toISOString()
-      };
+      return toProfileShareOutput(existingShare);
     }
 
     const share = await ctx.db.profileShare.create({
       data: {
         clientId: client.id,
         token: createProfileShareToken(),
-        language: client.language
+        language: client.language,
+        ...resolveProfileShareOptions(input)
       }
     });
 
-    return {
-      id: share.id,
-      token: share.token,
-      language: share.language,
-      createdAt: share.createdAt.toISOString()
-    };
+    return toProfileShareOutput(share);
+  }),
+  // Changes what the Client's Profile Share shows. Its link stays the same. Only the choices that
+  // are stated change.
+  updateProfileShare: stylistTransactionProcedure.input(clientProfileShareOptionsInput).mutation(async ({ ctx, input }) => {
+    const client = await ctx.db.client.findFirst({
+      where: {
+        id: input.clientId,
+        stylistId: ctx.stylist.id
+      },
+      include: {
+        profileShares: activeProfileShare
+      }
+    });
+
+    if (!client) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Client not found."
+      });
+    }
+
+    const existingShare = client.profileShares[0];
+
+    if (!existingShare) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Profile Share not found."
+      });
+    }
+
+    const share = await ctx.db.profileShare.update({
+      where: {
+        id: existingShare.id
+      },
+      data: {
+        includeColorFormulas: input.includeColorFormulas,
+        includeAfterPhotos: input.includeAfterPhotos,
+        includeOtherPhotos: input.includeOtherPhotos
+      }
+    });
+
+    return toProfileShareOutput(share);
   }),
   revokeProfileShare: stylistProcedure.input(clientProfileShareInput).mutation(async ({ ctx, input }) => {
     const client = await ctx.db.client.findFirst({
@@ -353,6 +450,9 @@ export const clientRouter = createTRPCRouter({
       where: {
         id: input.clientId,
         stylistId: ctx.stylist.id
+      },
+      include: {
+        profileShares: activeProfileShare
       }
     });
 
@@ -363,88 +463,71 @@ export const clientRouter = createTRPCRouter({
       });
     }
 
-    const nextAppointment = await ctx.db.appointment.findFirst({
+    // A choice that is not stated follows the Client's Profile Share, so that the picture shows
+    // what the page shows.
+    const content = await loadProfileShareContent(
+      ctx,
+      {
+        ...client,
+        stylist: ctx.stylist
+      },
+      resolveProfileShareOptions(input, client.profileShares[0])
+    );
+
+    return {
+      svg: await buildShareImage(content, input.language, ctx.readSharePhoto)
+    };
+  }),
+  delete: stylistTransactionProcedure.input(clientDeleteInput).mutation(async ({ ctx, input }) => {
+    // The Client's Appointment Photos go with the Client, and their stored files with them. An
+    // Appointment that is deleted below has no other Client, so it has no other Client's photos.
+    const photos = await ctx.db.appointmentPhoto.findMany({
       where: {
-        stylistId: ctx.stylist.id,
-        status: "scheduled",
-        startsAt: {
-          gte: new Date()
-        },
-        participants: {
-          some: {
-            clientId: client.id
-          }
+        clientId: input.id,
+        appointment: {
+          stylistId: ctx.stylist.id
         }
       },
-      orderBy: {
-        startsAt: "asc"
-      }
-    });
-    const lastCompletedAppointment = await ctx.db.appointment.findFirst({
-      where: {
-        stylistId: ctx.stylist.id,
-        status: "completed",
-        participants: {
-          some: {
-            clientId: client.id
-          }
-        }
-      },
-      include: {
-        services: {
-          where: {
-            clientId: client.id
-          },
-          include: {
-            colorFormulas: {
-              orderBy: {
-                createdAt: "asc"
-              }
-            }
-          },
-          orderBy: {
-            createdAt: "asc"
-          }
-        }
-      },
-      orderBy: {
-        startsAt: "desc"
+      select: {
+        fileKey: true
       }
     });
 
-    return {
-      svg: buildShareImageSvg({
-        clientName: client.name,
-        locale: input.language,
-        nextAppointment,
-        lastCompletedAppointment,
-        services: lastCompletedAppointment?.services ?? []
-      })
-    };
-  }),
-  delete: stylistProcedure.input(clientDeleteInput).mutation(async ({ ctx, input }) => {
+    // Also Appointments that name the Client as primary without listing them as a Client: the
+    // primary Client relation would otherwise block the delete.
     const appointments = await ctx.db.appointment.findMany({
       where: {
         stylistId: ctx.stylist.id,
-        participants: {
-          some: {
-            clientId: input.id
+        OR: [
+          {
+            primaryClientId: input.id
+          },
+          {
+            participants: {
+              some: {
+                clientId: input.id
+              }
+            }
           }
-        }
+        ]
       },
       include: {
-        participants: {
-          orderBy: {
-            createdAt: "asc"
+        primaryClient: {
+          select: {
+            address: true
           }
+        },
+        participants: {
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }]
         }
       }
     });
 
     for (const appointment of appointments) {
       const remainingParticipants = appointment.participants.filter((participant) => participant.clientId !== input.id);
+      const nextPrimaryParticipant = remainingParticipants[0];
 
-      if (remainingParticipants.length === 0) {
+      if (!nextPrimaryParticipant) {
         await ctx.db.appointment.delete({
           where: {
             id: appointment.id
@@ -458,9 +541,7 @@ export const clientRouter = createTRPCRouter({
           where: {
             id: appointment.id
           },
-          data: {
-            primaryClientId: remainingParticipants[0]?.clientId
-          }
+          data: await getPrimaryClientChange(ctx.db, appointment, nextPrimaryParticipant.clientId)
         });
       }
 
@@ -478,6 +559,7 @@ export const clientRouter = createTRPCRouter({
         stylistId: ctx.stylist.id
       }
     });
+    await markFilesUnused(ctx, photos);
 
     return {
       id: input.id
