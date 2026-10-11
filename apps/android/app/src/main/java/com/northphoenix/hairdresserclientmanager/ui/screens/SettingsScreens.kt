@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.rounded.ContentCut
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -33,13 +35,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
@@ -49,6 +54,9 @@ import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.auth.AuthState
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.Stylist
+import com.northphoenix.hairdresserclientmanager.domain.Timezones
+import com.northphoenix.hairdresserclientmanager.domain.ZoneOption
+import com.northphoenix.hairdresserclientmanager.i18n.DeviceZoneNames
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.i18n.shownLanguage
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
@@ -66,9 +74,9 @@ import com.northphoenix.hairdresserclientmanager.ui.components.ScreenTitle
 import com.northphoenix.hairdresserclientmanager.ui.components.SegmentedControl
 import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
 import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** Editable timezone and salon address. Saveable, so a language switch mid-edit does not lose them. */
 private class SettingsDraft(timezone: MutableState<String>, salonAddress: MutableState<String>) {
@@ -107,14 +115,18 @@ private fun LanguageField(viewModel: AppViewModel) {
 @Composable
 private fun SettingsFields(draft: SettingsDraft) {
     var showTimezones by rememberSaveable { mutableStateOf(false) }
+    val locale = shownLocale()
+    // By its city and offset, as the picker lists it. The id that is saved ("Europe/Moscow") is not for the Stylist to read.
+    val timezone = remember(draft.timezone, locale) { Timezones.option(DeviceZoneNames, locale, draft.timezone, Instant.now()) }
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         PickerField(
             label = stringResource(R.string.timezone_label),
-            value = draft.timezone.ifBlank { stringResource(R.string.not_set) },
-            isPlaceholder = draft.timezone.isBlank(),
+            value = timezone?.label ?: stringResource(R.string.not_set),
+            isPlaceholder = timezone == null,
             icon = Icons.Rounded.Public,
             onClick = { showTimezones = true },
+            wraps = true,
         )
         HcmTextField(
             value = draft.salonAddress,
@@ -189,25 +201,30 @@ fun ProfileScreen(viewModel: AppViewModel, onOpenServiceMenu: () -> Unit) {
     val draft = rememberSettingsDraft(current)
     val email = (authState as? AuthState.SignedIn)?.email.orEmpty()
     val changed = draft.timezone != current.timezone || draft.salonAddress.trim() != current.salonAddress
+    val focus = LocalFocusManager.current
 
     Column(
         Modifier
             .fillMaxSize()
+            // The keyboard takes its part of the screen from the scrolling area, so the field being typed in stays above it.
+            .imePadding()
             .verticalScroll(rememberScrollState())
             .padding(start = ScreenPadding, end = ScreenPadding, top = 28.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         ScreenTitle(title = stringResource(R.string.settings_title), kicker = stringResource(R.string.tab_profile), modifier = Modifier.padding(bottom = 4.dp))
 
-        HcmCard(contentPadding = PaddingValues(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        HcmCard(contentPadding = PaddingValues(start = 16.dp, top = 12.dp, bottom = 4.dp, end = 6.dp)) {
+            Row(Modifier.padding(end = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Avatar(email.ifBlank { "?" })
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Kicker(stringResource(R.string.account_title))
-                    Text(email, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    // Whole, on as many lines as it takes: it is how the Stylist tells which account is signed in.
+                    Text(email, style = MaterialTheme.typography.titleMedium)
                 }
-                TextAction(stringResource(R.string.sign_out), onClick = viewModel::signOut, icon = Icons.AutoMirrored.Rounded.Logout)
             }
+            // On a line of its own, which leaves the email the width of the card at every font size.
+            TextAction(stringResource(R.string.sign_out), onClick = viewModel::signOut, modifier = Modifier.align(Alignment.End), icon = Icons.AutoMirrored.Rounded.Logout)
         }
 
         HcmCard(onClick = onOpenServiceMenu, contentPadding = PaddingValues(16.dp)) {
@@ -251,7 +268,11 @@ fun ProfileScreen(viewModel: AppViewModel, onOpenServiceMenu: () -> Unit) {
                 SettingsFields(draft)
                 PrimaryButton(
                     stringResource(R.string.save_settings),
-                    onClick = { viewModel.saveSettings(draft.timezone, draft.salonAddress) },
+                    onClick = {
+                        // The notice of how the save went appears over the tab bar, which the keyboard covers.
+                        focus.clearFocus()
+                        viewModel.saveSettings(draft.timezone, draft.salonAddress)
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = changed,
                     loading = busy,
@@ -276,24 +297,25 @@ private fun OptionalSetupNote() {
     }
 }
 
-private data class ZoneOption(val id: String, val offset: String)
+/** The locale of the language the screen is in: timezones are named in it. */
+@Composable
+private fun shownLocale(): Locale {
+    val language = LocalContext.current.shownLanguage()
+
+    return remember(language) { Locale.forLanguageTag(language.tag) }
+}
 
 @Composable
 private fun TimezonePickerDialog(selected: String, onDismiss: () -> Unit, onPick: (String) -> Unit) {
-    val zones = remember {
-        val now = Instant.now()
-        val offsetFormat = DateTimeFormatter.ofPattern("xxx", Locale.ROOT)
-
-        ZoneId.getAvailableZoneIds()
-            .filter { it.contains('/') && !it.startsWith("Etc/") && !it.startsWith("SystemV/") }
-            .sorted()
-            .map { ZoneOption(it, "UTC" + offsetFormat.format(now.atZone(ZoneId.of(it)))) } + ZoneOption("UTC", "UTC+00:00")
+    val locale = shownLocale()
+    // Several hundred timezones, each with its names in both languages: put together off the main thread, so the dialog opens at once.
+    val zones by produceState<List<ZoneOption>?>(initialValue = null, selected, locale) {
+        value = withContext(Dispatchers.Default) {
+            Timezones.options(DeviceZoneNames, locale, Language.entries.map { Locale.forLanguageTag(it.tag) }, selected, Instant.now())
+        }
     }
     var search by rememberSaveable { mutableStateOf("") }
-    val filtered = remember(search) {
-        val query = search.trim().replace(' ', '_')
-        if (query.isEmpty()) zones else zones.filter { it.id.contains(query, ignoreCase = true) || it.offset.contains(query, ignoreCase = true) }
-    }
+    val found = remember(zones, search) { zones?.let { Timezones.search(it, search) } }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth().safeDrawingPadding()) {
@@ -309,19 +331,38 @@ private fun TimezonePickerDialog(selected: String, onDismiss: () -> Unit, onPick
                     modifier = Modifier.padding(horizontal = 20.dp),
                 )
                 Hairline()
-                LazyColumn(Modifier.fillMaxWidth().height(380.dp)) {
-                    items(filtered, key = { it.id }) { zone ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable { onPick(zone.id) }.padding(horizontal = 20.dp, vertical = 13.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(zone.id.replace('_', ' '), style = MaterialTheme.typography.bodyLarge)
-                                Text(zone.offset, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            if (zone.id == selected) {
-                                Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                // 380 dp where there is room for it. Above the keyboard there is not: the list gives way and Cancel stays on screen.
+                Box(Modifier.fillMaxWidth().weight(1f, fill = false).height(380.dp)) {
+                    when {
+                        found == null -> CircularProgressIndicator(Modifier.align(Alignment.Center), strokeWidth = 2.5.dp)
+                        found.isEmpty() -> Text(
+                            stringResource(R.string.no_timezone_results),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 13.dp),
+                        )
+                        // A list of its own for every search: what was found starts at its top, and the whole list at the chosen timezone.
+                        else -> key(search) {
+                            val start = if (search.isBlank()) found.indexOfFirst { it.id == selected }.coerceAtLeast(0) else 0
+
+                            LazyColumn(Modifier.fillMaxSize(), state = rememberLazyListState(initialFirstVisibleItemIndex = start)) {
+                                items(found, key = { it.id }) { zone ->
+                                    Row(
+                                        Modifier.fillMaxWidth().clickable { onPick(zone.id) }.padding(horizontal = 20.dp, vertical = 13.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    ) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text(zone.title, style = MaterialTheme.typography.bodyLarge)
+                                            if (zone.detail.isNotEmpty()) {
+                                                Text(zone.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        }
+                                        if (zone.id == selected) {
+                                            Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

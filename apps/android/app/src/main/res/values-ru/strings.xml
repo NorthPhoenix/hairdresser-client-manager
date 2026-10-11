@@ -161,6 +161,7 @@
     <string name="next_day">Следующий день</string>
     <string name="next_month">Следующий месяц</string>
     <string name="no_client_results">Никого не нашлось.</string>
+    <string name="no_timezone_results">Ничего не нашлось. Введите город или разницу с UTC, например +3.</string>
     <string name="no_clients_body">Чтобы добавить первого клиента, достаточно имени. Остальное можно заполнить позже.</string>
     <string name="no_clients_title">Клиентов пока нет</string>
     <string name="not_set">Не указано</string>

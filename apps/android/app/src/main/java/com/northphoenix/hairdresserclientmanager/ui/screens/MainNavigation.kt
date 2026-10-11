@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -223,7 +224,8 @@ private fun MainScreen(viewModel: AppViewModel, open: (route: String) -> Unit) {
             }
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        // The tab bar's part of the screen is taken off here, so a tab that makes room for the keyboard makes room for the rest of it only.
+        Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             tabStates.SaveableStateProvider(tab.name) {
                 when (tab) {
                     MainTab.TODAY -> TodayScreen(viewModel, openAppointment)

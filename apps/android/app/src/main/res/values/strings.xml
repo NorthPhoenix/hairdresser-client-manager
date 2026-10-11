@@ -164,6 +164,7 @@
     <string name="next_day">Next day</string>
     <string name="next_month">Next month</string>
     <string name="no_client_results">No Clients match your search.</string>
+    <string name="no_timezone_results">No timezones match your search. Try a city or an offset such as +3.</string>
     <string name="no_clients_body">Create the first Client with only a name, then add details later.</string>
     <string name="no_clients_title">No Clients yet</string>
     <string name="not_set">Not set</string>
