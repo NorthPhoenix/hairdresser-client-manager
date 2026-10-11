@@ -176,7 +176,7 @@ class SignInFlow(private val backend: SignInBackend, private val scope: Coroutin
 
     private var request: Job? = null
 
-    /** False until something has happened here in this process: only then is there nothing newer than what Android kept. */
+    /** False until something has happened here in this process, a sign-in included: only then is there nothing newer than what Android kept. */
     private var started = false
 
     /**
@@ -193,10 +193,14 @@ class SignInFlow(private val backend: SignInBackend, private val scope: Coroutin
         SignInState.fromKept(kept)?.let { mutableState.value = it }
     }
 
-    /** Back to the first step with nothing left over, once someone has signed in. */
+    /**
+     * Back to the first step with nothing left over, once someone has signed in. What Android
+     * kept is from before that sign-in, so it is not taken up after it either: a sign-out later
+     * in this process starts at the first step.
+     */
     fun reset() {
         request?.cancel()
-        started = false
+        started = true
         mutableState.value = SignInState()
     }
 

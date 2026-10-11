@@ -3,14 +3,15 @@ package com.northphoenix.hairdresserclientmanager.auth
 import com.clerk.api.Clerk
 import com.clerk.api.auth.types.VerificationType
 import com.clerk.api.network.model.error.ClerkErrorResponse
+import com.clerk.api.network.model.factor.Factor
 import com.clerk.api.network.serialization.ClerkResult
 import com.clerk.api.signin.SignIn
 import com.clerk.api.signin.attemptFirstFactor
 import com.clerk.api.signin.attemptSecondFactor
+import com.clerk.api.signin.prepareFirstFactor
 import com.clerk.api.signin.resetPassword
 import com.clerk.api.signin.sendCode
 import com.clerk.api.signin.sendMfaEmailCode
-import com.clerk.api.signin.sendResetPasswordCode
 import com.clerk.api.signup.SignUp
 import com.clerk.api.signup.sendEmailCode
 import com.clerk.api.signup.verifyCode
@@ -81,10 +82,7 @@ internal class ClerkSignInBackend : SignInBackend {
                     Clerk.auth.signIn { this.email = email }.then { attempt ->
                         attempt.sendCode { this.email = email }.then { codeSent(it, purpose) }
                     }
-                CodePurpose.PASSWORD_RESET ->
-                    Clerk.auth.signIn { this.email = email }.then { attempt ->
-                        attempt.sendResetPasswordCode { this.email = email }.then { codeSent(it, purpose) }
-                    }
+                CodePurpose.PASSWORD_RESET -> Clerk.auth.signIn { this.email = email }.then { sendResetCode(it) }
                 CodePurpose.NEW_DEVICE -> signInAttempt(*SECOND_STEP)?.let { sendSecondStepCode(it) } ?: interrupted
             }
         }
@@ -156,6 +154,20 @@ internal class ClerkSignInBackend : SignInBackend {
             SignInResult.Failed(SignInError.UNSUPPORTED)
         }
 
+    /**
+     * Sends the code of a password reset. Clerk's own `sendResetPasswordCode` is not used: it takes
+     * the address from the factor for signing in by emailed code, and where the instance does not
+     * offer that way of signing in it sends an empty address, which Clerk refuses.
+     */
+    private suspend fun sendResetCode(attempt: SignIn): SignInResult {
+        // No such factor: the account has no password that a code could reset.
+        val addressId = resetCodeAddressId(attempt.supportedFirstFactors) ?: return SignInResult.Failed(SignInError.UNSUPPORTED)
+
+        return attempt
+            .prepareFirstFactor(SignIn.PrepareFirstFactorParams.ResetPasswordEmailCode(emailAddressId = addressId))
+            .then { codeSent(it, CodePurpose.PASSWORD_RESET) }
+    }
+
     private suspend fun sendSignUpCode(attempt: SignUp): SignInResult =
         attempt.sendEmailCode().then { sent ->
             signUp = sent
@@ -226,3 +238,11 @@ internal class ClerkSignInBackend : SignInBackend {
         val SECOND_STEP = arrayOf(SignIn.Status.NEEDS_CLIENT_TRUST, SignIn.Status.NEEDS_SECOND_FACTOR)
     }
 }
+
+private const val RESET_PASSWORD_EMAIL_CODE = "reset_password_email_code"
+
+/**
+ * The id of the address a password reset code goes to: that of the reset's own factor among the
+ * [factors] of a sign-in, whatever else the account can be signed in with. Null when it has none.
+ */
+internal fun resetCodeAddressId(factors: List<Factor>?): String? = factors.orEmpty().firstOrNull { it.strategy == RESET_PASSWORD_EMAIL_CODE }?.emailAddressId

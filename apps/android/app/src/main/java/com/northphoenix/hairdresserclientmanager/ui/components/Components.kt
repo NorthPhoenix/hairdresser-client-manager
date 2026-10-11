@@ -54,12 +54,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -228,7 +230,8 @@ fun TextAction(
  * text was refused: it is shown under the field, which scrolls into view when it appears. Where
  * the Stylist can scroll away and be refused for the same text again, count the refusals in
  * [errorAttempt]: the field then comes back into view on each of them. [onImeAction] is what the
- * keyboard's own action key ([imeAction]) does.
+ * keyboard's own action key ([imeAction]) does. [contentType] says what the field holds to the
+ * device's password manager, which then offers what it has saved for it and to save what is typed.
  */
 @Composable
 fun HcmTextField(
@@ -250,6 +253,7 @@ fun HcmTextField(
     errorAttempt: Int = 0,
     visualTransformation: VisualTransformation = VisualTransformation.None,
     onImeAction: (() -> Unit)? = null,
+    contentType: ContentType? = null,
 ) {
     val intoView = remember { BringIntoViewRequester() }
 
@@ -272,6 +276,9 @@ fun HcmTextField(
                 // The reason itself is what a screen reader says, in place of Material's "Invalid input".
                 if (error != null) {
                     this.error(error)
+                }
+                if (contentType != null) {
+                    this.contentType = contentType
                 }
             },
             enabled = enabled,

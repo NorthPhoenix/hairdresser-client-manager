@@ -28,6 +28,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
@@ -126,6 +127,8 @@ private fun EmailStep(state: SignInState, flow: SignInFlow) {
         onImeAction = submit,
         error = state.errorText(),
         errorAttempt = state.failures,
+        // The address is also the name of the account.
+        contentType = ContentType.Username + ContentType.EmailAddress,
     )
     PrimaryButton(stringResource(R.string.sign_in_continue), onClick = submit, modifier = Modifier.fillMaxWidth(), enabled = email.isNotBlank(), loading = state.busy)
 }
@@ -142,6 +145,7 @@ private fun PasswordStep(state: SignInState, flow: SignInFlow, password: String,
             flow.clearError()
         },
         label = stringResource(R.string.sign_in_password_label),
+        contentType = ContentType.Password,
         onImeAction = submit,
         modifier = Modifier.focusRequester(rememberStepFocus()),
         error = state.errorText(),
@@ -169,6 +173,7 @@ private fun CreatePasswordStep(state: SignInState, flow: SignInFlow, password: S
                 flow.clearError()
             },
             label = stringResource(R.string.sign_in_password_label),
+            contentType = ContentType.NewPassword,
             onImeAction = submit,
             modifier = Modifier.focusRequester(rememberStepFocus()),
             error = state.errorText(),
@@ -264,6 +269,7 @@ private fun NewPasswordStep(state: SignInState, flow: SignInFlow) {
                 flow.clearError()
             },
             label = stringResource(R.string.sign_in_new_password_label),
+            contentType = ContentType.NewPassword,
             imeAction = ImeAction.Next,
             modifier = Modifier.focusRequester(rememberStepFocus()),
             error = state.errorText().takeIf { !aboutRepeat },
@@ -278,6 +284,7 @@ private fun NewPasswordStep(state: SignInState, flow: SignInFlow) {
             flow.clearError()
         },
         label = stringResource(R.string.sign_in_new_password_repeat_label),
+        contentType = ContentType.NewPassword,
         onImeAction = submit,
         error = state.errorText().takeIf { aboutRepeat },
         errorAttempt = state.failures,
@@ -291,12 +298,16 @@ private fun NewPasswordStep(state: SignInState, flow: SignInFlow) {
     )
 }
 
-/** A password field whose eye shows and hides what was typed. */
+/**
+ * A password field whose eye shows and hides what was typed. [contentType]: the password of the
+ * account ([ContentType.Password]) or one that is being chosen ([ContentType.NewPassword]).
+ */
 @Composable
 private fun PasswordField(
     value: String,
     onValueChange: (String) -> Unit,
     label: String,
+    contentType: ContentType,
     modifier: Modifier = Modifier,
     imeAction: ImeAction = ImeAction.Go,
     onImeAction: (() -> Unit)? = null,
@@ -325,6 +336,7 @@ private fun PasswordField(
         },
         error = error,
         errorAttempt = errorAttempt,
+        contentType = contentType,
     )
 }
 

@@ -1,5 +1,6 @@
 package com.northphoenix.hairdresserclientmanager
 
+import com.clerk.api.network.model.factor.Factor
 import com.northphoenix.hairdresserclientmanager.auth.CodePurpose
 import com.northphoenix.hairdresserclientmanager.auth.SignInBackend
 import com.northphoenix.hairdresserclientmanager.auth.SignInError
@@ -7,6 +8,7 @@ import com.northphoenix.hairdresserclientmanager.auth.SignInFlow
 import com.northphoenix.hairdresserclientmanager.auth.SignInResult
 import com.northphoenix.hairdresserclientmanager.auth.SignInState
 import com.northphoenix.hairdresserclientmanager.auth.SignInStep
+import com.northphoenix.hairdresserclientmanager.auth.resetCodeAddressId
 import com.northphoenix.hairdresserclientmanager.auth.signInError
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -403,7 +405,7 @@ class SignInFlowTest {
     }
 
     @Test
-    fun `a flow that has gone on ignores what was kept before, and one that was reset takes it up again`() = runTest {
+    fun `a flow that has gone on ignores what was kept before`() = runTest {
         // The screen is recreated (a rotation): the flow lived on and is ahead of what was kept.
         val flow = flowAtPassword()
         val keptAtPassword = flow.now.kept()
@@ -415,8 +417,10 @@ class SignInFlowTest {
 
         assertEquals(SignInStep.CODE, flow.now.step)
 
-        // Someone signed in: the next visit starts at the first step.
+        // Someone signed in: the next visit starts at the first step, and stays there.
         flow.reset()
+        assertEquals(SignInState(), flow.now)
+        flow.restore(keptAtPassword)
         assertEquals(SignInState(), flow.now)
 
         // Going back counts as going on, too.
@@ -424,6 +428,21 @@ class SignInFlowTest {
         back.back()
         back.restore(keptAtPassword)
         assertEquals(SignInStep.EMAIL, back.now.step)
+    }
+
+    @Test
+    fun `what was kept before a sign-in is not taken up when the Stylist signs out later`() = runTest {
+        // The code was being checked when the Stylist left the app: this is what Android kept.
+        val kept = flowAtSignUpCode().now.kept()
+
+        // The sign-in went through, and Android killed the app after it. A new process: the Stylist is signed in.
+        val flow = flow()
+        flow.reset()
+
+        // The Stylist signs out. Android still holds what it kept, and the sign-in screen hands it over.
+        flow.restore(kept)
+
+        assertEquals(SignInState(), flow.now)
     }
 
     @Test
@@ -459,6 +478,22 @@ class SignInFlowTest {
     }
 
     // --- what Clerk reports ---
+
+    @Test
+    fun `the code of a password reset goes to the address of the reset's own factor`() {
+        val password = Factor(strategy = "password")
+        val emailCode = Factor(strategy = "email_code", emailAddressId = "idn_code")
+        val reset = Factor(strategy = "reset_password_email_code", emailAddressId = "idn_reset")
+
+        // An instance that does not offer signing in by emailed code still resets a password.
+        assertEquals("idn_reset", resetCodeAddressId(listOf(password, reset)))
+        assertEquals("idn_reset", resetCodeAddressId(listOf(password, emailCode, reset)))
+
+        // An account whose password cannot be reset by email: never the address of another factor, never an empty one.
+        assertNull(resetCodeAddressId(listOf(password, emailCode)))
+        assertNull(resetCodeAddressId(emptyList()))
+        assertNull(resetCodeAddressId(null))
+    }
 
     @Test
     fun `what Clerk reports becomes a reason of the app's own, never Clerk's English text`() {
