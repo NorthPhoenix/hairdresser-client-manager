@@ -240,9 +240,8 @@ private fun AppointmentDetail(
     val serviceMenuLoad by viewModel.serviceMenuLoad.collectAsStateWithLifecycle()
     val completedSources by viewModel.completedSources.collectAsStateWithLifecycle()
     val completedSourcesLoad by viewModel.completedSourcesLoad.collectAsStateWithLifecycle()
-    // The photos of this Appointment that are not on the server yet, and the selected pictures still being read for it.
+    // The photos of this Appointment that are not on the server yet.
     val uploads = viewModel.photoUploads.collectAsStateWithLifecycle().value.filter { it.photo.appointmentId == appointment.id }
-    val photosBeingRead = viewModel.photosBeingRead.collectAsStateWithLifecycle().value.filter { it.appointmentId == appointment.id }
     val isGroup = appointment.participants.size > 1
     var sheet by rememberSaveable(stateSaver = DetailSheet.Saver) { mutableStateOf<DetailSheet?>(null) }
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
@@ -410,7 +409,7 @@ private fun AppointmentDetail(
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Text(stringResource(R.string.appointment_photos_title), style = MaterialTheme.typography.headlineSmall)
 
-                    if (appointment.photos.isEmpty() && uploads.isEmpty() && photosBeingRead.isEmpty()) {
+                    if (appointment.photos.isEmpty() && uploads.isEmpty()) {
                         InlineEmpty(stringResource(R.string.appointment_no_photos))
                     }
 
@@ -418,7 +417,7 @@ private fun AppointmentDetail(
                         val photos = appointment.photos.filter { it.clientId == participant.clientId }
                         val onTheirWay = uploads.filter { it.photo.clientId == participant.clientId }
                         val failed = onTheirWay.count { it.state == UploadState.FAILED }
-                        val uploading = onTheirWay.size - failed + photosBeingRead.count { it.clientId == participant.clientId }
+                        val uploading = onTheirWay.size - failed
 
                         if (isGroup) {
                             Kicker(participant.name)

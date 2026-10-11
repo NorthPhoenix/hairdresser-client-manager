@@ -42,11 +42,13 @@ class PhotoUploadsTest {
     private val target = PhotoTarget("appointment-1", "client-1", PhotoCategory.AFTER)
     private val failures = mutableListOf<ApiException>()
     private val sent = mutableListOf<String>()
+    private val sentPictures = mutableListOf<String>()
     private val recorded = mutableListOf<Pair<String, StoredFile>>()
     private val reloads = mutableListOf<Pair<String, Boolean>>()
     private var ids = 0
 
-    // What the server does with a picture. Each test replaces what it needs to go wrong.
+    // What becomes of a picture. Each test replaces what it needs to go wrong.
+    private var prepare: suspend (File) -> ByteArray = { it.readBytes() }
     private var send: suspend (PendingPhoto) -> StoredFile = ::file
     private var record: suspend (PendingPhoto) -> Unit = {}
     private var reload: suspend () -> Unit = {}
@@ -59,8 +61,10 @@ class PhotoUploadsTest {
         PhotoUploads(
             backgroundScope,
             store,
-            send = { photo, _ ->
+            prepare = { prepare(it) },
+            send = { photo, bytes ->
                 sent += photo.id
+                sentPictures += String(bytes)
                 send(photo)
             },
             record = { photo, stored ->
@@ -75,7 +79,11 @@ class PhotoUploadsTest {
             io = UnconfinedTestDispatcher(testScheduler),
             newId = { "photo-${++ids}" },
             now = { ids.toLong() },
-        ).also { queue -> stylistId?.let(queue::open) }
+        ).also { queue ->
+            stylistId?.let(queue::open)
+            // As in the app, where what is on the device has been read long before the Stylist can do anything.
+            runCurrent()
+        }
 
     private suspend fun PhotoUploads.addPictures(count: Int, to: PhotoTarget = target) =
         add(to, List(count) { "picture-${it + 1}" }) { it.toByteArray() }
@@ -98,9 +106,17 @@ class PhotoUploadsTest {
         assertEquals("key", kept.stored?.fileKey)
         assertEquals("jpeg", store.picture("photo-1").readText())
 
+        // The JPEG to upload takes the place of the picture as it was picked.
+        store.add(photo.copy(id = "photo-2", raw = true), "as picked".toByteArray())
+        store.prepared(photo.copy(id = "photo-2", raw = true), "jpeg".toByteArray())
+        assertEquals(listOf(false, false), store.all().map { it.raw })
+        assertEquals("jpeg", store.picture("photo-2").readText())
+
         store.remove("photo-1")
-        // An update that arrives after the removal does not bring the record back.
+        store.remove("photo-2")
+        // What arrives after the removal does not bring the photo back.
         store.update(photo)
+        store.prepared(photo, "jpeg".toByteArray())
 
         assertTrue(store.all().isEmpty())
         assertTrue(directory.listFiles().orEmpty().isEmpty())
@@ -285,20 +301,18 @@ class PhotoUploadsTest {
     fun `a picture that cannot be read is left out and the others are uploaded`() = runTest {
         val queue = uploads()
 
+        prepare = { file -> if (file.readText() == "not an image") throw ApiException("The selected image could not be read.", code = "BAD_IMAGE") else file.readBytes() }
         val unread = queue.add(target, listOf("good-1", "gone", "not an image", "good-2")) { source ->
-            when (source) {
-                // What the gallery answers for a file that was deleted after it was picked.
-                "gone" -> throw FileNotFoundException("open failed: ENOENT")
-                "not an image" -> throw ApiException("The selected image could not be read.", code = "BAD_IMAGE")
-                else -> source.toByteArray()
-            }
+            // What the gallery answers for a file that was deleted after it was picked.
+            if (source == "gone") throw FileNotFoundException("open failed: ENOENT") else source.toByteArray()
         }
         runCurrent()
 
         assertEquals(listOf("UNEXPECTED", "BAD_IMAGE"), unread.map { it.code })
+        assertEquals(listOf("good-1", "good-2"), sentPictures)
         assertEquals(2, recorded.size)
         assertTrue(queue.uploads.value.isEmpty())
-        assertTrue(queue.preparing.value.isEmpty())
+        assertTrue(directory.listFiles().orEmpty().isEmpty())
         // Told by whoever asked for the selection, with the count. Not as a failed upload.
         assertTrue(failures.isEmpty())
     }
@@ -325,21 +339,45 @@ class PhotoUploadsTest {
     }
 
     @Test
-    fun `the pictures of a selection count as on their way while they are read`() = runTest {
+    fun `a whole selection is on the device and on screen before the first picture is prepared`() = runTest {
         val queue = uploads()
-        val reading = mutableListOf<Int>()
+        val kept = mutableListOf<Int>()
+        val shown = mutableListOf<Int>()
 
         send = { awaitCancellation() }
-        queue.add(target, listOf("a", "b", "c")) { source ->
-            reading += queue.preparing.value.count { it == target } + queue.uploads.value.size
-            source.toByteArray()
+        prepare = { file ->
+            kept += store.all().size
+            shown += queue.uploads.value.size
+            "jpeg of ${file.readText()}".toByteArray()
         }
+        queue.addPictures(3)
+
+        // Copied as picked first, which is quick: closing the app while they are prepared loses none.
+        assertEquals(listOf(3, 3, 3), kept)
+        assertEquals(listOf(3, 3, 3), shown)
+        assertEquals(listOf(false, false, false), store.all().map { it.raw })
+        assertEquals("jpeg of picture-2", store.picture("photo-2").readText())
+
+        runCurrent()
+        assertEquals(listOf(UploadState.UPLOADING, UploadState.WAITING, UploadState.WAITING), queue.uploads.value.map { it.state })
+        assertEquals(listOf("jpeg of picture-1"), sentPictures)
+    }
+
+    @Test
+    fun `a picture removed while its selection is prepared is not counted as unreadable`() = runTest {
+        val queue = uploads()
+
+        prepare = { file ->
+            if (file.readText() == "picture-1") queue.remove("photo-2")
+            file.readBytes()
+        }
+        val unread = queue.addPictures(3)
         runCurrent()
 
-        // Three from the start to the end: none is counted twice and none is missing while it is read.
-        assertEquals(listOf(3, 3, 3), reading)
-        assertTrue(queue.preparing.value.isEmpty())
-        assertEquals(listOf(UploadState.UPLOADING, UploadState.WAITING, UploadState.WAITING), queue.uploads.value.map { it.state })
+        assertTrue(unread.isEmpty())
+        assertEquals(listOf("photo-1", "photo-3"), recorded.map { it.first })
+        assertTrue(queue.uploads.value.isEmpty())
+        assertTrue(directory.listFiles().orEmpty().isEmpty())
     }
 
     @Test
@@ -396,15 +434,19 @@ class PhotoUploadsTest {
 
     @Test
     fun `what was interrupted goes on when the app is opened again, and what had failed stays failed`() = runTest {
-        // Left by the app as Android killed it: one photo was on its way, one had failed, one is another Stylist's.
-        store.add(PendingPhoto("interrupted", "stylist-1", "appointment-1", "client-1", PhotoCategory.AFTER, createdAt = 1), byteArrayOf(1))
+        // Left by the app as Android killed it: one photo was on its way, one had failed, one had not been
+        // prepared yet, one is another Stylist's.
+        store.add(PendingPhoto("interrupted", "stylist-1", "appointment-1", "client-1", PhotoCategory.AFTER, createdAt = 1), "jpeg".toByteArray())
         store.add(PendingPhoto("failed", "stylist-1", "appointment-2", "client-2", PhotoCategory.BEFORE, createdAt = 2, failed = true), byteArrayOf(2))
         store.add(PendingPhoto("theirs", "stylist-2", "appointment-9", "client-9", PhotoCategory.OTHER, createdAt = 3), byteArrayOf(3))
+        store.add(PendingPhoto("unprepared", "stylist-1", "appointment-1", "client-1", PhotoCategory.AFTER, createdAt = 4, raw = true), "as picked".toByteArray())
+        prepare = { file -> "jpeg of ${file.readText()}".toByteArray() }
 
         val queue = uploads()
-        runCurrent()
 
-        assertEquals(listOf("interrupted"), recorded.map { it.first })
+        assertEquals(listOf("interrupted", "unprepared"), recorded.map { it.first })
+        // Only what was not prepared yet is prepared, when its turn comes.
+        assertEquals(listOf("jpeg", "jpeg of as picked"), sentPictures)
         assertEquals(listOf("failed" to UploadState.FAILED), queue.states())
         assertEquals("appointment-2", queue.uploads.value.single().photo.appointmentId)
         // Nobody else's photo is shown, sent or deleted.

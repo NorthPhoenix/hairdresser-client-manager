@@ -26,15 +26,22 @@ object PhotoPreparer {
     /** The [ApiException.code] of a picture that is over the upload limit even after it was prepared. */
     const val TOO_LARGE = "PHOTO_TOO_LARGE"
 
+    /** The picked or captured file at [uri] as it is. */
+    suspend fun copy(context: Context, uri: Uri): ByteArray =
+        reading { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: throw unreadable() }
+
+    /** The JPEG made of the image at [uri]. */
+    suspend fun prepare(context: Context, uri: Uri): ByteArray = reading { jpeg(context.contentResolver, uri) }
+
     /**
-     * The JPEG made of the image at [uri]. Whatever keeps the image from being read is an
-     * [ApiException] with the code [UNREADABLE]: a file that is not an image, one that was deleted
-     * after it was picked, a permission that has lapsed, an image too large to decode.
+     * Whatever keeps a picture from being read is an [ApiException] with the code [UNREADABLE]: a
+     * file that is not an image, one that was deleted after it was picked, a permission that has
+     * lapsed, an image too large for the device's memory.
      */
-    suspend fun prepare(context: Context, uri: Uri): ByteArray =
+    private suspend fun reading(read: () -> ByteArray): ByteArray =
         withContext(Dispatchers.IO) {
             try {
-                read(context.contentResolver, uri)
+                read()
             } catch (error: ApiException) {
                 throw error
             } catch (error: Exception) {
@@ -46,7 +53,7 @@ object PhotoPreparer {
 
     private fun unreadable(cause: Throwable? = null) = ApiException("The selected image could not be read.", code = UNREADABLE, cause = cause)
 
-    private fun read(resolver: ContentResolver, uri: Uri): ByteArray {
+    private fun jpeg(resolver: ContentResolver, uri: Uri): ByteArray {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
 

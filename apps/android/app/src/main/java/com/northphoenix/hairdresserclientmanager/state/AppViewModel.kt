@@ -180,6 +180,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     private val photos = PhotoUploads(
         viewModelScope,
         PendingPhotoStore(File(container.appContext.filesDir, "photo-uploads")),
+        prepare = ::preparedPhoto,
         send = ::sendPhoto,
         record = ::recordPhoto,
         reload = ::reloadForPhoto,
@@ -188,9 +189,6 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     /** Every Appointment's, so each screen picks its own: an upload is shown on the Appointment and the Client it belongs to. */
     val photoUploads: StateFlow<List<PhotoUpload>> = photos.uploads
-
-    /** One entry for each selected picture that is still being read and is not among [photoUploads] yet. */
-    val photosBeingRead: StateFlow<List<PhotoTarget>> = photos.preparing
 
     private val noticeChannel = Channel<Notice>(Channel.BUFFERED)
     val notices = noticeChannel.receiveAsFlow()
@@ -882,9 +880,9 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     // --- photos ---
 
     /**
-     * Reads the selected pictures and hands them to [photos], which keeps each on the device and
-     * uploads it. A picture that cannot be read is left out without stopping the others, and the
-     * Stylist is told how many were.
+     * Hands the selected pictures to [photos], which keeps each on the device and uploads it. A
+     * picture that cannot be read is left out without stopping the others, and the Stylist is told
+     * how many were.
      * [replacingPhotoId] is a failed photo on the server, removed once the picture taken for it is stored.
      */
     fun addPhotos(appointmentId: String, clientId: String, category: PhotoCategory, sources: List<Uri>, replacingPhotoId: String? = null) {
@@ -894,15 +892,17 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
         viewModelScope.launch {
             reporting {
-                val unread = photos.add(PhotoTarget(appointmentId, clientId, category, replacingPhotoId), sources, ::preparedPhoto)
+                val unread = photos.add(PhotoTarget(appointmentId, clientId, category, replacingPhotoId), sources) { source ->
+                    PhotoPreparer.copy(container.appContext, source)
+                }
 
                 unreadPhotosNotice(sources.size, unread)?.let(noticeChannel::trySend)
             }
         }
     }
 
-    private suspend fun preparedPhoto(source: Uri): ByteArray {
-        val bytes = PhotoPreparer.prepare(container.appContext, source)
+    private suspend fun preparedPhoto(picked: File): ByteArray {
+        val bytes = PhotoPreparer.prepare(container.appContext, Uri.fromFile(picked))
 
         if (bytes.size > UploadThingClient.MAX_PHOTO_BYTES) {
             throw ApiException("The photo is larger than 8 MB.", code = PhotoPreparer.TOO_LARGE)

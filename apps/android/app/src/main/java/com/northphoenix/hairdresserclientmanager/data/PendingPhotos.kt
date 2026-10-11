@@ -26,6 +26,11 @@ data class PendingPhoto(
     /** A failed photo on the server that this one takes the place of. */
     val replacingPhotoId: String? = null,
     val createdAt: Long = 0,
+    /**
+     * The picture is still the file that was picked or captured, copied as it was so that the
+     * selection is on the device at once. It is made into the JPEG to upload before it is sent.
+     */
+    val raw: Boolean = false,
     /** The last try failed. Such a photo waits for the Stylist; any other is tried again when the app starts. */
     val failed: Boolean = false,
     /** Set once the picture is in photo storage. What is left then is to record it, and a new try does only that. */
@@ -77,20 +82,31 @@ class PendingPhotoStore(private val directory: File) {
         }
     }
 
+    /** Puts the JPEG to upload in the place of the picture as it was picked. Does nothing for a photo that has been removed. */
+    @Synchronized
+    fun prepared(photo: PendingPhoto, jpeg: ByteArray) {
+        if (record(photo.id).isFile) {
+            replace(picture(photo.id)) { it.writeBytes(jpeg) }
+            write(photo.copy(raw = false))
+        }
+    }
+
     @Synchronized
     fun remove(id: String) {
         record(id).delete()
         picture(id).delete()
     }
 
-    // Written beside the record and moved over it, so the record is never half of one.
-    private fun write(photo: PendingPhoto) {
-        val draft = File(directory, "${photo.id}$RECORD.tmp")
+    private fun write(photo: PendingPhoto) = replace(record(photo.id)) { it.writeText(hcmJson.encodeToString(PendingPhoto.serializer(), photo)) }
 
-        draft.writeText(hcmJson.encodeToString(PendingPhoto.serializer(), photo))
-        if (!draft.renameTo(record(photo.id))) {
+    // Written beside the file and moved over it, so the file is never half of one.
+    private fun replace(file: File, write: (File) -> Unit) {
+        val draft = File(directory, "${file.name}.tmp")
+
+        write(draft)
+        if (!draft.renameTo(file)) {
             draft.delete()
-            throw IOException("Could not keep the photo's record.")
+            throw IOException("Could not keep ${file.name}.")
         }
     }
 

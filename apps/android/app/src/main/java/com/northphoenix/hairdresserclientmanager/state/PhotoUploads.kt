@@ -25,6 +25,9 @@ import java.io.File
 import java.util.UUID
 
 enum class UploadState {
+    /** Just selected: the picture is on the device as it was picked and is being made into the JPEG to upload. */
+    PREPARING,
+
     /** Its turn has not come yet: one picture is sent at a time. */
     WAITING,
     UPLOADING,
@@ -49,14 +52,15 @@ data class PhotoTarget(
 /**
  * The Stylist's photos on their way to the server. Each picture goes through:
  *
- *     prepared -> WAITING -> UPLOADING -> recorded by the server: gone from here
- *                    ^           |
- *                    |           v
- *              'Upload again'  FAILED -> 'Remove photo': gone from here
+ *     selected -> PREPARING -> WAITING -> UPLOADING -> recorded by the server: gone from here
+ *                                 ^           |
+ *                                 |           v
+ *                           'Upload again'  FAILED -> 'Remove photo': gone from here
  *
- * - A picture is kept by [store] from the moment it is prepared until the server has recorded it
+ * - A picture is kept by [store] from the moment it is selected until the server has recorded it
  *   or the Stylist removes it. So a picture that failed can be sent again, a camera capture is
  *   never only in a cache, and what Android interrupted goes on when the app is opened again.
+ *   A selection is first copied as it is, which takes a moment, and only then made into JPEGs.
  * - Pictures are sent one at a time, oldest first, each as a try of its own: one that fails does
  *   not hold up the others.
  * - Nothing leaves a picture UPLOADING: a try that ends in any way other than success leaves it
@@ -71,6 +75,8 @@ data class PhotoTarget(
 internal class PhotoUploads(
     private val scope: CoroutineScope,
     private val store: PendingPhotoStore,
+    /** Makes the picked picture in this file into the JPEG to upload. Throws for a file that cannot be read as an image. */
+    private val prepare: suspend (File) -> ByteArray,
     /** Puts the picture into photo storage. */
     private val send: suspend (PendingPhoto, ByteArray) -> StoredFile,
     /** Records the stored picture as an Appointment Photo. Asked again for the same photo, the server answers as the first time. */
@@ -86,11 +92,6 @@ internal class PhotoUploads(
 
     /** Of the Stylist who is signed in, oldest first. */
     val uploads: StateFlow<List<PhotoUpload>> = _uploads.asStateFlow()
-
-    private val _preparing = MutableStateFlow<List<PhotoTarget>>(emptyList())
-
-    /** One entry for every selected picture that is still being read and is not in [uploads] yet. */
-    val preparing: StateFlow<List<PhotoTarget>> = _preparing.asStateFlow()
 
     private var stylistId: String? = null
     private var worker: Job? = null
@@ -132,49 +133,65 @@ internal class PhotoUploads(
         stylistId = null
         failureTold = false
         _uploads.value = emptyList()
-        _preparing.value = emptyList()
     }
 
     /**
-     * Prepares each of [sources] and puts it in line. A picture that cannot be prepared is left
-     * out and the others are not affected by it; what went wrong with each is returned.
+     * Takes a selection. Every picture is first copied to the device as [read] gives it, which is
+     * quick: from then on the selection is not lost when the app is closed. Then each is made into
+     * the JPEG to upload and takes its turn. A picture that cannot be read is left out and the
+     * others are not affected by it; what went wrong with each is returned.
      */
-    suspend fun <S> add(target: PhotoTarget, sources: List<S>, prepare: suspend (S) -> ByteArray): List<ApiException> {
+    suspend fun <S> add(target: PhotoTarget, sources: List<S>, read: suspend (S) -> ByteArray): List<ApiException> {
         val owner = stylistId ?: return emptyList()
         val failures = mutableListOf<ApiException>()
-        var replacing = target.replacingPhotoId
-        var unread = sources.size
+        val copied = mutableListOf<PendingPhoto>()
 
         failureTold = false
-        _preparing.update { it + List(sources.size) { target } }
-        try {
-            for (source in sources) {
-                try {
-                    val bytes = prepare(source)
-                    val photo = PendingPhoto(newId(), owner, target.appointmentId, target.clientId, target.category, replacing, now())
+        for (source in sources) {
+            failures += failureOrNull {
+                val bytes = read(source)
+                val replacing = target.replacingPhotoId.takeIf { copied.isEmpty() }
+                val photo = PendingPhoto(newId(), owner, target.appointmentId, target.clientId, target.category, replacing, now(), raw = true)
 
-                    withContext(io) { store.add(photo, bytes) }
-                    replacing = null
-                    // Not shown to someone else who has signed in meanwhile. It is on the device for its Stylist.
-                    if (stylistId == owner) {
-                        _uploads.update { it + shown(photo, UploadState.WAITING) }
-                        wake.trySend(Unit)
-                    }
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Exception) {
-                    failures += error.toApiException()
-                } finally {
-                    unread--
-                    _preparing.update { it - target }
+                withContext(io) { store.add(photo, bytes) }
+                copied += photo
+                // Not shown to someone else who has signed in meanwhile. It is on the device for its Stylist.
+                if (stylistId == owner) {
+                    _uploads.update { it + shown(photo, UploadState.PREPARING) }
                 }
+            } ?: continue
+        }
+
+        for (photo in copied) {
+            // Removed meanwhile, or its Stylist has signed out: then it is prepared when its turn comes after they are back.
+            if (!isPreparing(photo.id)) {
+                continue
             }
-        } finally {
-            // Stopped before the end: what was not reached is not being read any more.
-            repeat(unread) { _preparing.update { it - target } }
+
+            val failure = failureOrNull {
+                val ready = prepared(photo)
+
+                show(photo.id) { if (it.state == UploadState.PREPARING) it.copy(photo = ready, state = UploadState.WAITING) else it }
+                wake.trySend(Unit)
+            }
+
+            if (failure != null && isPreparing(photo.id)) {
+                failures += failure
+                hide(photo.id)
+                quietly { withContext(io) { store.remove(photo.id) } }
+            }
         }
 
         return failures
+    }
+
+    private fun isPreparing(id: String) = _uploads.value.any { it.id == id && it.state == UploadState.PREPARING }
+
+    /** The photo with its picture made into the JPEG to upload. */
+    private suspend fun prepared(photo: PendingPhoto): PendingPhoto {
+        val jpeg = prepare(store.picture(photo.id))
+
+        return photo.copy(raw = false).also { ready -> withContext(io) { store.prepared(ready, jpeg) } }
     }
 
     /** 'Upload again' for one failed picture. */
@@ -240,6 +257,12 @@ internal class PhotoUploads(
 
         try {
             val failure = failureOrNull {
+                if (photo.raw) {
+                    // The app was closed before this picture of a selection had been prepared.
+                    photo = prepared(photo)
+                    show(photo.id) { it.copy(photo = photo) }
+                }
+
                 val stored = photo.stored ?: send(photo, withContext(io) { store.picture(photo.id).readBytes() }).also { file ->
                     // Kept before it is recorded: another try records this file instead of uploading the picture again.
                     photo = photo.copy(stored = file)
