@@ -27,12 +27,23 @@ fun weeksOf(month: YearMonth, firstDayOfWeek: DayOfWeek): List<List<LocalDate?>>
     return cells.chunked(7) { week -> week + List(7 - week.size) { null } }
 }
 
-fun zoneOrSystem(timezone: String?): ZoneId =
+/**
+ * The timezone [timezone] names, or null when this device knows none by that name. The server
+ * checks a timezone when it is saved, but a Stylist who was saved before it did can hold any text,
+ * and a device can know fewer timezones than the server.
+ */
+fun zoneOrNull(timezone: String?): ZoneId? =
     try {
-        if (timezone.isNullOrBlank()) ZoneId.systemDefault() else ZoneId.of(timezone.trim())
+        timezone?.trim()?.takeIf(String::isNotEmpty)?.let(ZoneId::of)
     } catch (_: Exception) {
-        ZoneId.systemDefault()
+        null
     }
+
+/**
+ * Times have to be shown in some timezone: without one of the Stylist's that the device can use
+ * ([zoneOrNull]) it is the device's own. Whoever shows the Stylist's timezone says so then.
+ */
+fun zoneOrSystem(timezone: String?): ZoneId = zoneOrNull(timezone) ?: ZoneId.systemDefault()
 
 /**
  * All Appointment times are shown in the Stylist's configured timezone.

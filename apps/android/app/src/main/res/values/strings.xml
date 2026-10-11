@@ -58,6 +58,7 @@
     <string name="appointment_photo_category_label">Photo category</string>
     <string name="appointment_photo_description">Photo: %1$s</string>
     <string name="appointment_photo_failed_description">Photo: %1$s, not saved</string>
+    <string name="appointment_photo_not_loaded">The photo couldn\'t be loaded.</string>
     <string name="appointment_photo_other">Other</string>
     <string name="appointment_photo_permission_denied">Couldn\'t open the camera or gallery.</string>
     <string name="appointment_photo_too_large">The photo is larger than 8 MB.</string>
@@ -153,6 +154,7 @@
     <string name="edit_appointment_service">Edit Service</string>
     <string name="edit_client_title">Client Profile</string>
     <string name="error_already_saved_as_before">This was already saved the first time, as it was then. Close this form and change what was saved, if you need to.</string>
+    <string name="error_amount_too_large">This amount is more than can be saved. Nothing was saved.</string>
     <string name="error_appointment_needs_client">An Appointment must keep at least one Client.</string>
     <string name="error_appointment_total_too_large">The Services of one Appointment can\'t add up to this much. Nothing was saved.</string>
     <string name="error_changed_elsewhere">This was changed on another device, so nothing was saved. What you changed is still here: check it and save again.</string>
@@ -170,6 +172,9 @@
     <string name="error_session_ended">Your session has ended. Sign in again.</string>
     <string name="error_sign_in_rejected">The server didn\'t accept your sign-in. Try again.</string>
     <string name="error_sign_in_unreachable">Can\'t reach the sign-in service. Check your connection and try again.</string>
+    <string name="error_text_too_long">Some of the text is longer than can be saved, so nothing was saved. Shorten it and try again.</string>
+    <string name="error_timezone_invalid">The server doesn\'t know this timezone, so nothing was saved. Choose another timezone and save.</string>
+    <string name="error_timezone_unusable">This device doesn\'t know your saved timezone, so times are shown in the device\'s own timezone. Choose your timezone on the Profile tab.</string>
     <string name="generate_share_image">Generate Share Image</string>
     <string name="home_appointments_title">Today and unresolved</string>
     <string name="home_empty_body">Nothing is scheduled today and no past Appointments need an outcome.</string>
@@ -319,9 +324,11 @@
     <string name="tab_clients">Clients</string>
     <string name="tab_profile">Profile</string>
     <string name="tab_today">Today</string>
+    <string name="text_limit">No more than %1$d characters.</string>
     <string name="timezone_label">Timezone</string>
     <string name="timezone_required">Confirm a timezone.</string>
     <string name="timezone_search_placeholder">Search timezones</string>
+    <string name="timezone_unusable">This device doesn\'t know this timezone, so times are shown in the device\'s own timezone. Choose your timezone and save.</string>
 
     <plurals name="appointment_photos_not_saved">
         <item quantity="one">The photo wasn\'t saved.</item>

@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
+import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.i18n.emptyClientPickerText
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
@@ -78,6 +79,8 @@ fun ClientPickerSheet(
                 placeholder = stringResource(if (onCreateInline != null) R.string.client_name_label else R.string.client_search_label),
                 leadingIcon = Icons.Rounded.Search,
                 capitalization = KeyboardCapitalization.Words,
+                // What is typed here can become the name of a new Client.
+                maxLength = TextLimits.NAME.takeIf { onCreateInline != null },
             )
 
             if (onCreateInline != null && search.isNotBlank()) {

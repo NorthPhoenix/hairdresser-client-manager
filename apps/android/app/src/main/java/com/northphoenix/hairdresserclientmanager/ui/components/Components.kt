@@ -65,6 +65,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.error
@@ -90,6 +91,7 @@ import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.OneLine
+import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.i18n.refusalRes
 import com.northphoenix.hairdresserclientmanager.ui.theme.DisplayFamily
@@ -345,6 +347,11 @@ fun SwitchRow(text: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit
  * [errorAttempt]: the field then comes back into view on each of them. [onImeAction] is what the
  * keyboard's own action key ([imeAction]) does. [contentType] says what the field holds to the
  * device's password manager, which then offers what it has saved for it and to save what is typed.
+ *
+ * [maxLength] is the most the server takes for this text (see [TextLimits]). The field takes no
+ * more than that and says so under it once it is full. Text that was not typed into it can be
+ * longer (a record saved before there were limits, a copied contact): the same words are then an
+ * error, until the text is shortened.
  */
 @Composable
 fun HcmTextField(
@@ -367,8 +374,13 @@ fun HcmTextField(
     visualTransformation: VisualTransformation = VisualTransformation.None,
     onImeAction: (() -> Unit)? = null,
     contentType: ContentType? = null,
+    maxLength: Int? = null,
 ) {
     val intoView = remember { BringIntoViewRequester() }
+    val limit = maxLength?.takeIf { value.length >= it }?.let { stringResource(R.string.text_limit, it) }
+    val tooLong = maxLength != null && value.length > maxLength
+    // Why a save refused the text comes first: it is what the Stylist has just asked for.
+    val refusal = error ?: limit.takeIf { tooLong }
 
     LaunchedEffect(error, errorAttempt) {
         if (error != null) {
@@ -383,20 +395,24 @@ fun HcmTextField(
         OutlinedTextField(
             value = value,
             // A one-line field shows one line only; text pasted with a line break or a control character must not hold more.
-            onValueChange = { onValueChange(if (singleLine) OneLine.typed(it) else it) },
+            onValueChange = { changed ->
+                val text = if (singleLine) OneLine.typed(changed) else changed
+
+                onValueChange(if (maxLength == null) text else TextLimits.typed(text, maxLength, before = value))
+            },
             modifier = Modifier.fillMaxWidth().semantics {
                 contentDescription = label
                 // The reason itself is what a screen reader says, in place of Material's "Invalid input".
-                if (error != null) {
-                    this.error(error)
+                if (refusal != null) {
+                    this.error(refusal)
                 }
                 if (contentType != null) {
                     this.contentType = contentType
                 }
             },
             enabled = enabled,
-            isError = error != null,
-            supportingText = error?.let { { Text(it) } },
+            isError = refusal != null,
+            supportingText = (refusal ?: limit)?.let { { Text(it) } },
             placeholder = placeholder?.let { { Text(it, color = HcmColors.Faint) } },
             leadingIcon = leadingIcon?.let { { Icon(it, contentDescription = null, modifier = Modifier.size(20.dp)) } },
             trailingIcon = trailing,
@@ -440,6 +456,7 @@ fun AmountField(value: String, onValueChange: (String) -> Unit, label: String, p
 /**
  * A read-only field that opens a picker, styled to sit beside [HcmTextField].
  * With [wraps] the value is shown whole, on as many lines as it takes: a date or a time cut short says another one.
+ * [error] is what is wrong with the value: it is shown under the field, as under a text field.
  */
 @Composable
 fun PickerField(
@@ -451,15 +468,21 @@ fun PickerField(
     isPlaceholder: Boolean = false,
     trailing: (@Composable () -> Unit)? = null,
     wraps: Boolean = false,
+    error: String? = null,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Surface(
             onClick = onClick,
-            modifier = Modifier.fillMaxWidth().semantics { contentDescription = label },
+            modifier = Modifier.fillMaxWidth().semantics {
+                contentDescription = label
+                if (error != null) {
+                    this.error(error)
+                }
+            },
             shape = MaterialTheme.shapes.medium,
             color = MaterialTheme.colorScheme.surfaceContainerLowest,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            border = BorderStroke(1.dp, if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline),
         ) {
             Row(
                 Modifier.heightIn(min = 56.dp).padding(start = 14.dp, end = if (trailing != null) 4.dp else 14.dp),
@@ -480,6 +503,15 @@ fun PickerField(
                 )
                 trailing?.invoke()
             }
+        }
+        if (error != null) {
+            // Where a text field has its reason. A screen reader is told it with the field.
+            Text(
+                error,
+                modifier = Modifier.padding(horizontal = 16.dp).clearAndSetSemantics {},
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
     }
 }

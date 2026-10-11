@@ -9,6 +9,7 @@ import com.northphoenix.hairdresserclientmanager.state.PhotoUpload
 import com.northphoenix.hairdresserclientmanager.state.UploadState
 import com.northphoenix.hairdresserclientmanager.ui.screens.hasPicture
 import com.northphoenix.hairdresserclientmanager.ui.screens.photoTileDescription
+import com.northphoenix.hairdresserclientmanager.ui.screens.tilePicture
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -141,6 +142,25 @@ class PhotoDetailsTest {
         assertEquals(R.string.appointment_photo_failed_description, photoTileDescription(photo(PhotoStatus.STORED, url = " ")))
         assertFalse(photo(PhotoStatus.FAILED, "https://files.example/1").hasPicture)
         assertTrue(photo(PhotoStatus.STORED, "https://files.example/1").hasPicture)
+    }
+
+    @Test
+    fun `only a web address is a picture to load`() {
+        // L85: a photo recorded before the server checked addresses can hold any text, and the image loader reads what it is given.
+        listOf("file:///etc/passwd", "content://com.android.contacts/contacts/1/photo", "javascript:alert(1)", "/data/local/x.jpg", "data:image/png;base64,AAAA", "ftp://files.example/1", "files.example/1").forEach { address ->
+            assertFalse(address, photo(PhotoStatus.STORED, address).hasPicture)
+            assertEquals(address, R.string.appointment_photo_failed_description, photoTileDescription(photo(PhotoStatus.STORED, address)))
+        }
+        assertTrue(photo(PhotoStatus.STORED, "HTTPS://files.example/1").hasPicture)
+        // The dev backend's own photo storage. A release build makes no such request: Android refuses it.
+        assertTrue(photo(PhotoStatus.STORED, "http://10.0.2.2:3000/files/1").hasPicture)
+
+        // A tile shows the smaller picture when the photo has one, and never loads what is not a web address either.
+        val stored = photo(PhotoStatus.STORED, "https://files.example/1")
+
+        assertEquals("https://files.example/small", stored.copy(thumbnailUrl = "https://files.example/small").tilePicture)
+        assertEquals("https://files.example/1", stored.tilePicture)
+        assertEquals("https://files.example/1", stored.copy(thumbnailUrl = "file:///sdcard/x.jpg").tilePicture)
     }
 
     @Test

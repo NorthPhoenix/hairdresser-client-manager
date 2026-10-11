@@ -16,6 +16,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.LocationType
+import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmTextField
@@ -161,6 +162,7 @@ fun AppointmentLocationFields(
                 singleLine = false,
                 minLines = 2,
                 capitalization = KeyboardCapitalization.Words,
+                maxLength = TextLimits.ADDRESS,
             )
         }
     }

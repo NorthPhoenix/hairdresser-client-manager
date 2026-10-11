@@ -82,6 +82,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
@@ -106,6 +107,7 @@ import com.northphoenix.hairdresserclientmanager.domain.AppointmentCopying
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.ServiceEdit
+import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
 import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
 import com.northphoenix.hairdresserclientmanager.i18n.clientReminderTemplate
@@ -1068,7 +1070,7 @@ private fun NoteCard(appointment: Appointment, note: String, onNote: (String) ->
     HcmCard {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.appointment_note_title), style = MaterialTheme.typography.headlineSmall)
-            HcmTextField(note, onNote, label = "", placeholder = stringResource(R.string.appointment_note_placeholder), singleLine = false, minLines = 3)
+            HcmTextField(note, onNote, label = "", placeholder = stringResource(R.string.appointment_note_placeholder), singleLine = false, minLines = 3, maxLength = TextLimits.NOTE)
             SecondaryButton(
                 stringResource(R.string.save_appointment_note),
                 onClick = { onSave(note) },
@@ -1120,8 +1122,23 @@ private val PhotoTagMargin = 6.dp
 internal fun photoTagWidth(gridWidth: Dp): Dp =
     (gridWidth - PhotoGridGap * (PHOTOS_IN_A_ROW - 1)) / PHOTOS_IN_A_ROW - (PhotoTagMargin + TagPadding) * 2 - 2.dp
 
-/** Whether there is a stored picture to show. A photo that is recorded as failed has none. */
-internal val AppointmentPhoto.hasPicture: Boolean get() = status == PhotoStatus.STORED && url.isNotBlank()
+/**
+ * Whether there is a stored picture to show. A photo that is recorded as failed has none, and
+ * neither has one whose address is not a web address ([isWebAddress]).
+ */
+internal val AppointmentPhoto.hasPicture: Boolean get() = status == PhotoStatus.STORED && isWebAddress(url)
+
+/** What a tile shows of a photo that has a picture: the smaller one, when it has one. */
+internal val AppointmentPhoto.tilePicture: String get() = thumbnailUrl.takeIf(::isWebAddress) ?: url
+
+/**
+ * An address that is fetched from the web, which is the only kind a stored photo has. The server
+ * records only addresses in its own photo storage, but a photo recorded before it checked can
+ * hold any text, and the image loader reads whatever it is handed: a file or other content of
+ * the device as well. Anything else is a photo without a picture.
+ */
+internal fun isWebAddress(address: String): Boolean =
+    address.startsWith("https://", ignoreCase = true) || address.startsWith("http://", ignoreCase = true)
 
 /**
  * What a screen reader is told a photo tile is, with the category as its argument: a photo, and
@@ -1168,12 +1185,7 @@ private fun RowScope.StoredPhotoTile(photo: AppointmentPhoto, tagStyle: TextStyl
 
     PhotoTile(stringResource(photoTileDescription(photo), category), category, tagStyle, onClick = { onOpen(photo) }) {
         if (photo.hasPicture) {
-            AsyncImage(
-                model = photo.thumbnailUrl.ifBlank { photo.url },
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
+            StoredPicture(photo.tilePicture, contentDescription = null, ContentScale.Crop, Modifier.fillMaxSize())
         } else {
             Icon(
                 Icons.Rounded.BrokenImage,
@@ -1181,6 +1193,35 @@ private fun RowScope.StoredPhotoTile(photo: AppointmentPhoto, tagStyle: TextStyl
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.align(Alignment.Center),
             )
+        }
+    }
+}
+
+/**
+ * The picture of a stored photo, from its web [address]. A picture that does not load (no
+ * connection, a file that is gone, an address that serves no image) leaves no empty place: it is
+ * marked like a photo without a picture, with [failedText] under the mark where there is room for it.
+ */
+@Composable
+internal fun StoredPicture(address: String, contentDescription: String?, contentScale: ContentScale, modifier: Modifier = Modifier, failedText: String? = null) {
+    var failed by remember(address) { mutableStateOf(false) }
+
+    Box(modifier, contentAlignment = Alignment.Center) {
+        AsyncImage(
+            model = address,
+            contentDescription = contentDescription,
+            contentScale = contentScale,
+            modifier = Modifier.fillMaxSize(),
+            onSuccess = { failed = false },
+            onError = { failed = true },
+        )
+        if (failed) {
+            Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Rounded.BrokenImage, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                failedText?.let {
+                    Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                }
+            }
         }
     }
 }
@@ -1275,6 +1316,7 @@ private fun AddServiceSheet(
             },
             label = stringResource(R.string.appointment_service_name_label),
             placeholder = selectedItem?.name ?: stringResource(R.string.placeholder_service_name),
+            maxLength = TextLimits.NAME,
         )
         AmountField(
             price,
@@ -1285,7 +1327,7 @@ private fun AddServiceSheet(
             // An empty price is refused only for an ad hoc Service: the reason goes once a Service from the menu is chosen.
             refusal = Money.parse(price).takeIf { price == refusedPrice && it.isRefused(required = selectedItem == null) },
         )
-        HcmTextField(note, { note = it }, label = stringResource(R.string.appointment_service_note_label), placeholder = stringResource(R.string.optional), singleLine = false, minLines = 2)
+        HcmTextField(note, { note = it }, label = stringResource(R.string.appointment_service_note_label), placeholder = stringResource(R.string.optional), singleLine = false, minLines = 2, maxLength = TextLimits.NOTE)
         PrimaryButton(
             stringResource(if (menuItemId != null) R.string.add_menu_service else R.string.add_ad_hoc_service),
             onClick = {
@@ -1333,6 +1375,7 @@ private fun EditServiceSheet(
             label = stringResource(R.string.appointment_service_name_label),
             placeholder = stringResource(R.string.placeholder_service_name),
             error = stringResource(R.string.service_name_required).takeIf { name == refusedName },
+            maxLength = TextLimits.NAME,
         )
         AmountField(
             price,
@@ -1341,7 +1384,7 @@ private fun EditServiceSheet(
             placeholder = "85.00",
             refusal = Money.parse(price).takeIf { price == refusedPrice },
         )
-        HcmTextField(note, { note = it }, label = stringResource(R.string.appointment_service_note_label), placeholder = stringResource(R.string.optional), singleLine = false, minLines = 2)
+        HcmTextField(note, { note = it }, label = stringResource(R.string.appointment_service_note_label), placeholder = stringResource(R.string.optional), singleLine = false, minLines = 2, maxLength = TextLimits.NOTE)
         PrimaryButton(
             stringResource(R.string.save_appointment_service),
             onClick = {
@@ -1450,8 +1493,8 @@ private fun FormulaSheet(
     var confirmDelete by rememberSaveable(service.id, formula?.id) { mutableStateOf(false) }
 
     HcmBottomSheet(title = stringResource(R.string.color_formula_label), subtitle = service.name, onDismiss = onDismiss) {
-        HcmTextField(text, { text = it }, label = stringResource(R.string.color_formula_label), placeholder = "7N + 20 vol", singleLine = false, minLines = 2)
-        HcmTextField(placement, { placement = it }, label = stringResource(R.string.color_formula_placement_label), placeholder = stringResource(R.string.placeholder_formula_placement))
+        HcmTextField(text, { text = it }, label = stringResource(R.string.color_formula_label), placeholder = "7N + 20 vol", singleLine = false, minLines = 2, maxLength = TextLimits.FORMULA)
+        HcmTextField(placement, { placement = it }, label = stringResource(R.string.color_formula_placement_label), placeholder = stringResource(R.string.placeholder_formula_placement), maxLength = TextLimits.PLACEMENT)
         PrimaryButton(
             stringResource(if (formula != null) R.string.save_color_formula else R.string.add_color_formula),
             onClick = { if (text.isBlank()) onMissingFormula() else onSave(text, placement) },
@@ -1520,11 +1563,12 @@ private fun PhotoSheet(
 
     HcmBottomSheet(title = stringResource(photo.category.label), subtitle = clientName, onDismiss = onDismiss) {
         if (photo.hasPicture) {
-            AsyncImage(
-                model = photo.url,
+            StoredPicture(
+                photo.url,
                 contentDescription = stringResource(photo.category.label),
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(MaterialTheme.shapes.large).background(MaterialTheme.colorScheme.surfaceVariant),
+                failedText = stringResource(R.string.appointment_photo_not_loaded),
             )
         } else {
             // Worded here, in the Stylist's language. A text that a record carries as its reason is never shown.

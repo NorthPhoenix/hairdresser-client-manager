@@ -67,6 +67,45 @@ class ApiClientTest {
     }
 
     @Test
+    fun `a new account on a device whose timezone the server does not know is created without it`() = runTest {
+        // L83, L65: the server creates no Stylist with a timezone it does not know, and answers every first call like this.
+        val refused = """{"error":{"message":"[{\"code\":\"custom\",\"path\":[\"deviceTimezone\"],\"message\":\"Timezone is not valid.\"}]","code":-32600,"data":{"code":"BAD_REQUEST","httpStatus":400,"path":"stylist.bootstrap"}}}"""
+
+        enqueue(refused, code = 400)
+        enqueue("""{"result":{"data":{"id":"s1","language":"ru","timezone":"UTC","salonAddress":"","onboardingCompletedAt":null}}}""")
+
+        val stylist = api.bootstrap(Language.RU, "GMT+03:00")
+
+        // In UTC, to be confirmed in onboarding like every new Stylist's timezone.
+        assertEquals("UTC", stylist.timezone)
+        assertFalse(stylist.onboardingComplete)
+        assertEquals("""{"deviceLanguage":"ru","deviceTimezone":"GMT+03:00"}""", server.takeRequest().url.queryParameter("input"))
+        assertEquals("""{"deviceLanguage":"ru"}""", server.takeRequest().url.queryParameter("input"))
+
+        // Refused without the timezone as well: that is the answer, and nothing is asked a third time.
+        enqueue(refused, code = 400)
+        enqueue(refused, code = 400)
+        try {
+            api.bootstrap(Language.RU, "Mars/Phobos")
+            fail("expected ApiException")
+        } catch (error: ApiException) {
+            assertEquals("Timezone is not valid.", error.message)
+            assertEquals(R.string.error_timezone_invalid, error.messageRes())
+        }
+        assertEquals(4, server.requestCount)
+
+        // Any other failure is not about the timezone and is not asked again.
+        enqueue("""{"error":{"message":"Authentication required.","code":-32001,"data":{"code":"UNAUTHORIZED","httpStatus":401}}}""", code = 401)
+        try {
+            api.bootstrap(Language.RU, "Europe/Moscow")
+            fail("expected ApiException")
+        } catch (error: ApiException) {
+            assertTrue(error.isUnauthorized)
+        }
+        assertEquals(5, server.requestCount)
+    }
+
+    @Test
     fun `mutations post the input and omit optional fields`() = runTest {
         enqueue("""{"result":{"data":{}}}""")
 

@@ -76,4 +76,26 @@ object AppointmentClients {
      */
     fun inPickedOrder(pickedIds: List<String>, clients: List<ClientProfile>): List<ClientProfile> =
         pickedIds.mapNotNull { id -> clients.firstOrNull { it.id == id } }
+
+    /**
+     * Of the Clients picked for a new Appointment, those the loaded Clients list still has. One
+     * who was deleted on another device since is no Client any more, and the server refuses an
+     * Appointment that names them for as long as it does.
+     */
+    fun stillListed(pickedIds: List<String>, clients: List<ClientProfile>): List<String> {
+        val listed = clients.mapTo(HashSet()) { it.id }
+
+        return pickedIds.filter { it in listed }
+    }
+
+    /**
+     * The Appointments that deleting the Client [clientId] changes or deletes: those the Client
+     * is in, and those that name them as primary without listing them (see [Fault]), which the
+     * server puts right as part of the delete.
+     */
+    fun changedByDeleting(clientId: String, appointments: Collection<Appointment>): List<Appointment> =
+        appointments.filter { appointment -> appointment.primaryClientId == clientId || appointment.participants.any { it.clientId == clientId } }
+
+    /** Whether one of those Appointments is deleted together with the Client: nobody else is in it. */
+    fun goesWith(clientId: String, appointment: Appointment): Boolean = appointment.participants.all { it.clientId == clientId }
 }

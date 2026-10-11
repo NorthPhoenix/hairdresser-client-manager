@@ -97,6 +97,7 @@ import com.northphoenix.hairdresserclientmanager.domain.ChangedElsewhere
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.OneLine
 import com.northphoenix.hairdresserclientmanager.domain.ShareImageSize
+import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
@@ -342,12 +343,12 @@ fun ClientEditorScreen(
 
             HcmCard {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    HcmTextField(name, { name = it }, label = stringResource(R.string.client_name_label), placeholder = stringResource(R.string.placeholder_client_name), capitalization = KeyboardCapitalization.Words)
+                    HcmTextField(name, { name = it }, label = stringResource(R.string.client_name_label), placeholder = stringResource(R.string.placeholder_client_name), capitalization = KeyboardCapitalization.Words, maxLength = TextLimits.NAME)
                     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                         Text(stringResource(R.string.client_language_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         SegmentedControl(Language.entries, language, { language = it }, label = { stringResource(it.label) })
                     }
-                    HcmTextField(phone, { phone = it }, label = stringResource(R.string.client_phone_label), placeholder = "+1 555 0100", keyboardType = KeyboardType.Phone)
+                    HcmTextField(phone, { phone = it }, label = stringResource(R.string.client_phone_label), placeholder = "+1 555 0100", keyboardType = KeyboardType.Phone, maxLength = TextLimits.PHONE)
                     HcmTextField(
                         email,
                         { email = it },
@@ -357,6 +358,7 @@ fun ClientEditorScreen(
                         capitalization = KeyboardCapitalization.None,
                         error = stringResource(R.string.client_email_invalid).takeIf { email == refusedEmail },
                         errorAttempt = emailRefusals,
+                        maxLength = TextLimits.EMAIL,
                     )
                     HcmTextField(
                         address,
@@ -366,8 +368,9 @@ fun ClientEditorScreen(
                         singleLine = false,
                         minLines = 2,
                         capitalization = KeyboardCapitalization.Words,
+                        maxLength = TextLimits.ADDRESS,
                     )
-                    HcmTextField(note, { note = it }, label = stringResource(R.string.client_note_label), placeholder = stringResource(R.string.placeholder_client_note), singleLine = false, minLines = 3)
+                    HcmTextField(note, { note = it }, label = stringResource(R.string.client_note_label), placeholder = stringResource(R.string.placeholder_client_note), singleLine = false, minLines = 3, maxLength = TextLimits.NOTE)
                 }
             }
 
@@ -703,13 +706,9 @@ private fun HistoryPhotos(photos: List<AppointmentPhoto>) {
                     .background(MaterialTheme.colorScheme.surfaceVariant)
                     .semantics { contentDescription = description },
             ) {
-                if (inView) {
-                    AsyncImage(
-                        model = photo.thumbnailUrl.ifBlank { photo.url },
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                // As on the Appointment's own screen: only a web address is loaded, and a picture that does not load is marked.
+                if (inView && photo.hasPicture) {
+                    StoredPicture(photo.tilePicture, contentDescription = null, ContentScale.Crop, Modifier.fillMaxSize())
                 }
                 // The description names the category already.
                 Tag(

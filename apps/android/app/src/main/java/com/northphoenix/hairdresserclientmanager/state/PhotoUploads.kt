@@ -326,9 +326,12 @@ internal class PhotoUploads(
                 quietly { reload(photo, false) }
             }
             else -> {
-                show(photo.id) { it.copy(photo = photo.copy(failed = true), state = UploadState.FAILED) }
+                // A stored file the server does not take as a photo is refused every time it is sent: the next try uploads the picture anew.
+                val kept = photo.copy(failed = true, stored = photo.stored.takeUnless { failure.isStoredFileRefused })
+
+                show(photo.id) { it.copy(photo = kept, state = UploadState.FAILED) }
                 tell(failure)
-                withContext(io) { store.update(photo.copy(failed = true)) }
+                withContext(io) { store.update(kept) }
                 if (failure.outcomeUnknown || failure.screenOutOfDate) {
                     // The photo may have been recorded although the reply never came: the screen shows whether it was.
                     // Or its Client is no longer in the Appointment: the screen stops listing them.

@@ -141,6 +141,24 @@ class TranslationsTest {
     }
 
     @Test
+    fun `what the server refuses for its limits says which limit, not only that something is wrong`() {
+        fun refusal(message: String) = ApiException(message, code = "BAD_REQUEST").messageRes()
+
+        // H7, L83: the fields refuse such an amount themselves; this is for an amount saved before there was a maximum.
+        assertEquals(R.string.error_amount_too_large, refusal("Amount is too large."))
+        assertEquals(R.string.error_appointment_total_too_large, refusal("Appointment total is too large."))
+        // L82: the fields take no more than the limit; this is for text they did not type.
+        assertEquals(R.string.error_text_too_long, refusal("Text is too long."))
+        // L65: a timezone that was saved before the server checked it is refused with every save of the settings, a language switch too.
+        assertEquals(R.string.error_timezone_invalid, refusal("Timezone is not valid."))
+        // L85: the picture is still on the device, and the Stylist can send it again.
+        assertEquals(R.string.appointment_photo_upload_failed, refusal("Appointment Photo URLs must point at UploadThing storage."))
+        assertEquals(R.string.appointment_photo_upload_failed, refusal("This file already belongs to another Appointment Photo."))
+        // L83: an unexpected failure no longer carries what failed, and is said as what it is.
+        assertEquals(R.string.error_generic, ApiException("Internal server error.", code = "INTERNAL_SERVER_ERROR").messageRes())
+    }
+
+    @Test
     fun `a copy that was refused says that nothing was copied and why`() {
         fun refusal(message: String, code: String) = ApiException(message, code = code).messageRes()
 

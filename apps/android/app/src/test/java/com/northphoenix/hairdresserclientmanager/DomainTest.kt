@@ -17,8 +17,11 @@ import com.northphoenix.hairdresserclientmanager.domain.DeviceContact
 import com.northphoenix.hairdresserclientmanager.domain.ImportedContact
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.OneLine
+import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
 import com.northphoenix.hairdresserclientmanager.domain.weeksOf
+import com.northphoenix.hairdresserclientmanager.domain.zoneOrNull
+import com.northphoenix.hairdresserclientmanager.domain.zoneOrSystem
 import com.northphoenix.hairdresserclientmanager.i18n.normalizeLanguage
 import com.northphoenix.hairdresserclientmanager.i18n.stringsLanguage
 import org.junit.Assert.assertEquals
@@ -463,6 +466,67 @@ class DomainTest {
         listOf("Paste Test\nsecond line", " a \u0001\n b ", "\u0001\nb", "a\n \u0001 \nb", "x\u007F\u009Fy ").forEach {
             assertEquals(OneLine.clean(it), OneLine.typed(it).trim())
         }
+    }
+
+    @Test
+    fun `a field takes no more text than the server does`() {
+        // L82: typed at the end of a full field, nothing more is taken.
+        assertEquals("abcde", TextLimits.typed("abcdef", 5, before = "abcde"))
+        assertEquals("abcd", TextLimits.typed("abcd", 5, before = "abc"))
+        assertEquals("abcde", TextLimits.typed("abcde", 5, before = "abcd"))
+        // A paste is taken as far as there is room, and what was in the field around it stays whole.
+        assertEquals("abXYc", TextLimits.typed("abXYZWc", 5, before = "abc"))
+        assertEquals("XYabc", TextLimits.typed("XYZabc", 5, before = "abc"))
+        assertEquals("abcXY", TextLimits.typed("abcXYZ", 5, before = "abc"))
+        assertEquals("12345", TextLimits.typed("1234567890", 5, before = ""))
+        // Pasted over a selection: the selection is gone, and what replaces it fits.
+        assertEquals("aXYZe", TextLimits.typed("aXYZWVe", 5, before = "abcde"))
+        // A megabyte pasted into a name is a name of a hundred characters.
+        assertEquals(TextLimits.NAME, TextLimits.typed("x".repeat(1_000_000), TextLimits.NAME, before = "").length)
+        // An emoji is two code units: it is taken whole or not at all.
+        assertEquals("abcd", TextLimits.typed("abcd😀", 5, before = "abcd"))
+        assertEquals("abc😀", TextLimits.typed("abc😀😀", 5, before = "abc"))
+        assertEquals("a😀bc", TextLimits.typed("a😀😀bc", 5, before = "a😀bc"))
+    }
+
+    @Test
+    fun `text that is longer than the limit already can be shortened and never grows`() {
+        // Saved before there was a limit, or copied from a contact: the field did not take it, so it does not cut it.
+        val long = "abcdefghij"
+
+        assertEquals("abcdefghi", TextLimits.typed("abcdefghi", 5, before = long))
+        assertEquals("bcdefghij", TextLimits.typed("bcdefghij", 5, before = long))
+        assertEquals("abcghij", TextLimits.typed("abcghij", 5, before = long))
+        assertEquals(long, TextLimits.typed(long, 5, before = long))
+        // Nothing is added to it, wherever it is typed, and none of it is lost for the try.
+        assertEquals(long, TextLimits.typed(long + "k", 5, before = long))
+        assertEquals(long, TextLimits.typed("abcXdefghij", 5, before = long))
+        assertEquals(long, TextLimits.typed("X$long", 5, before = long))
+    }
+
+    @Test
+    fun `the limits are the server's`() {
+        // packages/api/src/input.ts, textLimits. The server refuses a longer text, it never cuts one.
+        assertEquals(
+            listOf(100, 40, 254, 300, 5000, 2000, 200),
+            listOf(TextLimits.NAME, TextLimits.PHONE, TextLimits.EMAIL, TextLimits.ADDRESS, TextLimits.NOTE, TextLimits.FORMULA, TextLimits.PLACEMENT),
+        )
+    }
+
+    @Test
+    fun `a timezone the device does not know is none, and times are then in the device's own`() {
+        // L65: a Stylist saved before the server checked timezones can hold any text.
+        assertNull(zoneOrNull("Mars/Phobos"))
+        assertNull(zoneOrNull(""))
+        assertNull(zoneOrNull("  "))
+        assertNull(zoneOrNull(null))
+        assertEquals(ZoneId.of("Europe/Moscow"), zoneOrNull("Europe/Moscow"))
+        assertEquals(ZoneId.of("Europe/Moscow"), zoneOrNull(" Europe/Moscow "))
+        assertEquals(ZoneId.of("UTC"), zoneOrNull("UTC"))
+
+        assertEquals(ZoneId.systemDefault(), zoneOrSystem("Mars/Phobos"))
+        assertEquals(ZoneId.systemDefault(), zoneOrSystem(null))
+        assertEquals(ZoneId.of("Asia/Tokyo"), zoneOrSystem("Asia/Tokyo"))
     }
 
     @Test

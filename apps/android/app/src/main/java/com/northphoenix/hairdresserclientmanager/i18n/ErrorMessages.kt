@@ -35,6 +35,13 @@ fun ApiException.messageRes(): Int =
         message == "Source Appointment is no longer Completed." -> R.string.copy_services_source_not_completed
         message == "Source Appointment not found." -> R.string.copy_services_source_gone
         message == "Appointment total is too large." -> R.string.error_appointment_total_too_large
+        // The limits of the server's input. The fields keep to them, so these are for what a field could not: text
+        // and amounts saved before there were limits, a copied contact, a timezone only this device or only the server knows.
+        message == "Amount is too large." -> R.string.error_amount_too_large
+        message == "Text is too long." -> R.string.error_text_too_long
+        message == "Timezone is not valid." -> R.string.error_timezone_invalid
+        // The picture is on the device still: 'Upload again' sends it anew.
+        isStoredFileRefused -> R.string.appointment_photo_upload_failed
         // Saved on another device since the form was filled. Nothing was saved; the form takes in what is saved now and keeps what was typed.
         isChangedElsewhere -> R.string.error_changed_elsewhere
         // An earlier try of this form was saved although its reply never came, and the form was changed since.

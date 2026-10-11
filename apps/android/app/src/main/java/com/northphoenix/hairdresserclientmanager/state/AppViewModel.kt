@@ -39,11 +39,13 @@ import com.northphoenix.hairdresserclientmanager.data.Stylist
 import com.northphoenix.hairdresserclientmanager.data.UpdatedAppointment
 import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
 import com.northphoenix.hairdresserclientmanager.data.toApiException
+import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
 import com.northphoenix.hairdresserclientmanager.domain.ChangedElsewhere
 import com.northphoenix.hairdresserclientmanager.domain.OneLine
 import com.northphoenix.hairdresserclientmanager.domain.ServiceEdit
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
+import com.northphoenix.hairdresserclientmanager.domain.zoneOrNull
 import com.northphoenix.hairdresserclientmanager.domain.zoneOrSystem
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
 import com.northphoenix.hairdresserclientmanager.i18n.refusedSignInMessage
@@ -319,6 +321,10 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                 _bootstrap.value = BootstrapState.Ready
 
                 if (stylist.onboardingComplete) {
+                    // Every time is then in the device's timezone (see [zoneOrSystem]). Onboarding shows the same under its timezone field.
+                    if (zoneOrNull(stylist.timezone) == null) {
+                        notify(R.string.error_timezone_unusable, isError = true)
+                    }
                     // The settings have just been loaded: only the lists.
                     refreshAll(::loadAll)
                 }
@@ -767,9 +773,14 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         }
     }
 
+    /**
+     * Deletes a Client with everything that is theirs. The server does all of it or nothing, also
+     * for a Client whom an Appointment names as primary without listing them.
+     */
     fun deleteClient(id: String, onSuccess: () -> Unit) {
-        // The loaded Appointments this Client was in: they have changed or gone with them, on whatever day they are.
-        var affected = emptyList<Appointment>()
+        // The loaded Appointments this Client is in or is the primary Client of: they change or go with them, on whatever
+        // day they are. Named before the request, so that they are loaded again also when its reply never comes.
+        val affected = AppointmentClients.changedByDeleting(id, appointments.value.values)
 
         act(
             key = "deleteClient:$id",
@@ -781,9 +792,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             _clients.update { clients -> clients.filterNot { it.id == id } }
             photos.removeAll { it.clientId == id }
             overlaps.clientDeleted(id)
-            affected = appointments.value.values.filter { appointment -> appointment.participants.any { it.clientId == id } }
             // An Appointment left without Clients is deleted with its last one. The reload checks each of them again.
-            affected.filter { appointment -> appointment.participants.all { it.clientId == id } }.forEach { forgetAppointment(it.id) }
+            affected.filter { AppointmentClients.goesWith(id, it) }.forEach { forgetAppointment(it.id) }
         }
     }
 

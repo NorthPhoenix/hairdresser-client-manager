@@ -30,6 +30,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.Money
+import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.components.AmountField
@@ -139,7 +140,7 @@ fun ServiceMenuScreen(viewModel: AppViewModel, onBack: () -> Unit) {
             title = stringResource(if (editedId == null) R.string.create_service_menu_item else R.string.save_service_menu_item),
             onDismiss = { editor = null },
         ) {
-            HcmTextField(name, { name = it }, label = stringResource(R.string.service_menu_name_label), placeholder = stringResource(R.string.placeholder_service_name))
+            HcmTextField(name, { name = it }, label = stringResource(R.string.service_menu_name_label), placeholder = stringResource(R.string.placeholder_service_name), maxLength = TextLimits.NAME)
             AmountField(
                 price,
                 { price = it },

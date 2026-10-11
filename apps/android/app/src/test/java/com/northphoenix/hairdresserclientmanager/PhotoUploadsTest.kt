@@ -8,6 +8,7 @@ import com.northphoenix.hairdresserclientmanager.data.PendingPhotoStore
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
 import com.northphoenix.hairdresserclientmanager.data.PhotoStatus
 import com.northphoenix.hairdresserclientmanager.data.StoredFile
+import com.northphoenix.hairdresserclientmanager.i18n.messageRes
 import com.northphoenix.hairdresserclientmanager.state.Notice
 import com.northphoenix.hairdresserclientmanager.state.PhotoTarget
 import com.northphoenix.hairdresserclientmanager.state.PhotoUploads
@@ -454,6 +455,45 @@ class PhotoUploadsTest {
         assertEquals(listOf(file(queue.uploads.value.single().photo)), store.all().map { it.stored })
         assertEquals(listOf("Photo Client must be attached to the Appointment."), failures.map { it.message })
         assertEquals(listOf("appointment-1" to false), reloads)
+    }
+
+    @Test
+    fun `a stored file the server does not take as a photo is not sent again, the picture is uploaded anew`() = runTest {
+        val queue = uploads()
+        var uploaded = 0
+
+        // L85: the server records only a file of its own photo storage that no other photo names. Recording the same file again is refused again.
+        send = { photo -> StoredFile("key-${++uploaded}", "https://files.example/$uploaded", "https://files.example/$uploaded").also { check(photo.id == "photo-1") } }
+        record = { throw ApiException("Appointment Photo URLs must point at UploadThing storage.", code = "BAD_REQUEST") }
+        queue.addPictures(1)
+        runCurrent()
+
+        // The picture stays, failed, without the file that was refused.
+        assertEquals(listOf("photo-1" to UploadState.FAILED), queue.states())
+        assertEquals(listOf(true), store.all().map { it.failed })
+        assertNull(store.all().single().stored)
+        assertNull(queue.uploads.value.single().photo.stored)
+        assertEquals(listOf(R.string.appointment_photo_upload_failed), failures.map { it.messageRes() })
+        // Nothing was recorded and nothing on the screen is out of date.
+        assertTrue(reloads.isEmpty())
+
+        record = { throw ApiException("This file already belongs to another Appointment Photo.", code = "BAD_REQUEST") }
+        queue.retry("photo-1")
+        runCurrent()
+
+        assertEquals(listOf("photo-1", "photo-1"), sent)
+        assertNull(store.all().single().stored)
+        assertEquals(List(2) { R.string.appointment_photo_upload_failed }, failures.map { it.messageRes() })
+
+        // 'Upload again' is a new file under the same photo: the server records it once.
+        record = {}
+        queue.retry("photo-1")
+        runCurrent()
+
+        assertEquals(listOf("photo-1", "photo-1", "photo-1"), sent)
+        assertEquals(listOf("photo-1" to "key-3"), recorded.map { it.first to it.second.fileKey })
+        assertTrue(queue.uploads.value.isEmpty())
+        assertTrue(store.all().isEmpty())
     }
 
     // --- a selection ---

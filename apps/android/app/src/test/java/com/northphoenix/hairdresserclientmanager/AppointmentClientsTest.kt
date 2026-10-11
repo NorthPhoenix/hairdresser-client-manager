@@ -129,4 +129,42 @@ class AppointmentClientsTest {
         // A Client who was deleted since they were picked is not listed.
         assertEquals(listOf("dana"), AppointmentClients.inPickedOrder(listOf("gone", "dana"), clients).map { it.id })
     }
+
+    @Test
+    fun `a Client who was deleted elsewhere is no longer picked for a new Appointment`() {
+        fun client(id: String) = ClientProfile(id = id, name = id, language = Language.EN)
+        val clients = listOf(client("anna"), client("bob"), client("cara"))
+
+        // A8: the server refuses an Appointment that names a Client it no longer has, and the form shows no chip for them to take off.
+        assertEquals(listOf("cara", "anna"), AppointmentClients.stillListed(listOf("cara", "gone", "anna"), clients))
+        assertEquals(listOf("bob"), AppointmentClients.stillListed(listOf("bob"), clients))
+        assertEquals(emptyList<String>(), AppointmentClients.stillListed(listOf("gone"), clients))
+        assertEquals(emptyList<String>(), AppointmentClients.stillListed(emptyList(), clients))
+    }
+
+    @Test
+    fun `deleting a Client changes the Appointments they are in and those that name them as primary`() {
+        val solo = appointment(ann).copy(id = "solo")
+        val group = appointment(ann, bea).copy(id = "group")
+        val others = appointment(bea, cara).copy(id = "others", primaryClientId = "bea")
+        // A7: left behind by two changes at the same moment. The server puts these right when the Client is deleted.
+        val primaryNotListed = appointment(bea).copy(id = "primary-not-listed")
+        val nobody = appointment().copy(id = "nobody")
+        val loaded = listOf(solo, group, others, primaryNotListed, nobody)
+
+        assertEquals(listOf("solo", "group", "primary-not-listed", "nobody"), AppointmentClients.changedByDeleting("ann", loaded).map { it.id })
+        assertEquals(listOf("group", "others", "primary-not-listed"), AppointmentClients.changedByDeleting("bea", loaded).map { it.id })
+        assertEquals(emptyList<String>(), AppointmentClients.changedByDeleting("dana", loaded).map { it.id })
+
+        // An Appointment goes with its last Client; one that still has someone stays, with another primary Client.
+        assertEquals(
+            listOf("solo", "nobody"),
+            AppointmentClients.changedByDeleting("ann", loaded).filter { AppointmentClients.goesWith("ann", it) }.map { it.id },
+        )
+        // Bea is the only Client of the Appointment that names Ann as primary without listing her: it goes with Bea, as on the server.
+        assertEquals(
+            listOf("primary-not-listed"),
+            AppointmentClients.changedByDeleting("bea", loaded).filter { AppointmentClients.goesWith("bea", it) }.map { it.id },
+        )
+    }
 }

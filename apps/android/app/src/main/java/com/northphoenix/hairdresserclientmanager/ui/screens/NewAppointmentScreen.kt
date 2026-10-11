@@ -12,6 +12,7 @@ import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,6 +29,7 @@ import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
 import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
+import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.BottomActionBar
 import com.northphoenix.hairdresserclientmanager.ui.components.ActionChip
@@ -83,6 +85,18 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
     // Called before the primary Client or the location changes: an address that is not the Stylist's own must not stay for the next one.
     fun keepOnlyOwnAddress() {
         typedAddress = ownAddress
+    }
+
+    // A Client picked here who was deleted on another device leaves the form with the list that no longer has them: the
+    // server refuses the Appointment for as long as it names them, and a chip that is not shown cannot be taken off.
+    // Read from the list itself, which is whole from the moment it counts as loaded: one that has not loaded says nothing.
+    LaunchedEffect(clients, clientsLoad) {
+        if (viewModel.clientsLoad.value == LoadState.Loaded) {
+            val listed = viewModel.clients.value
+
+            primaryClientId = primaryClientId?.let { AppointmentClients.stillListed(listOf(it), listed).firstOrNull() }
+            additionalClientIds = AppointmentClients.stillListed(additionalClientIds, listed)
+        }
     }
 
     fun submit() {

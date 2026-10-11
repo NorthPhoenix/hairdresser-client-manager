@@ -13,12 +13,27 @@ import java.time.Instant
 class HcmApi(private val trpc: TrpcClient) {
     // --- stylist ---
 
+    /**
+     * The Stylist of the account that is signed in. The first call of a new account creates the
+     * Stylist, with the device's language and timezone; for a Stylist who exists the two are not
+     * read. A device can name a timezone the server does not know (a newer list of timezones, an
+     * offset in place of a name), and the server creates no Stylist with one: the Stylist is then
+     * created without it, in UTC, and confirms the timezone in onboarding like every new Stylist.
+     */
     suspend fun bootstrap(deviceLanguage: Language, deviceTimezone: String): Stylist =
+        try {
+            stylist(deviceLanguage, deviceTimezone.takeIf(String::isNotBlank))
+        } catch (error: ApiException) {
+            // The language is always one the server takes, so what it refuses of this input is the timezone.
+            if (error.isRefusedInput && deviceTimezone.isNotBlank()) stylist(deviceLanguage, timezone = null) else throw error
+        }
+
+    private suspend fun stylist(deviceLanguage: Language, timezone: String?): Stylist =
         trpc.query(
             "stylist.bootstrap",
             buildJsonObject {
                 put("deviceLanguage", deviceLanguage.tag)
-                putIfNotBlank("deviceTimezone", deviceTimezone)
+                timezone?.let { put("deviceTimezone", it) }
             },
         )
 

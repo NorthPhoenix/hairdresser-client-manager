@@ -59,8 +59,10 @@ import com.northphoenix.hairdresserclientmanager.auth.AuthState
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.Stylist
 import com.northphoenix.hairdresserclientmanager.domain.ChangedElsewhere
+import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.domain.Timezones
 import com.northphoenix.hairdresserclientmanager.domain.ZoneOption
+import com.northphoenix.hairdresserclientmanager.domain.zoneOrNull
 import com.northphoenix.hairdresserclientmanager.i18n.DeviceZoneNames
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.i18n.shownLanguage
@@ -148,6 +150,8 @@ private fun SettingsFields(draft: SettingsDraft) {
             icon = Icons.Rounded.Public,
             onClick = { showTimezones = true },
             wraps = true,
+            // Times cannot be shown in a timezone the device does not know: they are in the device's own, and the field says so.
+            error = stringResource(R.string.timezone_unusable).takeIf { timezone != null && zoneOrNull(draft.timezone) == null },
         )
         HcmTextField(
             value = draft.salonAddress,
@@ -157,6 +161,7 @@ private fun SettingsFields(draft: SettingsDraft) {
             singleLine = false,
             minLines = 2,
             capitalization = KeyboardCapitalization.Words,
+            maxLength = TextLimits.ADDRESS,
         )
     }
 

@@ -39,8 +39,18 @@ class ApiException(
      */
     val outcomeUnknown: Boolean get() = code == NO_REPLY
 
+    /** The API refused what was sent to it: a value breaks one of its rules, or what is asked for cannot be done as things are. */
+    val isRefusedInput: Boolean get() = code == "BAD_REQUEST"
+
     /** The change names a Client who is no longer one of the Appointment's Clients. */
     val isClientNotAttached: Boolean get() = code == "BAD_REQUEST" && message in CLIENT_NOT_ATTACHED
+
+    /**
+     * The API does not take the stored file as an Appointment Photo: it is not a file of this
+     * server's photo storage, or another photo already names it. Sending the same file again is
+     * refused again, so the picture has to be uploaded anew.
+     */
+    val isStoredFileRefused: Boolean get() = code == "BAD_REQUEST" && message in STORED_FILE_REFUSED
 
     /**
      * The API refused a change by who the Clients of an Appointment are now, or by what they have
@@ -86,6 +96,10 @@ class ApiException(
             "Appointment must keep at least one Client.",
             "Client has Services attached to this Appointment.",
             "Client has Appointment Photos attached to this Appointment.",
+        )
+        private val STORED_FILE_REFUSED = setOf(
+            "Appointment Photo URLs must point at UploadThing storage.",
+            "This file already belongs to another Appointment Photo.",
         )
         const val SOURCE_HAS_NOTHING_TO_COPY = "Source Appointment has no Services to copy."
         private const val RECORD_CHANGED = "This record was changed since it was loaded."
