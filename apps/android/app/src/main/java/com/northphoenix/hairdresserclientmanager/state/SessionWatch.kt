@@ -23,6 +23,14 @@ internal class SessionWatch {
     }
 
     /**
+     * Call when the provider did not sign out and the Stylist is still signed in. The request is
+     * over with that: when this session ends later, it ends on its own.
+     */
+    fun signOutNotDone() {
+        signOutRequested = false
+    }
+
+    /**
      * Call with every new auth state. True when this state is the sign-out the Stylist asked for:
      * the moment at which what the device holds of their Clients is deleted. A session that ended
      * on its own is not: that Stylist is expected back.

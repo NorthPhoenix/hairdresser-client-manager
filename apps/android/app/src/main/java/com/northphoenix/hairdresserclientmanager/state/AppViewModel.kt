@@ -720,6 +720,14 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                 // The reply is put in place here, before the next save has its turn: that one is built from it.
                 val latest = _stylist.value ?: current
 
+                // That language switch brought another value for a setting the Stylist changed here too, after Save was
+                // tapped. It is refused as the server refuses a form that is older than the settings: said, and saved on the next Save.
+                if (ChangedElsewhere.collides(current.timezone, trimmedTimezone, latest.timezone) ||
+                    ChangedElsewhere.collides(current.salonAddress, salonAddress.trim(), latest.salonAddress)
+                ) {
+                    throw ApiException.changedElsewhere()
+                }
+
                 showStylist(
                     api.saveSettings(
                         language.toSave(latest),
@@ -749,7 +757,18 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      */
     fun signOut() {
         sessionWatch.signOutRequested()
-        viewModelScope.launch { reporting { auth.signOut() } }
+        viewModelScope.launch {
+            reporting {
+                try {
+                    auth.signOut()
+                } catch (error: Exception) {
+                    // Still signed in, which the Stylist is told. Whatever ends this session later is not this
+                    // request: nothing is deleted then, and the sign-in screen says that the session has ended.
+                    sessionWatch.signOutNotDone()
+                    throw error
+                }
+            }
+        }
     }
 
     /**

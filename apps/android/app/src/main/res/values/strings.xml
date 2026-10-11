@@ -159,6 +159,7 @@
     <string name="error_appointment_needs_client">An Appointment must keep at least one Client.</string>
     <string name="error_appointment_total_too_large">The Services of one Appointment can\'t add up to this much. Nothing was saved.</string>
     <string name="error_changed_elsewhere">This was changed on another device, so nothing was saved. What you changed is still here: check it and save again.</string>
+    <string name="error_changed_elsewhere_too">What you changed here was also changed on another device. Nothing is saved yet: if you save, your change replaces the other one.</string>
     <string name="error_client_has_photo_uploads">This Client has photos that aren\'t saved yet. Upload or remove them first.</string>
     <string name="error_client_has_photos">Remove this Client\'s photos from the Appointment first.</string>
     <string name="error_client_has_services">Remove this Client\'s Services from the Appointment first.</string>
@@ -320,6 +321,7 @@
     <string name="sign_in_title">Sign in</string>
     <string name="sign_in_use_code">Sign in with a code from an email</string>
     <string name="sign_out">Sign out</string>
+    <string name="sign_out_failed">Couldn\'t sign out. Try again.</string>
     <string name="sms_app_unavailable">No SMS app is available on this device.</string>
     <string name="tab_calendar">Calendar</string>
     <string name="tab_clients">Clients</string>

@@ -190,6 +190,8 @@ fun ClientEditorScreen(
     var note by rememberSaveable { mutableStateOf("") }
     // The form as it was when it was opened, filled or last saved. Back asks before it discards what was changed since.
     var savedContent by rememberSaveable { mutableStateOf(UnsavedInput.clientForm(name, language, phone, email, address, note)) }
+    // What the last save sent, until its reply has come or the Client was taken in again: a Client who comes back as this was saved from here.
+    var sentContent by rememberSaveable { mutableStateOf<List<String>?>(null) }
     // The email a save was refused for: the reason shows under the field until the text is another one.
     var refusedEmail by rememberSaveable { mutableStateOf<String?>(null) }
     // How many saves it was refused for: each one brings the field back into view, however far the Stylist scrolled.
@@ -213,8 +215,15 @@ fun ClientEditorScreen(
         if (existing != null && (loadedFor != existing.id || loadedVersion != existing.updatedAt)) {
             // What the form was filled with for this Client, in the order of UnsavedInput.clientForm. None: it is filled now.
             val loaded = savedContent.takeIf { loadedFor == existing.id }
+            // A field the Stylist changed was saved as something else since: the form keeps theirs, and the next save replaces the other.
+            var collided = false
 
-            fun taken(field: Int, typed: String, now: String) = loaded?.let { ChangedElsewhere.field(it[field], typed, now) } ?: now
+            fun taken(field: Int, typed: String, now: String): String {
+                val filledWith = loaded?.get(field) ?: return now
+
+                collided = collided || ChangedElsewhere.collides(filledWith, typed, now, sentContent?.get(field))
+                return ChangedElsewhere.field(filledWith, typed, now)
+            }
 
             // One line each, as a save stores them, also when they were saved before names were cleaned.
             val savedName = OneLine.clean(existing.name)
@@ -229,6 +238,12 @@ fun ClientEditorScreen(
             loadedFor = existing.id
             loadedVersion = existing.updatedAt
             savedContent = UnsavedInput.clientForm(savedName, existing.language, savedPhone, existing.email, existing.address, existing.note)
+            sentContent = null
+
+            // The save names the version taken in here and is not refused, so this is the one moment to say it.
+            if (collided) {
+                viewModel.notify(R.string.error_changed_elsewhere_too, isError = true)
+            }
         }
     }
 
@@ -246,11 +261,14 @@ fun ClientEditorScreen(
     fun save() {
         val submitted = UnsavedInput.clientForm(name, language, phone, email, address, note)
 
+        // One line each, as the save sends them and as the form takes them in.
+        sentContent = UnsavedInput.clientForm(OneLine.clean(name), language, OneLine.clean(phone), email, address, note)
         viewModel.saveClient(currentId, name, language, phone, email, address, note, loadedVersion, requestKey) { saved ->
             currentId = saved.id
             loadedFor = saved.id
             loadedVersion = saved.updatedAt
             savedContent = submitted
+            sentContent = null
             // What a contact put in the form is the Client's own from here on.
             lastImport = null
         }

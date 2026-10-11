@@ -85,6 +85,9 @@ class ApiException(
     companion object {
         const val NO_REPLY = "NO_REPLY"
 
+        /** The server's refusal of a form that is older than its record ([isChangedElsewhere]), for a save the app can tell that of before it is sent. */
+        fun changedElsewhere() = ApiException(RECORD_CHANGED, code = "CONFLICT")
+
         // The API's own words. They are the only way it tells these refusals apart.
         private val CLIENT_NOT_ATTACHED = setOf(
             "Client must be attached to the Appointment.",

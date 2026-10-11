@@ -14,6 +14,7 @@ import com.northphoenix.hairdresserclientmanager.BuildConfig
 import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.data.isConnectionFailure
 import com.northphoenix.hairdresserclientmanager.ui.screens.SignInScreen
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -95,7 +96,21 @@ class ClerkAuthGateway(
     override suspend fun token(): String? = askingAgainWhenDropped { Clerk.auth.getToken().successOrNull() }
 
     override suspend fun signOut() {
-        Clerk.auth.signOut()
+        val thrown =
+            try {
+                Clerk.auth.signOut()
+                null
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                error
+            }
+
+        // Clerk forgets the session on this device also when its servers did not answer, so what it returns says
+        // little. What counts is whether someone is still signed in here, which Clerk knows by the time it returns.
+        if (Clerk.user != null) {
+            throw ApiException("Clerk did not sign out.", code = SIGN_OUT_FAILED, cause = thrown)
+        }
     }
 
     /** An empty part takes that part of the name off the account. */

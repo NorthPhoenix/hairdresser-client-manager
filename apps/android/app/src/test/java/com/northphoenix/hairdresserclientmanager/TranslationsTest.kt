@@ -2,6 +2,7 @@ package com.northphoenix.hairdresserclientmanager
 
 import com.northphoenix.hairdresserclientmanager.auth.AuthState
 import com.northphoenix.hairdresserclientmanager.auth.CodePurpose
+import com.northphoenix.hairdresserclientmanager.auth.SIGN_OUT_FAILED
 import com.northphoenix.hairdresserclientmanager.auth.SessionCheck
 import com.northphoenix.hairdresserclientmanager.auth.SignInError
 import com.northphoenix.hairdresserclientmanager.data.ApiException
@@ -138,6 +139,8 @@ class TranslationsTest {
         // A picked picture that could not be made into a photo: said as what it is, not as a failed upload.
         assertEquals(R.string.error_image_unreadable, ApiException("The selected image could not be read.", code = PhotoPreparer.UNREADABLE).messageRes())
         assertEquals(R.string.appointment_photo_too_large, ApiException("The photo is larger than 8 MB.", code = PhotoPreparer.TOO_LARGE).messageRes())
+        // A sign-out that left the Stylist signed in says so, not that something went wrong.
+        assertEquals(R.string.sign_out_failed, ApiException("Clerk did not sign out.", code = SIGN_OUT_FAILED).messageRes())
     }
 
     @Test

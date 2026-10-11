@@ -5,6 +5,7 @@ import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.auth.ACCOUNT_NAME_NOT_SAVED
 import com.northphoenix.hairdresserclientmanager.auth.AuthState
 import com.northphoenix.hairdresserclientmanager.auth.CodePurpose
+import com.northphoenix.hairdresserclientmanager.auth.SIGN_OUT_FAILED
 import com.northphoenix.hairdresserclientmanager.auth.SessionCheck
 import com.northphoenix.hairdresserclientmanager.auth.SignInError
 import com.northphoenix.hairdresserclientmanager.data.ApiException
@@ -51,6 +52,8 @@ fun ApiException.messageRes(): Int =
         message == "Profile Share not found." -> R.string.error_profile_share_gone
         // The sign-in provider's own reason is technical English: only that the name was not saved is said.
         code == ACCOUNT_NAME_NOT_SAVED -> R.string.account_name_not_saved
+        // The Stylist is still signed in, and nothing of theirs was deleted from the device.
+        code == SIGN_OUT_FAILED -> R.string.sign_out_failed
         // The Client Profile form refuses such an email itself, under the field, with these words.
         message == "Email is not valid." -> R.string.client_email_invalid
         code == PhotoPreparer.UNREADABLE -> R.string.error_image_unreadable

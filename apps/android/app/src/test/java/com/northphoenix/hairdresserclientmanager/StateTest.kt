@@ -279,6 +279,29 @@ class StateTest {
         assertFalse(watch.onState(AuthState.SignedOut))
     }
 
+    @Test
+    fun `a sign-out that did not happen is over, and the session that ends later ends on its own`() {
+        val watch = SessionWatch()
+
+        watch.onState(signedIn)
+        watch.signOutRequested()
+        // The provider did not sign out: the Stylist is still signed in and goes on working.
+        watch.signOutNotDone()
+        assertFalse(watch.ended.value)
+
+        // A14: the session is revoked later. Nobody asked for that: nothing is deleted, and the sign-in screen says why it is there.
+        assertFalse(watch.onState(AuthState.SignedOut))
+        assertTrue(watch.ended.value)
+
+        // Asked again, and this time it happens.
+        watch.onState(signedIn)
+        watch.signOutRequested()
+        watch.signOutNotDone()
+        watch.signOutRequested()
+        assertTrue(watch.onState(AuthState.SignedOut))
+        assertFalse(watch.ended.value)
+    }
+
     // --- a saved Client in the loaded list ---
 
     private fun client(id: String, name: String, share: ProfileShare? = null) =

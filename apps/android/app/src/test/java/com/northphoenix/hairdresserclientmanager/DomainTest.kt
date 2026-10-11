@@ -848,4 +848,37 @@ class DomainTest {
         assertEquals("UTC", ChangedElsewhere.field(loaded = "UTC", typed = "UTC", now = "UTC"))
         assertEquals("Asia/Tokyo", ChangedElsewhere.field(loaded = "UTC", typed = "Asia/Tokyo", now = "UTC"))
     }
+
+    @Test
+    fun `a field changed both in the form and elsewhere is one the Stylist is told about`() {
+        // A15: the Stylist typed a new phone, and another device saved a different one. The form keeps
+        // what was typed, and the next save replaces a number the Stylist never saw.
+        assertEquals("5550222", ChangedElsewhere.field(loaded = "5550141", typed = "5550222", now = "5550999"))
+        assertTrue(ChangedElsewhere.collides(loaded = "5550141", typed = "5550222", now = "5550999"))
+        // Emptied here and changed there.
+        assertTrue(ChangedElsewhere.collides(loaded = "old note", typed = "", now = "their note"))
+        // L67: the same for a setting.
+        assertTrue(ChangedElsewhere.collides(loaded = "UTC", typed = "Asia/Tokyo", now = "Europe/Moscow"))
+
+        // Changed on one side only: the form shows the one value there is to show.
+        assertFalse(ChangedElsewhere.collides(loaded = "5550141", typed = "5550141", now = "5550999"))
+        assertFalse(ChangedElsewhere.collides(loaded = "old note", typed = "old note app-note", now = "old note"))
+        // Both changed it to the same.
+        assertFalse(ChangedElsewhere.collides(loaded = "5550141", typed = "5550999", now = "5550999"))
+        // Spaces around a text are not a change, on either side.
+        assertFalse(ChangedElsewhere.collides(loaded = "12 Salon Street", typed = " 12 Salon Street ", now = "9 Other Road"))
+        assertFalse(ChangedElsewhere.collides(loaded = "12 Salon Street", typed = "9 Other Road ", now = "9 Other Road"))
+        assertFalse(ChangedElsewhere.collides(loaded = "UTC", typed = "UTC", now = "UTC"))
+    }
+
+    @Test
+    fun `what the form itself saved does not count as changed elsewhere`() {
+        // The form sent 'Salon St 1' and the Stylist typed on before the reply came, or the reply never came
+        // and the record was loaded again: what is saved now is this form's own.
+        assertFalse(ChangedElsewhere.collides(loaded = "Salon St", typed = "Salon St 12", now = "Salon St 1", sent = "Salon St 1 "))
+        // Something else was saved after all: another device's.
+        assertTrue(ChangedElsewhere.collides(loaded = "Salon St", typed = "Salon St 12", now = "9 Other Road", sent = "Salon St 1"))
+        // Nothing was sent yet.
+        assertTrue(ChangedElsewhere.collides(loaded = "Salon St", typed = "Salon St 12", now = "Salon St 1", sent = null))
+    }
 }

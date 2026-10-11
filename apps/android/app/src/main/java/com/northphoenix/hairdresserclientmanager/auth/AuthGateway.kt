@@ -67,6 +67,11 @@ interface AuthGateway {
     /** Session token sent as `Authorization: Bearer <token>`, or null when signed out. */
     suspend fun token(): String?
 
+    /**
+     * Ends the session on this device. Throws an [ApiException] ([SIGN_OUT_FAILED]) when it did
+     * not and the Stylist is still signed in, and only then: whoever asked takes a failure to
+     * mean that [state] stays as it is.
+     */
     suspend fun signOut()
 
     /** Asks the provider about the session after the API refused its token. */
@@ -83,6 +88,9 @@ private val NoAccountName: StateFlow<AccountName?> = MutableStateFlow(null)
 
 /** The code of the failure of [AuthGateway.saveAccountName] when the provider refused or failed to save the name. */
 const val ACCOUNT_NAME_NOT_SAVED = "ACCOUNT_NAME_NOT_SAVED"
+
+/** The code of the failure of [AuthGateway.signOut]: the Stylist is still signed in. */
+const val SIGN_OUT_FAILED = "SIGN_OUT_FAILED"
 
 /**
  * Asks the sign-in provider through [ask] on behalf of a request. A provider that shares one

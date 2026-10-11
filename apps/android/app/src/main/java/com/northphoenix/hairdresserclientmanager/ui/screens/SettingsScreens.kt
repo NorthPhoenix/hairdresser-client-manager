@@ -88,33 +88,56 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /** Editable timezone and salon address. Saveable, so a language switch mid-edit does not lose them. */
-private class SettingsDraft(timezone: MutableState<String>, salonAddress: MutableState<String>) {
+private class SettingsDraft(timezone: MutableState<String>, salonAddress: MutableState<String>, private val onSave: (String, String) -> Unit) {
     var timezone by timezone
     var salonAddress by salonAddress
+
+    fun save() = onSave(timezone, salonAddress)
 }
 
 /**
  * The draft follows the Stylist's settings field by field. When they are saved again, here or on
  * another device, a field the Stylist has not changed shows what is saved now, and one they
  * changed keeps what is in it (see [ChangedElsewhere]): the form never shows a setting that is no
- * longer saved as if it were, and nothing typed is lost.
+ * longer saved as if it were, and nothing typed is lost. A field that was changed here and saved
+ * as something else elsewhere keeps what is in it, and the Stylist is told: the next save
+ * replaces what the other device saved.
  */
 @Composable
-private fun rememberSettingsDraft(stylist: Stylist): SettingsDraft {
+private fun rememberSettingsDraft(viewModel: AppViewModel, stylist: Stylist): SettingsDraft {
     val timezone = rememberSaveable { mutableStateOf(stylist.timezone) }
     val salonAddress = rememberSaveable { mutableStateOf(stylist.salonAddress) }
     // The settings the fields were last filled from.
     var loadedTimezone by rememberSaveable { mutableStateOf(stylist.timezone) }
     var loadedAddress by rememberSaveable { mutableStateOf(stylist.salonAddress) }
+    // What Save sent last, until settings were taken in again: settings that come back as these were saved from here.
+    val sentTimezone = rememberSaveable { mutableStateOf<String?>(null) }
+    val sentAddress = rememberSaveable { mutableStateOf<String?>(null) }
 
     LaunchedEffect(stylist.timezone, stylist.salonAddress) {
+        val collided =
+            ChangedElsewhere.collides(loadedTimezone, timezone.value, stylist.timezone, sentTimezone.value) ||
+                ChangedElsewhere.collides(loadedAddress, salonAddress.value, stylist.salonAddress, sentAddress.value)
+
         timezone.value = ChangedElsewhere.field(loadedTimezone, timezone.value, stylist.timezone)
         salonAddress.value = ChangedElsewhere.field(loadedAddress, salonAddress.value, stylist.salonAddress)
         loadedTimezone = stylist.timezone
         loadedAddress = stylist.salonAddress
+        sentTimezone.value = null
+        sentAddress.value = null
+
+        if (collided) {
+            viewModel.notify(R.string.error_changed_elsewhere_too, isError = true)
+        }
     }
 
-    return remember(timezone, salonAddress) { SettingsDraft(timezone, salonAddress) }
+    return remember(viewModel, timezone, salonAddress, sentTimezone, sentAddress) {
+        SettingsDraft(timezone, salonAddress) { zone, address ->
+            sentTimezone.value = zone
+            sentAddress.value = address
+            viewModel.saveSettings(zone, address)
+        }
+    }
 }
 
 /**
@@ -182,7 +205,7 @@ private fun SettingsFields(draft: SettingsDraft) {
 /** Stylist Onboarding: confirm language, timezone and salon address before the app opens. */
 @Composable
 fun OnboardingScreen(viewModel: AppViewModel, stylist: Stylist) {
-    val draft = rememberSettingsDraft(stylist)
+    val draft = rememberSettingsDraft(viewModel, stylist)
     val busy by viewModel.busy.collectAsStateWithLifecycle()
 
     Scaffold(containerColor = MaterialTheme.colorScheme.background, snackbarHost = { HcmSnackbarHost() }) { padding ->
@@ -209,7 +232,7 @@ fun OnboardingScreen(viewModel: AppViewModel, stylist: Stylist) {
             OptionalSetupNote()
             PrimaryButton(
                 stringResource(R.string.save_onboarding),
-                onClick = { viewModel.saveSettings(draft.timezone, draft.salonAddress) },
+                onClick = draft::save,
                 modifier = Modifier.fillMaxWidth(),
                 loading = busy,
             )
@@ -227,7 +250,7 @@ fun ProfileScreen(viewModel: AppViewModel, onOpenServiceMenu: () -> Unit) {
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val accountName by viewModel.accountName.collectAsStateWithLifecycle()
     val current = stylist ?: return
-    val draft = rememberSettingsDraft(current)
+    val draft = rememberSettingsDraft(viewModel, current)
     val email = (authState as? AuthState.SignedIn)?.email.orEmpty()
     val changed = draft.timezone != current.timezone || draft.salonAddress.trim() != current.salonAddress
     val focus = LocalFocusManager.current
@@ -329,7 +352,7 @@ fun ProfileScreen(viewModel: AppViewModel, onOpenServiceMenu: () -> Unit) {
                     onClick = {
                         // The notice of how the save went appears over the tab bar, which the keyboard covers.
                         focus.clearFocus()
-                        viewModel.saveSettings(draft.timezone, draft.salonAddress)
+                        draft.save()
                     },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = changed,
