@@ -496,6 +496,25 @@ class DomainTest {
     @Test
     fun `reminder recipient keeps only digits and the plus sign`() {
         assertEquals("+15125550100", ClientReminder.recipient(" +1 (512) 555-0100 "))
+        assertEquals("5550100", ClientReminder.recipient("555-0100 (mobile)"))
+    }
+
+    @Test
+    fun `a phone with no digit to dial is no phone for a reminder`() {
+        // Each of these used to open the SMS app with an empty recipient.
+        for (phone in listOf("", "   ", "-", "n/a", "abc-CALL-me", "+", "+ ()")) {
+            assertNull(phone, ClientReminder.recipient(phone))
+        }
+    }
+
+    @Test
+    fun `a reminder is offered only for a scheduled Appointment`() {
+        fun offered(status: AppointmentStatus) = ClientReminder.isOffered(
+            Appointment(id = "a", primaryClientId = "c", primaryClientName = "Rita", startsAt = "2026-10-09T09:00:00.000Z", status = status, locationType = LocationType.IN_SALON),
+        )
+
+        // Its text says "your appointment is scheduled for", which no other status makes true.
+        assertEquals(listOf(AppointmentStatus.SCHEDULED), AppointmentStatus.entries.filter(::offered))
     }
 
     @Test

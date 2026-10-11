@@ -85,6 +85,8 @@
     <string name="client_note_label">Client Note</string>
     <string name="client_phone_label">Phone</string>
     <string name="client_reminder_message">Reminder: your appointment is scheduled for %1$s. Location: %2$s.</string>
+    <string name="client_reminder_message_at_home">Reminder: your appointment is scheduled for %1$s. Location: at home.</string>
+    <string name="client_reminder_message_in_salon">Reminder: your appointment is scheduled for %1$s. Location: in the salon.</string>
     <string name="client_reminder_missing_phone">The primary Client has no phone number for SMS.</string>
     <string name="client_saved">Client saved.</string>
     <string name="client_search_label">Search by name or phone</string>

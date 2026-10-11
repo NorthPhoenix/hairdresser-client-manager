@@ -1,10 +1,51 @@
 package com.northphoenix.hairdresserclientmanager.domain
 
 import android.net.Uri
+import com.northphoenix.hairdresserclientmanager.data.Appointment
+import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
+import java.time.ZoneId
+import java.util.Locale
 
-/** Addressing for the manual Client Reminder SMS. The text itself is the `client_reminder_message` string. */
+/**
+ * The manual Client Reminder SMS: when it is offered, whom it goes to and what it says. The wording
+ * is the `client_reminder_message…` strings; `clientReminderTemplate` (i18n) picks the one to fill in.
+ */
 object ClientReminder {
-    fun recipient(phone: String): String = phone.trim().filter { it.isDigit() || it == '+' }
+    private val spaces = Regex("\\p{Zs}")
+    private val dashes = Regex("[‐-―−]")
+    private val singleQuotes = Regex("[‘-‛]")
+    private val doubleQuotes = Regex("[“-‟«»]")
 
-    fun smsUri(phone: String): Uri = Uri.parse("smsto:" + Uri.encode(recipient(phone)))
+    /**
+     * A Client Reminder is a message before an Appointment, and its text says the Appointment is
+     * scheduled. Neither is true of a completed, canceled or no-show Appointment.
+     */
+    fun isOffered(appointment: Appointment): Boolean = appointment.status == AppointmentStatus.SCHEDULED
+
+    /**
+     * The number an SMS to [phone] goes to: its digits and '+'. Null when there is no digit to
+     * dial, so a phone such as "-" or "n/a" counts as no phone.
+     */
+    fun recipient(phone: String): String? = phone.filter { it.isDigit() || it == '+' }.takeIf { it.any(Char::isDigit) }
+
+    fun smsUri(recipient: String): Uri = Uri.parse("smsto:" + Uri.encode(recipient))
+
+    /**
+     * The reminder text: [template] in the Client's language ([locale]), filled in with the day and
+     * time of [appointment] in the Stylist's [zone] and, where the template names it, the address.
+     */
+    fun message(template: String, appointment: Appointment, locale: Locale, zone: ZoneId): String {
+        val text = template.format(locale, TimeFormat(locale, zone).dateAndTimeRange(appointment), appointment.locationAddress)
+
+        // Russian is sent as a Unicode SMS whatever its spaces and dashes are.
+        return if (locale.language == "en") plain(text) else text
+    }
+
+    /**
+     * [text] with the spaces, dashes and quotes of the plain SMS alphabet. A single character from
+     * outside that alphabet turns the whole message into a Unicode SMS, which holds 70 characters
+     * instead of 160: the narrow no-break space Android writes before "AM", or the dash of "9:00 – 10:30".
+     */
+    private fun plain(text: String): String =
+        text.replace(spaces, " ").replace(dashes, "-").replace(singleQuotes, "'").replace(doubleQuotes, "\"")
 }

@@ -10,6 +10,7 @@ import androidx.annotation.StringRes
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.os.LocaleListCompat
 import com.northphoenix.hairdresserclientmanager.R
+import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.LocationType
@@ -163,6 +164,17 @@ val LocationType.label: Int
 @get:StringRes
 val Language.label: Int
     get() = if (this == Language.RU) R.string.language_russian else R.string.language_english
+
+/**
+ * The Client Reminder text to fill in. It gives the address when the Appointment has one; without
+ * one it names the kind of place in a sentence of its own, where "Address: In salon" would not read.
+ */
+@StringRes
+fun clientReminderTemplate(appointment: Appointment): Int = when {
+    appointment.locationAddress.isNotBlank() -> R.string.client_reminder_message
+    appointment.locationType == LocationType.AT_HOME -> R.string.client_reminder_message_at_home
+    else -> R.string.client_reminder_message_in_salon
+}
 
 /**
  * What a Client picker with nothing to list says: the Stylist has no Clients, every one of them

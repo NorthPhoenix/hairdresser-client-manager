@@ -81,6 +81,7 @@ import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
 import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
+import com.northphoenix.hairdresserclientmanager.i18n.clientReminderTemplate
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.i18n.inLanguage
 import com.northphoenix.hairdresserclientmanager.i18n.toLocale
@@ -426,12 +427,14 @@ private fun AppointmentDetail(
             NoteCard(appointment, note = noteDraft, onNote = { noteDraft = it }, onSave = { viewModel.saveAppointmentNote(appointment.id, it) })
 
             // --- actions ---
-            SecondaryButton(
-                stringResource(R.string.compose_client_reminder),
-                onClick = { composeReminder(context, viewModel, appointment, format) },
-                modifier = Modifier.fillMaxWidth(),
-                icon = Icons.Rounded.Sms,
-            )
+            if (ClientReminder.isOffered(appointment)) {
+                SecondaryButton(
+                    stringResource(R.string.compose_client_reminder),
+                    onClick = { composeReminder(context, viewModel, appointment, format) },
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = Icons.Rounded.Sms,
+                )
+            }
             TextAction(
                 stringResource(R.string.delete_appointment),
                 onClick = { confirmDelete = true },
@@ -582,22 +585,19 @@ private fun rememberDraft(appointmentId: String, saved: String): MutableState<St
 /** Opens the SMS app with a reminder in the primary Client's language. Nothing is sent automatically. */
 private fun composeReminder(context: Context, viewModel: AppViewModel, appointment: Appointment, stylistFormat: TimeFormat) {
     val recipient = appointment.participants.firstOrNull { it.isPrimary }
+    val number = recipient?.let { ClientReminder.recipient(it.phone) }
 
-    if (recipient == null || recipient.phone.isBlank()) {
+    if (recipient == null || number == null) {
         viewModel.notify(R.string.client_reminder_missing_phone, isError = true)
         return
     }
 
     // Written in the Client's language, whatever language the app is in.
-    val clientContext = context.inLanguage(recipient.language)
-    val message = clientContext.getString(
-        R.string.client_reminder_message,
-        TimeFormat(recipient.language.toLocale(), stylistFormat.zone).dateAndTimeRange(appointment),
-        appointment.locationAddress.ifBlank { clientContext.getString(appointment.locationType.label) },
-    )
+    val template = context.inLanguage(recipient.language).getString(clientReminderTemplate(appointment))
+    val message = ClientReminder.message(template, appointment, recipient.language.toLocale(), stylistFormat.zone)
 
     try {
-        context.startActivity(Intent(Intent.ACTION_SENDTO, ClientReminder.smsUri(recipient.phone)).putExtra("sms_body", message))
+        context.startActivity(Intent(Intent.ACTION_SENDTO, ClientReminder.smsUri(number)).putExtra("sms_body", message))
     } catch (_: ActivityNotFoundException) {
         viewModel.notify(R.string.sms_app_unavailable, isError = true)
     }

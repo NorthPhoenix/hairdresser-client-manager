@@ -84,7 +84,9 @@
     <string name="client_note_label">Заметка о клиенте</string>
     <string name="client_phone_label">Телефон</string>
     <string name="client_reminder_message">Напоминание: ваша запись назначена на %1$s. Адрес: %2$s.</string>
-    <string name="client_reminder_missing_phone">У основного клиента не указан телефон.</string>
+    <string name="client_reminder_message_at_home">Напоминание: ваша запись назначена на %1$s. Место: на дому.</string>
+    <string name="client_reminder_message_in_salon">Напоминание: ваша запись назначена на %1$s. Место: в салоне.</string>
+    <string name="client_reminder_missing_phone">У основного клиента нет номера телефона для SMS.</string>
     <string name="client_saved">Клиент сохранён.</string>
     <string name="client_search_label">Поиск по имени или телефону</string>
     <string name="clients_title">Клиенты</string>
