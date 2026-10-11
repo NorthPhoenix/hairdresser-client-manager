@@ -119,7 +119,7 @@ class ReadCacheTest {
     }
 
     private fun TestScope.reads(server: Server, changes: Changes = Changes()) =
-        AppointmentReads(backgroundScope, changes, server::today, server::day, server::find)
+        AppointmentReads(backgroundScope, changes, server::today, server::day, server::find, fetchSources = { emptyList() })
 
     /** What a screen that reads [flow] is shown, value by value. It starts reading at once, as a screen does. */
     private fun <T> TestScope.shownBy(flow: Flow<T>): Pair<List<T>, Job> {
@@ -364,7 +364,7 @@ class ReadCacheTest {
                 days[monday.day] = listOf(appointment("a1"))
                 days[tuesday.day] = listOf(appointment("a2"))
             }
-            val reads = AppointmentReads(immediate, Changes(), server::today, server::day, server::find)
+            val reads = AppointmentReads(immediate, Changes(), server::today, server::day, server::find, fetchSources = { emptyList() })
             val timezone = MutableStateFlow<ZoneId?>(null)
             val chosen = MutableStateFlow(monday.day)
             val calendar = mutableListOf<Pair<LocalDate, Read<List<Appointment>>>>()

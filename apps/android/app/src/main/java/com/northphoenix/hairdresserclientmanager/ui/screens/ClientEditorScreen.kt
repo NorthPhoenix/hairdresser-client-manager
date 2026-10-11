@@ -80,7 +80,6 @@ import coil3.size.Size
 import coil3.toBitmap
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.auth.AccountName
-import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.data.AppointmentPhoto
 import com.northphoenix.hairdresserclientmanager.data.ClientHistoryEntry
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
@@ -101,7 +100,6 @@ import com.northphoenix.hairdresserclientmanager.domain.ShareImageSize
 import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
 import com.northphoenix.hairdresserclientmanager.i18n.label
-import com.northphoenix.hairdresserclientmanager.i18n.messageRes
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
@@ -167,7 +165,7 @@ fun ClientEditorScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val clients by viewModel.clients.collectAsStateWithLifecycle()
+    val clients = viewModel.clients.collectAsStateWithLifecycle().value.data.orEmpty()
     val stylist by viewModel.stylist.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val accountName by viewModel.accountName.collectAsStateWithLifecycle()
@@ -603,42 +601,38 @@ private fun ShareChoices(included: Set<ShareChoice>, enabled: Boolean, onChange:
  */
 @Composable
 private fun ClientHistoryCard(viewModel: AppViewModel, clientId: String, onOpenAppointment: (String) -> Unit) {
-    val scope = rememberCoroutineScope()
-    var history by remember(clientId) { mutableStateOf<List<ClientHistoryEntry>?>(null) }
-    // Why there is no history to show; null while it is loading.
-    var failure by remember(clientId) { mutableStateOf<Int?>(null) }
+    // Read through the cache for as long as the profile is in view. A history that was shown before is there from the
+    // first frame and refreshed behind it; one that is on screen stays there when loading it again fails.
+    val history by remember(viewModel, clientId) { viewModel.clientHistory(clientId) }.collectAsStateWithLifecycle(
+        initialValue = remember(viewModel, clientId) { viewModel.shownClientHistory(clientId) },
+    )
 
-    fun load() {
-        scope.launch {
-            failure = null
-            try {
-                history = viewModel.clientHistory(clientId, refreshing = history != null)
-            } catch (error: ApiException) {
-                failure = error.messageRes()
-            }
-        }
-    }
-
-    // Each time the profile comes into view, from an Appointment opened here or from the background.
-    LifecycleEventEffect(Lifecycle.Event.ON_START) { load() }
+    // Asked for each time the profile comes into view, from an Appointment opened here or from the background:
+    // a history that cannot be loaded says so as a notice too.
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.loadClientHistory(clientId) }
 
     HcmCard(contentPadding = PaddingValues(vertical = 18.dp)) {
         Text(stringResource(R.string.appointment_history_title), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(horizontal = 18.dp))
 
-        val entries = history
-        val failed = failure
+        val entries = history.data.orEmpty()
 
-        when {
-            // History that is on screen stays there when loading it again fails.
-            entries == null && failed != null -> InlineLoadFailed(failed, onRetry = ::load, Modifier.padding(start = 18.dp, end = 18.dp, top = 10.dp))
-            entries == null -> LoadingRow(Modifier.heightIn(max = 96.dp))
-            entries.isEmpty() -> InlineEmpty(stringResource(R.string.appointment_history_empty), Modifier.padding(start = 18.dp, end = 18.dp, top = 10.dp))
-            else -> entries.forEachIndexed { index, entry ->
-                if (index > 0) {
-                    Hairline(Modifier.padding(horizontal = 18.dp))
+        when (val state = history.state) {
+            is LoadState.Failed -> InlineLoadFailed(
+                state.message,
+                onRetry = { viewModel.loadClientHistory(clientId) },
+                Modifier.padding(start = 18.dp, end = 18.dp, top = 10.dp),
+            )
+            LoadState.Loaded -> if (entries.isEmpty()) {
+                InlineEmpty(stringResource(R.string.appointment_history_empty), Modifier.padding(start = 18.dp, end = 18.dp, top = 10.dp))
+            } else {
+                entries.forEachIndexed { index, entry ->
+                    if (index > 0) {
+                        Hairline(Modifier.padding(horizontal = 18.dp))
+                    }
+                    ClientHistoryRow(entry, onOpen = { onOpenAppointment(entry.id) })
                 }
-                ClientHistoryRow(entry, onOpen = { onOpenAppointment(entry.id) })
             }
+            else -> LoadingRow(Modifier.heightIn(max = 96.dp))
         }
     }
 }

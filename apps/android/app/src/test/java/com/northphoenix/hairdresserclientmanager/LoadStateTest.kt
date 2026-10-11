@@ -1,33 +1,64 @@
 package com.northphoenix.hairdresserclientmanager
 
 import com.northphoenix.hairdresserclientmanager.data.ApiException
+import com.northphoenix.hairdresserclientmanager.state.CacheLimits
+import com.northphoenix.hairdresserclientmanager.state.Changes
 import com.northphoenix.hairdresserclientmanager.state.LoadState
-import com.northphoenix.hairdresserclientmanager.state.LoadTracker
+import com.northphoenix.hairdresserclientmanager.state.Read
+import com.northphoenix.hairdresserclientmanager.state.ReadCache
+import com.northphoenix.hairdresserclientmanager.state.showLatest
 import com.northphoenix.hairdresserclientmanager.state.together
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
 import org.junit.Test
 
-/** No screen may show a spinner for ever, or "empty" for data that failed to load. */
+/**
+ * No screen may show a spinner for ever, or "empty" for data that failed to load. The state of
+ * every read comes from the read cache ([ReadCache]); these are its rules for one list and for a
+ * place that shows one key at a time, with each request answered by hand.
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
 class LoadStateTest {
     private fun offline() = ApiException("Network request failed.", code = "NETWORK", isNetwork = true)
 
     private val failedOffline = LoadState.Failed(R.string.network_error)
+    private val loading = Read<List<String>>(LoadState.Loading)
 
-    /** Runs a load and gives back what it threw, if anything. */
+    /** A read whose requests are answered by the test: [replies] holds one for each request, in the order they were sent. */
+    private class Asked {
+        val replies = mutableListOf<CompletableDeferred<List<String>>>()
+
+        suspend fun fetch(): List<String> = CompletableDeferred<List<String>>().also { replies += it }.await()
+    }
+
+    private fun TestScope.cache(asked: Asked) = ReadCache<String, List<String>>(backgroundScope, Changes(), CacheLimits(answers = 10)) { asked.fetch() }
+
+    /** What a screen that watches [key] is shown, value by value. */
+    private fun TestScope.shownOf(cache: ReadCache<String, List<String>>, key: String): List<Read<List<String>>> {
+        val shown = mutableListOf<Read<List<String>>>()
+
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { cache.watch(key).collect { shown += it } }
+
+        return shown
+    }
+
+    /** Runs a load and gives back what it threw, if anything. A load that was given up threw nothing to report. */
     private suspend fun failureOf(load: suspend () -> Unit): Exception? =
         try {
             load()
             null
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             error
         }
@@ -36,173 +67,191 @@ class LoadStateTest {
 
     @Test
     fun `a list is loading until its first load ends and loaded from then on`() = runTest {
-        val tracker = LoadTracker()
-        val reply = CompletableDeferred<List<String>>()
-        var clients = emptyList<String>()
+        val asked = Asked()
+        val cache = cache(asked)
 
         // Not asked for yet: still not "empty".
-        assertEquals(LoadState.Loading, tracker.state.value)
+        assertEquals(loading, cache.now("clients"))
 
-        launch { tracker.load({ reply.await() }) { clients = it } }
+        val shown = shownOf(cache, "clients")
         runCurrent()
-        assertEquals(LoadState.Loading, tracker.state.value)
+        assertEquals(listOf(loading), shown)
 
-        reply.complete(listOf("Anna"))
+        asked.replies.single().complete(listOf("Anna"))
         runCurrent()
-        assertEquals(LoadState.Loaded, tracker.state.value)
-        assertEquals(listOf("Anna"), clients)
+        assertEquals(listOf(loading, Read(LoadState.Loaded, listOf("Anna"))), shown)
     }
 
     @Test
     fun `a first load that fails says why, and trying again shows the spinner again`() = runTest {
-        val tracker = LoadTracker()
-
-        val failure = failureOf { tracker.load<List<String>>({ throw offline() }) { fail("nothing to apply") } }
-
-        // Thrown on, so the caller can raise a notice as well.
-        assertTrue((failure as ApiException).isNetwork)
-        assertEquals(failedOffline, tracker.state.value)
-
-        val reply = CompletableDeferred<List<String>>()
-        launch { tracker.load({ reply.await() }) { } }
+        val asked = Asked()
+        val cache = cache(asked)
+        val shown = shownOf(cache, "clients")
         runCurrent()
-        assertEquals(LoadState.Loading, tracker.state.value)
 
-        reply.complete(emptyList())
+        asked.replies.single().completeExceptionally(offline())
         runCurrent()
-        assertEquals(LoadState.Loaded, tracker.state.value)
+        assertEquals(listOf(loading, Read(failedOffline)), shown)
+
+        // 'Try again': thrown on when it fails too, so the caller can raise a notice as well.
+        var thrown: Exception? = null
+        val retry = launch { thrown = failureOf { cache.refresh("clients") } }
+        runCurrent()
+        assertEquals(loading, shown.last())
+        asked.replies.last().completeExceptionally(offline())
+        runCurrent()
+        assertTrue(retry.isCompleted)
+        assertTrue((thrown as ApiException).isNetwork)
+        assertEquals(Read<List<String>>(failedOffline), shown.last())
+
+        val again = launch { cache.refresh("clients") }
+        runCurrent()
+        assertEquals(loading, shown.last())
+
+        asked.replies.last().complete(emptyList())
+        runCurrent()
+        assertTrue(again.isCompleted)
+        assertEquals(Read(LoadState.Loaded, emptyList<String>()), shown.last())
     }
 
     @Test
     fun `what is on screen stays loaded while it is loaded again and when that fails`() = runTest {
-        val tracker = LoadTracker()
-        var clients = emptyList<String>()
-
-        tracker.load({ listOf("Anna") }) { clients = it }
-
-        val reply = CompletableDeferred<List<String>>()
-        val reload = launch { assertTrue(failureOf { tracker.load({ reply.await() }) { clients = it } } is ApiException) }
+        val asked = Asked()
+        val cache = cache(asked)
+        val shown = shownOf(cache, "clients")
         runCurrent()
-        assertEquals(LoadState.Loaded, tracker.state.value)
+        asked.replies.single().complete(listOf("Anna"))
+        runCurrent()
 
-        reply.completeExceptionally(offline())
+        val reload = launch { assertTrue(failureOf { cache.refresh("clients") } is ApiException) }
+        runCurrent()
+        assertEquals(Read(LoadState.Loaded, listOf("Anna")), shown.last())
+
+        asked.replies.last().completeExceptionally(offline())
         runCurrent()
         assertTrue(reload.isCompleted)
-        assertEquals(LoadState.Loaded, tracker.state.value)
-        assertEquals(listOf("Anna"), clients)
+        assertEquals(listOf(loading, Read(LoadState.Loaded, listOf("Anna"))), shown)
     }
 
     @Test
     fun `a load that an unexpected error ends is failed too, never a spinner`() = runTest {
-        val tracker = LoadTracker()
+        val asked = Asked()
+        val cache = cache(asked)
+        val shown = shownOf(cache, "clients")
+        runCurrent()
 
-        failureOf { tracker.load<Unit>({ error("Element class JsonLiteral is not a JsonObject") }) { } }
+        asked.replies.single().completeExceptionally(IllegalStateException("Element class JsonLiteral is not a JsonObject"))
+        runCurrent()
 
-        assertEquals(LoadState.Failed(R.string.error_generic), tracker.state.value)
+        assertEquals(Read<List<String>>(LoadState.Failed(R.string.error_generic)), shown.last())
     }
 
     // --- a Calendar day: two days tapped in quick succession, a day that failed ---
 
     @Test
     fun `the load of a day the Stylist has left changes nothing when it is cancelled`() = runTest {
-        val tracker = LoadTracker()
-        var shown = listOf("left over")
+        val asked = Asked()
+        val cache = cache(asked)
+        val day = MutableStateFlow("monday")
+        val calendar = mutableListOf<Pair<String, Read<List<String>>>>()
 
-        val firstDay = launch { tracker.load({ CompletableDeferred<List<String>>().await() }) { shown = it } }
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { showLatest(day, cache::watch) { key, read -> calendar += key to read } }
         runCurrent()
 
-        // The Stylist taps another day: its load starts and the first one is cancelled.
-        tracker.reset()
-        shown = emptyList()
-        val reply = CompletableDeferred<List<String>>()
-        launch { tracker.load({ reply.await() }) { shown = it } }
-        firstDay.cancel()
+        // The Stylist taps another day: its load starts and the first one is given up.
+        day.value = "tuesday"
         runCurrent()
 
         // The day is still on its way: a spinner, not "No Appointments on this day".
-        assertEquals(LoadState.Loading, tracker.state.value)
+        assertEquals("tuesday" to loading, calendar.last())
 
-        reply.complete(listOf("8:33 AM"))
+        asked.replies.last().complete(listOf("8:33 AM"))
         runCurrent()
-        assertEquals(LoadState.Loaded, tracker.state.value)
-        assertEquals(listOf("8:33 AM"), shown)
+        assertEquals(listOf("monday" to loading, "tuesday" to loading, "tuesday" to Read(LoadState.Loaded, listOf("8:33 AM"))), calendar)
     }
 
     @Test
     fun `what arrives for a day the Stylist has left is dropped, whether it loaded or failed`() = runTest {
-        val tracker = LoadTracker()
-        val leftDay = CompletableDeferred<List<String>>()
-        val failedDay = CompletableDeferred<List<String>>()
-        var shown = emptyList<String>()
+        val asked = Asked()
+        val cache = cache(asked)
+        val day = MutableStateFlow("monday")
+        val calendar = mutableListOf<Pair<String, Read<List<String>>>>()
         var thrown: Exception? = null
 
-        launch { tracker.load({ leftDay.await() }) { shown = it } }
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { showLatest(day, cache::watch) { key, read -> calendar += key to read } }
+        // Each tap asks for its day as well, as the Calendar does, and would report what that throws.
+        val monday = launch { thrown = failureOf { cache.refresh("monday") } }
         runCurrent()
-        tracker.reset()
-        launch { thrown = failureOf { tracker.load({ failedDay.await() }) { shown = it } } }
+        day.value = "tuesday"
+        val tuesday = launch { thrown = failureOf { cache.refresh("tuesday") } }
         runCurrent()
-        tracker.reset()
-        val reply = CompletableDeferred<List<String>>()
-        launch { tracker.load({ reply.await() }) { shown = it } }
+        day.value = "wednesday"
+        runCurrent()
+        monday.cancel()
+        tuesday.cancel()
         runCurrent()
 
-        leftDay.complete(listOf("another day's Appointment"))
-        failedDay.completeExceptionally(offline())
+        // Whatever still comes of the days before: neither their Appointments nor their failure reach the day on screen.
+        asked.replies[0].complete(listOf("another day's Appointment"))
+        asked.replies[1].completeExceptionally(offline())
         runCurrent()
+        assertEquals("wednesday" to loading, calendar.last())
+        assertTrue(calendar.none { (key, read) -> key != "wednesday" && read.state != LoadState.Loading })
+        assertEquals(null, thrown)
 
-        // Neither the other day's Appointments nor its failure reach the day on screen.
-        assertEquals(emptyList<String>(), shown)
-        assertNull(thrown)
-        assertEquals(LoadState.Loading, tracker.state.value)
-
-        reply.complete(emptyList())
+        asked.replies.last().complete(emptyList())
         runCurrent()
-        assertEquals(LoadState.Loaded, tracker.state.value)
+        assertEquals("wednesday" to Read(LoadState.Loaded, emptyList<String>()), calendar.last())
     }
 
     @Test
     fun `a day that failed to load stays failed until it is loaded again`() = runTest {
-        val tracker = LoadTracker()
-
-        failureOf { tracker.load<List<String>>({ throw offline() }) { } }
-        assertEquals(failedOffline, tracker.state.value)
+        val asked = Asked()
+        val cache = cache(asked)
+        val shown = shownOf(cache, "monday")
+        runCurrent()
+        asked.replies.single().completeExceptionally(offline())
+        runCurrent()
+        assertEquals(Read<List<String>>(failedOffline), shown.last())
+        assertEquals(Read<List<String>>(failedOffline), cache.shown("monday"))
 
         // Tapping the same day again.
-        tracker.load({ listOf("9:00 AM") }) { }
-        assertEquals(LoadState.Loaded, tracker.state.value)
+        val tap = launch { cache.refresh("monday") }
+        runCurrent()
+        asked.replies.last().complete(listOf("9:00 AM"))
+        runCurrent()
+        assertTrue(tap.isCompleted)
+        assertEquals(Read(LoadState.Loaded, listOf("9:00 AM")), shown.last())
     }
 
     // --- several lists at once ---
 
     @Test
     fun `one list that fails does not stop the others, and its failure is thrown at the end`() = runTest {
-        val clients = LoadTracker()
-        val today = LoadTracker()
-        val todayReply = CompletableDeferred<List<String>>()
-        var cards = emptyList<String>()
+        val clientsAsked = Asked()
+        val todayAsked = Asked()
+        val clients = cache(clientsAsked)
+        val today = cache(todayAsked)
+        val clientList = shownOf(clients, "clients")
+        val cards = shownOf(today, "today")
         var thrown: Exception? = null
 
-        val loading = launch {
-            thrown = failureOf {
-                together(
-                    { clients.load<List<String>>({ throw offline() }) { } },
-                    { today.load({ todayReply.await() }) { cards = it } },
-                )
-            }
-        }
+        val loadingAll = launch { thrown = failureOf { together({ clients.refresh("clients") }, { today.refresh("today") }) } }
+        runCurrent()
+        clientsAsked.replies.last().completeExceptionally(offline())
         runCurrent()
 
         // The Client list has failed; Today is still on its way and was not cancelled.
-        assertEquals(failedOffline, clients.state.value)
-        assertEquals(LoadState.Loading, today.state.value)
-        assertFalse(loading.isCompleted)
+        assertEquals(Read<List<String>>(failedOffline), clientList.last())
+        assertEquals(loading, cards.last())
+        assertFalse(loadingAll.isCompleted)
 
-        todayReply.complete(listOf("8:33 AM"))
+        todayAsked.replies.last().complete(listOf("8:33 AM"))
         runCurrent()
-        assertEquals(LoadState.Loaded, today.state.value)
-        assertEquals(listOf("8:33 AM"), cards)
+        assertEquals(Read(LoadState.Loaded, listOf("8:33 AM")), cards.last())
+        assertTrue(loadingAll.isCompleted)
         assertTrue((thrown as ApiException).isNetwork)
     }
 
-    // One Appointment, and what a change makes of what is loaded: see ReadCacheTest.
+    // One Appointment, and what a change makes of what is loaded: see ReadCacheTest. The other lists: see ClientReadsTest.
 }

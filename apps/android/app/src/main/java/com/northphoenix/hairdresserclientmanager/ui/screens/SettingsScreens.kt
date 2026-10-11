@@ -245,8 +245,9 @@ fun OnboardingScreen(viewModel: AppViewModel, stylist: Stylist) {
 fun ProfileScreen(viewModel: AppViewModel, onOpenServiceMenu: () -> Unit) {
     val stylist by viewModel.stylist.collectAsStateWithLifecycle()
     val authState by viewModel.authState.collectAsStateWithLifecycle()
-    val serviceMenu by viewModel.serviceMenu.collectAsStateWithLifecycle()
-    val serviceMenuLoad by viewModel.serviceMenuLoad.collectAsStateWithLifecycle()
+    val menu by viewModel.serviceMenu.collectAsStateWithLifecycle()
+    val serviceMenu = menu.data.orEmpty()
+    val serviceMenuLoad = menu.state
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val accountName by viewModel.accountName.collectAsStateWithLifecycle()
     val current = stylist ?: return

@@ -76,8 +76,9 @@ internal sealed interface MenuEditor {
 /** Service Menu Items: the Stylist's standard services with default prices. */
 @Composable
 fun ServiceMenuScreen(viewModel: AppViewModel, onBack: () -> Unit) {
-    val items by viewModel.serviceMenu.collectAsStateWithLifecycle()
-    val load by viewModel.serviceMenuLoad.collectAsStateWithLifecycle()
+    val menu by viewModel.serviceMenu.collectAsStateWithLifecycle()
+    val items = menu.data.orEmpty()
+    val load = menu.state
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     var editor by rememberSaveable(stateSaver = MenuEditor.Saver) { mutableStateOf<MenuEditor?>(null) }
 

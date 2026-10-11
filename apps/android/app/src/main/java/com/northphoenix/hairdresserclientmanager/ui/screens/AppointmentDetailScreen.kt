@@ -55,10 +55,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -278,12 +278,12 @@ private fun AppointmentDetail(
 ) {
     val context = LocalContext.current
     val format = LocalTimeFormat.current
-    val clients by viewModel.clients.collectAsStateWithLifecycle()
-    val clientsLoad by viewModel.clientsLoad.collectAsStateWithLifecycle()
-    val serviceMenu by viewModel.serviceMenu.collectAsStateWithLifecycle()
-    val serviceMenuLoad by viewModel.serviceMenuLoad.collectAsStateWithLifecycle()
-    val completedSources by viewModel.completedSources.collectAsStateWithLifecycle()
-    val completedSourcesLoad by viewModel.completedSourcesLoad.collectAsStateWithLifecycle()
+    val clientList by viewModel.clients.collectAsStateWithLifecycle()
+    val clients = clientList.data.orEmpty()
+    val clientsLoad = clientList.state
+    val menu by viewModel.serviceMenu.collectAsStateWithLifecycle()
+    val serviceMenu = menu.data.orEmpty()
+    val serviceMenuLoad = menu.state
     val copyingInto by viewModel.copyingInto.collectAsStateWithLifecycle()
     // The photos of this Appointment that are not on the server yet.
     val uploads = viewModel.photoUploads.collectAsStateWithLifecycle().value.filter { it.photo.appointmentId == appointment.id }
@@ -640,13 +640,20 @@ private fun AppointmentDetail(
             val requestKey = rememberRequestKey(appointment.id)
             val clientIds = appointment.participants.map { it.clientId }
 
-            // What can be copied depends on the Appointment's Clients: loaded when the sheet opens, and again when they change under it.
-            LaunchedEffect(appointment.id, clientIds) { viewModel.showCopySources(appointment.id) }
-            DisposableEffect(appointment.id) { onDispose { viewModel.closeCopySources(appointment.id) } }
+            // What can be copied depends on the Appointment's Clients: the list is read for as long as the sheet is open,
+            // and it is another list when they change under it. One the sheet showed before is there from the first frame.
+            // Under `key`, so that with other Clients nothing of the list from before is drawn, not for one frame.
+            val sources by key(viewModel, appointment.id, clientIds) {
+                remember { viewModel.copySources(appointment.id, clientIds) }
+                    .collectAsStateWithLifecycle(initialValue = remember { viewModel.shownCopySources(appointment.id, clientIds) })
+            }
+
+            // Asked for when the sheet opens: a list that cannot be loaded says so as a notice too.
+            LaunchedEffect(appointment.id, clientIds) { viewModel.loadCopySources(appointment.id, clientIds) }
 
             CopyServicesSheet(
-                sources = completedSources,
-                load = completedSourcesLoad,
+                sources = sources.data.orEmpty(),
+                load = sources.state,
                 onRetry = viewModel::retryLoad,
                 copying = copyingInto == appointment.id,
                 busy = busy,

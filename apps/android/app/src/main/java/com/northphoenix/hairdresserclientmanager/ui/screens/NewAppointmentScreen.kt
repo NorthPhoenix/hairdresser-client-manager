@@ -50,8 +50,9 @@ private enum class AppointmentPicker { PRIMARY, ADDITIONAL }
 @Composable
 fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBack: () -> Unit, onCreated: (Appointment) -> Unit) {
     val format = LocalTimeFormat.current
-    val clients by viewModel.clients.collectAsStateWithLifecycle()
-    val clientsLoad by viewModel.clientsLoad.collectAsStateWithLifecycle()
+    val clientList by viewModel.clients.collectAsStateWithLifecycle()
+    val clients = clientList.data.orEmpty()
+    val clientsLoad = clientList.state
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val today by viewModel.today.collectAsStateWithLifecycle()
     // The next full hour in the Stylist's timezone, on the day chosen in the Calendar when that is another day.
@@ -91,8 +92,10 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
     // server refuses the Appointment for as long as it names them, and a chip that is not shown cannot be taken off.
     // Read from the list itself, which is whole from the moment it counts as loaded: one that has not loaded says nothing.
     LaunchedEffect(clients, clientsLoad) {
-        if (viewModel.clientsLoad.value == LoadState.Loaded) {
-            val listed = viewModel.clients.value
+        val list = viewModel.clients.value
+
+        if (list.state == LoadState.Loaded) {
+            val listed = list.data.orEmpty()
 
             primaryClientId = primaryClientId?.let { AppointmentClients.stillListed(listOf(it), listed).firstOrNull() }
             additionalClientIds = AppointmentClients.stillListed(additionalClientIds, listed)

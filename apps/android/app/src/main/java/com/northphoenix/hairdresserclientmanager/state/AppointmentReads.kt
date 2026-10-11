@@ -4,7 +4,6 @@ import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import java.time.LocalDate
 import java.time.ZoneId
-import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,8 +17,16 @@ internal data class DayKey(val day: LocalDate, val zone: ZoneId)
 internal data class AppointmentKey(val id: String)
 
 /**
+ * The Appointment that Services are copied into. What can be copied depends on who its Clients
+ * are, because a copy takes only the Services of Clients attached to both: with other Clients it
+ * is another key, so a list is never shown for Clients the Appointment no longer has.
+ */
+internal data class CopyTargetKey(val appointmentId: String, val clientIds: Set<String>)
+
+/**
  * Every read of Appointments, each through a [ReadCache]: [today] (`appointment.home`), a
- * Calendar day ([days], `appointment.list`) and one Appointment by its id ([one], `appointment.get`).
+ * Calendar day ([days], `appointment.list`), one Appointment by its id ([one], `appointment.get`)
+ * and what Appointment Copying can copy from ([sources], `appointment.completedSources`).
  *
  * A change is told here, and reaches the reads in two ways. What is on screen gets what the
  * server has confirmed at once ([update], [clientSaved], [forget]), so it is right also when the
@@ -36,6 +43,7 @@ internal class AppointmentReads(
     fetchDay: suspend (DayKey) -> List<Appointment>,
     /** Null when the server has no such Appointment. */
     find: suspend (id: String) -> Appointment?,
+    fetchSources: suspend (CopyTargetKey) -> List<Appointment>,
 ) {
     /** Today's list holds every Scheduled Appointment that is overdue as well, so a change of any status is a change to it (see [statusChanged]). */
     val today = ReadCache(scope, changes, TODAY_LIMITS, about = { _, list -> list.flatMap { idsIn(it) } + ANY_STATUS }, fetch = fetchToday)
@@ -49,6 +57,18 @@ internal class AppointmentReads(
         ONE_LIMITS,
         about = { key, appointment -> listOf(key.id) + appointment?.let { idsIn(it) }.orEmpty() },
     ) { find(it.id) }
+
+    /**
+     * The Completed Appointments that have something to copy into the key's Appointment, newest
+     * first: the first is the source a copy takes when it names none. Each is stated for that
+     * Appointment alone (which of its Services can be copied), so these are never taken for the
+     * Appointments themselves ([get], [all]).
+     *
+     * Which Appointments are sources, and what of them, follows from the statuses, Services and
+     * Clients of any of the Stylist's Appointments, also of one that is no source yet. So any
+     * change at all puts a cached list out of date: it is loaded anew rather than copied from.
+     */
+    val sources = ReadCache(scope, changes, SOURCES_LIMITS, about = { _, _ -> listOf(Changes.ANY_CHANGE) }, fetch = fetchSources)
 
     // The reply that created an Appointment: its screen opens before any read of it has answered.
     private val newest = MutableStateFlow<Answer<Appointment>?>(null)
@@ -66,8 +86,8 @@ internal class AppointmentReads(
     fun all(): Collection<Appointment> =
         (one.shown.value.values.mapNotNull { it.read.data } + listed()).distinctBy(Appointment::id)
 
-    /** Whether a list on screen has a card for this Appointment. */
-    fun isListed(id: String): Boolean = listed().any { it.id == id }
+    /** Whether a list on screen has a card for this Appointment: Today's, a day's, or an open copy sheet's. */
+    fun isListed(id: String): Boolean = (listed() + sources.shown.value.values.flatMap { it.read.data.orEmpty() }).any { it.id == id }
 
     /**
      * What the screen of one Appointment shows, for as long as it is collected (see
@@ -110,6 +130,7 @@ internal class AppointmentReads(
         today.update { _, list -> list.map { it.withClient(saved) } }
         days.update { _, list -> list.map { it.withClient(saved) } }
         one.update { _, appointment -> appointment?.withClient(saved) }
+        sources.update { _, list -> list.map { it.withClient(saved) } }
         changes.changed(saved.id)
     }
 
@@ -119,10 +140,11 @@ internal class AppointmentReads(
      */
     fun statusChanged(id: String) = changes.changed(id, ANY_STATUS)
 
-    /** The server has just deleted this Appointment: it leaves the lists on screen, and its own screen says that it is gone. */
+    /** The server has just deleted this Appointment: it leaves the lists on screen, an open copy sheet's too, and its own screen says that it is gone. */
     fun forget(id: String) {
         today.update { _, list -> list.filterNot { it.id == id } }
         days.update { _, list -> list.filterNot { it.id == id } }
+        sources.update { _, list -> list.filterNot { it.id == id } }
         one.answer(AppointmentKey(id), null)
         changes.changed(id)
     }
@@ -133,6 +155,7 @@ internal class AppointmentReads(
         today.clear()
         days.clear()
         one.clear()
+        sources.clear()
     }
 
     private fun listed(): List<Appointment> =
@@ -141,17 +164,16 @@ internal class AppointmentReads(
     private fun justCreated(id: String): Appointment? = newest.value?.takeIf { it.value.id == id && changes.isCurrent(it) }?.value
 
     private companion object {
-        // Every key that is shown is asked again behind what the cache has, so the age only limits
-        // what is shown at once, and for how long a refresh that keeps failing leaves it there.
-        val AGE = 30.minutes
-
         /** Today, and the day before it around midnight or after a timezone change. */
-        val TODAY_LIMITS = CacheLimits(answers = 4, age = AGE)
+        val TODAY_LIMITS = CacheLimits(answers = 4)
 
         /** Two months of days to go back and forth between. */
-        val DAY_LIMITS = CacheLimits(answers = 62, age = AGE)
+        val DAY_LIMITS = CacheLimits(answers = 62)
 
-        val ONE_LIMITS = CacheLimits(answers = 100, age = AGE)
+        val ONE_LIMITS = CacheLimits(answers = 100)
+
+        /** The copy sheets opened of late. A list is kept only until the next change (see [sources]). */
+        val SOURCES_LIMITS = CacheLimits(answers = 20)
 
         /** Names the status of every Appointment, in what an answer is about. */
         const val ANY_STATUS = "appointment-status"

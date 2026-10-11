@@ -36,23 +36,44 @@ Every cached answer that the change may have made wrong is never served again. T
 
 Some changes can show in an answer that does not hold them yet: a new Appointment, another time for one, the salon's address. They put every cached answer out of date. A change whose reply never came is treated as if it had been saved.
 
+Two reads repeat so much of other things that no list of ids covers them: a Client's Appointment history (the Services, photos and status of every Appointment the Client is in, also one they are only now added to, and the name of another Client who is primary) and the sources of Appointment Copying (any Completed Appointment with a Service of one of the Clients, also one that is no source yet). Such an answer is about "any change": it is out of date after any change at all that this device made. That is more than strictly needed and cannot be wrong, and it matters most for the copy sources, because a copy acts on the list: the first source is the one a copy takes when it names none. Both stay cached while the Stylist only looks around, which is when showing them at once is worth something.
+
+The Client list and the Service Menu are marked as lists: a new Client is in no cached answer yet, so saving, deleting or sharing a Client marks "the Client list", and saving or deleting a Service Menu Item marks "the Service Menu".
+
 We mark answers out of date instead of rewriting them. A memory-only Store has no way to put a value into its cache except as the result of a fetch, and it does not tell a reader about anything but fetches. Its `MutableStore` writes through an updater that posts whole values to the server, which is not how this API changes things, and it is marked experimental. An in-memory source of truth would be the hand-made cache this decision is meant to remove.
 
 ## Keys and limits
 
-A key is a small data class: `DayKey(day, zone)` for Today's list (`appointment.home`) and for a Calendar day (`appointment.list`), each in a Store of its own, and `AppointmentKey(id)` for one Appointment (`appointment.get`). The timezone is part of a day's key, because the day's start and end are worked out in it: after a timezone change the lists are other keys and are loaded.
+A key is a small data class with everything the answer depends on, and each read has a Store of its own.
 
-| Read | Answers kept | Kept for |
-| --- | --- | --- |
-| Today's list | 4 | 30 minutes |
-| Calendar days | 62 | 30 minutes |
-| One Appointment | 100 | 30 minutes |
+| Read | Key | Answers kept | Kept for |
+| --- | --- | --- | --- |
+| Today's list (`appointment.home`) | `DayKey(day, zone)` | 4 | 30 minutes |
+| A Calendar day (`appointment.list`) | `DayKey(day, zone)` | 62 | 30 minutes |
+| One Appointment (`appointment.get`) | `AppointmentKey(id)` | 100 | 30 minutes |
+| The sources of Appointment Copying (`appointment.completedSources`) | `CopyTargetKey(appointmentId, clientIds)` | 20 | 30 minutes |
+| The Client list (`clientProfile.list`) | `StylistKey(stylistId)` | 1 | 30 minutes |
+| A Client's Appointment history (`clientProfile.appointmentHistory`) | `ClientKey(id)` | 30 | 30 minutes |
+| The Service Menu (`serviceMenu.list`) | `StylistKey(stylistId)` | 1 | 30 minutes |
+
+The timezone is part of a day's key, because the day's start and end are worked out in it: after a timezone change the lists are other keys and are loaded. The Clients of the Appointment are part of the copy sources' key, because a copy takes only the Services of Clients attached to both Appointments: when they change, the sheet reads another key and shows nothing of the list from before. The Stylist is the key of the two lists that are theirs as a whole, so one Stylist's list is another key than the next one's, on top of the cache being emptied at sign-out.
+
+The Client list and the Service Menu are on screen for as long as a Stylist is signed in, because the pickers and forms of other screens read them. They are loading once, at the start, and from then on every refresh is behind what is shown. A history and a copy sheet are read by their own screen for as long as it is in view.
 
 The age counts from the answer. Every key that is shown is asked again anyway, so the age does not decide how fresh the screen is. It limits how old an answer may be when it is shown at once, and for how long a refresh that keeps failing can leave it there.
 
+## The Stylist's settings are not a cached read
+
+`stylist.bootstrap` is the one query that does not go through a Store. It is not a read of something the app then shows by key:
+
+- Its first call creates the Stylist, and its answer decides whether there is an app to show at all (sign-in, onboarding, the timezone every other key is worked out in). There is no screen that could show a cached copy before it has answered, and the memory is empty at every start.
+- After that, the settings on screen are mostly what a save answered, not what a read did. Saves and fetches of the settings are kept in a strict order (`SettingsRequests`: one save at a time, each built from the reply before it, a fetch dropped when a save overtook it). A memory-only Store can only be filled by its fetcher, so the reply of a save would have to live beside it anyway.
+- What the owner asked of a read already holds for them: the settings are shown from memory with no loading state, asked again behind that when the app comes back or is pulled to refresh, and kept when that fails.
+
+So the view model keeps the Stylist of the session as before. It is the session's state, which the keys of the reads are made from, and it is emptied with them at sign-out.
+
 ## Consequences
 
-- The remaining reads (Clients, a Client's Appointment history, the Service Menu, the sources of Appointment Copying, the Stylist's settings) move onto the same cache, each with its key.
-- Right after a change, a cached day that held what changed shows a loading state once. This is deliberate: the alternative is to show something known to be possibly wrong.
-- A screen opened for something that is cached but on no other screen draws one empty frame before the cached answer, because Store answers through a flow.
-- The library is a beta. The app uses a small part of it (`StoreBuilder.from`, `MemoryPolicy`, `Validator`, `stream` with a cached or a fresh request, `clear`), all behind one class, `ReadCache`. `clear()` for all keys is marked experimental in Store.
+- Right after a change, a cached day that held what changed shows a loading state once, and so do a Client's history and a copy sheet after any change. This is deliberate: the alternative is to show something known to be possibly wrong.
+- Store answers through a flow, and a screen's first frame is drawn before a flow has answered. `ReadCache.now(key)` reads what the Store's memory has without asking the server (`StoreReadRequest.localOnly`), so a screen that reads a key for itself has the cached answer in its first frame. It relies on Store answering such a request without suspending; should a later version not do so, the first frame is a loading state and nothing else changes. A unit test fails when that happens.
+- The library is a beta. The app uses a small part of it (`StoreBuilder.from`, `MemoryPolicy`, `Validator`, `stream` with a cached, a fresh or a local-only request, `clear`), all behind one class, `ReadCache`. `clear()` for all keys is marked experimental in Store.

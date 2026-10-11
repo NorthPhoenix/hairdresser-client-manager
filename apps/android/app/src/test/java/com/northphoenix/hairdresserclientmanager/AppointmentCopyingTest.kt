@@ -7,19 +7,29 @@ import com.northphoenix.hairdresserclientmanager.data.AppointmentService
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentCopying
-import com.northphoenix.hairdresserclientmanager.state.CopySources
+import com.northphoenix.hairdresserclientmanager.state.AppointmentReads
+import com.northphoenix.hairdresserclientmanager.state.Changes
+import com.northphoenix.hairdresserclientmanager.state.CopyTargetKey
 import com.northphoenix.hairdresserclientmanager.state.LoadState
+import com.northphoenix.hairdresserclientmanager.state.Read
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
 import org.junit.Test
 
-/** Appointment Copying in the app: what a source of the copy sheet stands for, and whose list the sheet shows. */
+/**
+ * Appointment Copying in the app: what a source of the copy sheet stands for, and whose list the
+ * sheet shows. The list is read through the read cache (docs/adr/0016), by the Appointment the
+ * copy goes into and that Appointment's Clients.
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AppointmentCopyingTest {
     private fun service(id: String, clientId: String) = AppointmentService(id = id, clientId = clientId, name = id, priceCents = 1_000)
@@ -81,33 +91,50 @@ class AppointmentCopyingTest {
 
     // --- whose list the sheet shows ---
 
+    private val annasTarget = CopyTargetKey("target-anna", setOf("anna"))
+    private val bobsTarget = CopyTargetKey("target-bob", setOf("bob"))
+
+    /** The reads with a server that answers the copy sources with [fetch]. */
+    private fun TestScope.reads(changes: Changes = Changes(), fetch: suspend (CopyTargetKey) -> List<Appointment>) =
+        AppointmentReads(backgroundScope, changes, fetchToday = { emptyList() }, fetchDay = { emptyList() }, find = { null }, fetchSources = fetch)
+
+    /** What a copy sheet that reads [flow] shows, value by value. It starts reading at once, as a sheet does. */
+    private fun <T> TestScope.shownBy(flow: Flow<T>): Pair<List<T>, Job> {
+        val shown = mutableListOf<T>()
+
+        return shown to backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { flow.collect { shown += it } }
+    }
+
+    private val loading = Read<List<Appointment>>(LoadState.Loading)
+
     @Test
     fun `nothing is loaded while no copy sheet is open`() = runTest {
         var asked = 0
-        val sources = CopySources { asked++; emptyList() }
+        val reads = reads { asked++; emptyList() }
 
-        sources.load()
+        // The Appointment lists are loaded again, as after any change: the copy sources go with them only for an open sheet.
+        reads.sources.refreshShown()
+        runCurrent()
 
         assertEquals(0, asked)
-        assertEquals(LoadState.Loading, sources.state.value)
+        assertTrue(reads.sources.shown.value.isEmpty())
     }
 
     @Test
     fun `the open sheet's Appointment is the one the list is asked for`() = runTest {
         val asked = mutableListOf<String>()
         val annas = source("annas", clients = listOf("anna" to "Anna Avery"))
-        val sources = CopySources { target -> asked += target; listOf(annas) }
+        val reads = reads { target -> asked += target.appointmentId; listOf(annas) }
 
-        sources.open("target-anna")
-        assertEquals(LoadState.Loading, sources.state.value)
-        sources.load()
+        val (shown) = shownBy(reads.sources.watch(annasTarget))
+        assertEquals(listOf(loading), shown)
+        runCurrent()
 
         assertEquals(listOf("target-anna"), asked)
-        assertEquals(listOf(annas), sources.sources.value)
-        assertEquals(LoadState.Loaded, sources.state.value)
+        assertEquals(Read(LoadState.Loaded, listOf(annas)), shown.last())
 
         // Loaded again with the Appointment lists while the sheet is open, as after a copy that was refused.
-        sources.load()
+        reads.sources.refreshShown()
         assertEquals(listOf("target-anna", "target-anna"), asked)
     }
 
@@ -117,108 +144,159 @@ class AppointmentCopyingTest {
         val annas = source("annas", clients = listOf("anna" to "Anna Avery"))
         val bobs = source("bobs", clients = listOf("bob" to "Bob Baker"))
         val answers = mapOf("target-anna" to CompletableDeferred<List<Appointment>>(), "target-bob" to CompletableDeferred())
-        val sources = CopySources { target -> answers.getValue(target).await() }
+        val reads = reads { target -> answers.getValue(target.appointmentId).await() }
 
-        sources.open("target-anna")
-        launch { sources.load() }
+        val (_, annasSheet) = shownBy(reads.sources.watch(annasTarget))
         runCurrent()
 
         // Anna's sheet closes and Bob's opens before the answer for Anna's has come.
-        sources.close("target-anna")
-        sources.open("target-bob")
-        launch { sources.load() }
+        annasSheet.cancel()
+        val (shown) = shownBy(reads.sources.watch(bobsTarget))
         runCurrent()
-        assertEquals(LoadState.Loading, sources.state.value)
+        assertEquals(listOf(loading), shown)
 
         answers.getValue("target-bob").complete(listOf(bobs))
         runCurrent()
-        assertEquals(listOf(bobs), sources.sources.value)
+        assertEquals(Read(LoadState.Loaded, listOf(bobs)), shown.last())
 
         // The late answer for Anna's Appointment changes nothing.
         answers.getValue("target-anna").complete(listOf(annas))
         runCurrent()
-        assertEquals(listOf(bobs), sources.sources.value)
-        assertEquals(LoadState.Loaded, sources.state.value)
+        assertEquals(listOf(loading, Read(LoadState.Loaded, listOf(bobs))), shown)
     }
 
     @Test
     fun `the list starts over when the Clients of the Appointment change under the open sheet`() = runTest {
         val annas = source("annas", clients = listOf("anna" to "Anna Avery"))
         var answer = listOf(annas)
-        val sources = CopySources { answer }
+        val reads = reads { answer }
 
-        sources.open("target")
-        sources.load()
-        assertEquals(listOf(annas), sources.sources.value)
+        val (_, sheet) = shownBy(reads.sources.watch(CopyTargetKey("target", setOf("anna", "bob"))))
+        runCurrent()
+        assertEquals(listOf(annas), reads.sources.shown.value.values.single().read.data)
 
         // Anna was removed from the Appointment on another device: her Appointments are no sources for it any more.
+        // With other Clients the sheet reads another key, which has nothing of the list from before.
         answer = emptyList()
-        sources.open("target")
-        assertTrue(sources.sources.value.isEmpty())
-        assertEquals(LoadState.Loading, sources.state.value)
+        sheet.cancel()
+        val (shown) = shownBy(reads.sources.watch(CopyTargetKey("target", setOf("bob"))))
+        assertEquals(listOf(loading), shown)
 
-        sources.load()
-        assertTrue(sources.sources.value.isEmpty())
-        assertEquals(LoadState.Loaded, sources.state.value)
+        runCurrent()
+        assertEquals(listOf(loading, Read(LoadState.Loaded, emptyList())), shown)
     }
 
     @Test
-    fun `a closed sheet keeps no list, and closing an older sheet does not close the one that is open`() = runTest {
+    fun `a sheet that is opened again shows its list at once, and closing one sheet does not close another`() = runTest {
         val annas = source("annas", clients = listOf("anna" to "Anna Avery"))
-        val sources = CopySources { listOf(annas) }
+        val older = source("older", clients = listOf("anna" to "Anna Avery"))
+        var answer = listOf(annas)
+        val reads = reads { answer }
 
-        sources.open("target-anna")
-        sources.load()
-        sources.close("target-anna")
+        val (_, first) = shownBy(reads.sources.watch(annasTarget))
+        runCurrent()
+        first.cancel()
+        runCurrent()
 
-        assertTrue(sources.sources.value.isEmpty())
-        assertEquals(LoadState.Loading, sources.state.value)
+        // A closed sheet shows nothing and is asked for nothing.
+        assertTrue(reads.sources.shown.value.isEmpty())
 
-        sources.open("target-bob")
-        sources.load()
-        sources.close("target-anna")
+        // Opened again: the list from before from the first frame, and what the server has by now behind it.
+        answer = listOf(annas, older)
+        assertEquals(Read(LoadState.Loaded, listOf(annas)), reads.sources.now(annasTarget))
+        val (again, annasSheet) = shownBy(reads.sources.watch(annasTarget))
+        assertEquals(listOf(Read(LoadState.Loaded, listOf(annas))), again)
+        val (bobsSheet) = shownBy(reads.sources.watch(bobsTarget))
+        runCurrent()
+        assertEquals(Read(LoadState.Loaded, listOf(annas, older)), again.last())
 
-        assertEquals(listOf(annas), sources.sources.value)
-        assertEquals(LoadState.Loaded, sources.state.value)
+        annasSheet.cancel()
+        runCurrent()
+        assertEquals(Read(LoadState.Loaded, listOf(annas, older)), bobsSheet.last())
+        assertEquals(bobsTarget, reads.sources.shown.value.values.single().key)
+    }
+
+    @Test
+    fun `after any change a list is loaded anew, not copied from as it was`() = runTest {
+        // An Appointment that is no source yet becomes one with its first Service, or when it is Completed.
+        val annas = source("annas", clients = listOf("anna" to "Anna Avery"))
+        val newest = source("newest", clients = listOf("anna" to "Anna Avery"))
+        var answer = listOf(annas)
+        val changes = Changes()
+        val reads = reads(changes) { answer }
+        val (_, first) = shownBy(reads.sources.watch(annasTarget))
+        runCurrent()
+        first.cancel()
+        runCurrent()
+
+        answer = listOf(newest, annas)
+        reads.statusChanged("newest")
+
+        // The first of the list is what a copy takes when it names no source: the list from before is not offered.
+        assertEquals(loading, reads.sources.now(annasTarget))
+        val (shown) = shownBy(reads.sources.watch(annasTarget))
+        assertEquals(listOf(loading), shown)
+        runCurrent()
+        assertEquals(listOf(loading, Read(LoadState.Loaded, listOf(newest, annas))), shown)
     }
 
     @Test
     fun `a list that cannot be loaded says why, and one that is on screen stays when loading it again fails`() = runTest {
         var failing = true
         val annas = source("annas", clients = listOf("anna" to "Anna Avery"))
-        val sources = CopySources { if (failing) throw ApiException("offline", isNetwork = true) else listOf(annas) }
+        val reads = reads { if (failing) throw ApiException("offline", isNetwork = true) else listOf(annas) }
+        val (shown) = shownBy(reads.sources.watch(annasTarget))
+        runCurrent()
+        assertEquals(listOf(loading, Read(LoadState.Failed(R.string.network_error))), shown)
 
-        sources.open("target")
-        try {
-            sources.load()
-            fail("expected the failure to be thrown for the caller to report")
-        } catch (_: ApiException) {
-        }
-        assertEquals(LoadState.Failed(R.string.network_error), sources.state.value)
+        // The load the sheet asks for when it opens throws the failure, for the caller to report.
+        assertTrue(failureOf { reads.sources.refresh(annasTarget) }.isNetwork)
 
         failing = false
-        sources.load()
-        assertEquals(LoadState.Loaded, sources.state.value)
+        reads.sources.refresh(annasTarget)
+        runCurrent()
+        assertEquals(Read(LoadState.Loaded, listOf(annas)), shown.last())
 
         failing = true
-        try {
-            sources.load()
-        } catch (_: ApiException) {
-        }
-        assertEquals(listOf(annas), sources.sources.value)
-        assertEquals(LoadState.Loaded, sources.state.value)
+        assertTrue(failureOf { reads.sources.refreshShown() }.isNetwork)
+        runCurrent()
+        assertEquals(Read(LoadState.Loaded, listOf(annas)), shown.last())
     }
 
     @Test
     fun `a deleted Appointment is no source any more`() = runTest {
         val annas = source("annas", clients = listOf("anna" to "Anna Avery"))
         val older = source("older", clients = listOf("anna" to "Anna Avery"))
-        val sources = CopySources { listOf(annas, older) }
+        val reads = reads { listOf(annas, older) }
+        val (shown) = shownBy(reads.sources.watch(annasTarget))
+        runCurrent()
+        assertTrue(reads.isListed("annas"))
 
-        sources.open("target")
-        sources.load()
-        sources.forget("annas")
+        reads.forget("annas")
 
-        assertEquals(listOf(older), sources.sources.value)
+        assertEquals(listOf(older), reads.sources.shown(annasTarget)?.data)
+        assertTrue(!reads.isListed("annas"))
+        runCurrent()
+        assertEquals(Read(LoadState.Loaded, listOf(older)), shown.last())
     }
+
+    @Test
+    fun `a source is never taken for the Appointment itself`() = runTest {
+        // A source is stated for the Appointment it is copied into: only the Services that can be copied count in it.
+        val annas = source("annas", clients = listOf("anna" to "Anna Avery"))
+        val reads = reads { listOf(annas) }
+        shownBy(reads.sources.watch(annasTarget))
+        runCurrent()
+
+        assertEquals(null, reads["annas"])
+        assertTrue(reads.all().isEmpty())
+    }
+
+    private suspend fun failureOf(read: suspend () -> Unit): ApiException =
+        try {
+            read()
+            throw AssertionError("expected the failure to be thrown for the caller to report")
+        } catch (error: ApiException) {
+            error
+        }
 }

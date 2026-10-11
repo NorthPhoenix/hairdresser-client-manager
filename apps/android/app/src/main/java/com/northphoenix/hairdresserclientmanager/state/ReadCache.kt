@@ -4,9 +4,11 @@ import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.data.toApiException
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
@@ -89,11 +91,27 @@ internal class Changes {
     }
 
     /** False for an answer that was asked for before a change to something it holds. */
-    fun isCurrent(answer: Answer<*>): Boolean = answer.asked >= anywhere && answer.about.all { answer.asked >= (byId[it] ?: 0) }
+    fun isCurrent(answer: Answer<*>): Boolean =
+        answer.asked >= anywhere && answer.about.all { answer.asked >= if (it == ANY_CHANGE) count else byId[it] ?: 0 }
+
+    companion object {
+        /**
+         * In what an answer is about, names everything there is: such an answer is out of date
+         * after any change at all. For an answer that repeats so much of other things that no list
+         * of ids covers it, such as a Client's Appointment history.
+         */
+        const val ANY_CHANGE = "any-change"
+    }
 }
 
 /** How many answers a cache keeps, and for how long after the server gave them. */
-internal data class CacheLimits(val answers: Long, val age: Duration)
+internal data class CacheLimits(val answers: Long, val age: Duration = AGE) {
+    companion object {
+        // Every key that is shown is asked again behind what the cache has, so the age only limits
+        // what is shown at once, and for how long a refresh that keeps failing leaves it there.
+        val AGE = 30.minutes
+    }
+}
 
 /**
  * One kind of read, such as "the Appointments of a day", cached in memory by a Store
@@ -110,7 +128,7 @@ internal data class CacheLimits(val answers: Long, val age: Duration)
  * Not thread-safe: use it from the thread of [scope].
  */
 internal class ReadCache<K : Any, V>(
-    scope: CoroutineScope,
+    private val scope: CoroutineScope,
     private val changes: Changes,
     limits: CacheLimits,
     /** What an answer is about (see [Answer.about]). */
@@ -141,6 +159,30 @@ internal class ReadCache<K : Any, V>(
 
     /** What the watchers of [key] see now, null when nobody watches it. */
     fun shown(key: K): Read<V>? = _shown.value.values.firstOrNull { it.key == key }?.read
+
+    /**
+     * What there is of [key] before anyone has asked: what its watchers see, or else the cached
+     * answer, and [LoadState.Loading] when there is neither. Nothing is asked of the server. For
+     * the first frame of a screen that is about to [watch] the key, so that what is cached is
+     * there from the start: the first value of [watch] is the same, a moment later.
+     */
+    fun now(key: K): Read<V> {
+        shown(key)?.takeIf { it.state == LoadState.Loaded }?.let { return it }
+
+        var cached = Read<V>()
+
+        // The Store answers a read of its memory alone without suspending, so this has run when `launch` returns.
+        // Should it ever wait instead, there is no answer for now and the watcher shows it.
+        scope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+            store.stream(StoreReadRequest.localOnly(key)).catch { }.collect { response ->
+                if (response is StoreReadResponse.Data && changes.isCurrent(response.value)) {
+                    cached = Read(LoadState.Loaded, response.value.value)
+                }
+            }
+        }.cancel()
+
+        return cached
+    }
 
     /**
      * What a screen shows of [key], for as long as it is collected. The first value is there at
@@ -194,6 +236,17 @@ internal class ReadCache<K : Any, V>(
                 response !is StoreReadResponse.Data -> throw ApiException("The read ended without an answer.", code = "UNEXPECTED")
             }
         }
+    }
+
+    /**
+     * Asks again for every key that is on screen now (see [refresh]): the reload of a read that a
+     * screen watches for itself, such as an open sheet's. Nothing is asked while nobody watches.
+     * One key that fails does not stop the others; the first failure is thrown when all have ended.
+     */
+    suspend fun refreshShown() {
+        val keys = _shown.value.values.map { it.key }.distinct()
+
+        together(*keys.map<K, suspend () -> Unit> { key -> { refresh(key) } }.toTypedArray())
     }
 
     /**
