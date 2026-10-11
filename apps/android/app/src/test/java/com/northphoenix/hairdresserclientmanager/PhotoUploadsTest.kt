@@ -2,14 +2,17 @@ package com.northphoenix.hairdresserclientmanager
 
 import com.northphoenix.hairdresserclientmanager.auth.askingAgainWhenDropped
 import com.northphoenix.hairdresserclientmanager.data.ApiException
+import com.northphoenix.hairdresserclientmanager.data.AppointmentPhoto
 import com.northphoenix.hairdresserclientmanager.data.PendingPhoto
 import com.northphoenix.hairdresserclientmanager.data.PendingPhotoStore
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
+import com.northphoenix.hairdresserclientmanager.data.PhotoStatus
 import com.northphoenix.hairdresserclientmanager.data.StoredFile
 import com.northphoenix.hairdresserclientmanager.state.Notice
 import com.northphoenix.hairdresserclientmanager.state.PhotoTarget
 import com.northphoenix.hairdresserclientmanager.state.PhotoUploads
 import com.northphoenix.hairdresserclientmanager.state.UploadState
+import com.northphoenix.hairdresserclientmanager.state.hasStored
 import com.northphoenix.hairdresserclientmanager.state.unreadPhotosNotice
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -45,6 +48,9 @@ class PhotoUploadsTest {
     private val sentPictures = mutableListOf<String>()
     private val recorded = mutableListOf<Pair<String, StoredFile>>()
     private val reloads = mutableListOf<Pair<String, Boolean>>()
+
+    /** The addresses of the photos that the Appointments, as they are loaded, have. */
+    private val loadedPhotos = mutableSetOf<String>()
     private var ids = 0
 
     // What becomes of a picture. Each test replaces what it needs to go wrong.
@@ -75,6 +81,7 @@ class PhotoUploadsTest {
                 reloads += photo.appointmentId to saved
                 reload()
             },
+            isRecorded = { it.stored?.url in loadedPhotos },
             onFailure = { failures += it },
             io = UnconfinedTestDispatcher(testScheduler),
             newId = { "photo-${++ids}" },
@@ -279,6 +286,124 @@ class PhotoUploadsTest {
         assertTrue(store.all().isEmpty())
         assertEquals(listOf("appointment-1" to true), reloads)
         assertTrue(failures.isEmpty())
+    }
+
+    // --- recorded although the try failed ---
+
+    @Test
+    fun `a photo recorded without its reply arriving is done with when the reload shows it`() = runTest {
+        val queue = uploads()
+
+        // The server recorded the photo and its reply was lost. The Appointment comes back with the photo.
+        record = { throw ApiException("No reply from the server.", code = ApiException.NO_REPLY) }
+        reload = { loadedPhotos += "https://files.example/photo-1" }
+        queue.addPictures(1)
+        runCurrent()
+
+        // Not a photo that is stored and a picture that says it was not saved.
+        assertTrue(queue.uploads.value.isEmpty())
+        assertTrue(directory.listFiles().orEmpty().isEmpty())
+        assertEquals(listOf("appointment-1" to false), reloads)
+        // What happened is still said: the reply did not come.
+        assertEquals(listOf(ApiException.NO_REPLY), failures.map { it.code })
+    }
+
+    @Test
+    fun `a failed picture is done with when its Appointment is loaded with the photo`() = runTest {
+        val queue = uploads()
+
+        // Recorded without a reply while the device was offline, so the reload failed too.
+        record = { throw ApiException("No reply from the server.", code = ApiException.NO_REPLY) }
+        reload = { throw offline() }
+        queue.addPictures(1)
+        runCurrent()
+        // This one never reached photo storage.
+        send = { throw offline() }
+        queue.addPictures(1)
+        runCurrent()
+        queue.dropRecorded()
+        runCurrent()
+
+        assertEquals(listOf("photo-1" to UploadState.FAILED, "photo-2" to UploadState.FAILED), queue.states())
+
+        // Later the Appointment is loaded, and it has the first photo.
+        loadedPhotos += "https://files.example/photo-1"
+        queue.dropRecorded()
+        runCurrent()
+
+        assertEquals(listOf("photo-2" to UploadState.FAILED), queue.states())
+        assertEquals(listOf("photo-2"), store.all().map { it.id })
+        assertEquals(listOf("photo-2.jpg", "photo-2.json"), directory.list().orEmpty().sorted())
+    }
+
+    @Test
+    fun `a try that fails after the photo was recorded and shown leaves no failed picture`() = runTest {
+        val queue = uploads()
+
+        // The photo is recorded and in the loaded Appointment, and then something else in the step fails.
+        record = { photo ->
+            loadedPhotos += file(photo).url
+            throw offline()
+        }
+        queue.addPictures(1)
+        runCurrent()
+
+        assertTrue(queue.uploads.value.isEmpty())
+        assertTrue(store.all().isEmpty())
+    }
+
+    @Test
+    fun `a picture that is being sent is left to its own try when its photo shows`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val queue = uploads()
+
+        record = { photo ->
+            loadedPhotos += file(photo).url
+            gate.await()
+        }
+        queue.addPictures(1)
+        runCurrent()
+        queue.dropRecorded()
+        runCurrent()
+
+        // Not stopped half-way: what follows the record step is still to come.
+        assertEquals(listOf("photo-1" to UploadState.UPLOADING), queue.states())
+        assertEquals(1, store.all().size)
+
+        gate.complete(Unit)
+        runCurrent()
+
+        assertTrue(queue.uploads.value.isEmpty())
+        assertEquals(listOf("photo-1"), recorded.map { it.first })
+        assertEquals(listOf("appointment-1" to true), reloads)
+        assertTrue(failures.isEmpty())
+    }
+
+    @Test
+    fun `a failed picture whose photo is loaded before the device is read is not shown again`() = runTest {
+        val stored = StoredFile("key", "https://files.example/kept", "https://files.example/kept")
+
+        store.add(PendingPhoto("recorded", "stylist-1", "appointment-1", "client-1", PhotoCategory.AFTER, createdAt = 1, failed = true, stored = stored), byteArrayOf(1))
+        store.add(PendingPhoto("failed", "stylist-1", "appointment-1", "client-1", PhotoCategory.AFTER, createdAt = 2, failed = true), byteArrayOf(2))
+        loadedPhotos += stored.url
+
+        val queue = uploads()
+
+        assertEquals(listOf("failed" to UploadState.FAILED), queue.states())
+        assertEquals(listOf("failed"), store.all().map { it.id })
+        assertTrue(recorded.isEmpty())
+    }
+
+    @Test
+    fun `an Appointment has the photo of a picture when one of its photos is at the picture's address`() {
+        val stored = StoredFile("key-1", "https://files.example/key-1", "https://files.example/key-1")
+        val others = listOf(
+            AppointmentPhoto("failed", "client-1", PhotoCategory.AFTER, PhotoStatus.FAILED),
+            AppointmentPhoto("another", "client-1", PhotoCategory.AFTER, url = "https://files.example/key-2"),
+        )
+
+        assertFalse(others.hasStored(stored))
+        assertTrue((others + AppointmentPhoto("this", "client-1", PhotoCategory.BEFORE, url = stored.url)).hasStored(stored))
     }
 
     @Test

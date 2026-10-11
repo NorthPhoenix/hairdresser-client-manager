@@ -67,6 +67,9 @@ data class PhotoTarget(
  *   FAILED, also when a request it waited for was cancelled by someone else.
  * - The record's id is the request key of the photo, and a picture that is in photo storage is
  *   not uploaded a second time, so a try that is repeated never makes a second photo.
+ * - The server can have recorded a photo whose try failed: the reply was lost. Such a picture is
+ *   FAILED only until its Appointment is loaded with the photo ([isRecorded]); then it is gone
+ *   from here like any recorded one, so no photo is shown as stored and as not saved at once.
  * - Of the failures that follow one thing the Stylist did (a selection, 'Upload again', opening
  *   the app), only the first is reported through [onFailure]: the pictures show the rest.
  *
@@ -83,6 +86,8 @@ internal class PhotoUploads(
     private val record: suspend (PendingPhoto, StoredFile) -> Unit,
     /** The Appointment of this photo has to be loaded again. [saved] says that the server has the photo for certain. */
     private val reload: suspend (PendingPhoto, saved: Boolean) -> Unit,
+    /** Whether the Appointment of this photo, as it is loaded now, has the photo: then the server has recorded it, whatever became of the reply. */
+    private val isRecorded: (PendingPhoto) -> Boolean,
     private val onFailure: (ApiException) -> Unit,
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val newId: () -> String = { UUID.randomUUID().toString() },
@@ -121,6 +126,8 @@ internal class PhotoUploads(
 
                 kept.filterNot { it.id in known }.map { shown(it, if (it.failed) UploadState.FAILED else UploadState.WAITING) } + added
             }
+            // The Appointments may have been loaded before the device was read.
+            dropRecorded()
             sendInTurn()
         }
     }
@@ -232,6 +239,22 @@ internal class PhotoUploads(
         }
     }
 
+    /**
+     * Call this whenever Appointments have been loaded: every failed picture whose photo its
+     * Appointment turns out to have ([isRecorded]) is done with. Only failed ones: a picture that
+     * is waiting or being sent is recorded again by its own try, which the server answers as the first.
+     */
+    fun dropRecorded() {
+        val recorded = _uploads.value.filter { it.state == UploadState.FAILED && isRecorded(it.photo) }.map { it.id }.toSet()
+
+        if (recorded.isEmpty()) {
+            return
+        }
+
+        _uploads.update { all -> all.filterNot { it.id in recorded } }
+        scope.launch { quietly { withContext(io) { recorded.forEach(store::remove) } } }
+    }
+
     private suspend fun sendInTurn() =
         coroutineScope {
             while (true) {
@@ -309,6 +332,11 @@ internal class PhotoUploads(
                 if (failure.outcomeUnknown) {
                     // The photo may have been recorded although the reply never came: the screen shows whether it was.
                     quietly { reload(photo, false) }
+                }
+                if (isRecorded(photo)) {
+                    // It was, and the Appointment shows the photo: this is not a picture that was not saved.
+                    hide(photo.id)
+                    withContext(io) { store.remove(photo.id) }
                 }
             }
         }

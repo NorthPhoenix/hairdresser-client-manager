@@ -17,6 +17,7 @@ import com.northphoenix.hairdresserclientmanager.auth.SessionCheck
 import com.northphoenix.hairdresserclientmanager.core.AppContainer
 import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.data.Appointment
+import com.northphoenix.hairdresserclientmanager.data.AppointmentPhoto
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.CameraCaptures
 import com.northphoenix.hairdresserclientmanager.data.ClientHistoryEntry
@@ -189,6 +190,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         send = ::sendPhoto,
         record = ::recordPhoto,
         reload = ::reloadForPhoto,
+        isRecorded = ::isPhotoRecorded,
         onFailure = ::report,
     )
 
@@ -209,6 +211,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     init {
         viewModelScope.launch(Dispatchers.IO) { captures.deleteStale() }
         viewModelScope.launch { authState.collect { sessionWatch.onState(it) } }
+        // A picture left as failed because the reply was lost is done with once its Appointment is loaded with the photo.
+        viewModelScope.launch { loadedAppointments.loaded.collect { photos.dropRecorded() } }
         viewModelScope.launch {
             authState.distinctUntilChangedBy { (it as? AuthState.SignedIn)?.userId }.collect { state ->
                 clearStylistData()
@@ -969,7 +973,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         val photosNow =
             api.addStoredPhoto(photo.appointmentId, photo.clientId, photo.category, stored.fileKey, stored.url, stored.thumbnailUrl, requestKey = photo.id)
 
-        if (photosNow?.any { it.url == stored.url } == true) {
+        if (photosNow?.hasStored(stored) == true) {
             // The reply states the Appointment's photos with this one among them: it is shown at once, also when the reload after it fails.
             updateLoaded(photo.appointmentId) { it.copy(photos = photosNow) }
         } else {
@@ -980,9 +984,10 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             try {
                 api.deletePhoto(replaced)
             } catch (error: ApiException) {
-                // Removed already is as good.
+                // The new photo is recorded whatever becomes of this, so it is not a failed upload: the Stylist
+                // is told, and the failed photo stays for them to remove. Removed already is as good.
                 if (!error.isNotFound) {
-                    throw error
+                    report(error)
                 }
             }
         }
@@ -999,6 +1004,13 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                 reloadAppointmentAndLists(photo.appointmentId)
             }
         }
+
+    /** Whether the Appointment, as it is loaded now, has the photo of this picture: the server recorded it, also when its reply never came. */
+    private fun isPhotoRecorded(photo: PendingPhoto): Boolean {
+        val stored = photo.stored ?: return false
+
+        return loadedAppointments[photo.appointmentId]?.photos?.hasStored(stored) == true
+    }
 
     /** 'Upload again' for one photo that failed to upload. */
     fun retryPhotoUpload(uploadId: String) = photos.retry(uploadId)
@@ -1032,6 +1044,12 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             viewModelFactory { initializer { AppViewModel(container, auth, createSavedStateHandle()) } }
     }
 }
+
+/**
+ * Whether these photos, an Appointment's as the server states them, have the one recorded for this
+ * picture in photo storage. Every upload makes a file of its own, so its address tells.
+ */
+internal fun List<AppointmentPhoto>.hasStored(file: StoredFile): Boolean = any { it.url == file.url }
 
 /**
  * What to say about the pictures of a selection that were left out because they could not be read
