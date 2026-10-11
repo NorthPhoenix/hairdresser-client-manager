@@ -153,7 +153,7 @@ Not a v1 concept. The app does not record consent events, signatures, or permiss
 _Avoid_: Release form, consent record, signed waiver
 
 **Share Image**:
-A static image generated on demand from selected Client Profile information for sharing outside the app. A Share Image language is chosen at generation time, defaults to the Client's language, and is not revocable after it leaves the app. It shows what the Client's Profile Share page shows, with the same choices of the Stylist, and carries its photos inside itself; where a list or the photos are too many for one picture, or long texts have made it tall, it says how many it leaves out. Text is shown as it was typed and stays inside the picture: a text too long for one line continues on the next.
+A static image generated on demand from selected Client Profile information for sharing outside the app. A Share Image language is chosen at generation time, defaults to the Client's language, and is not revocable after it leaves the app. It shows what the Client's Profile Share page shows, with the same choices of the Stylist, and carries its photos inside itself; where a list or the photos are too many for one picture, or long texts have made it tall, it says how many it leaves out. Text is shown as it was typed and stays inside the picture: a text too long for one line continues on the next, between words where it can, and a Client name with a long word is drawn in smaller letters before the word is cut.
 _Avoid_: Profile image, export image, card
 
 **Share Branding**:

@@ -84,17 +84,29 @@ function textWidth(text: string, size: number, weight: number): number {
 // surrogate pair, U+FFFE and U+FFFF) and the other control characters. Line breaks and tabs stay.
 const unprintable = /[^\t\n\r\x20-\x7e\u00a0-\ud7ff\ue000-\ufffd\u{10000}-\u{10ffff}]/gu;
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+// Where a word wider than a whole line is broken before it is cut: after its hyphens.
+const afterHyphen = /(?=[^-])(?<=[^-]-+)/;
+// A word that is cut leaves at least this many letters for its last line.
+const fewestLettersCutOff = 3;
+
+/** The lines `text` was typed in, each as its words. An unprintable character becomes a space. */
+function typedWords(text: string): string[][] {
+  return text
+    .replace(unprintable, " ")
+    .split(/\r\n?|[\n\u2028\u2029]/)
+    .map((typedLine) => typedLine.split(/[ \t]+/).filter(Boolean));
+}
 
 /**
- * `text` as lines of a Share Image, none wider than `width`. The text keeps its own line breaks,
- * a longer line is broken between words, and a word wider than a whole line is cut. An unprintable
- * character becomes a space.
+ * `text` as lines of a Share Image, none wider than `width`. The text keeps its own line breaks
+ * and a longer line is broken between words. A word wider than a whole line is broken after its
+ * hyphens, and cut where even that is not enough.
  */
 function wrapText(text: string, width: number, size: number, weight: number): string[] {
   const lines: string[] = [];
   const space = textWidth(" ", size, weight);
 
-  for (const typedLine of text.replace(unprintable, " ").split(/\r\n?|[\n\u2028\u2029]/)) {
+  for (const words of typedWords(text)) {
     let current = "";
     let used = 0;
     const end = () => {
@@ -106,34 +118,55 @@ function wrapText(text: string, width: number, size: number, weight: number): st
       used = 0;
     };
 
-    for (const word of typedLine.split(/[ \t]+/).filter(Boolean)) {
-      const wordWidth = textWidth(word, size, weight);
+    for (const word of words) {
+      const parts = textWidth(word, size, weight) > width ? word.split(afterHyphen) : [word];
 
-      if (current && used + space + wordWidth <= width) {
-        current += ` ${word}`;
-        used += space + wordWidth;
-        continue;
-      }
+      parts.forEach((part, index) => {
+        // The parts of one word follow each other without a space.
+        const gap = index === 0 ? space : 0;
+        const partWidth = textWidth(part, size, weight);
 
-      end();
-
-      // Letter by letter, so that a word wider than a whole line is cut where the line ends.
-      for (const { segment } of graphemes.segment(word)) {
-        const segmentWidth = textWidth(segment, size, weight);
-
-        if (used + segmentWidth > width) {
-          end();
+        if (current && used + gap + partWidth <= width) {
+          current += gap ? ` ${part}` : part;
+          used += gap + partWidth;
+          return;
         }
 
-        current += segment;
-        used += segmentWidth;
-      }
+        end();
+
+        // Letter by letter, so that a part wider than a whole line is cut where the line ends, or
+        // sooner where one or two letters would be left for the next line.
+        const letters = Array.from(graphemes.segment(part), ({ segment }) => segment);
+
+        letters.forEach((letter, at) => {
+          const next = at === letters.length - fewestLettersCutOff ? letters.slice(at).join("") : letter;
+
+          if (used + textWidth(next, size, weight) > width) {
+            end();
+          }
+
+          current += letter;
+          used += textWidth(letter, size, weight);
+        });
+      });
     }
 
     end();
   }
 
   return lines;
+}
+
+/**
+ * The largest letter size, from `largest` down to `smallest`, at which `wrapText` cuts no word of
+ * `text`: at which no word is wider than `width` between its hyphens. `smallest` where a word is
+ * cut even then.
+ */
+function fittingSize(text: string, width: number, weight: number, largest: number, smallest: number): number {
+  const parts = typedWords(text).flat().flatMap((word) => word.split(afterHyphen));
+  const widest = parts.reduce((most, part) => Math.max(most, textWidth(part, largest, weight)), 0);
+
+  return widest <= width ? largest : Math.max(smallest, Math.floor((largest * width) / widest));
 }
 
 function escapeSvgAttribute(value: string): string {
@@ -186,7 +219,10 @@ export function buildShareImageSvg(input: ShareImageInput): string {
   };
 
   line(0, t(locale, "profileShareTitle"), left, 24, 700);
-  line(80, input.clientName, left, 64, 800);
+  // The Client's name is the largest text of the picture. A long surname is drawn in smaller
+  // letters rather than cut, since the widths by which lines are broken are upper bounds: the
+  // letters that a cut would move to the next line mostly fit the frame.
+  line(80, input.clientName, left, fittingSize(input.clientName, right - left, 800, 64, 44), 800);
 
   if (input.stylistName) {
     line(46, t(locale, "profileShareStylist", { name: input.stylistName }));

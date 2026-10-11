@@ -560,6 +560,96 @@ describe("share image text", () => {
     }
   });
 
+  // The Client name stands in the largest letters of a picture: 64, and no smaller than 44.
+  const nameLines = (svg: string) => readPicture(svg, false).lines.filter((line) => line.size >= 44);
+
+  it.each([
+    ["Мария Константинопольская", ["Мария", "Константинопольская"]],
+    ["Елена Христорождественская", ["Елена", "Христорождественская"]]
+  ])("draws the long surname of %s in smaller letters instead of cutting it", (clientName, expected) => {
+    const lines = nameLines(shareImage({ clientName }));
+    const size = lines[0]?.size ?? 0;
+
+    expect(lines.map((line) => line.text)).toEqual(expected);
+    expect(size).toBeLessThan(64);
+    expect(lines.map((line) => line.size)).toEqual(lines.map(() => size));
+    // The lines of the name stand as far apart as its letters need.
+    expect((lines[1]?.y ?? 0) - (lines[0]?.y ?? 0)).toBe(Math.round(size * 1.2));
+    // A name that needs no smaller letters keeps the large ones.
+    expect(nameLines(shareImage({ clientName: "Екатерина Смирнова" })).map((line) => line.size)).toEqual([64]);
+  });
+
+  it("makes the letters of a long name only as small as its longest word needs, inside the frame in the widest font", () => {
+    const sizes: number[] = [];
+
+    for (const length of [18, 20, 23, 26]) {
+      const [line, ...others] = nameLines(shareImage({ clientName: "д".repeat(length) }));
+      const right = (line?.x ?? 0) + length * widestBold.д * (line?.size ?? 0);
+
+      expect(others).toEqual([]);
+      expect(line?.text).toBe("д".repeat(length));
+      expect(right).toBeLessThanOrEqual(textRight);
+      expect(line?.size).toBeGreaterThanOrEqual(44);
+
+      // Not much smaller than they have to be, either.
+      if ((line?.size ?? 0) < 64) {
+        expect(right).toBeGreaterThan((line?.x ?? 0) + (textRight - (line?.x ?? 0)) * 0.9);
+      }
+
+      sizes.push(line?.size ?? 0);
+    }
+
+    expect(sizes).toEqual([64, 58, 50, 44]);
+  });
+
+  it("breaks a double surname after its hyphen and keeps the large letters", () => {
+    const lines = nameLines(shareImage({ clientName: "Анна Голенищева-Кутузова" }));
+
+    expect(lines.map((line) => line.text)).toEqual(["Анна Голенищева-", "Кутузова"]);
+    expect(lines.map((line) => line.size)).toEqual([64, 64]);
+  });
+
+  it("breaks a word after a hyphen only when the word is wider than a whole line", () => {
+    const wide = `${"a".repeat(40)}-${"b".repeat(40)}-${"c".repeat(10)}`;
+
+    expect(formulaLines(withFormulas({ formula: `7N ${wide} 8A`, placement: null })).map((line) => line.text)).toEqual([
+      `7N ${"a".repeat(40)}-`,
+      `${"b".repeat(40)}-${"c".repeat(10)} 8A`
+    ]);
+    // A word that fits a line goes to the next line whole.
+    expect(formulaLines(withFormulas({ formula: `${"слово ".repeat(10)}светло-русый`, placement: null })).map((line) => line.text)).toEqual([
+      Array.from({ length: 10 }, () => "слово").join(" "),
+      "светло-русый"
+    ]);
+    // Hyphens at the start or the end of a word, or several in a row, are no place to break.
+    expect(formulaLines(withFormulas({ formula: `-${"a".repeat(50)}--${"b".repeat(30)}-`, placement: null })).map((line) => line.text)).toEqual([
+      `-${"a".repeat(50)}--`,
+      `${"b".repeat(30)}-`
+    ]);
+  });
+
+  it("cuts a word that fits no line so that at least three letters go to the next line", () => {
+    // 60 letters "a" of a Color Formula fill a line.
+    for (const [length, expected] of [[60, [60]], [61, [58, 3]], [62, [59, 3]], [63, [60, 3]], [64, [60, 4]], [121, [60, 58, 3]]] as const) {
+      const lines = formulaLines(withFormulas({ formula: "a".repeat(length), placement: null }));
+
+      expect(lines.map((line) => line.text.length)).toEqual(expected);
+      expect(lines.map((line) => line.text).join("")).toBe("a".repeat(length));
+    }
+
+    // A name with a word too long for the smallest letters is cut in the same way.
+    const name = nameLines(shareImage({ clientName: `Анна ${"д".repeat(28)}` }));
+
+    expect(name.map((line) => line.text)).toEqual(["Анна", "д".repeat(25), "д".repeat(3)]);
+    expect(name.map((line) => line.size)).toEqual([44, 44, 44]);
+
+    // What follows a word that was cut stands after its last letters.
+    expect(formulaLines(withFormulas({ formula: `${"a".repeat(61)} 8A 40g`, placement: null })).map((line) => line.text)).toEqual([
+      "a".repeat(58),
+      "aaa 8A 40g"
+    ]);
+  });
+
   it("keeps the line breaks of a Color Formula", () => {
     const lines = formulaLines(
       withFormulas(
