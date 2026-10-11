@@ -75,11 +75,14 @@ Run these steps locally when you are ready to wire providers:
 
    Clerk CLI writes `CLERK_PUBLISHABLE_KEY`. The Android app reads the same publishable key from `apps/android/local.properties` as `hcm.clerkPublishableKey`. Enable the Native API for the Clerk application in the Clerk dashboard so the Android SDK can sign in.
 
-7. Create a Prisma Postgres database and fill in `packages/db/.env`:
+7. Create a PostgreSQL database (the project is linked to a Neon project) and fill in `packages/db/.env`:
 
    ```sh
    DATABASE_URL=
+   DATABASE_URL_UNPOOLED=
    ```
+
+   `DATABASE_URL` is what the app connects with; on Neon use the pooled connection string (the `-pooler` host). `DATABASE_URL_UNPOOLED` is the direct connection string and is optional: when it is set, `pnpm db:push` uses it, because schema pushes must not go through a connection pooler. With the Neon CLI (`mise exec -- neon`), `neon link` and `neon env pull` write both variables to `.env.local` at the repository root; copy them from there.
 
 8. Validate and push the Prisma schema:
 

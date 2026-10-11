@@ -13,6 +13,8 @@
     "test": "pnpm lint && pnpm build"
   },
   "devDependencies": {
+    "@neon/config": "^1.8.6",
+    "@neon/env": "^1.5.3",
     "turbo": "latest",
     "typescript": "latest"
   }

@@ -9,3 +9,5 @@ dist
 coverage
 *.tsbuildinfo
 temp
+.neon
+.mcp.json
