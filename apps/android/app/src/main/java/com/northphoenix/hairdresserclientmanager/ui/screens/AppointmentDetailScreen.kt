@@ -240,6 +240,7 @@ fun AppointmentDetailScreen(
         },
     )
     val busy by viewModel.busy.collectAsStateWithLifecycle()
+    val saving by viewModel.saving.collectAsStateWithLifecycle()
     val appointment = shown?.data
 
     // Asked for again each time the screen comes into view, from another screen or from the
@@ -247,7 +248,7 @@ fun AppointmentDetailScreen(
     LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.loadAppointment(appointmentId) }
 
     if (appointment == null) {
-        SubScreen(title = "", onBack = onBack, busy = busy) { padding ->
+        SubScreen(title = "", onBack = onBack, saving = saving) { padding ->
             when (val load = shown?.state) {
                 null -> Unit
                 is LoadState.Failed ->
@@ -264,15 +265,21 @@ fun AppointmentDetailScreen(
         return
     }
 
-    AppointmentDetail(viewModel, appointment, busy, onBack, onOpenClient)
+    AppointmentDetail(viewModel, appointment, saved = shown?.saved ?: appointment, busy, saving, onBack, onOpenClient)
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AppointmentDetail(
     viewModel: AppViewModel,
+    // As the screen shows it: with the changes the Stylist does not wait for (a status chip, a delete), from the moment of the tap.
     appointment: Appointment,
+    // As the server has it. The same unless such a change is still being saved.
+    saved: Appointment,
+    // A change the Stylist waits for is in flight: what must not be tapped meanwhile is disabled.
     busy: Boolean,
+    // Any change is in flight. Only the progress line shows it.
+    saving: Boolean,
     onBack: () -> Unit,
     onOpenClient: (String) -> Unit,
 ) {
@@ -304,8 +311,14 @@ private fun AppointmentDetail(
     val clientsFault = AppointmentClients.fault(appointment)
 
     // The two inline fields. Back asks before it discards what is typed into them and not saved yet.
-    var noteDraft by rememberDraft(appointment.id, saved = appointment.note)
-    var finalTotalDraft by rememberDraft(appointment.id, saved = appointment.finalTotalCentsOverride?.let(Money::centsToPrice).orEmpty())
+    // A text that is being saved is the Appointment's already, so it is not unsaved. When the save
+    // fails the Appointment goes back, the text stays in its field, and it is unsaved again.
+    var noteDraft by rememberDraft(appointment.id, saved = saved.note, shown = appointment.note)
+    var finalTotalDraft by rememberDraft(
+        appointment.id,
+        saved = saved.finalTotalCentsOverride?.let(Money::centsToPrice).orEmpty(),
+        shown = appointment.finalTotalCentsOverride?.let(Money::centsToPrice).orEmpty(),
+    )
     val unsaved = UnsavedInput.appointmentNote(noteDraft, appointment.note) ||
         UnsavedInput.finalTotal(finalTotalDraft, appointment.finalTotalCentsOverride)
 
@@ -361,7 +374,7 @@ private fun AppointmentDetail(
     SubScreen(
         title = format.dayTitle(format.zoned(appointment.startsAt).toLocalDate()),
         onBack = onBack,
-        busy = busy,
+        saving = saving,
         unsaved = unsaved,
     ) { padding ->
         ScreenColumn(padding, scroll = scroll) {
@@ -707,7 +720,11 @@ private fun AppointmentDetail(
                     onSave = { text, placement ->
                         viewModel.saveColorFormula(appointment.id, service.id, formula?.id, text, placement, requestKey) { sheet = null }
                     },
-                    onDelete = { formulaId -> viewModel.deleteColorFormula(appointment.id, formulaId) { sheet = null } },
+                    onDelete = { formulaId ->
+                        // Not waited for: the sheet closes and the Color Formula is gone now. It is back when the delete fails.
+                        sheet = null
+                        viewModel.deleteColorFormula(appointment.id, formulaId)
+                    },
                 )
             }
         }
@@ -902,17 +919,22 @@ private fun WarningCard(
 }
 
 /**
- * The text of an inline field of the Appointment. It starts from [saved], and again whenever
- * [saved] changes. Text that differs from it is kept in saved state, so it survives Android
- * recreating the screen; an untouched field is not kept and shows what is saved by then.
+ * The text of an inline field of the Appointment. It starts from what the Appointment shows
+ * ([shown]), and again whenever what the server has ([saved]) changes. Text that differs from
+ * [shown] is kept in saved state, so it survives Android recreating the screen; an untouched field
+ * is not kept and shows what is saved by then.
+ *
+ * The two differ while a text is being saved without the Stylist waiting: [shown] is that text
+ * already. It does not start the field again, and neither does going back to [saved] when the
+ * save fails: what was typed stays in the field, for another try.
  */
 @Composable
-private fun rememberDraft(appointmentId: String, saved: String): MutableState<String> =
+private fun rememberDraft(appointmentId: String, saved: String, shown: String): MutableState<String> =
     rememberSaveable(
         appointmentId,
         saved,
-        saver = Saver<MutableState<String>, String>(save = { draft -> draft.value.takeIf { it != saved } }, restore = { mutableStateOf(it) }),
-    ) { mutableStateOf(saved) }
+        saver = Saver<MutableState<String>, String>(save = { draft -> draft.value.takeIf { it != shown } }, restore = { mutableStateOf(it) }),
+    ) { mutableStateOf(shown) }
 
 /** Opens the SMS app with a reminder in the primary Client's language. Nothing is sent automatically. */
 private fun composeReminder(context: Context, viewModel: AppViewModel, appointment: Appointment, stylistFormat: TimeFormat) {
@@ -1089,7 +1111,11 @@ private fun TotalsCard(appointment: Appointment, overrideText: String, onOverrid
                 if (appointment.finalTotalCentsOverride != null) {
                     SecondaryButton(
                         stringResource(R.string.clear_final_total_override),
-                        onClick = { onSaveOverride(null) },
+                        // The override is gone at once, and its text with it.
+                        onClick = {
+                            onOverrideText("")
+                            onSaveOverride(null)
+                        },
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                 }

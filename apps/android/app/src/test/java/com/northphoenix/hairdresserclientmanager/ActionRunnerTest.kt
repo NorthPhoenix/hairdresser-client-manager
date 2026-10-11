@@ -2,6 +2,7 @@ package com.northphoenix.hairdresserclientmanager
 
 import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.state.ActionRunner
+import com.northphoenix.hairdresserclientmanager.state.Ahead
 import com.northphoenix.hairdresserclientmanager.state.LatestWins
 import com.northphoenix.hairdresserclientmanager.state.clientsChangeKey
 import kotlinx.coroutines.CompletableDeferred
@@ -521,5 +522,198 @@ class ActionRunnerTest {
         firstReload.complete(Unit)
         runCurrent()
         assertEquals(listOf("a starts", "a ends", "b starts"), order)
+    }
+
+    // --- changes that are shown ahead of the server's answer (optimistic changes) ---
+
+    /** Notes what the runner does with a change that is shown ahead, in its order. */
+    private fun ahead(name: String, steps: MutableList<String>) =
+        Ahead(show = { steps += "$name shown" }, saved = { steps += "$name saved" }, settle = { steps += "$name settled" })
+
+    @Test
+    fun `a change that is shown ahead does not raise busy, and one that is waited for still does`() = runTest {
+        val runner = runner()
+        val steps = mutableListOf<String>()
+        val reply = CompletableDeferred<Unit>()
+        val reloaded = CompletableDeferred<Unit>()
+
+        runner.run(key = "deleteService:s1", change = { reply.await() }, reload = { reloaded.await() }, ahead = ahead("delete", steps), onSaved = { steps += "told" })
+
+        // On screen with the tap, and nothing is disabled: only the quiet sign is up.
+        assertEquals(listOf("delete shown"), steps)
+        assertFalse(runner.busy.value)
+        assertTrue(runner.saving.value)
+
+        // Saved: it is what the server has, and what was laid over the screen is taken away before the reload.
+        reply.complete(Unit)
+        runCurrent()
+        assertEquals(listOf("delete shown", "delete saved", "delete settled", "told"), steps)
+        assertFalse(runner.busy.value)
+        assertTrue(runner.saving.value)
+
+        reloaded.complete(Unit)
+        runCurrent()
+        assertFalse(runner.saving.value)
+
+        // A change the Stylist waits for is as it was: busy from the tap until its reload has run.
+        val waited = CompletableDeferred<Unit>()
+
+        runner.run(key = "addService:a1", change = { waited.await() })
+        assertTrue(runner.busy.value)
+        assertTrue(runner.saving.value)
+
+        waited.complete(Unit)
+        runCurrent()
+        assertFalse(runner.busy.value)
+        assertFalse(runner.saving.value)
+        assertTrue(failures.isEmpty())
+    }
+
+    @Test
+    fun `a change shown ahead that fails is taken off the screen and reported once, by the same rules`() = runTest {
+        val reloads = mutableListOf<String>()
+        val runner = ActionRunner(backgroundScope, { failures += it }, reloadAll = { reloads += "everything" })
+        val steps = mutableListOf<String>()
+
+        // Refused: nothing was saved, so nothing is reloaded.
+        runner.run<Unit>(key = "deletePhoto:p1", change = { throw serverError() }, reload = { reloads += "the Appointment" }, ahead = ahead("refused", steps))
+        runCurrent()
+        assertEquals(listOf("refused shown", "refused settled"), steps)
+        assertEquals(listOf("INTERNAL_SERVER_ERROR"), failures.map { it.code })
+        assertTrue(reloads.isEmpty())
+
+        // No reply: reported as unknown, and reloaded to show what became of it.
+        runner.run<Unit>(
+            key = "deletePhoto:p1",
+            change = { throw ApiException("No reply from the server.", code = ApiException.NO_REPLY) },
+            reload = { reloads += "the Appointment" },
+            ahead = ahead("unanswered", steps),
+        )
+        runCurrent()
+        assertEquals(listOf("unanswered shown", "unanswered settled"), steps.drop(2))
+        assertTrue(failures.last().outcomeUnknown)
+        assertEquals(listOf("the Appointment"), reloads)
+
+        // No longer there: everything is reloaded.
+        runner.run<Unit>(
+            key = "deletePhoto:p1",
+            change = { throw ApiException("Photo not found.", code = "NOT_FOUND") },
+            reload = { reloads += "the Appointment" },
+            ahead = ahead("gone", steps),
+        )
+        runCurrent()
+        assertEquals(listOf("gone shown", "gone settled"), steps.drop(4))
+        assertEquals(listOf("the Appointment", "everything", "the Appointment"), reloads)
+        assertEquals(3, failures.size)
+        assertFalse(runner.saving.value)
+    }
+
+    @Test
+    fun `a reload that fails after a change shown ahead stays owed`() = runTest {
+        val runner = runner()
+        var reloads = 0
+        var online = false
+
+        runner.run(key = "deleteService:s1", change = { }, reload = { reloads++; if (!online) throw serverError() }, ahead = ahead("delete", mutableListOf()))
+        runCurrent()
+        advanceTimeBy(60_000)
+        assertEquals(3, reloads)
+        assertEquals(1, staleNotices)
+        assertTrue(failures.isEmpty())
+
+        online = true
+        runner.reloadOwed()
+        assertEquals(4, reloads)
+        runner.reloadOwed()
+        assertEquals(4, reloads)
+    }
+
+    @Test
+    fun `a second call with the key of a change shown ahead shows nothing and sends nothing`() = runTest {
+        val runner = runner()
+        val steps = mutableListOf<String>()
+        val reply = CompletableDeferred<Unit>()
+        var requests = 0
+
+        repeat(2) { runner.run(key = "deleteService:s1", change = { requests++; reply.await() }, ahead = ahead("delete", steps)) }
+
+        assertEquals(1, requests)
+        assertEquals(listOf("delete shown"), steps)
+
+        reply.complete(Unit)
+        runCurrent()
+        assertEquals(listOf("delete shown", "delete saved", "delete settled"), steps)
+    }
+
+    @Test
+    fun `changes shown ahead are all on screen at once and sent one at a time, in the order they were made`() = runTest {
+        val runner = runner()
+        val steps = mutableListOf<String>()
+        val replies = List(3) { CompletableDeferred<Unit>() }
+
+        // A Color Formula, then its Service, then a photo: the server must not get the Service's delete first.
+        listOf("formula", "service", "photo").forEachIndexed { index, name ->
+            runner.run(key = "delete:$name", change = { steps += "$name sent"; replies[index].await() }, ahead = ahead(name, steps))
+        }
+        assertEquals(listOf("formula shown", "formula sent", "service shown", "photo shown"), steps)
+
+        replies[0].complete(Unit)
+        runCurrent()
+        assertEquals(listOf("formula saved", "formula settled", "service sent"), steps.drop(4))
+
+        // One that fails does not hold up the next.
+        replies[1].completeExceptionally(serverError())
+        runCurrent()
+        assertEquals(listOf("service settled", "photo sent"), steps.drop(7))
+
+        replies[2].complete(Unit)
+        runCurrent()
+        assertEquals(listOf("photo saved", "photo settled"), steps.drop(9))
+        assertEquals(1, failures.size)
+        assertFalse(runner.saving.value)
+    }
+
+    @Test
+    fun `a change that is waited for is sent after the changes shown ahead before it, and not after later ones`() = runTest {
+        val runner = runner()
+        val steps = mutableListOf<String>()
+        val deleted = CompletableDeferred<Unit>()
+        val removed = CompletableDeferred<Unit>()
+
+        // The Stylist deletes a Client's last Service and then removes the Client, whom the screen now offers to remove.
+        runner.run(key = "deleteService:s1", change = { steps += "delete sent"; deleted.await() }, ahead = ahead("delete", steps))
+        runner.run(key = clientsChangeKey("a1"), change = { steps += "remove sent"; removed.await() })
+
+        // Busy from the tap, also while it waits its turn.
+        assertTrue(runner.busy.value)
+        assertEquals(listOf("delete shown", "delete sent"), steps)
+
+        deleted.complete(Unit)
+        runCurrent()
+        assertEquals(listOf("delete saved", "delete settled", "remove sent"), steps.drop(2))
+
+        // A change shown ahead that is made while the other is in flight does not wait for it.
+        runner.run(key = "deletePhoto:p1", change = { steps += "photo sent" }, ahead = ahead("photo", steps))
+        assertEquals(listOf("photo shown", "photo sent", "photo saved", "photo settled"), steps.drop(5))
+
+        removed.complete(Unit)
+        runCurrent()
+        assertFalse(runner.busy.value)
+        assertFalse(runner.saving.value)
+        assertTrue(failures.isEmpty())
+    }
+
+    @Test
+    fun `what is shown ahead is taken away when the change is cancelled`() = runTest {
+        val runner = runner()
+        val steps = mutableListOf<String>()
+
+        runner.run(key = "deleteService:s1", change = { CompletableDeferred<Unit>().await() }, ahead = ahead("delete", steps))
+        backgroundScope.cancel()
+        runCurrent()
+
+        assertEquals(listOf("delete shown", "delete settled"), steps)
+        assertFalse(runner.saving.value)
+        assertTrue(failures.isEmpty())
     }
 }

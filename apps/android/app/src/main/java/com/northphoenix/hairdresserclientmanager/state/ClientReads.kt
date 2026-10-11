@@ -1,8 +1,10 @@
 package com.northphoenix.hairdresserclientmanager.state
 
+import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.ClientHistoryEntry
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.ProfileShare
+import com.northphoenix.hairdresserclientmanager.data.ShareChoice
 import kotlinx.coroutines.CoroutineScope
 
 /**
@@ -59,6 +61,31 @@ internal class ClientReads(
     fun profileShare(clientId: String, share: ProfileShare?) {
         list.update { _, clients -> clients.withProfileShare(clientId, share) }
         shareChanged()
+    }
+
+    /**
+     * One choice of a Client's Profile Share made the other way, without the Stylist waiting for
+     * it (see [Ahead]): the card shows it at once, whatever is loaded meanwhile. What the server
+     * answers to it goes in with [profileShare].
+     */
+    fun shareChoiceAhead(change: String, clientId: String, choice: ShareChoice, included: Boolean) = Ahead(
+        show = {
+            list.expect(change) { _, clients ->
+                clients.map { if (it.id == clientId) it.copy(activeProfileShare = it.activeProfileShare?.with(choice, included)) else it }
+            }
+        },
+        settle = { list.settled(change) },
+    )
+
+    /**
+     * Another status of an Appointment, in a history on screen: shown with the status chip that
+     * was tapped (see [Ahead]), and kept once the server has accepted it. [AppointmentReads] marks
+     * the change.
+     */
+    fun statusAhead(change: String, appointmentId: String, status: AppointmentStatus): Ahead {
+        val edit = { _: ClientKey, entries: List<ClientHistoryEntry> -> entries.map { if (it.id == appointmentId) it.copy(status = status) else it } }
+
+        return Ahead(show = { history.expect(change, edit) }, saved = { history.update(edit) }, settle = { history.settled(change) })
     }
 
     /**

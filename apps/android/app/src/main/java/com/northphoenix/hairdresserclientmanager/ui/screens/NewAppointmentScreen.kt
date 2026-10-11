@@ -54,6 +54,7 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
     val clients = clientList.data.orEmpty()
     val clientsLoad = clientList.state
     val busy by viewModel.busy.collectAsStateWithLifecycle()
+    val saving by viewModel.saving.collectAsStateWithLifecycle()
     val today by viewModel.today.collectAsStateWithLifecycle()
     // The next full hour in the Stylist's timezone, on the day chosen in the Calendar when that is another day.
     val defaultStart = remember { AppointmentDraft.defaultStart(ZonedDateTime.now(format.zone), initialDate) }
@@ -130,7 +131,7 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
     SubScreen(
         title = stringResource(R.string.new_appointment_title),
         onBack = onBack,
-        busy = busy,
+        saving = saving,
         unsaved = content != opened,
         bottomBar = {
             BottomActionBar {

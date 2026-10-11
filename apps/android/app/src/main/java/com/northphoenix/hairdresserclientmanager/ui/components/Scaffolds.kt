@@ -45,6 +45,7 @@ import com.northphoenix.hairdresserclientmanager.ui.screens.BusyBar
 /**
  * Scaffold for a pushed screen: back button, title, optional actions and a pinned bottom bar.
  * While the screen holds [unsaved] input, the back button and the system Back ask before leaving.
+ * [saving] shows the thin progress line and disables nothing: pass `viewModel.saving`.
  * [onBack] is called without asking by whatever else closes the screen, such as a delete.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -52,7 +53,7 @@ import com.northphoenix.hairdresserclientmanager.ui.screens.BusyBar
 fun SubScreen(
     title: String,
     onBack: () -> Unit,
-    busy: Boolean = false,
+    saving: Boolean = false,
     unsaved: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
     floatingActionButton: @Composable () -> Unit = {},
@@ -98,7 +99,7 @@ fun SubScreen(
     ) { padding ->
         Box(Modifier.fillMaxSize()) {
             content(padding)
-            BusyBar(busy, Modifier.align(Alignment.TopCenter).padding(top = padding.calculateTopPadding()))
+            BusyBar(saving, Modifier.align(Alignment.TopCenter).padding(top = padding.calculateTopPadding()))
         }
     }
 

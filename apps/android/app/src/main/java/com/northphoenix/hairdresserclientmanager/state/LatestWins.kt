@@ -13,6 +13,9 @@ internal class LatestWins<K, V> {
     /** The value [key] is being changed to. Null when no change is in flight, or when that is the value. */
     fun pending(key: K): V? = wanted[key]
 
+    /** Whether a value of [key] is on its way: offered, and not yet answered. */
+    fun inFlight(key: K): Boolean = key in wanted
+
     /**
      * Makes [value] the one to end on. Returns true when the caller has to start [send],
      * false when a [send] already running for [key] will pick the value up.

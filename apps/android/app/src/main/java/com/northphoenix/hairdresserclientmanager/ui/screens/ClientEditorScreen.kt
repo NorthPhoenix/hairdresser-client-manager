@@ -168,6 +168,7 @@ fun ClientEditorScreen(
     val clients = viewModel.clients.collectAsStateWithLifecycle().value.data.orEmpty()
     val stylist by viewModel.stylist.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
+    val saving by viewModel.saving.collectAsStateWithLifecycle()
     val accountName by viewModel.accountName.collectAsStateWithLifecycle()
 
     // A new Client becomes an existing one in place after the first save.
@@ -309,7 +310,7 @@ fun ClientEditorScreen(
             lookup = viewModel.findClient(absentId)
         }
 
-        SubScreen(title = stringResource(R.string.edit_client_title), onBack = onBack, busy = busy) { padding ->
+        SubScreen(title = stringResource(R.string.edit_client_title), onBack = onBack, saving = saving) { padding ->
             when (val state = lookup) {
                 is LoadState.Failed -> LoadFailed(state.message, onRetry = { lookupAttempt++ }, Modifier.padding(padding))
                 LoadState.Missing -> ItemMissing(
@@ -327,7 +328,7 @@ fun ClientEditorScreen(
     SubScreen(
         title = stringResource(if (existing != null) R.string.edit_client_title else R.string.new_client_title),
         onBack = onBack,
-        busy = busy,
+        saving = saving,
         unsaved = UnsavedInput.clientForm(name, language, phone, email, address, note) != savedContent,
         bottomBar = {
             BottomActionBar {
@@ -479,7 +480,8 @@ fun ClientEditorScreen(
 /**
  * The Client's Profile Share: what it shows, its link, the Share Image and Revoke. The three
  * choices are made before a Profile Share is created and can be changed on the one that exists.
- * While a change is running ([busy]) nothing here starts another one.
+ * While a change the Stylist waits for is running ([busy]) nothing here starts another one. A
+ * choice of the Profile Share that exists is not such a change: its switch moves with the tap.
  */
 @Composable
 private fun ProfileShareCard(
@@ -554,7 +556,7 @@ private fun ProfileShareCard(
                 )
                 Hairline()
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    // Each switch shows what the server has: it moves when its change has been saved.
+                    // Each switch moves with the tap and is saved behind it. It goes back when its change could not be saved.
                     ShareChoices(share.included, enabled = !busy, onChange = onChoice)
                     Text(stringResource(R.string.profile_share_choices_note), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -563,7 +565,8 @@ private fun ProfileShareCard(
                     Text(stringResource(R.string.share_image_language_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     SegmentedControl(Language.entries, imageLanguage, { imageLanguage = it }, label = { stringResource(it.label) })
                 }
-                // The server puts the photos into the picture, which can take a few seconds. It shows what the link shows, so not while a choice is being saved.
+                // The server puts the photos into the picture, which can take a few seconds. It shows what the link shows:
+                // a choice that is still being saved is answered first (the view model sends the request after it).
                 SecondaryButton(
                     stringResource(R.string.generate_share_image),
                     onClick = { onGenerateImage(imageLanguage) },

@@ -34,6 +34,10 @@ internal data class CopyTargetKey(val appointmentId: String, val clientIds: Set<
  * that holds the changed Appointment or Client is served again: a day that is not on screen is
  * loaded anew the next time it is shown, and never shows, say, a Client's old phone number.
  *
+ * A change the Stylist does not wait for is shown before the server has answered it ([ahead]):
+ * every copy of the Appointment on screen has it at once, and a refresh that arrives while it is
+ * on its way does not bring the old value back.
+ *
  * Not thread-safe: use it from the thread of the scope.
  */
 internal class AppointmentReads(
@@ -73,8 +77,11 @@ internal class AppointmentReads(
     // The reply that created an Appointment: its screen opens before any read of it has answered.
     private val newest = MutableStateFlow<Answer<Appointment>?>(null)
 
+    // The changes to Appointments that are shown ahead of the server's answer (see [ahead]), by what names each: the Appointment and the edit.
+    private val expected = MutableStateFlow<Map<String, Pair<String, (Appointment) -> Appointment>>>(emptyMap())
+
     /** Changes whenever an Appointment on screen does. */
-    val shown: Flow<Unit> = combine(today.shown, days.shown, one.shown, newest) { _, _, _, _ -> }
+    val shown: Flow<Unit> = combine(today.shown, days.shown, one.shown, newest, expected) { _, _, _, _, _ -> }
 
     /**
      * The Appointment as it is on screen now: as its own read has it, and until that has answered
@@ -98,13 +105,16 @@ internal class AppointmentReads(
     fun watch(id: String): Flow<Read<Appointment?>> =
         combine(one.watch(AppointmentKey(id)), shown) { _, _ -> shownNow(id) }.distinctUntilChanged()
 
-    /** As [get], with how the read stands for an Appointment that is not there. */
+    /**
+     * As [get], with how the read stands for an Appointment that is not there, and with what the
+     * server has of it ([Read.saved]) where a change is shown ahead of its answer.
+     */
     fun shownNow(id: String): Read<Appointment?> {
         val own = one.shown(AppointmentKey(id))
 
         return when {
             own?.state == LoadState.Loaded -> if (own.data == null) Read(LoadState.Missing) else own
-            else -> (listed().firstOrNull { it.id == id } ?: justCreated(id))?.let { Read(LoadState.Loaded, it) } ?: own ?: Read()
+            else -> inLists(id) ?: justCreated(id)?.let { Read(LoadState.Loaded, it.asShown(), it) } ?: own ?: Read()
         }
     }
 
@@ -120,6 +130,28 @@ internal class AppointmentReads(
         one.update { key, appointment -> if (key.id == id && appointment != null) change(appointment) else appointment }
         changes.changed(id)
     }
+
+    /**
+     * A change to this Appointment that the Stylist does not wait for (see [Ahead]): [edit] is
+     * on every copy of the Appointment on screen from [Ahead.show] on, whatever is loaded
+     * meanwhile, and is what the server has once it has accepted the change ([update]).
+     * [change] names it, as the key of its action does: showing it again replaces its edit.
+     */
+    fun ahead(change: String, id: String, edit: (Appointment) -> Appointment) = Ahead(
+        show = {
+            today.expect(change) { _, list -> list.map { if (it.id == id) edit(it) else it } }
+            days.expect(change) { _, list -> list.map { if (it.id == id) edit(it) else it } }
+            one.expect(change) { key, appointment -> if (key.id == id && appointment != null) edit(appointment) else appointment }
+            expected.value += change to (id to edit)
+        },
+        saved = { update(id, edit) },
+        settle = {
+            today.settled(change)
+            days.settled(change)
+            one.settled(change)
+            expected.value -= change
+        },
+    )
 
     /**
      * The server has just saved this Client. Appointments repeat the Client's name, phone number,
@@ -152,6 +184,7 @@ internal class AppointmentReads(
     /** Empties the caches, for a Stylist who has signed out. Call [Changes.startOver] first. */
     suspend fun clear() {
         newest.value = null
+        expected.value = emptyMap()
         today.clear()
         days.clear()
         one.clear()
@@ -161,7 +194,19 @@ internal class AppointmentReads(
     private fun listed(): List<Appointment> =
         (today.shown.value.values + days.shown.value.values).flatMap { it.read.data.orEmpty() }
 
+    /** The Appointment as a list on screen has it: as it is shown, and as the server has it. */
+    private fun inLists(id: String): Read<Appointment?>? =
+        (today.shown.value.values + days.shown.value.values).firstNotNullOfOrNull { list ->
+            list.read.data?.firstOrNull { it.id == id }?.let { shown ->
+                Read(LoadState.Loaded, shown, list.read.saved?.firstOrNull { it.id == id } ?: shown)
+            }
+        }
+
     private fun justCreated(id: String): Appointment? = newest.value?.takeIf { it.value.id == id && changes.isCurrent(it) }?.value
+
+    /** With the changes to it that are shown ahead of their answer. The reads lay them over their own answers themselves. */
+    private fun Appointment.asShown(): Appointment =
+        expected.value.values.fold(this) { shown, (id, edit) -> if (shown.id == id) edit(shown) else shown }
 
     private companion object {
         /** Today, and the day before it around midnight or after a timezone change. */

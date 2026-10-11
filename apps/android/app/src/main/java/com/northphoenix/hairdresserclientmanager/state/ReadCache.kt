@@ -37,8 +37,12 @@ import org.mobilenativefoundation.store.store5.Validator
 /**
  * What a screen has of something it reads from the server: the answer, when there is one, and how
  * the read stands. [LoadState.Loaded] says that [data] is an answer, also when the answer is "nothing".
+ *
+ * [data] is what the screen shows: the answer with the changes the Stylist has made that the
+ * server has not answered yet laid over it (see [ReadCache.expect]). [saved] is the answer without
+ * them, what the server is known to have. The two are the same while no such change is on its way.
  */
-data class Read<out V>(val state: LoadState = LoadState.Loading, val data: V? = null)
+data class Read<out V>(val state: LoadState = LoadState.Loading, val data: V? = null, val saved: V? = data)
 
 /** What the server answered to a read, with what tells whether a change has made it out of date since (see [Changes]). */
 internal data class Answer<out V>(
@@ -124,6 +128,9 @@ internal data class CacheLimits(val answers: Long, val age: Duration = AGE) {
  * - [update] and [answer] put what the server has just confirmed in front of whoever is watching.
  *   The cached answers are not rewritten: the change is marked in [changes], which keeps every
  *   answer asked for before it from being shown or served again.
+ * - [expect] shows a change before the server has answered it, laid over whatever the cache holds
+ *   or gets meanwhile, until it is [settled]. Nothing is kept twice: it is an edit, applied to
+ *   what is shown ([Read.data]) and never to what the server has ([Read.saved]).
  *
  * Not thread-safe: use it from the thread of [scope].
  */
@@ -154,6 +161,9 @@ internal class ReadCache<K : Any, V>(
     private var watchers = 0
     private val _shown = MutableStateFlow<Map<Int, Shown<K, V>>>(emptyMap())
 
+    // The changes the Stylist has made that the server has not answered yet, by what names each, in the order they were made.
+    private var expected = mapOf<Any, (K, V) -> V>()
+
     /** What is on screen now: per watcher, its key and what it sees. Nothing here outlives its watcher. */
     val shown: StateFlow<Map<Int, Shown<K, V>>> = _shown.asStateFlow()
 
@@ -176,7 +186,7 @@ internal class ReadCache<K : Any, V>(
         scope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
             store.stream(StoreReadRequest.localOnly(key)).catch { }.collect { response ->
                 if (response is StoreReadResponse.Data && changes.isCurrent(response.value)) {
-                    cached = Read(LoadState.Loaded, response.value.value)
+                    cached = Read(LoadState.Loaded, response.value.value).asShown(key)
                 }
             }
         }.cancel()
@@ -222,6 +232,9 @@ internal class ReadCache<K : Any, V>(
      * A request for [key] that is already on its way is shared. When its answer turns out to be
      * older than a change, the server is asked once more. What a sign-out has overtaken goes
      * nowhere: [LoadState.Loading] is returned, whatever came of it.
+     *
+     * What is returned is the server's answer as it is. A change that is still on its way
+     * ([expect]) is laid over it for whoever watches the key, not here.
      */
     suspend fun refresh(key: K): Read<V> {
         val session = changes.session
@@ -256,18 +269,48 @@ internal class ReadCache<K : Any, V>(
     fun update(change: (K, V) -> V) = _shown.update { all ->
         all.mapValues { (_, shown) ->
             @Suppress("UNCHECKED_CAST")
-            if (shown.read.state == LoadState.Loaded) shown.copy(read = Read(LoadState.Loaded, change(shown.key, shown.read.data as V))) else shown
+            if (shown.read.state == LoadState.Loaded) shown.copy(read = Read(LoadState.Loaded, change(shown.key, shown.read.saved as V)).asShown(shown.key)) else shown
         }
     }
 
     /** The answer to [key] is known without asking, such as "gone" after a delete: whoever watches the key sees it. Mark the change as for [update]. */
     fun answer(key: K, value: V) = _shown.update { all ->
-        all.mapValues { (_, shown) -> if (shown.key == key) shown.copy(read = Read(LoadState.Loaded, value)) else shown }
+        all.mapValues { (_, shown) -> if (shown.key == key) shown.copy(read = Read(LoadState.Loaded, value).asShown(key)) else shown }
     }
 
-    /** Empties the cache, for a Stylist who has signed out. Call [Changes.startOver] first: it is what keeps an answer still on its way out. */
+    /**
+     * Shows a change the Stylist has just made, before the server has answered it: [edit] is laid
+     * over every answer on screen, and over whatever arrives or is shown from the cache while the
+     * change is on its way, so that a refresh in the meantime does not bring the old value back.
+     * [change] names it: expecting it again replaces its edit, as when the value is tapped once more.
+     *
+     * [edit] gets every answer and leaves alone what it is not about. It never reaches
+     * [Read.saved]. Call [settled] when the change has been answered, whichever way: once it is
+     * saved, put it there with [update] first.
+     */
+    fun expect(change: Any, edit: (K, V) -> V) {
+        expected = expected + (change to edit)
+        showExpected()
+    }
+
+    /** The change that [expect] showed has been answered: its edit is taken away, and the screen shows what the server has. */
+    fun settled(change: Any) {
+        if (change in expected) {
+            expected = expected - change
+            showExpected()
+        }
+    }
+
+    /**
+     * Empties the cache, for a Stylist who has signed out. Call [Changes.startOver] first: it is what keeps an answer still on its way out.
+     * The changes that were on their way are no longer shown ahead: they were another Stylist's.
+     */
     @OptIn(ExperimentalStoreApi::class)
-    suspend fun clear() = store.clear()
+    suspend fun clear() {
+        expected = emptyMap()
+        showExpected()
+        store.clear()
+    }
 
     /**
      * Follows one read of the Store up to what its fetch ends in, which is returned, and shows
@@ -291,7 +334,11 @@ internal class ReadCache<K : Any, V>(
 
                     _shown.update { all ->
                         all.mapValues { (id, shown) ->
-                            if (shown.key == request.key && (!fromCache || id == watcher)) shown.copy(read = shown.read.after(response)) else shown
+                            if (shown.key == request.key && (!fromCache || id == watcher)) {
+                                shown.copy(read = shown.read.after(response).asShown(shown.key))
+                            } else {
+                                shown
+                            }
                         }
                     }
                 }
@@ -301,6 +348,20 @@ internal class ReadCache<K : Any, V>(
     }
 
     private fun StoreReadResponse<Answer<V>>.isOvertaken(): Boolean = this is StoreReadResponse.Data && !changes.isCurrent(value)
+
+    /** This read as [key] shows it: what the server has ([Read.saved]), with every change that is on its way laid over it, in their order. */
+    private fun Read<V>.asShown(key: K): Read<V> {
+        if (state != LoadState.Loaded) {
+            return this
+        }
+
+        @Suppress("UNCHECKED_CAST")
+        val saved = saved as V
+
+        return Read(LoadState.Loaded, expected.values.fold(saved) { shown, edit -> edit(key, shown) }, saved)
+    }
+
+    private fun showExpected() = _shown.update { all -> all.mapValues { (_, shown) -> shown.copy(read = shown.read.asShown(shown.key)) } }
 
     /** A read behind what is on screen: nobody waits for it, and how it went shows in [shown]. */
     private suspend fun quietly(read: suspend () -> Unit) {

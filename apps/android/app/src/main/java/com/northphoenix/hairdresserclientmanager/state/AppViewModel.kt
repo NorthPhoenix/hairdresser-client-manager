@@ -231,15 +231,23 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         onStale = { notify(R.string.error_screen_not_refreshed, isError = true) },
     )
 
-    /** True while any mutation is in flight. */
+    /**
+     * True while a change the Stylist waits for is in flight. Screens disable with it what must
+     * not be tapped meanwhile. A change that is shown ahead of the server's answer (see [Ahead])
+     * does not raise it.
+     */
     val busy: StateFlow<Boolean> = actions.busy
 
+    /** True while any change is in flight, also one that is shown ahead of its answer: the thin progress line. Nothing is disabled by it. */
+    val saving: StateFlow<Boolean> = actions.saving
+
     // Values the Stylist can change again while they are still being saved, each kept in the order
-    // of the taps (see saveLatest). Keyed by the Appointment, the photo's category by the photo.
+    // of the taps (see saveLatest). Each target names the value and what it is of, such as `status:<appointment id>`.
     private val statusChanges = LatestWins<String, AppointmentStatus>()
     private val noteChanges = LatestWins<String, String>()
     private val finalTotalChanges = LatestWins<String, Long?>()
     private val photoCategoryChanges = LatestWins<String, PhotoCategory>()
+    private val shareChoiceChanges = LatestWins<String, Boolean>()
 
     /** The photos on their way to the server: kept on the device and sent one at a time until the server has them (see [PhotoUploads]). */
     private val photos = PhotoUploads(
@@ -603,7 +611,13 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         return read.data
     }
 
-    private suspend fun reloadAppointmentAndLists(id: String) = together(::loadAppointmentLists, { reloadAppointment(id) })
+    /**
+     * The reload after a change to an Appointment. A Client's history that is on screen repeats
+     * the Appointment too: it is there when the Stylist has gone back to the Client Profile while
+     * the change was still being saved.
+     */
+    private suspend fun reloadAppointmentAndLists(id: String) =
+        together(::loadAppointmentLists, { reloadAppointment(id) }, clientReads.history::refreshShown)
 
     /**
      * What the screen of one Appointment shows, for as long as it collects this. A copy from the
@@ -681,6 +695,10 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      * [change] is only the request that makes the change, plus what is certain once it has succeeded.
      * Whatever refreshes the screen afterwards goes in [reload], so that a refresh that fails is
      * never taken for a change that failed.
+     *
+     * With [ahead] the Stylist does not wait for the change: the screen shows it at once and
+     * nothing is disabled while it is saved (see [Ahead]). Only for a change whose result is known
+     * exactly before the server answers, and that nothing on the screen has to wait for.
      */
     private fun <T> act(
         key: String?,
@@ -688,8 +706,9 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         onSuccess: (T) -> Unit = {},
         reload: suspend () -> Unit = {},
         touched: () -> Unit = {},
+        ahead: Ahead? = null,
         change: suspend () -> T,
-    ) = actions.run(key, { marking(touched, change) }, reload) { result ->
+    ) = actions.run(key, { marking(touched, change) }, reload, ahead = ahead) { result ->
         successNotice?.let { notify(it) }
         onSuccess(result)
     }
@@ -718,24 +737,43 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             throw error
         }
 
-    /** A change to one Appointment. [touched] is that Appointment unless the change can show elsewhere. */
+    /**
+     * A change to one Appointment. [touched] is that Appointment unless the change can show elsewhere.
+     *
+     * With [ahead] the Stylist does not wait for it (see [act]): [ahead] is what the change makes
+     * of the Appointment, such as the Appointment without the Service that is being deleted. It is
+     * on every screen at once, and is what the loaded copies have once the server has accepted it.
+     */
     private fun actOnAppointment(
         id: String,
-        key: String?,
+        key: String,
         @StringRes successNotice: Int? = null,
         onSuccess: () -> Unit = {},
         touched: () -> Unit = { readChanges.changed(id) },
+        ahead: ((Appointment) -> Appointment)? = null,
         change: suspend () -> Unit,
-    ) = act(key, successNotice, onSuccess = { onSuccess() }, reload = { reloadAppointmentAndLists(id) }, touched = touched, change = change)
+    ) = act(
+        key,
+        successNotice,
+        onSuccess = { onSuccess() },
+        reload = { reloadAppointmentAndLists(id) },
+        touched = touched,
+        ahead = ahead?.let { appointmentReads.ahead(key, id, it) },
+        change = change,
+    )
 
     /**
      * Saves a value of an Appointment that the Stylist can change again while it is still being
-     * saved, such as a status chip. Requests for one [target] go out one at a time, and the value
-     * offered last is the one saved last (see [LatestWins]); a key would drop a tap that goes back
-     * to a value whose request is still running. [saved] is the value the loaded copy has.
-     * [save] makes the request and, when the result is known exactly, puts it into the loaded
-     * copy, so that [saved] is right for the next tap even before the reload.
-     * When a later request of the taps fails, the reload still shows what an earlier one saved.
+     * saved, such as a status chip, without making them wait (see [ActionRunner.saveLatest]):
+     * every tap is on screen at once, requests for one [target] go out one at a time, and the
+     * value tapped last is the one saved last. [saved] is the value on screen.
+     *
+     * [edit] is what a value makes of the Appointment. It is shown ahead of the answer on every
+     * screen that has the Appointment, and put into the loaded copies when [save], the request,
+     * has worked: so [saved] is right for the next tap before the reload. [elsewhere] is for what
+     * the value changes in another kind of read.
+     * When a request fails the screen is back on the value the server has, and the reload still
+     * shows what an earlier tap saved.
      */
     private fun <V> saveLatest(
         changes: LatestWins<String, V>,
@@ -745,27 +783,24 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         saved: V?,
         @StringRes successNotice: Int? = null,
         touched: () -> Unit = { readChanges.changed(appointmentId) },
+        elsewhere: (V) -> Ahead? = { null },
+        edit: (Appointment, V) -> Appointment,
         save: suspend (V) -> Unit,
-    ) {
-        if (!changes.offer(target, value, saved)) {
-            return
-        }
+    ) = actions.saveLatest(
+        changes,
+        target,
+        value,
+        saved,
+        ahead = { next ->
+            val shown = appointmentReads.ahead(target, appointmentId) { edit(it, next) }
 
-        var savedAny = false
-
-        // No key: the values are ordered here, and the next change may start while this one is still reloading.
-        actions.run(
-            key = null,
-            change = {
-                changes.send(target) { next ->
-                    // Marked after each request: a read that was sent before one of them was saved may not show it.
-                    marking(touched) { save(next) }
-                    savedAny = true
-                }
-            },
-            reload = { reloadAppointmentAndLists(appointmentId) },
-            savedInPart = { savedAny },
-        ) { _ -> successNotice?.let { notify(it) } }
+            elsewhere(next)?.let { shown + it } ?: shown
+        },
+        reload = { reloadAppointmentAndLists(appointmentId) },
+        onSaved = { successNotice?.let { notify(it) } },
+    ) { next ->
+        // Marked after each request: a read that was sent before one of them was saved may not show it.
+        marking(touched) { save(next) }
     }
 
     // --- settings ---
@@ -987,8 +1022,11 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         }
     }
 
-    // The changes to one Client's Profile Share share a key, so they run one at a time: a choice is
-    // never sent for a Profile Share that is being revoked, and a second tap on Create does nothing.
+    // Creating and revoking one Client's Profile Share share a key, so they run one at a time and a
+    // second tap on Create does nothing. A choice of the Profile Share that exists is not waited
+    // for (see setProfileShareChoice). The runner sends a Revoke, or the request for a Share Image,
+    // only after the choices made before it have been answered: none is sent for a Profile Share
+    // that is being revoked, and the picture shows what the link shows.
     // What the server answers goes into the list at once, so the card is right before the reload.
 
     /** [included] is what the new Profile Share shows. A Client who has one already keeps it as it is, and the card shows that one. */
@@ -997,11 +1035,26 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             clientReads.profileShare(clientId, api.createProfileShare(clientId, included))
         }
 
-    /** Changes one choice of the Client's Profile Share. Its link stays the same. */
-    fun setProfileShareChoice(clientId: String, choice: ShareChoice, included: Boolean) =
-        act(profileShareKey(clientId), reload = { loadClients() }, touched = clientReads::shareChanged) {
-            clientReads.profileShare(clientId, api.updateProfileShare(clientId, choice, included))
+    /**
+     * Changes one choice of the Client's Profile Share. Its link stays the same. The switch moves
+     * at once and can be tapped again while it is saved: the last tap is what stays (see [saveLatest]).
+     */
+    fun setProfileShareChoice(clientId: String, choice: ShareChoice, included: Boolean) {
+        val share = _clients.value.data?.firstOrNull { it.id == clientId }?.activeProfileShare ?: return
+        val target = "shareChoice:$clientId:${choice.name}"
+
+        actions.saveLatest(
+            shareChoiceChanges,
+            target,
+            included,
+            saved = choice in share.included,
+            ahead = { next -> clientReads.shareChoiceAhead(target, clientId, choice, next) },
+            reload = { loadClients() },
+        ) { next ->
+            // The reply states the whole Profile Share. The requests go out one at a time, so it never undoes a choice saved after it.
+            marking(clientReads::shareChanged) { clientReads.profileShare(clientId, api.updateProfileShare(clientId, choice, next)) }
         }
+    }
 
     fun revokeProfileShare(clientId: String) =
         act(profileShareKey(clientId), successNotice = R.string.profile_share_revoked, reload = { loadClients() }, touched = clientReads::shareChanged) {
@@ -1066,17 +1119,20 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             serviceMenuReads.saved(api.saveServiceMenuItem(id, name.trim(), defaultPriceCents, requestKey))
         }
 
-    fun deleteServiceMenuItem(id: String, onSuccess: () -> Unit) =
+    /** Not waited for: the item leaves the menu at once, and comes back in its place when the delete fails. */
+    fun deleteServiceMenuItem(id: String) {
+        val key = "deleteServiceMenuItem:$id"
+
         act(
-            key = "deleteServiceMenuItem:$id",
+            key = key,
             successNotice = R.string.service_menu_item_deleted,
-            onSuccess = { onSuccess() },
             reload = ::loadServiceMenu,
             touched = serviceMenuReads::changed,
+            ahead = serviceMenuReads.deletedAhead(key, id),
         ) {
             api.deleteServiceMenuItem(id)
-            serviceMenuReads.deleted(id)
         }
+    }
 
     // --- appointments ---
 
@@ -1124,16 +1180,30 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     }
 
     /**
-     * Status taps are saved one at a time in the order they were made, so the last tap is the status that stays.
+     * The chip that was tapped is the status at once, on the Appointment's screen, on its cards and
+     * in a Client's history. Status taps are saved one at a time in the order they were made, so
+     * the last tap is the status that stays.
      * A status that goes back to Scheduled can land on a time that is taken: the answer says by which Appointments.
      */
-    fun setAppointmentStatus(id: String, status: AppointmentStatus) =
-        saveLatest(statusChanges, id, id, status, saved = appointmentReads[id]?.status, touched = { appointmentReads.statusChanged(id) }) { next ->
+    fun setAppointmentStatus(id: String, status: AppointmentStatus) {
+        val target = "status:$id"
+
+        saveLatest(
+            statusChanges,
+            id,
+            target,
+            status,
+            saved = appointmentReads[id]?.status,
+            touched = { appointmentReads.statusChanged(id) },
+            elsewhere = { next -> clientReads.statusAhead(target, id, next) },
+            edit = { appointment, next -> appointment.copy(status = next) },
+        ) { next ->
             val saved = api.updateAppointmentStatus(id, next)
 
             updateLoaded(id) { it.copy(status = next).withTimeAndPlace(saved) }
             overlaps.answered(id, saved.conflicts)
         }
+    }
 
     /**
      * Edit Appointment: saves the day, the times and the place of an Appointment. [times] is null
@@ -1170,18 +1240,28 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     fun setAppointmentPrimary(id: String, clientId: String) =
         actOnAppointment(id, clientsChangeKey(id)) { api.updateAppointmentPrimary(id, clientId) }
 
+    /** The note is the Appointment's at once. When it cannot be saved, the Appointment has the note before it again, and its screen still has the text. */
     fun saveAppointmentNote(id: String, note: String) =
-        saveLatest(noteChanges, id, id, note.trim(), saved = appointmentReads[id]?.note, R.string.appointment_note_saved) { next ->
-            api.updateAppointmentNote(id, next)
-            updateLoaded(id) { it.copy(note = next) }
-        }
+        saveLatest(
+            noteChanges,
+            id,
+            "note:$id",
+            note.trim(),
+            saved = appointmentReads[id]?.note,
+            R.string.appointment_note_saved,
+            edit = { appointment, next -> appointment.copy(note = next) },
+        ) { next -> api.updateAppointmentNote(id, next) }
 
-    /** [overrideCents] null clears the override, and the final total is the Service total again. */
+    /** [overrideCents] null clears the override, and the final total is the Service total again. Either shows at once. */
     fun setAppointmentFinalTotal(id: String, overrideCents: Long?) =
-        saveLatest(finalTotalChanges, id, id, overrideCents, saved = appointmentReads[id]?.finalTotalCentsOverride) { next ->
-            api.updateAppointmentFinalTotal(id, next)
-            updateLoaded(id) { it.copy(finalTotalCentsOverride = next, finalTotalCents = next ?: it.serviceTotalCents) }
-        }
+        saveLatest(
+            finalTotalChanges,
+            id,
+            "finalTotal:$id",
+            overrideCents,
+            saved = appointmentReads[id]?.finalTotalCentsOverride,
+            edit = { appointment, next -> appointment.copy(finalTotalCentsOverride = next, finalTotalCents = next ?: appointment.serviceTotalCents) },
+        ) { next -> api.updateAppointmentFinalTotal(id, next) }
 
     fun deleteAppointment(id: String, onSuccess: () -> Unit) =
         actOnAppointment(id, "deleteAppointment:$id", onSuccess = onSuccess) {
@@ -1225,8 +1305,11 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             api.updateService(serviceId, edit.name, edit.priceCents, edit.note)
         }
 
+    // A delete the Stylist has confirmed is not waited for: the item is gone at once, with what
+    // follows from it (the totals), and is back in its place when the delete fails.
+
     fun deleteService(appointmentId: String, serviceId: String) =
-        actOnAppointment(appointmentId, "deleteService:$serviceId") { api.deleteService(serviceId) }
+        actOnAppointment(appointmentId, "deleteService:$serviceId", ahead = { it.withoutService(serviceId) }) { api.deleteService(serviceId) }
 
     /**
      * Copies Services into [targetAppointmentId] from [sourceAppointmentId], or from the last
@@ -1271,8 +1354,10 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         }
     }
 
-    fun deleteColorFormula(appointmentId: String, formulaId: String, onSuccess: () -> Unit = {}) =
-        actOnAppointment(appointmentId, "deleteColorFormula:$formulaId", onSuccess = onSuccess) { api.deleteColorFormula(formulaId) }
+    fun deleteColorFormula(appointmentId: String, formulaId: String) =
+        actOnAppointment(appointmentId, "deleteColorFormula:$formulaId", ahead = { it.withoutColorFormula(formulaId) }) {
+            api.deleteColorFormula(formulaId)
+        }
 
     // --- photos ---
 
@@ -1421,22 +1506,20 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     /** 'Remove photo' for a photo that is not on the server yet: it is deleted from the device and never sent. */
     fun removePhotoUpload(uploadId: String) = photos.remove(uploadId)
 
+    /** The photo is in the category that was tapped at once. Taps are saved in their order, so the last one stays. */
     fun setPhotoCategory(appointmentId: String, photoId: String, category: PhotoCategory) =
         saveLatest(
             photoCategoryChanges,
             appointmentId,
-            photoId,
+            "photoCategory:$photoId",
             category,
             saved = appointmentReads[appointmentId]?.photos?.firstOrNull { it.id == photoId }?.category,
-        ) { next ->
-            api.updatePhotoCategory(photoId, next)
-            updateLoaded(appointmentId) { appointment ->
-                appointment.copy(photos = appointment.photos.map { if (it.id == photoId) it.copy(category = next) else it })
-            }
-        }
+            edit = { appointment, next -> appointment.copy(photos = appointment.photos.map { if (it.id == photoId) it.copy(category = next) else it }) },
+        ) { next -> api.updatePhotoCategory(photoId, next) }
 
+    /** Not waited for, as the other confirmed deletes (see [deleteService]). */
     fun deletePhoto(appointmentId: String, photoId: String) =
-        actOnAppointment(appointmentId, "deletePhoto:$photoId") { api.deletePhoto(photoId) }
+        actOnAppointment(appointmentId, "deletePhoto:$photoId", ahead = { it.withoutPhoto(photoId) }) { api.deletePhoto(photoId) }
 
     companion object {
         fun factory(container: AppContainer, auth: AuthGateway): ViewModelProvider.Factory =

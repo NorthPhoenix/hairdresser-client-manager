@@ -34,6 +34,16 @@ internal class ServiceMenuReads(
         changed()
     }
 
+    /**
+     * A Service Menu Item whose delete the Stylist has confirmed and does not wait for (see
+     * [Ahead]): it is gone from the menu on screen at once, and back in its place when the delete fails.
+     */
+    fun deletedAhead(change: String, id: String) = Ahead(
+        show = { menu.expect(change) { _, items -> items.filterNot { it.id == id } } },
+        saved = { deleted(id) },
+        settle = { menu.settled(change) },
+    )
+
     /** Marks that the server has saved or deleted a Service Menu Item, or may have. */
     fun changed() = changes.changed(MENU)
 
