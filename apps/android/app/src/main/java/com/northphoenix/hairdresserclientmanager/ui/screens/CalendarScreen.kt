@@ -110,8 +110,9 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String, String) 
                     val weekdays = days.map(format::shortWeekday)
                     val numbers = days.map { it.dayOfMonth.toString() }
                     // All seven in one size, in which the widest of them is whole.
-                    val weekdayStyle = fittedTextStyle(weekdays, MaterialTheme.typography.labelSmall, maxWidth / 7 - DayCellGap)
-                    val numberStyle = fittedTextStyle(numbers, MaterialTheme.typography.titleMedium, maxWidth / 7 - DayCellGap)
+                    val labelWidth = dayLabelWidth(maxWidth)
+                    val weekdayStyle = fittedTextStyle(weekdays, MaterialTheme.typography.labelSmall, labelWidth)
+                    val numberStyle = fittedTextStyle(numbers, MaterialTheme.typography.titleMedium, labelWidth)
 
                     Row(Modifier.fillMaxWidth().selectableGroup()) {
                         days.forEachIndexed { index, day ->
@@ -172,6 +173,14 @@ private val DayCellMinWidth = 48.dp
 
 /** What is left clear between the drawn cells of two days. Their touch targets meet. */
 private val DayCellGap = 4.dp
+
+/**
+ * The width a weekday or a day number has in a week strip [stripWidth] wide: a seventh of the strip
+ * less the gap, and one more dp for the rounding to whole pixels. The row gives some of its seven
+ * days the seventh rounded down and a cell rounds the gap at each of its sides, so the place can be
+ * a pixel narrower than the division says, and a text fitted to that pixel is cut.
+ */
+internal fun dayLabelWidth(stripWidth: Dp): Dp = stripWidth / 7 - DayCellGap - 1.dp
 
 /**
  * How much wider than the list's own [rowWidth] the week strip is laid out, so that its seven days

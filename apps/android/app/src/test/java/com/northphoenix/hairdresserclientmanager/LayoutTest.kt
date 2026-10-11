@@ -2,11 +2,14 @@ package com.northphoenix.hairdresserclientmanager
 
 import androidx.compose.ui.unit.dp
 import com.northphoenix.hairdresserclientmanager.ui.components.oneLineScale
+import com.northphoenix.hairdresserclientmanager.ui.screens.dayLabelWidth
 import com.northphoenix.hairdresserclientmanager.ui.screens.tabLabelWidth
 import com.northphoenix.hairdresserclientmanager.ui.screens.weekStripExtraWidth
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.floor
+import kotlin.math.roundToInt
 
 /** The arithmetic behind labels that stay whole at a large font size and day cells that are wide enough to tap. */
 class LayoutTest {
@@ -85,5 +88,40 @@ class LayoutTest {
         // 308 dp at 3.5 px per dp, the largest display size of the QA device.
         assertEquals(140, weekStripExtraWidth(rowWidth = 940, neededWidth = 1176, sidePadding = 70))
         assertEquals(1080 / 7, dayWidth(screen = 1080, padding = 70, touchTarget = 168))
+    }
+
+    /**
+     * The pixels the narrowest day of a strip [strip] px wide has for its weekday: the row gives some of
+     * its seven days the seventh rounded down, and a cell keeps 2 dp, rounded to pixels, clear at each side.
+     */
+    private fun dayLabelRoom(strip: Int, density: Float): Int = strip / 7 - 2 * (2 * density).roundToInt()
+
+    /** The widest weekday, in the whole pixels text is measured in, that is taken to fit a day of that strip. */
+    private fun widestFittedDayLabel(strip: Int, density: Float): Int =
+        floor(dayLabelWidth((strip / density).dp).value * density).toInt()
+
+    @Test
+    fun `a weekday is fitted to a width the narrowest day really has`() {
+        // 1080 px at 2.75 px per dp (440 dpi): the list is 970 px wide and three of its days are 138 px,
+        // with 6 px clear at each side. A seventh of the strip less the gap is 127.57 px.
+        assertEquals(126, dayLabelRoom(strip = 970, density = 2.75f))
+        assertTrue(widestFittedDayLabel(strip = 970, density = 2.75f) <= 126)
+    }
+
+    @Test
+    fun `at no density and width is a fitted weekday wider than its day, or much narrower`() {
+        for (dpi in 160..640) {
+            val density = dpi / 160f
+
+            // Week strips of 240 dp to 900 dp.
+            for (strip in (240 * density).toInt()..(900 * density).toInt()) {
+                val room = dayLabelRoom(strip, density)
+                val fitted = widestFittedDayLabel(strip, density)
+
+                assertTrue("$strip px at $dpi dpi: $fitted in $room", fitted <= room)
+                // No more is given up than the dp kept for the rounding and what the rounding itself can take.
+                assertTrue("$strip px at $dpi dpi: $fitted in $room", fitted >= room - density - 2)
+            }
+        }
     }
 }
