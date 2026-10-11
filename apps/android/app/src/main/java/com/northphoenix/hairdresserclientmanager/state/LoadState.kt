@@ -37,8 +37,11 @@ sealed interface LoadState {
  *   outlast its request.
  * - [LoadState.Failed] when the last load failed and nothing has been loaded.
  *
- * [reset] starts over for other data (another Calendar day, another Stylist). A load that was
- * still running for the old data then changes nothing, however it ends.
+ * [reset] starts over for other data (another Appointment's copy sources, another Stylist). A load
+ * that was still running for the old data then changes nothing, however it ends.
+ *
+ * For the lists that are not read through the read cache yet. A read that is has a [Read] from its
+ * [ReadCache] instead, which follows the same rules.
  *
  * Not thread-safe: use it from one thread.
  */

@@ -42,8 +42,9 @@ import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 @Composable
 fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit) {
     val format = LocalTimeFormat.current
-    val appointments by viewModel.home.collectAsStateWithLifecycle()
-    val load by viewModel.homeLoad.collectAsStateWithLifecycle()
+    val home by viewModel.home.collectAsStateWithLifecycle()
+    val appointments = home.data.orEmpty()
+    val load = home.state
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
     // The day the list was loaded for: the view model moves both on together when the day ends.
     val today by viewModel.today.collectAsStateWithLifecycle()

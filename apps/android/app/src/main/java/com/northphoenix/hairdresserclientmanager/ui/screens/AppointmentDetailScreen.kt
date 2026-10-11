@@ -118,6 +118,7 @@ import com.northphoenix.hairdresserclientmanager.i18n.toLocale
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.state.PhotoUpload
+import com.northphoenix.hairdresserclientmanager.state.Read
 import com.northphoenix.hairdresserclientmanager.state.UploadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.AmountField
@@ -230,10 +231,16 @@ fun AppointmentDetailScreen(
     onBack: () -> Unit,
     onOpenClient: (String) -> Unit,
 ) {
-    val appointments by viewModel.appointments.collectAsStateWithLifecycle()
-    val absent by viewModel.absentAppointments.collectAsStateWithLifecycle()
+    // Read through the cache for as long as the screen is in view. A copy that a list on screen has is there in the
+    // first frame. What the cache has follows a moment later: until then (null) nothing is drawn in the Appointment's
+    // place, so that one that is cached never flashes a loading state.
+    val shown by remember(viewModel, appointmentId) { viewModel.appointment(appointmentId) }.collectAsStateWithLifecycle(
+        initialValue = remember(viewModel, appointmentId) {
+            viewModel.shownAppointment(appointmentId)?.let { Read<Appointment?>(LoadState.Loaded, it) }
+        },
+    )
     val busy by viewModel.busy.collectAsStateWithLifecycle()
-    val appointment = appointments[appointmentId]
+    val appointment = shown?.data
 
     // Asked for again each time the screen comes into view, from another screen or from the
     // background: the Appointment may have changed or gone since it was loaded.
@@ -241,7 +248,8 @@ fun AppointmentDetailScreen(
 
     if (appointment == null) {
         SubScreen(title = "", onBack = onBack, busy = busy) { padding ->
-            when (val load = absent[appointmentId]) {
+            when (val load = shown?.state) {
+                null -> Unit
                 is LoadState.Failed ->
                     LoadFailed(load.message, onRetry = { viewModel.loadAppointment(appointmentId) }, Modifier.padding(padding))
                 LoadState.Missing -> ItemMissing(
