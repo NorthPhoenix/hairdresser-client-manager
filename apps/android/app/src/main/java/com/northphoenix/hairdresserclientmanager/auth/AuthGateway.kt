@@ -3,9 +3,11 @@ package com.northphoenix.hairdresserclientmanager.auth
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.northphoenix.hairdresserclientmanager.data.ApiException
+import com.northphoenix.hairdresserclientmanager.domain.OneLine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 sealed interface AuthState {
@@ -31,9 +33,36 @@ enum class SessionCheck {
     UNREACHABLE,
 }
 
+/**
+ * The first and last name on the Stylist's sign-in account. Clients see it on Profile Shares and
+ * Share Images; the account's email address never stands in for it. An account without a name
+ * has two empty parts.
+ */
+data class AccountName(val first: String = "", val last: String = "") {
+    companion object {
+        /** How long one part can be. The Share Image has one line for the whole name. */
+        const val MAX_LENGTH = 50
+
+        /** What a field of the name holds while it is typed into: no more than [MAX_LENGTH] characters, and no half of a character that takes two. */
+        fun typed(text: String): String =
+            if (text.length <= MAX_LENGTH) text else text.take(if (text[MAX_LENGTH - 1].isHighSurrogate()) MAX_LENGTH - 1 else MAX_LENGTH)
+
+        /** The name as it is saved, from what the Stylist typed: each part on one line, without spaces at its ends. */
+        fun of(first: String, last: String): AccountName = AccountName(OneLine.clean(typed(first)), OneLine.clean(typed(last)))
+    }
+}
+
 /** The app's only dependency on an identity provider. Clerk in production. */
 interface AuthGateway {
     val state: StateFlow<AuthState>
+
+    /** The name on the signed-in account. Null when nobody is signed in or the provider keeps no names. */
+    val accountName: StateFlow<AccountName?> get() = NoAccountName
+
+    /** Saves [name] on the signed-in account. Throws an [ApiException] when it was not saved. */
+    suspend fun saveAccountName(name: AccountName) {
+        throw ApiException("This sign-in provider keeps no names.", code = ACCOUNT_NAME_NOT_SAVED)
+    }
 
     /** Session token sent as `Authorization: Bearer <token>`, or null when signed out. */
     suspend fun token(): String?
@@ -49,6 +78,11 @@ interface AuthGateway {
     @Composable
     fun SignInContent(modifier: Modifier)
 }
+
+private val NoAccountName: StateFlow<AccountName?> = MutableStateFlow(null)
+
+/** The code of the failure of [AuthGateway.saveAccountName] when the provider refused or failed to save the name. */
+const val ACCOUNT_NAME_NOT_SAVED = "ACCOUNT_NAME_NOT_SAVED"
 
 /**
  * Asks the sign-in provider through [ask] on behalf of a request. A provider that shares one

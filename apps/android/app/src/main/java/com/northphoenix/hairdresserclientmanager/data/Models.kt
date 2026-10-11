@@ -73,13 +73,41 @@ data class Stylist(
     val onboardingComplete: Boolean get() = onboardingCompletedAt != null
 }
 
+/**
+ * What a Profile Share can show of the last completed Appointment, each for the Stylist to include
+ * or leave out. [field] is its name in the API; [default] is what a new Profile Share starts with.
+ */
+enum class ShareChoice(val field: String, val default: Boolean) {
+    COLOR_FORMULAS("includeColorFormulas", true),
+    AFTER_PHOTOS("includeAfterPhotos", true),
+
+    /** Before photos and other photos: one choice for both kinds. */
+    OTHER_PHOTOS("includeOtherPhotos", false),
+    ;
+
+    companion object {
+        val defaults: Set<ShareChoice> = entries.filter { it.default }.toSet()
+    }
+}
+
 @Serializable
 data class ProfileShare(
     val id: String,
     val token: String,
     val language: Language,
     val createdAt: String,
-)
+    val includeColorFormulas: Boolean = ShareChoice.COLOR_FORMULAS.default,
+    val includeAfterPhotos: Boolean = ShareChoice.AFTER_PHOTOS.default,
+    val includeOtherPhotos: Boolean = ShareChoice.OTHER_PHOTOS.default,
+) {
+    /** What the Stylist chose to show. */
+    val included: Set<ShareChoice>
+        get() = setOfNotNull(
+            ShareChoice.COLOR_FORMULAS.takeIf { includeColorFormulas },
+            ShareChoice.AFTER_PHOTOS.takeIf { includeAfterPhotos },
+            ShareChoice.OTHER_PHOTOS.takeIf { includeOtherPhotos },
+        )
+}
 
 @Serializable
 data class ClientProfile(

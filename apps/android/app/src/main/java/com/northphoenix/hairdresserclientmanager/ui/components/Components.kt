@@ -28,6 +28,7 @@ import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -42,11 +43,13 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -209,19 +212,25 @@ fun SecondaryButton(
     enabled: Boolean = true,
     icon: ImageVector? = null,
     danger: Boolean = false,
+    /** As on [PrimaryButton]: what the button starts is running, so it is off and shows a spinner in the icon's place. */
+    loading: Boolean = false,
 ) {
     val tint = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    val on = enabled && !loading
 
     OutlinedButton(
         onClick = onClick,
         modifier = modifier.heightIn(min = 50.dp),
-        enabled = enabled,
+        enabled = on,
         shape = MaterialTheme.shapes.medium,
-        border = BorderStroke(1.dp, if (enabled) tint.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outlineVariant),
+        border = BorderStroke(1.dp, if (on) tint.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outlineVariant),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = tint),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        if (icon != null) {
+        if (loading) {
+            CircularProgressIndicator(Modifier.size(17.dp), color = LocalContentColor.current, strokeWidth = 2.dp)
+            Spacer(Modifier.width(8.dp))
+        } else if (icon != null) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(19.dp))
             Spacer(Modifier.width(8.dp))
         }
@@ -303,6 +312,29 @@ fun TextAction(
             Spacer(Modifier.width(6.dp))
         }
         Text(text, style = MaterialTheme.typography.labelLarge)
+    }
+}
+
+/**
+ * Something that is on or off, with its name beside the switch. The whole row is the switch, for
+ * a finger and for a screen reader, which is told the name and the state together. Only the
+ * switch is drawn as off while the row is not [enabled]: that is for the moment a change takes,
+ * and the names of a whole list should not flicker with it.
+ */
+@Composable
+fun SwitchRow(text: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.small)
+            .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onCheckedChange)
+            .heightIn(min = 48.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(text, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+        // Drawn only: the row takes the tap.
+        Switch(checked = checked, onCheckedChange = null, enabled = enabled)
     }
 }
 

@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Менеджер клиентов</string>
+    <string name="account_first_name_label">Имя</string>
+    <string name="account_last_name_label">Фамилия</string>
+    <string name="account_name_not_saved">Имя не сохранено. Попробуйте ещё раз.</string>
+    <string name="account_name_note">Клиенты видят это имя по ссылке на профиль и на изображениях для отправки. Если оставить оба поля пустыми, имя не показывается.</string>
+    <string name="account_name_saved">Имя сохранено.</string>
+    <string name="account_name_title">Ваше имя</string>
     <string name="account_title">Аккаунт</string>
     <string name="add_ad_hoc_service">Добавить разовую услугу</string>
     <string name="add_appointment_photo">Добавить фото</string>
@@ -156,6 +162,7 @@
     <string name="error_invalid_input">Проверьте введённые данные и попробуйте ещё раз.</string>
     <string name="error_not_found">Этих данных больше нет. Обновляем экран.</string>
     <string name="error_outcome_unknown">Сервер не ответил, поэтому неясно, выполнено ли действие. Проверьте, прежде чем повторять.</string>
+    <string name="error_profile_share_gone">Доступ к профилю уже закрыт. Обновляем экран.</string>
     <string name="error_screen_not_refreshed">Изменение сохранено, но обновить экран пока не удалось: на нём могут быть старые данные.</string>
     <string name="error_session_ended">Сеанс завершён. Войдите снова.</string>
     <string name="error_sign_in_rejected">Сервер не принял ваш вход. Попробуйте ещё раз.</string>
@@ -198,6 +205,8 @@
     <string name="optional">Необязательно</string>
     <string name="optional_setup_body">Google Календарь, напоминания мастеру и меню услуг можно настроить позже.</string>
     <string name="optional_setup_title">Можно настроить позже</string>
+    <string name="placeholder_account_first_name">Мария</string>
+    <string name="placeholder_account_last_name">Иванова</string>
     <string name="placeholder_address">ул. Садовая, 12</string>
     <string name="placeholder_client_name">Анна Петрова</string>
     <string name="placeholder_client_note">Любит мягкие слои.</string>
@@ -207,8 +216,15 @@
     <string name="previous_month">Предыдущий месяц</string>
     <string name="primary_badge">Основной</string>
     <string name="primary_client_label">Основной клиент</string>
-    <string name="profile_share_description">Публичная ссылка на историю, которую видит клиент.</string>
+    <string name="profile_share_choices_label">Также показывать из последней завершённой записи</string>
+    <string name="profile_share_choices_note">Изменения сразу видны по ссылке и на новых изображениях. Сама ссылка остаётся прежней.</string>
+    <string name="profile_share_description">Публичная ссылка для клиента. По ней видны предстоящие записи и последняя завершённая запись с услугами. Цены и заметки не показываются.</string>
+    <string name="profile_share_include_after_photos">Фото «После»</string>
+    <string name="profile_share_include_color_formulas">Формулы окрашивания</string>
+    <string name="profile_share_include_other_photos">Фото «До» и другие фото</string>
     <string name="profile_share_link_copied">Ссылка скопирована.</string>
+    <string name="profile_share_no_name">Ваше имя клиенту пока не показывается: укажите его на вкладке «Профиль».</string>
+    <string name="profile_share_revoked">Доступ к профилю закрыт. Ссылка больше не работает.</string>
     <string name="profile_share_title">Ссылка на профиль клиента</string>
     <string name="remove_additional_client">Убрать клиента: %1$s</string>
     <string name="remove_appointment_photo">Удалить фото</string>
@@ -221,6 +237,9 @@
     <string name="retry">Повторить</string>
     <string name="retry_appointment_photo">Загрузить заново</string>
     <string name="revoke_profile_share">Закрыть доступ к профилю</string>
+    <string name="revoke_profile_share_confirm">Закрыть доступ</string>
+    <string name="revoke_profile_share_confirm_body">Ссылка сразу перестанет открываться у клиента, и вернуть её нельзя. У новой ссылки на профиль будет другой адрес. Уже отправленные изображения останутся у клиента.</string>
+    <string name="save_account_name">Сохранить имя</string>
     <string name="save_appointment_note">Сохранить заметку</string>
     <string name="save_appointment_service">Сохранить услугу</string>
     <string name="save_appointment_time_and_place">Сохранить</string>
@@ -242,6 +261,7 @@
     <string name="settings_saved">Настройки сохранены.</string>
     <string name="settings_title">Настройки</string>
     <string name="share_action">Поделиться</string>
+    <string name="share_image_failed">Не удалось подготовить изображение. Закройте это окно и создайте изображение ещё раз.</string>
     <string name="share_image_language_label">Язык изображения</string>
     <string name="share_image_title">Изображение для отправки</string>
     <string name="sign_in_code_body_new_device">Вы входите с нового устройства. Мы отправили код на %1$s: введите его, чтобы подтвердить, что это вы.</string>

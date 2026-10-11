@@ -2,6 +2,7 @@ package com.northphoenix.hairdresserclientmanager.i18n
 
 import androidx.annotation.StringRes
 import com.northphoenix.hairdresserclientmanager.R
+import com.northphoenix.hairdresserclientmanager.auth.ACCOUNT_NAME_NOT_SAVED
 import com.northphoenix.hairdresserclientmanager.auth.AuthState
 import com.northphoenix.hairdresserclientmanager.auth.CodePurpose
 import com.northphoenix.hairdresserclientmanager.auth.SessionCheck
@@ -34,6 +35,10 @@ fun ApiException.messageRes(): Int =
         message == "Source Appointment is no longer Completed." -> R.string.copy_services_source_not_completed
         message == "Source Appointment not found." -> R.string.copy_services_source_gone
         message == "Appointment total is too large." -> R.string.error_appointment_total_too_large
+        // Revoked on another device, and still on this screen until the Client is loaded again.
+        message == "Profile Share not found." -> R.string.error_profile_share_gone
+        // The sign-in provider's own reason is technical English: only that the name was not saved is said.
+        code == ACCOUNT_NAME_NOT_SAVED -> R.string.account_name_not_saved
         // The Client Profile form refuses such an email itself, under the field, with these words.
         message == "Email is not valid." -> R.string.client_email_invalid
         code == PhotoPreparer.UNREADABLE -> R.string.error_image_unreadable

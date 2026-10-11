@@ -65,13 +65,34 @@ class HcmApi(private val trpc: TrpcClient) {
     suspend fun clientAppointmentHistory(clientId: String): List<ClientHistoryEntry> =
         trpc.query("clientProfile.appointmentHistory", idInput(clientId))
 
-    suspend fun createProfileShare(clientId: String): ProfileShare =
-        trpc.mutation("clientProfile.createProfileShare", buildJsonObject { put("clientId", clientId) })
+    /**
+     * Answers the Client's Profile Share. When the Client already had one, that is the answer as
+     * it is, with its own choices and not [included].
+     */
+    suspend fun createProfileShare(clientId: String, included: Set<ShareChoice>): ProfileShare =
+        trpc.mutation(
+            "clientProfile.createProfileShare",
+            buildJsonObject {
+                put("clientId", clientId)
+                ShareChoice.entries.forEach { put(it.field, it in included) }
+            },
+        )
+
+    /** Changes one choice of the Client's Profile Share. Its link stays the same. */
+    suspend fun updateProfileShare(clientId: String, choice: ShareChoice, included: Boolean): ProfileShare =
+        trpc.mutation(
+            "clientProfile.updateProfileShare",
+            buildJsonObject {
+                put("clientId", clientId)
+                put(choice.field, included)
+            },
+        )
 
     suspend fun revokeProfileShare(clientId: String) {
         trpc.mutation<JsonObject>("clientProfile.revokeProfileShare", buildJsonObject { put("clientId", clientId) })
     }
 
+    /** The picture shows what the Client's Profile Share shows: the server takes the choices from it. */
     suspend fun buildProfileShareImage(clientId: String, language: Language): ShareImage =
         trpc.mutation(
             "clientProfile.buildProfileShareImage",

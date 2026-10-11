@@ -11,6 +11,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.northphoenix.hairdresserclientmanager.R
+import com.northphoenix.hairdresserclientmanager.auth.AccountName
 import com.northphoenix.hairdresserclientmanager.auth.AuthGateway
 import com.northphoenix.hairdresserclientmanager.auth.AuthState
 import com.northphoenix.hairdresserclientmanager.auth.SessionCheck
@@ -29,7 +30,9 @@ import com.northphoenix.hairdresserclientmanager.data.PendingPhoto
 import com.northphoenix.hairdresserclientmanager.data.PendingPhotoStore
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
 import com.northphoenix.hairdresserclientmanager.data.PhotoPreparer
+import com.northphoenix.hairdresserclientmanager.data.ProfileShare
 import com.northphoenix.hairdresserclientmanager.data.ServiceMenuItem
+import com.northphoenix.hairdresserclientmanager.data.ShareChoice
 import com.northphoenix.hairdresserclientmanager.data.ShareImage
 import com.northphoenix.hairdresserclientmanager.data.StoredFile
 import com.northphoenix.hairdresserclientmanager.data.Stylist
@@ -88,6 +91,9 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     private val api = container.api
 
     val authState: StateFlow<AuthState> = auth.state
+
+    /** The Stylist's name on the sign-in account, which Clients see on Profile Shares and Share Images. Null when the account cannot have one. */
+    val accountName: StateFlow<AccountName?> = auth.accountName
 
     private val sessionWatch = SessionWatch()
 
@@ -686,6 +692,13 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         }
     }
 
+    /**
+     * Saves the Stylist's name on the sign-in account, which is where Profile Shares and Share
+     * Images take it from. It is not one of the settings this server keeps.
+     */
+    fun saveAccountName(first: String, last: String) =
+        act(key = "saveAccountName", successNotice = R.string.account_name_saved) { auth.saveAccountName(AccountName.of(first, last)) }
+
     fun signOut() {
         sessionWatch.signOutRequested()
         viewModelScope.launch { reporting { auth.signOut() } }
@@ -740,14 +753,34 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         }
     }
 
-    fun createProfileShare(clientId: String) =
-        act("createProfileShare:$clientId", reload = ::loadClients) { api.createProfileShare(clientId) }
+    // The changes to one Client's Profile Share share a key, so they run one at a time: a choice is
+    // never sent for a Profile Share that is being revoked, and a second tap on Create does nothing.
+    // What the server answers goes into the list at once, so the card is right before the reload.
+
+    /** [included] is what the new Profile Share shows. A Client who has one already keeps it as it is, and the card shows that one. */
+    fun createProfileShare(clientId: String, included: Set<ShareChoice>) =
+        act(profileShareKey(clientId), reload = ::loadClients) {
+            val share = api.createProfileShare(clientId, included)
+
+            _clients.update { it.withProfileShare(clientId, share) }
+        }
+
+    /** Changes one choice of the Client's Profile Share. Its link stays the same. */
+    fun setProfileShareChoice(clientId: String, choice: ShareChoice, included: Boolean) =
+        act(profileShareKey(clientId), reload = ::loadClients) {
+            val share = api.updateProfileShare(clientId, choice, included)
+
+            _clients.update { it.withProfileShare(clientId, share) }
+        }
 
     fun revokeProfileShare(clientId: String) =
-        act("revokeProfileShare:$clientId", reload = ::loadClients) { api.revokeProfileShare(clientId) }
+        act(profileShareKey(clientId), successNotice = R.string.profile_share_revoked, reload = ::loadClients) {
+            api.revokeProfileShare(clientId)
+            _clients.update { it.withProfileShare(clientId, null) }
+        }
 
     fun buildShareImage(clientId: String, language: Language, onReady: (String) -> Unit) =
-        act("buildShareImage:$clientId:$language", onSuccess = { image: ShareImage -> onReady(image.svg) }) {
+        act("buildShareImage:$clientId", onSuccess = { image: ShareImage -> onReady(image.svg) }) {
             api.buildProfileShareImage(clientId, language)
         }
 
@@ -1156,6 +1189,12 @@ internal fun unreadPhotosNotice(selected: Int, unread: List<ApiException>): Noti
         // How many, so that the Stylist knows the pictures on screen are not the whole selection.
         else -> Notice(R.string.appointment_photos_some_unread, isError = true, args = listOf(unread.size, selected))
     }
+
+internal fun profileShareKey(clientId: String) = "profileShare:$clientId"
+
+/** The Client list with what the server has just answered about one Client's Profile Share: [share], or none after a revoke. */
+internal fun List<ClientProfile>.withProfileShare(clientId: String, share: ProfileShare?): List<ClientProfile> =
+    map { if (it.id == clientId) it.copy(activeProfileShare = share) else it }
 
 /**
  * The Client list with a just-saved Client in it, first as on the server (latest change first).

@@ -8,7 +8,10 @@ import com.clerk.api.ClerkConfigurationOptions
 import com.clerk.api.network.serialization.ClerkResult
 import com.clerk.api.network.serialization.successOrNull
 import com.clerk.api.session.GetTokenOptions
+import com.clerk.api.user.User
+import com.clerk.api.user.update
 import com.northphoenix.hairdresserclientmanager.BuildConfig
+import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.data.isConnectionFailure
 import com.northphoenix.hairdresserclientmanager.ui.screens.SignInScreen
 import kotlinx.coroutines.CoroutineScope
@@ -17,6 +20,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -55,6 +59,12 @@ class ClerkAuthGateway(
             }
         }.stateIn(scope, SharingStarted.Eagerly, AuthState.Loading)
 
+    // Clerk keeps its copy of the user up to date from every answer it gets, the answer to a saved name among them.
+    override val accountName: StateFlow<AccountName?> =
+        Clerk.userFlow
+            .map { user -> user?.let { AccountName(it.firstName.orEmpty(), it.lastName.orEmpty()) } }
+            .stateIn(scope, SharingStarted.Eagerly, null)
+
     // Lives as long as the app does, so a request that is on its way survives the screen being recreated.
     private val signIn = SignInFlow(ClerkSignInBackend(), scope)
 
@@ -86,6 +96,21 @@ class ClerkAuthGateway(
 
     override suspend fun signOut() {
         Clerk.auth.signOut()
+    }
+
+    /** An empty part takes that part of the name off the account. */
+    override suspend fun saveAccountName(name: AccountName) {
+        val user = Clerk.user ?: throw ApiException("Nobody is signed in.", code = ACCOUNT_NAME_NOT_SAVED)
+        val result = user.update(User.UpdateParams(firstName = name.first, lastName = name.last))
+
+        if (result is ClerkResult.Failure) {
+            throw ApiException(
+                "Clerk did not save the name.",
+                code = ACCOUNT_NAME_NOT_SAVED,
+                isNetwork = result.throwable?.isConnectionFailure() == true,
+                cause = result.throwable,
+            )
+        }
     }
 
     override suspend fun checkSession(): SessionCheck {

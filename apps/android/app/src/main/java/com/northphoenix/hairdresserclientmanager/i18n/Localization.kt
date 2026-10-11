@@ -15,6 +15,7 @@ import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
+import com.northphoenix.hairdresserclientmanager.data.ShareChoice
 import java.util.Locale
 
 // UI copy lives in res/values/strings.xml (English) and res/values-ru/strings.xml (Russian).
@@ -151,6 +152,14 @@ val PhotoCategory.label: Int
         PhotoCategory.BEFORE -> R.string.appointment_photo_before
         PhotoCategory.AFTER -> R.string.appointment_photo_after
         PhotoCategory.OTHER -> R.string.appointment_photo_other
+    }
+
+@get:StringRes
+val ShareChoice.label: Int
+    get() = when (this) {
+        ShareChoice.COLOR_FORMULAS -> R.string.profile_share_include_color_formulas
+        ShareChoice.AFTER_PHOTOS -> R.string.profile_share_include_after_photos
+        ShareChoice.OTHER_PHOTOS -> R.string.profile_share_include_other_photos
     }
 
 @get:StringRes

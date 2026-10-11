@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
+import com.northphoenix.hairdresserclientmanager.auth.AccountName
 import com.northphoenix.hairdresserclientmanager.auth.AuthState
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.Stylist
@@ -199,6 +200,7 @@ fun ProfileScreen(viewModel: AppViewModel, onOpenServiceMenu: () -> Unit) {
     val serviceMenu by viewModel.serviceMenu.collectAsStateWithLifecycle()
     val serviceMenuLoad by viewModel.serviceMenuLoad.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
+    val accountName by viewModel.accountName.collectAsStateWithLifecycle()
     val current = stylist ?: return
     val draft = rememberSettingsDraft(current)
     val email = (authState as? AuthState.SignedIn)?.email.orEmpty()
@@ -282,7 +284,57 @@ fun ProfileScreen(viewModel: AppViewModel, onOpenServiceMenu: () -> Unit) {
             }
         }
 
+        // Beside the salon address: the two are how a Client knows who a Profile Share is from.
+        accountName?.let { AccountNameCard(saved = it, busy = busy, onSave = viewModel::saveAccountName) }
+
         OptionalSetupNote()
+    }
+}
+
+/**
+ * The Stylist's name as Clients see it on Profile Shares and Share Images. It is the name on the
+ * sign-in account and is saved there, so it has a Save of its own. An empty field takes that
+ * part of the name away, and with both empty no name is shown.
+ */
+@Composable
+private fun AccountNameCard(saved: AccountName, busy: Boolean, onSave: (String, String) -> Unit) {
+    // Each field starts from the saved name, and again when that changes, as the settings do.
+    var first by rememberSaveable(saved.first) { mutableStateOf(saved.first) }
+    var last by rememberSaveable(saved.last) { mutableStateOf(saved.last) }
+    val focus = LocalFocusManager.current
+
+    HcmCard {
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(stringResource(R.string.account_name_title), style = MaterialTheme.typography.titleLarge)
+                Text(stringResource(R.string.account_name_note), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            HcmTextField(
+                first,
+                { first = AccountName.typed(it) },
+                label = stringResource(R.string.account_first_name_label),
+                placeholder = stringResource(R.string.placeholder_account_first_name),
+                capitalization = KeyboardCapitalization.Words,
+            )
+            HcmTextField(
+                last,
+                { last = AccountName.typed(it) },
+                label = stringResource(R.string.account_last_name_label),
+                placeholder = stringResource(R.string.placeholder_account_last_name),
+                capitalization = KeyboardCapitalization.Words,
+            )
+            PrimaryButton(
+                stringResource(R.string.save_account_name),
+                onClick = {
+                    // As for the settings: the notice appears over the tab bar, which the keyboard covers.
+                    focus.clearFocus()
+                    onSave(first, last)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = AccountName.of(first, last) != saved,
+                loading = busy,
+            )
+        }
     }
 }
 

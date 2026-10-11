@@ -43,6 +43,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -74,9 +75,11 @@ import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.request.allowHardware
+import coil3.request.maxBitmapSize
 import coil3.size.Size
 import coil3.toBitmap
 import com.northphoenix.hairdresserclientmanager.R
+import com.northphoenix.hairdresserclientmanager.auth.AccountName
 import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.data.AppointmentPhoto
 import com.northphoenix.hairdresserclientmanager.data.ClientHistoryEntry
@@ -84,6 +87,7 @@ import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.DeviceContacts
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
+import com.northphoenix.hairdresserclientmanager.data.ShareChoice
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
 import com.northphoenix.hairdresserclientmanager.domain.ContactFields
 import com.northphoenix.hairdresserclientmanager.domain.ContactImport
@@ -91,6 +95,7 @@ import com.northphoenix.hairdresserclientmanager.domain.CopiedContact
 import com.northphoenix.hairdresserclientmanager.domain.ImportedContact
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.OneLine
+import com.northphoenix.hairdresserclientmanager.domain.ShareImageSize
 import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
@@ -113,6 +118,7 @@ import com.northphoenix.hairdresserclientmanager.ui.components.SecondaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.SegmentedControl
 import com.northphoenix.hairdresserclientmanager.ui.components.StatusChip
 import com.northphoenix.hairdresserclientmanager.ui.components.SubScreen
+import com.northphoenix.hairdresserclientmanager.ui.components.SwitchRow
 import com.northphoenix.hairdresserclientmanager.ui.components.Tag
 import com.northphoenix.hairdresserclientmanager.ui.components.TagPadding
 import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
@@ -121,6 +127,7 @@ import com.northphoenix.hairdresserclientmanager.ui.components.tagTextStyle
 import com.northphoenix.hairdresserclientmanager.ui.openUri
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -136,6 +143,16 @@ internal val CopiedContactSaver = listSaver<CopiedContact?, String>(
     },
 )
 
+/**
+ * What a Profile Share that is not created yet will show, saved as the names of the choices that
+ * are on. One text and not a list: a list saver keeps an empty list as nothing, and "nothing is
+ * on" would come back as the defaults.
+ */
+internal val ShareChoicesSaver = Saver<Set<ShareChoice>, String>(
+    save = { included -> included.joinToString(",") { it.name } },
+    restore = { names -> names.split(",").let { on -> ShareChoice.entries.filter { it.name in on }.toSet() } },
+)
+
 /** Client Profile editor: details, Contact Import, Profile Share and the Client's Appointment history. */
 @Composable
 fun ClientEditorScreen(
@@ -149,6 +166,7 @@ fun ClientEditorScreen(
     val clients by viewModel.clients.collectAsStateWithLifecycle()
     val stylist by viewModel.stylist.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
+    val accountName by viewModel.accountName.collectAsStateWithLifecycle()
 
     // A new Client becomes an existing one in place after the first save.
     var currentId by rememberSaveable { mutableStateOf(clientId) }
@@ -173,6 +191,8 @@ fun ClientEditorScreen(
     var dialog by remember { mutableStateOf<ClientDialog?>(null) }
     var pendingImport by remember { mutableStateOf<ImportedContact?>(null) }
     var shareImageSvg by remember { mutableStateOf<String?>(null) }
+    // The Profile Share the Stylist is asked about revoking. A question about one that is gone, or about another one, is not shown.
+    var revokingShareId by rememberSaveable { mutableStateOf<String?>(null) }
     // How looking for a Client who is not in the list went (see below).
     var lookup by remember { mutableStateOf<LoadState>(LoadState.Loading) }
     var lookupAttempt by remember { mutableIntStateOf(0) }
@@ -336,8 +356,12 @@ fun ClientEditorScreen(
                 ProfileShareCard(
                     client = existing,
                     shareUrl = existing.activeProfileShare?.let { viewModel.profileShareUrl(it.token) },
-                    onCreate = { viewModel.createProfileShare(existing.id) },
-                    onRevoke = { viewModel.revokeProfileShare(existing.id) },
+                    busy = busy,
+                    // An account that could have a name and has none: the share then names nobody.
+                    showsNoName = accountName == AccountName(),
+                    onCreate = { included -> viewModel.createProfileShare(existing.id, included) },
+                    onChoice = { choice, included -> viewModel.setProfileShareChoice(existing.id, choice, included) },
+                    onRevoke = { revokingShareId = existing.activeProfileShare?.id },
                     onGenerateImage = { imageLanguage -> viewModel.buildShareImage(existing.id, imageLanguage) { shareImageSvg = it } },
                     onCopied = { viewModel.notify(R.string.profile_share_link_copied) },
                     onOpenFailed = { viewModel.notify(R.string.link_open_failed, isError = true) },
@@ -393,16 +417,39 @@ fun ClientEditorScreen(
         null -> Unit
     }
 
+    // The link the Client holds stops working for good, so the Stylist is asked first, as before a delete.
+    if (existing != null && revokingShareId != null && existing.activeProfileShare?.id == revokingShareId) {
+        ConfirmDialog(
+            title = stringResource(R.string.revoke_profile_share) + "?",
+            body = stringResource(R.string.revoke_profile_share_confirm_body),
+            confirmText = stringResource(R.string.revoke_profile_share_confirm),
+            danger = true,
+            onConfirm = {
+                revokingShareId = null
+                viewModel.revokeProfileShare(existing.id)
+            },
+            onDismiss = { revokingShareId = null },
+        )
+    }
+
     shareImageSvg?.let { svg ->
-        ShareImageDialog(svg = svg, onDismiss = { shareImageSvg = null }, onShareFailed = { viewModel.notify(R.string.link_open_failed, isError = true) })
+        ShareImageDialog(svg = svg, onDismiss = { shareImageSvg = null })
     }
 }
 
+/**
+ * The Client's Profile Share: what it shows, its link, the Share Image and Revoke. The three
+ * choices are made before a Profile Share is created and can be changed on the one that exists.
+ * While a change is running ([busy]) nothing here starts another one.
+ */
 @Composable
 private fun ProfileShareCard(
     client: ClientProfile,
     shareUrl: String?,
-    onCreate: () -> Unit,
+    busy: Boolean,
+    showsNoName: Boolean,
+    onCreate: (Set<ShareChoice>) -> Unit,
+    onChoice: (ShareChoice, Boolean) -> Unit,
     onRevoke: () -> Unit,
     onGenerateImage: (Language) -> Unit,
     onCopied: () -> Unit,
@@ -411,18 +458,32 @@ private fun ProfileShareCard(
     val context = LocalContext.current
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
-    // Share Image language defaults to the Client's language and is chosen per generation.
-    var imageLanguage by remember(client.id) { mutableStateOf(client.language) }
+    val share = client.activeProfileShare
+    // Share Image language is chosen per generation. It starts from the Client's language, and again when another one is saved for the Client.
+    var imageLanguage by rememberSaveable(client.id, client.language) { mutableStateOf(client.language) }
 
     HcmCard {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(stringResource(R.string.profile_share_title), style = MaterialTheme.typography.headlineSmall)
                 Text(stringResource(R.string.profile_share_description), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (showsNoName) {
+                    Text(stringResource(R.string.profile_share_no_name), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
 
-            if (shareUrl == null) {
-                SecondaryButton(stringResource(R.string.create_profile_share), onClick = onCreate, modifier = Modifier.fillMaxWidth(), icon = Icons.Rounded.Link)
+            if (share == null || shareUrl == null) {
+                // What the new Profile Share will show. It starts from the defaults whenever there is no Profile Share.
+                var included by rememberSaveable(client.id, stateSaver = ShareChoicesSaver) { mutableStateOf(ShareChoice.defaults) }
+
+                ShareChoices(included, enabled = !busy, onChange = { choice, on -> included = if (on) included + choice else included - choice })
+                SecondaryButton(
+                    stringResource(R.string.create_profile_share),
+                    onClick = { onCreate(included) },
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = Icons.Rounded.Link,
+                    loading = busy,
+                )
             } else {
                 Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
                     SelectionContainer {
@@ -453,19 +514,44 @@ private fun ProfileShareCard(
                     icon = Icons.Rounded.ContentCopy,
                 )
                 Hairline()
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    // Each switch shows what the server has: it moves when its change has been saved.
+                    ShareChoices(share.included, enabled = !busy, onChange = onChoice)
+                    Text(stringResource(R.string.profile_share_choices_note), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Hairline()
                 Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     Text(stringResource(R.string.share_image_language_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     SegmentedControl(Language.entries, imageLanguage, { imageLanguage = it }, label = { stringResource(it.label) })
                 }
-                SecondaryButton(stringResource(R.string.generate_share_image), onClick = { onGenerateImage(imageLanguage) }, modifier = Modifier.fillMaxWidth(), icon = Icons.Rounded.Image)
+                // The server puts the photos into the picture, which can take a few seconds. It shows what the link shows, so not while a choice is being saved.
+                SecondaryButton(
+                    stringResource(R.string.generate_share_image),
+                    onClick = { onGenerateImage(imageLanguage) },
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = Icons.Rounded.Image,
+                    loading = busy,
+                )
                 TextAction(
                     stringResource(R.string.revoke_profile_share),
                     onClick = onRevoke,
                     icon = Icons.Rounded.LinkOff,
                     danger = true,
+                    enabled = !busy,
                     modifier = Modifier.align(Alignment.CenterHorizontally),
                 )
             }
+        }
+    }
+}
+
+/** What a Profile Share shows of the last completed Appointment beyond its Services: one switch for each choice. */
+@Composable
+private fun ShareChoices(included: Set<ShareChoice>, enabled: Boolean, onChange: (ShareChoice, Boolean) -> Unit) {
+    Column {
+        Text(stringResource(R.string.profile_share_choices_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        ShareChoice.entries.forEach { choice ->
+            SwitchRow(stringResource(choice.label), checked = choice in included, onCheckedChange = { onChange(choice, it) }, enabled = enabled)
         }
     }
 }
@@ -619,22 +705,30 @@ private fun HistoryPhotos(photos: List<AppointmentPhoto>) {
     }
 }
 
-/** Preview of a generated Share Image with a button to send it through the system share sheet. */
+/**
+ * Preview of a generated Share Image with a button to send it through the system share sheet.
+ * The picture is handed to the image loader as the server made it: its texts and photos are
+ * drawn from the markup, and nothing here reads or rewrites it.
+ */
 @Composable
-private fun ShareImageDialog(svg: String, onDismiss: () -> Unit, onShareFailed: () -> Unit) {
+private fun ShareImageDialog(svg: String, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val svgBytes = remember(svg) { svg.toByteArray() }
     var sharing by remember { mutableStateOf(false) }
+    // The picture could not be drawn, here or for the file to send. Said in the dialog: a notice would lie under it.
+    var failed by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text(stringResource(R.string.share_image_title), style = MaterialTheme.typography.headlineSmall)
+                // As wide as the dialog and as tall as the picture then is, which can be many screens: it scrolls in its place.
                 AsyncImage(
                     model = ImageRequest.Builder(context).data(svgBytes).build(),
                     contentDescription = stringResource(R.string.share_image_title),
                     contentScale = ContentScale.FillWidth,
+                    onError = { failed = true },
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(max = 420.dp)
@@ -642,14 +736,16 @@ private fun ShareImageDialog(svg: String, onDismiss: () -> Unit, onShareFailed: 
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                         .verticalScroll(rememberScrollState()),
                 )
+                if (failed) {
+                    Text(stringResource(R.string.share_image_failed), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                }
                 PrimaryButton(
                     stringResource(R.string.share_action),
                     onClick = {
                         scope.launch {
                             sharing = true
-                            val shared = shareSvgAsPng(context, svgBytes)
+                            failed = !shareSvgAsPng(context, svg, svgBytes)
                             sharing = false
-                            if (!shared) onShareFailed()
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -662,10 +758,26 @@ private fun ShareImageDialog(svg: String, onDismiss: () -> Unit, onShareFailed: 
     }
 }
 
-/** Rasterises the SVG at its full size and hands the PNG to other apps through the FileProvider. */
-private suspend fun shareSvgAsPng(context: Context, svgBytes: ByteArray): Boolean =
+/**
+ * Draws the picture at the size it states for itself (see [ShareImageSize]) and hands the PNG to
+ * other apps through the FileProvider. False when the picture could not be drawn or handed over.
+ */
+private suspend fun shareSvgAsPng(context: Context, svg: String, svgBytes: ByteArray): Boolean =
     try {
-        val request = ImageRequest.Builder(context).data(svgBytes).size(Size.ORIGINAL).allowHardware(false).build()
+        val drawn = ShareImageSize.of(svg)?.let { ShareImageSize.drawn(it) }
+        val request = ImageRequest.Builder(context)
+            .data(svgBytes)
+            .allowHardware(false)
+            .apply {
+                if (drawn != null) {
+                    size(drawn.width, drawn.height)
+                    // The image loader's own limit is 4096 px a side, and a picture with photos or long texts is taller.
+                    maxBitmapSize(Size(drawn.width, drawn.height))
+                } else {
+                    size(Size.ORIGINAL)
+                }
+            }
+            .build()
         val bitmap = (SingletonImageLoader.get(context).execute(request) as? SuccessResult)?.image?.toBitmap()
             ?: return false
         val file = withContext(Dispatchers.IO) {
@@ -683,6 +795,8 @@ private suspend fun shareSvgAsPng(context: Context, svgBytes: ByteArray): Boolea
         send.clipData = ClipData.newRawUri(null, uri)
         context.startActivity(Intent.createChooser(send, null))
         true
+    } catch (error: CancellationException) {
+        throw error
     } catch (_: Exception) {
         false
     }
