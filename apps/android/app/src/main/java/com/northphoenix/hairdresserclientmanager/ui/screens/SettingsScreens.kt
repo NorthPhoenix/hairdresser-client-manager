@@ -52,6 +52,7 @@ import com.northphoenix.hairdresserclientmanager.data.Stylist
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.i18n.shownLanguage
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
+import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.HcmSnackbarHost
 import com.northphoenix.hairdresserclientmanager.ui.components.Avatar
 import com.northphoenix.hairdresserclientmanager.ui.components.Hairline
@@ -182,6 +183,7 @@ fun ProfileScreen(viewModel: AppViewModel, onOpenServiceMenu: () -> Unit) {
     val stylist by viewModel.stylist.collectAsStateWithLifecycle()
     val authState by viewModel.authState.collectAsStateWithLifecycle()
     val serviceMenu by viewModel.serviceMenu.collectAsStateWithLifecycle()
+    val serviceMenuLoad by viewModel.serviceMenuLoad.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val current = stylist ?: return
     val draft = rememberSettingsDraft(current)
@@ -222,10 +224,18 @@ fun ProfileScreen(viewModel: AppViewModel, onOpenServiceMenu: () -> Unit) {
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(stringResource(R.string.service_menu_title), style = MaterialTheme.typography.titleLarge)
+                    // "No Service Menu Items" is only true of a menu that has loaded. The Service Menu screen has the reason and 'Try again'.
+                    val menuFailed = serviceMenu.isEmpty() && serviceMenuLoad is LoadState.Failed
+
                     Text(
-                        if (serviceMenu.isEmpty()) stringResource(R.string.service_menu_empty_title) else serviceMenu.take(3).joinToString(", ") { it.name },
+                        when {
+                            serviceMenu.isNotEmpty() -> serviceMenu.take(3).joinToString(", ") { it.name }
+                            serviceMenuLoad == LoadState.Loaded -> stringResource(R.string.service_menu_empty_title)
+                            menuFailed -> stringResource(R.string.load_failed_title)
+                            else -> ""
+                        },
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (menuFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     )

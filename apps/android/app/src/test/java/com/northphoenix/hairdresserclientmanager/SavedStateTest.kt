@@ -16,6 +16,7 @@ class SavedStateTest {
     // --- the Calendar's selected day ---
 
     private val day = LocalDate.of(2026, 10, 24)
+    private val today = day.minusDays(3)
 
     /** What Android hands back after it has killed the app: a new handle with what the old one held. */
     private fun SavedStateHandle.afterAppWasKilled() = SavedStateHandle(keys().associateWith { get<Any?>(it) })
@@ -26,10 +27,10 @@ class SavedStateTest {
         SavedCalendarDay(state).keep("stylist-1", day)
 
         val restored = state.afterAppWasKilled()
-        assertEquals(day, SavedCalendarDay(restored).take("stylist-1"))
+        assertEquals(day, SavedCalendarDay(restored).take("stylist-1", today))
 
         // It stays the selected day without being selected again, so it survives being killed once more.
-        assertEquals(day, SavedCalendarDay(restored.afterAppWasKilled()).take("stylist-1"))
+        assertEquals(day, SavedCalendarDay(restored.afterAppWasKilled()).take("stylist-1", today))
     }
 
     @Test
@@ -38,13 +39,13 @@ class SavedStateTest {
         val calendar = SavedCalendarDay(state)
 
         // A fresh start has nothing to restore.
-        assertNull(calendar.take("stylist-1"))
+        assertNull(calendar.take("stylist-1", today))
 
         // Browsed to another day and back to today: null is how today is kept.
         calendar.keep("stylist-1", day)
         calendar.keep("stylist-1", null)
 
-        assertNull(SavedCalendarDay(state.afterAppWasKilled()).take("stylist-1"))
+        assertNull(SavedCalendarDay(state.afterAppWasKilled()).take("stylist-1", today))
     }
 
     @Test
@@ -53,8 +54,8 @@ class SavedStateTest {
         SavedCalendarDay(state).keep("stylist-1", day)
 
         val restored = state.afterAppWasKilled()
-        assertNull(SavedCalendarDay(restored).take("stylist-2"))
-        assertNull(SavedCalendarDay(restored.afterAppWasKilled()).take("stylist-1"))
+        assertNull(SavedCalendarDay(restored).take("stylist-2", today))
+        assertNull(SavedCalendarDay(restored.afterAppWasKilled()).take("stylist-1", today))
     }
 
     @Test
@@ -64,11 +65,11 @@ class SavedStateTest {
 
         val restored = state.afterAppWasKilled()
         val calendar = SavedCalendarDay(restored)
-        assertEquals(day, calendar.take("stylist-1"))
+        assertEquals(day, calendar.take("stylist-1", today))
 
         // Signed out and in again while the app keeps running: today, and today is what is kept from then on.
-        assertNull(calendar.take("stylist-1"))
-        assertNull(SavedCalendarDay(restored.afterAppWasKilled()).take("stylist-1"))
+        assertNull(calendar.take("stylist-1", today))
+        assertNull(SavedCalendarDay(restored.afterAppWasKilled()).take("stylist-1", today))
     }
 
     @Test
@@ -78,17 +79,31 @@ class SavedStateTest {
 
         val restored = state.afterAppWasKilled()
         val calendar = SavedCalendarDay(restored)
-        calendar.take("stylist-1")
+        calendar.take("stylist-1", today)
         calendar.keep("stylist-1", day.plusDays(3))
 
-        assertEquals(day.plusDays(3), SavedCalendarDay(restored.afterAppWasKilled()).take("stylist-1"))
+        assertEquals(day.plusDays(3), SavedCalendarDay(restored.afterAppWasKilled()).take("stylist-1", today))
+    }
+
+    @Test
+    fun `a selected day that has become today is today from then on`() {
+        val state = SavedStateHandle()
+        // Tomorrow, looked at in the evening.
+        SavedCalendarDay(state).keep("stylist-1", day)
+
+        // Killed overnight: the Calendar comes back on that day, which is today now and so no longer a kept day.
+        val restored = state.afterAppWasKilled()
+        assertNull(SavedCalendarDay(restored).take("stylist-1", today = day))
+
+        // Killed again the next night, without a tap in the Calendar in between: today again, not yesterday.
+        assertNull(SavedCalendarDay(restored.afterAppWasKilled()).take("stylist-1", today = day.plusDays(1)))
     }
 
     @Test
     fun `a saved day that cannot be read counts as today`() {
         val state = SavedStateHandle(mapOf("calendarDay" to "not a date", "calendarDayStylist" to "stylist-1"))
 
-        assertNull(SavedCalendarDay(state).take("stylist-1"))
+        assertNull(SavedCalendarDay(state).take("stylist-1", today))
     }
 
     // --- open sheets ---

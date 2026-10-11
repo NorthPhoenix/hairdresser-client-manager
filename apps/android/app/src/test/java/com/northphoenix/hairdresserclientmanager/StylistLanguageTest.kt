@@ -7,10 +7,13 @@ import com.northphoenix.hairdresserclientmanager.i18n.AppLocales
 import com.northphoenix.hairdresserclientmanager.i18n.stringsLanguage
 import com.northphoenix.hairdresserclientmanager.state.SettingsRequests
 import com.northphoenix.hairdresserclientmanager.state.StylistLanguage
-import com.northphoenix.hairdresserclientmanager.state.inTurn
+import com.northphoenix.hairdresserclientmanager.state.withSettings
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -21,6 +24,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import java.io.IOException
+import kotlin.coroutines.CoroutineContext
 
 /**
  * The app language: what the screen is in, what the selector shows and what is saved are one
@@ -441,6 +445,61 @@ class StylistLanguageTest {
         assertEquals(listOf("en, UTC", "en, Asia/Tokyo"), sent)
     }
 
+    /**
+     * Stands in for the app's main thread and its immediate dispatcher: what comes from elsewhere,
+     * such as a reply from the network, is queued, and a coroutine that is let go on while the
+     * thread is at work goes on at once, before whoever let it.
+     */
+    private class MainThread : CoroutineDispatcher() {
+        private val queue = ArrayDeque<Runnable>()
+        private var atWork = false
+
+        override fun isDispatchNeeded(context: CoroutineContext) = !atWork
+
+        override fun dispatch(context: CoroutineContext, block: Runnable) {
+            queue += block
+        }
+
+        fun work() {
+            atWork = true
+            try {
+                while (queue.isNotEmpty()) {
+                    queue.removeFirst().run()
+                }
+            } finally {
+                atWork = false
+            }
+        }
+    }
+
+    @Test
+    fun `a save that waited is built from what the one before it put in place`() {
+        val main = MainThread()
+        val scope = CoroutineScope(main)
+        val requests = SettingsRequests()
+        val formReply = CompletableDeferred<Unit>()
+        var saved = "ru, UTC"
+        val sent = mutableListOf<String>()
+
+        // 'Save' on the Settings form with another timezone, whose reply is put in place inside the save...
+        scope.launch {
+            requests.save {
+                sent += "ru, Asia/Tokyo"
+                formReply.await()
+                saved = "ru, Asia/Tokyo"
+            }
+        }
+        // ...and the other language tapped while that request is on its way. It must not put the old timezone back.
+        scope.launch { requests.save { sent += "en, " + saved.substringAfter(", ") } }
+        main.work()
+        assertEquals(listOf("ru, Asia/Tokyo"), sent)
+
+        // The language save has its turn the moment the form's save lets go, before the form's caller runs again.
+        formReply.complete(Unit)
+        main.work()
+        assertEquals(listOf("ru, Asia/Tokyo", "en, Asia/Tokyo"), sent)
+    }
+
     @Test
     fun `settings fetched while a save ran are dropped`() = runTest {
         val requests = SettingsRequests()
@@ -468,14 +527,92 @@ class StylistLanguageTest {
         assertEquals("en", requests.fetch { "en" })
     }
 
+    // --- the settings and the lists ---
+
+    @Test
+    fun `the lists do not wait for the settings`() = runTest {
+        val settingsReply = CompletableDeferred<Unit>()
+        val listsReply = CompletableDeferred<Unit>()
+        val asked = mutableListOf<String>()
+        val answered = mutableListOf<String>()
+
+        // 'Try again' under a list, on a connection where nothing is answered for a while.
+        val loading = launch {
+            withSettings(
+                setting = { "UTC" },
+                settings = {
+                    asked += "settings"
+                    settingsReply.await()
+                },
+                lists = {
+                    asked += "lists"
+                    listsReply.await()
+                    answered += "lists"
+                },
+                listsOfSetting = { asked += "lists of the timezone" },
+            )
+        }
+        runCurrent()
+
+        // Both are on their way from the tap on, so the list shows its spinner at once.
+        assertEquals(listOf("settings", "lists"), asked)
+
+        // And the list is there as soon as it is answered, whatever the settings do.
+        listsReply.complete(Unit)
+        runCurrent()
+        assertEquals(listOf("lists"), answered)
+        assertFalse(loading.isCompleted)
+
+        settingsReply.complete(Unit)
+        runCurrent()
+        assertTrue(loading.isCompleted)
+        // The timezone is the one the lists were asked with: nothing is loaded twice.
+        assertEquals(listOf("settings", "lists"), asked)
+    }
+
+    @Test
+    fun `a timezone saved on another device loads the lists of its days again, after their first load has ended`() = runTest {
+        var timezone = "Europe/Moscow"
+        val settingsReply = CompletableDeferred<Unit>()
+        val listsReply = CompletableDeferred<Unit>()
+        val asked = mutableListOf<String>()
+
+        launch {
+            withSettings(
+                setting = { timezone },
+                settings = {
+                    settingsReply.await()
+                    timezone = "Asia/Tokyo"
+                },
+                lists = {
+                    asked += "lists, days of $timezone"
+                    listsReply.await()
+                },
+                listsOfSetting = { asked += "Appointments, days of $timezone" },
+            )
+        }
+        runCurrent()
+        settingsReply.complete(Unit)
+        runCurrent()
+
+        // The lists asked for with the old timezone are still on their way. Their answer must not be the one that arrives last.
+        assertEquals(listOf("lists, days of Europe/Moscow"), asked)
+
+        listsReply.complete(Unit)
+        runCurrent()
+        assertEquals(listOf("lists, days of Europe/Moscow", "Appointments, days of Asia/Tokyo"), asked)
+    }
+
     @Test
     fun `the lists are loaded also when the settings could not be, and the failure is still thrown`() = runTest {
         val loaded = mutableListOf<String>()
 
         try {
-            inTurn(
-                { throw IOException("settings") },
-                { loaded += "lists" },
+            withSettings(
+                setting = { "UTC" },
+                settings = { throw IOException("settings") },
+                lists = { loaded += "lists" },
+                listsOfSetting = { loaded += "lists of the timezone" },
             )
             fail("the failure was swallowed")
         } catch (error: IOException) {
@@ -483,9 +620,5 @@ class StylistLanguageTest {
         }
 
         assertEquals(listOf("lists"), loaded)
-
-        inTurn({ loaded += "settings" }, { loaded += "lists again" })
-        assertTrue(loaded.containsAll(listOf("settings", "lists again")))
-        assertEquals(listOf("lists", "settings", "lists again"), loaded)
     }
 }

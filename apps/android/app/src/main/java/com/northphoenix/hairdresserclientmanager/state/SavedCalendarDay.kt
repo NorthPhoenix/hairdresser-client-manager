@@ -14,11 +14,15 @@ import java.time.LocalDate
 internal class SavedCalendarDay(private val state: SavedStateHandle) {
     private var taken = false
 
-    /** The day [stylistId] had selected when the app was last saved, or null when the Calendar is to start on today. */
-    fun take(stylistId: String): LocalDate? {
+    /**
+     * The day [stylistId] had selected when the app was last saved, or null when the Calendar is to start on today.
+     * A selected day that has become [today] is today: it is not kept any longer, so the Calendar moves on with the days after it.
+     */
+    fun take(stylistId: String, today: LocalDate): LocalDate? {
         val day = state.get<String>(DAY)
             ?.takeIf { !taken && state.get<String>(STYLIST) == stylistId }
             ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            ?.takeIf { it != today }
 
         taken = true
         if (day == null) {

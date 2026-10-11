@@ -220,6 +220,7 @@ private fun AppointmentDetail(
     val clients by viewModel.clients.collectAsStateWithLifecycle()
     val clientsLoad by viewModel.clientsLoad.collectAsStateWithLifecycle()
     val serviceMenu by viewModel.serviceMenu.collectAsStateWithLifecycle()
+    val serviceMenuLoad by viewModel.serviceMenuLoad.collectAsStateWithLifecycle()
     val completedSources by viewModel.completedSources.collectAsStateWithLifecycle()
     val completedSourcesLoad by viewModel.completedSourcesLoad.collectAsStateWithLifecycle()
     val uploadingPhoto by viewModel.uploadingPhoto.collectAsStateWithLifecycle()
@@ -457,6 +458,8 @@ private fun AppointmentDetail(
         DetailSheet.AddService -> AddServiceSheet(
             appointment = appointment,
             menu = serviceMenu,
+            menuLoad = serviceMenuLoad,
+            onRetry = viewModel::retryLoad,
             busy = busy,
             onDismiss = { sheet = null },
             onMissingName = { viewModel.notify(R.string.service_name_required, isError = true) },
@@ -819,6 +822,8 @@ private fun PhotoGrid(photos: List<AppointmentPhoto>, onOpen: (AppointmentPhoto)
 private fun AddServiceSheet(
     appointment: Appointment,
     menu: List<ServiceMenuItem>,
+    menuLoad: LoadState,
+    onRetry: () -> Unit,
     busy: Boolean,
     onDismiss: () -> Unit,
     onMissingName: () -> Unit,
@@ -845,23 +850,30 @@ private fun AddServiceSheet(
             }
         }
 
-        if (menu.isNotEmpty()) {
+        // A Service Menu that has loaded empty has nothing to offer here. One that is not loaded says so in the chips' place.
+        if (menu.isNotEmpty() || menuLoad != LoadState.Loaded) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.add_menu_service), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    menu.forEach { item ->
-                        ChoiceChip(
-                            // The price stays with its dot when a long name takes the chip onto more lines.
-                            item.name + " ·\u00A0" + Money.format(item.defaultPriceCents),
-                            selected = menuItemId == item.id,
-                            wraps = true,
-                            onClick = {
-                                // Picking a menu item takes its name and default price; the price stays editable.
-                                menuItemId = item.id
-                                name = ""
-                                price = Money.centsToPrice(item.defaultPriceCents)
-                            },
-                        )
+                if (menu.isEmpty() && menuLoad is LoadState.Failed) {
+                    InlineLoadFailed(menuLoad.message, onRetry)
+                } else if (menu.isEmpty()) {
+                    LoadingRow(Modifier.heightIn(max = 96.dp))
+                } else {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        menu.forEach { item ->
+                            ChoiceChip(
+                                // The price stays with its dot when a long name takes the chip onto more lines.
+                                item.name + " ·\u00A0" + Money.format(item.defaultPriceCents),
+                                selected = menuItemId == item.id,
+                                wraps = true,
+                                onClick = {
+                                    // Picking a menu item takes its name and default price; the price stays editable.
+                                    menuItemId = item.id
+                                    name = ""
+                                    price = Money.centsToPrice(item.defaultPriceCents)
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -883,7 +895,8 @@ private fun AddServiceSheet(
             label = stringResource(R.string.appointment_service_price_label),
             // Left empty, a Service from the menu takes the price of its Service Menu Item.
             placeholder = selectedItem?.let { Money.centsToPrice(it.defaultPriceCents) } ?: "85.00",
-            refusal = Money.parse(price).takeIf { price == refusedPrice },
+            // An empty price is refused only for an ad hoc Service: the reason goes once a Service from the menu is chosen.
+            refusal = Money.parse(price).takeIf { price == refusedPrice && it.isRefused(required = selectedItem == null) },
         )
         HcmTextField(note, { note = it }, label = stringResource(R.string.appointment_service_note_label), placeholder = stringResource(R.string.optional), singleLine = false, minLines = 2)
         PrimaryButton(

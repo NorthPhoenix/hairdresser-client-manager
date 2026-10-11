@@ -142,3 +142,25 @@ internal suspend fun inTurn(vararg loads: suspend () -> Unit) {
 
     failure?.let { throw it }
 }
+
+/**
+ * Loads the [settings] and the [lists] side by side, so that no list waits for the settings: a
+ * list that is tried again is loading from the tap on. [listsOfSetting] are the lists whose
+ * content depends on [setting]. They are loaded once more when the settings came back with
+ * another value of it, and only after their first load has ended, so that the answer to that one
+ * cannot arrive last. As in [together], a load that fails does not stop the others, so that each
+ * list shows how its own load went, and the first failure is thrown at the end.
+ */
+internal suspend fun <S> withSettings(
+    setting: () -> S,
+    settings: suspend () -> Unit,
+    lists: suspend () -> Unit,
+    listsOfSetting: suspend () -> Unit,
+) {
+    val asked = setting()
+
+    inTurn(
+        { together(settings, lists) },
+        { if (setting() != asked) listsOfSetting() },
+    )
+}

@@ -101,14 +101,15 @@ fun MainNavigation(viewModel: AppViewModel) {
     }
 
     // In view: the Stylist's day can end, at midnight in the Stylist's timezone. A new timezone has another midnight to wait for.
+    // The clock is looked at before the first wait too: Android may have built the screen again, around lists that are of yesterday.
     val lifecycleOwner = LocalLifecycleOwner.current
     val zone by viewModel.zone.collectAsStateWithLifecycle()
 
     LaunchedEffect(viewModel, lifecycleOwner, zone) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) {
-                delay(viewModel.millisUntilDayCheck())
                 viewModel.checkDay()
+                delay(viewModel.millisUntilDayCheck())
             }
         }
     }

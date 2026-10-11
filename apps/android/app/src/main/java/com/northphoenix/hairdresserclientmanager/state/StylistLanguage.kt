@@ -101,7 +101,11 @@ internal class SettingsRequests {
     private val saving = Mutex()
     private var saves = 0
 
-    /** Runs [request] once every save started before it has ended. Build the request inside it. */
+    /**
+     * Runs [request] once every save started before it has ended. Build the request inside it, and
+     * put what the server answered in place inside it as well: the save that waits behind this one
+     * can have its turn before the caller of this one runs again.
+     */
     suspend fun <T> save(request: suspend () -> T): T {
         saves++
 

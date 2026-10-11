@@ -2,6 +2,7 @@ package com.northphoenix.hairdresserclientmanager
 
 import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.state.ActionRunner
+import com.northphoenix.hairdresserclientmanager.state.LatestWins
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
@@ -269,6 +270,63 @@ class ActionRunnerTest {
         assertEquals(listOf("NOT_FOUND"), failures.map { it.code })
         assertFalse(saved)
         assertFalse(runner.busy.value)
+    }
+
+    @Test
+    fun `taps of which a later one fails still reload what an earlier one saved`() = runTest {
+        val runner = runner()
+        val primary = LatestWins<String, String>()
+        val replies = ArrayDeque<CompletableDeferred<Unit>>()
+        val sent = mutableListOf<String>()
+        var savedAny = false
+        var saved = false
+        var reloads = 0
+
+        // 'Make primary' on one Client, and on another before the first is answered.
+        primary.offer("a1", "client-x")
+        runner.run(
+            key = null,
+            change = {
+                primary.send("a1") { next ->
+                    sent += next
+                    CompletableDeferred<Unit>().also(replies::addLast).await()
+                    savedAny = true
+                }
+            },
+            reload = { reloads++ },
+            savedInPart = { savedAny },
+            onSaved = { saved = true },
+        )
+        primary.offer("a1", "client-y")
+
+        replies.removeFirst().complete(Unit)
+        runCurrent()
+        replies.removeFirst().completeExceptionally(ApiException("Network request failed.", code = "NETWORK", isNetwork = true))
+        runCurrent()
+
+        // The second tap failed and is reported as such. The server has the first one's Client, and the reload shows it.
+        assertEquals(listOf("client-x", "client-y"), sent)
+        assertEquals(listOf("NETWORK"), failures.map { it.code })
+        assertFalse(saved)
+        assertEquals(1, reloads)
+        assertFalse(runner.busy.value)
+    }
+
+    @Test
+    fun `taps of which the first fails have nothing to reload`() = runTest {
+        val runner = runner()
+        var reloads = 0
+
+        runner.run<Unit>(
+            key = null,
+            change = { throw ApiException("Network request failed.", code = "NETWORK", isNetwork = true) },
+            reload = { reloads++ },
+            savedInPart = { false },
+        )
+        runCurrent()
+
+        assertEquals(listOf("NETWORK"), failures.map { it.code })
+        assertEquals(0, reloads)
     }
 
     @Test

@@ -258,7 +258,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                 showStylist(stylist)
                 // The day that was selected when Android killed the app in the background, today otherwise.
                 day.follow(clock.zone)
-                _calendarDate.value = savedCalendarDay.take(stylist.id) ?: today.value
+                _calendarDate.value = savedCalendarDay.take(stylist.id, today.value) ?: today.value
                 _bootstrap.value = BootstrapState.Ready
 
                 if (stylist.onboardingComplete) {
@@ -285,8 +285,9 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     /**
      * The Stylist's settings again: they may have been saved on another device since they were
-     * loaded. Whoever calls this loads the lists afterwards, which are of days in the Stylist's
-     * timezone. An answer that a save from this device has overtaken is dropped (see [SettingsRequests]).
+     * loaded. Whoever calls this loads the Appointment lists again when the timezone is another
+     * one, because they are of days in it (see [loadEverything]). An answer that a save from this
+     * device has overtaken is dropped (see [SettingsRequests]).
      */
     private suspend fun refreshSettings() {
         val loaded = settingsRequests.fetch { api.bootstrap(container.appLanguage.device(), ZoneId.systemDefault().id) } ?: return
@@ -364,10 +365,10 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     }
 
     /**
-     * The settings and then the lists, which are of days in the Stylist's timezone. The lists are
-     * loaded also when the settings could not be, so that each of them shows how its own load went.
+     * The settings and the lists (see [withSettings]). The Appointment lists are of days in the
+     * Stylist's timezone: they are loaded again when the settings come back with another one.
      */
-    private suspend fun loadEverything() = inTurn(::refreshSettings, ::loadAll)
+    private suspend fun loadEverything() = withSettings({ clock.zone }, ::refreshSettings, ::loadAll, ::loadAppointmentLists)
 
     private suspend fun loadAll() = together(::loadClients, ::loadServiceMenu, ::loadAppointmentLists)
 
@@ -446,7 +447,12 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         viewModelScope.launch {
             try {
                 reloadAppointment(id, startsAt)
-                actions.reloadOwed()
+                if (loadedAppointments[id] == null && isListed(id)) {
+                    // Gone, or moved to another time: the lists that still show it are loaded again, quietly.
+                    actions.reloadWithRetry(::loadAppointmentLists)
+                } else {
+                    actions.reloadOwed()
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -456,6 +462,10 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             }
         }
     }
+
+    /** Whether a list on screen has a card for this Appointment. */
+    private fun isListed(id: String): Boolean =
+        listOf(_home, _calendar, _completedSources).any { list -> list.value.any { it.id == id } }
 
     /** Shows [date] in the Calendar. Choosing the day that is already shown loads it again, which is also the retry after a failed load. */
     fun setCalendarDate(date: LocalDate) {
@@ -513,6 +523,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      * to a value whose request is still running. [saved] is the value the loaded copy has.
      * [save] makes the request and, when the result is known exactly, puts it into the loaded
      * copy, so that [saved] is right for the next tap even before the reload.
+     * When a later request of the taps fails, the reload still shows what an earlier one saved.
      */
     private fun <V> saveLatest(
         changes: LatestWins<String, V>,
@@ -527,8 +538,21 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             return
         }
 
+        var savedAny = false
+
         // No key: the values are ordered here, and the next change may start while this one is still reloading.
-        actOnAppointment(appointmentId, key = null, successNotice) { changes.send(target, save) }
+        actions.run(
+            key = null,
+            change = {
+                changes.send(target) { next ->
+                    save(next)
+                    loadedAppointments.changed(appointmentId)
+                    savedAny = true
+                }
+            },
+            reload = { reloadAppointmentAndLists(appointmentId) },
+            savedInPart = { savedAny },
+        ) { _ -> successNotice?.let { notify(it) } }
     }
 
     // --- settings ---
@@ -586,11 +610,11 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             successNotice = if (current.onboardingComplete) R.string.settings_saved else null,
             reload = { loadAll() },
         ) {
-            val saved = settingsRequests.save {
+            settingsRequests.save {
                 // The language as it is now: a language switch that was still being saved has ended by this save's turn.
-                api.saveSettings(language.toSave(_stylist.value ?: current), trimmedTimezone, salonAddress.trim())
+                // The reply is put in place here, before the next save has its turn: that one is built from it.
+                showStylist(api.saveSettings(language.toSave(_stylist.value ?: current), trimmedTimezone, salonAddress.trim()))
             }
-            showStylist(saved)
             // In another timezone it can be another day. The reload loads it.
             followDay()
         }

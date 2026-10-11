@@ -25,6 +25,8 @@ import kotlinx.coroutines.sync.withLock
  * - When the server says that something the change refers to no longer exists
  *   ([ApiException.isNotFound]) the failure is reported and everything is reloaded, so what is
  *   gone leaves the screen.
+ * - When a change that makes several requests fails after one of them was saved (`savedInPart`)
+ *   the failure is reported and the reload still runs, so the screen shows what was saved.
  * - A reload after a change that fails stays owed until it works (see [reloadAfterChange]), and
  *   the Stylist is told when the screen may not show a change that was saved.
  * - Whatever is thrown is reported through [onFailure]. Nothing escapes to kill the app, and
@@ -58,8 +60,16 @@ internal class ActionRunner(
     /**
      * [key] names the action and what it acts on, such as `deleteService:<id>`. Pass null only
      * when repeated calls are meant and the caller orders them itself (see [LatestWins]).
+     * [savedInPart] is asked when [change] has failed: true when a request it made before the one
+     * that failed was saved.
      */
-    fun <T> run(key: String?, change: suspend () -> T, reload: suspend () -> Unit = {}, onSaved: (T) -> Unit = {}) {
+    fun <T> run(
+        key: String?,
+        change: suspend () -> T,
+        reload: suspend () -> Unit = {},
+        savedInPart: () -> Boolean = { false },
+        onSaved: (T) -> Unit = {},
+    ) {
         if (key != null && !running.add(key)) {
             return
         }
@@ -84,6 +94,8 @@ internal class ActionRunner(
                         reloadAll()
                         reload()
                     }
+                    // The Stylist has been told what failed. What was saved before it still has to show.
+                    savedInPart() -> reloadAfterChange(saved = false, reload)
                 }
             } finally {
                 key?.let(running::remove)
