@@ -33,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,7 +82,6 @@ private enum class MainTab(@StringRes val label: Int, val icon: ImageVector) {
 @Composable
 fun MainNavigation(viewModel: AppViewModel) {
     val navController = rememberNavController()
-    val openAppointment: (String, String) -> Unit = { id, startsAt -> navController.navigate(Routes.appointment(id, startsAt)) }
     // Set while the app is out of view, so that only a return reloads, not the first start.
     var away by remember { mutableStateOf(false) }
 
@@ -96,8 +96,8 @@ fun MainNavigation(viewModel: AppViewModel) {
     }
 
     NavHost(navController, startDestination = Routes.MAIN, modifier = Modifier.fillMaxSize()) {
-        composable(Routes.MAIN) {
-            MainScreen(viewModel, navController, openAppointment)
+        composable(Routes.MAIN) { entry ->
+            MainScreen(viewModel, open = { route -> navController.from(entry) { navigate(route) } })
         }
         composable(Routes.SERVICES) { entry ->
             ServiceMenuScreen(viewModel, onBack = { navController.from(entry) { popBackStack() } })
@@ -114,7 +114,7 @@ fun MainNavigation(viewModel: AppViewModel) {
                 appointmentId = entry.arguments?.getString("id").orEmpty(),
                 startsAt = entry.arguments?.getString("startsAt").orEmpty(),
                 onBack = { navController.from(entry) { popBackStack() } },
-                onOpenClient = { navController.navigate(Routes.client(it)) },
+                onOpenClient = { navController.from(entry) { navigate(Routes.client(it)) } },
             )
         }
         composable(
@@ -128,7 +128,7 @@ fun MainNavigation(viewModel: AppViewModel) {
                 onCreated = { appointment ->
                     navController.from(entry) {
                         popBackStack()
-                        openAppointment(appointment.id, appointment.startsAt)
+                        navigate(Routes.appointment(appointment.id, appointment.startsAt))
                     }
                 },
             )
@@ -141,16 +141,19 @@ fun MainNavigation(viewModel: AppViewModel) {
                 viewModel = viewModel,
                 clientId = entry.arguments?.getString("id"),
                 onBack = { navController.from(entry) { popBackStack() } },
-                onOpenAppointment = openAppointment,
+                onOpenAppointment = { id, startsAt -> navController.from(entry) { navigate(Routes.appointment(id, startsAt)) } },
             )
         }
     }
 }
 
 /**
- * Navigates from [entry]'s screen only while that screen is still the one on top. A callback that
- * arrives after the Stylist has left the screen (a save that finishes late, a second tap on Back)
- * would otherwise act on whatever screen is underneath.
+ * Navigates from [entry]'s screen only while that screen is still the one on top. Every screen
+ * leaves and opens other screens through here, so each of them does it once: the back stack
+ * changes with the first tap, and a second tap during the transition, on Back or on whatever
+ * opens a screen, finds another screen on top and does nothing. The same goes for a callback that
+ * arrives after the Stylist has left (a save that finishes late), which would otherwise act on the
+ * screen underneath.
  */
 private fun NavHostController.from(entry: NavBackStackEntry, action: NavHostController.() -> Unit) {
     if (currentBackStackEntry?.id == entry.id) {
@@ -159,8 +162,11 @@ private fun NavHostController.from(entry: NavBackStackEntry, action: NavHostCont
 }
 
 @Composable
-private fun MainScreen(viewModel: AppViewModel, navController: NavHostController, openAppointment: (String, String) -> Unit) {
+private fun MainScreen(viewModel: AppViewModel, open: (route: String) -> Unit) {
     var tab by rememberSaveable { mutableStateOf(MainTab.TODAY) }
+    // What a tab holds (search text, list position, an unsaved Settings draft) is kept while another tab is shown.
+    val tabStates = rememberSaveableStateHolder()
+    val openAppointment: (String, String) -> Unit = { id, startsAt -> open(Routes.appointment(id, startsAt)) }
     val calendarDate by viewModel.calendarDate.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
 
@@ -191,19 +197,21 @@ private fun MainScreen(viewModel: AppViewModel, navController: NavHostController
         },
         floatingActionButton = {
             when (tab) {
-                MainTab.TODAY -> NewFab(stringResource(R.string.new_appointment_title), Icons.Rounded.Add) { navController.navigate(Routes.newAppointment(null)) }
-                MainTab.CALENDAR -> NewFab(stringResource(R.string.new_appointment_title), Icons.Rounded.Add) { navController.navigate(Routes.newAppointment(calendarDate)) }
-                MainTab.CLIENTS -> NewFab(stringResource(R.string.new_client_action), Icons.Rounded.PersonAddAlt1) { navController.navigate(Routes.client(null)) }
+                MainTab.TODAY -> NewFab(stringResource(R.string.new_appointment_title), Icons.Rounded.Add) { open(Routes.newAppointment(null)) }
+                MainTab.CALENDAR -> NewFab(stringResource(R.string.new_appointment_title), Icons.Rounded.Add) { open(Routes.newAppointment(calendarDate)) }
+                MainTab.CLIENTS -> NewFab(stringResource(R.string.new_client_action), Icons.Rounded.PersonAddAlt1) { open(Routes.client(null)) }
                 MainTab.PROFILE -> Unit
             }
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
-            when (tab) {
-                MainTab.TODAY -> TodayScreen(viewModel, openAppointment)
-                MainTab.CALENDAR -> CalendarScreen(viewModel, openAppointment)
-                MainTab.CLIENTS -> ClientsScreen(viewModel, onOpenClient = { navController.navigate(Routes.client(it)) })
-                MainTab.PROFILE -> ProfileScreen(viewModel, onOpenServiceMenu = { navController.navigate(Routes.SERVICES) })
+            tabStates.SaveableStateProvider(tab.name) {
+                when (tab) {
+                    MainTab.TODAY -> TodayScreen(viewModel, openAppointment)
+                    MainTab.CALENDAR -> CalendarScreen(viewModel, openAppointment)
+                    MainTab.CLIENTS -> ClientsScreen(viewModel, onOpenClient = { open(Routes.client(it)) })
+                    MainTab.PROFILE -> ProfileScreen(viewModel, onOpenServiceMenu = { open(Routes.SERVICES) })
+                }
             }
             BusyBar(busy, Modifier.align(Alignment.TopCenter))
         }

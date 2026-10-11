@@ -42,9 +42,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -74,6 +77,7 @@ import com.northphoenix.hairdresserclientmanager.data.ServiceMenuItem
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
+import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.i18n.inLanguage
 import com.northphoenix.hairdresserclientmanager.i18n.toLocale
@@ -109,19 +113,55 @@ import java.io.File
 
 private const val MAX_GALLERY_PHOTOS = 10
 
-private sealed interface DetailSheet {
+/**
+ * The sheet that is open. It is saved state, so that an open sheet survives Android recreating the
+ * screen, and it names what it is about by id only: the Service, Color Formula, Client or photo is
+ * looked up in the Appointment as it is now.
+ */
+internal sealed interface DetailSheet {
     data object AddClient : DetailSheet
 
     data object AddService : DetailSheet
 
     data object CopyServices : DetailSheet
 
-    data class Formula(val service: AppointmentService, val formula: ColorFormula?) : DetailSheet
+    /** [formulaId] is null for a Color Formula that is being added. */
+    data class Formula(val serviceId: String, val formulaId: String? = null) : DetailSheet
 
-    /** [replacing] is a failed photo being retried. */
-    data class AddPhoto(val participant: AppointmentParticipant, val replacing: AppointmentPhoto? = null) : DetailSheet
+    /** [replacingPhotoId] is a failed photo being retried. */
+    data class AddPhoto(val clientId: String, val replacingPhotoId: String? = null) : DetailSheet
 
     data class Photo(val photoId: String) : DetailSheet
+
+    companion object {
+        /** A sheet is saved as its kind followed by its ids, and no sheet as nothing. */
+        val Saver = listSaver<DetailSheet?, String>(
+            save = { sheet ->
+                when (sheet) {
+                    null -> emptyList()
+                    AddClient -> listOf("addClient")
+                    AddService -> listOf("addService")
+                    CopyServices -> listOf("copyServices")
+                    is Formula -> listOfNotNull("formula", sheet.serviceId, sheet.formulaId)
+                    is AddPhoto -> listOfNotNull("addPhoto", sheet.clientId, sheet.replacingPhotoId)
+                    is Photo -> listOf("photo", sheet.photoId)
+                }
+            },
+            restore = { saved ->
+                val id = saved.getOrNull(1)
+
+                when (saved.firstOrNull()) {
+                    "addClient" -> AddClient
+                    "addService" -> AddService
+                    "copyServices" -> CopyServices
+                    "formula" -> id?.let { Formula(it, saved.getOrNull(2)) }
+                    "addPhoto" -> id?.let { AddPhoto(it, saved.getOrNull(2)) }
+                    "photo" -> id?.let(::Photo)
+                    else -> null
+                }
+            },
+        )
+    }
 }
 
 /** Everything about one Appointment: outcome, Clients, Services with Color Formulas, totals, photos and note. */
@@ -180,8 +220,14 @@ private fun AppointmentDetail(
     val completedSourcesLoad by viewModel.completedSourcesLoad.collectAsStateWithLifecycle()
     val uploadingPhoto by viewModel.uploadingPhoto.collectAsStateWithLifecycle()
     val isGroup = appointment.participants.size > 1
-    var sheet by remember { mutableStateOf<DetailSheet?>(null) }
-    var confirmDelete by remember { mutableStateOf(false) }
+    var sheet by rememberSaveable(stateSaver = DetailSheet.Saver) { mutableStateOf<DetailSheet?>(null) }
+    var confirmDelete by rememberSaveable { mutableStateOf(false) }
+
+    // The two inline fields. Back asks before it discards what is typed into them and not saved yet.
+    var noteDraft by rememberDraft(appointment.id, saved = appointment.note)
+    var finalTotalDraft by rememberDraft(appointment.id, saved = appointment.finalTotalCentsOverride?.let(Money::centsToPrice).orEmpty())
+    val unsaved = UnsavedInput.appointmentNote(noteDraft, appointment.note) ||
+        UnsavedInput.finalTotal(finalTotalDraft, appointment.finalTotalCentsOverride)
 
     // The photo target has to survive the trip to the camera or gallery and back.
     var photoClientId by rememberSaveable { mutableStateOf("") }
@@ -226,6 +272,7 @@ private fun AppointmentDetail(
         title = format.longDay(format.zoned(appointment.startsAt).toLocalDate()),
         onBack = onBack,
         busy = busy,
+        unsaved = unsaved,
     ) { padding ->
         ScreenColumn(padding) {
             // --- summary ---
@@ -309,8 +356,8 @@ private fun AppointmentDetail(
                             clientName = appointment.participants.firstOrNull { it.clientId == service.clientId }?.name.takeIf { isGroup },
                             busy = busy,
                             onDelete = { viewModel.deleteService(appointment.id, service.id) },
-                            onAddFormula = { sheet = DetailSheet.Formula(service, null) },
-                            onEditFormula = { sheet = DetailSheet.Formula(service, it) },
+                            onAddFormula = { sheet = DetailSheet.Formula(service.id) },
+                            onEditFormula = { sheet = DetailSheet.Formula(service.id, it.id) },
                         )
                     }
 
@@ -327,6 +374,8 @@ private fun AppointmentDetail(
             // --- totals ---
             TotalsCard(
                 appointment = appointment,
+                overrideText = finalTotalDraft,
+                onOverrideText = { finalTotalDraft = it },
                 onSaveOverride = { viewModel.setAppointmentFinalTotal(appointment.id, it) },
             )
 
@@ -350,7 +399,7 @@ private fun AppointmentDetail(
                         }
                         SecondaryButton(
                             stringResource(R.string.add_appointment_photo),
-                            onClick = { sheet = DetailSheet.AddPhoto(participant) },
+                            onClick = { sheet = DetailSheet.AddPhoto(participant.clientId) },
                             modifier = Modifier.fillMaxWidth(),
                             icon = Icons.Rounded.CameraAlt,
                             enabled = !uploadingPhoto,
@@ -367,7 +416,7 @@ private fun AppointmentDetail(
             }
 
             // --- note ---
-            NoteCard(appointment, onSave = { viewModel.saveAppointmentNote(appointment.id, it) })
+            NoteCard(appointment, note = noteDraft, onNote = { noteDraft = it }, onSave = { viewModel.saveAppointmentNote(appointment.id, it) })
 
             // --- actions ---
             SecondaryButton(
@@ -417,21 +466,42 @@ private fun AppointmentDetail(
             onDismiss = { sheet = null },
             onCopy = { sourceId -> viewModel.copyServices(appointment.id, sourceId) { sheet = null } },
         )
-        is DetailSheet.Formula -> FormulaSheet(
-            current = current,
-            busy = busy,
-            onDismiss = { sheet = null },
-            onMissingFormula = { viewModel.notify(R.string.color_formula_required, isError = true) },
-            onSave = { formula, placement ->
-                viewModel.saveColorFormula(appointment.id, current.service.id, current.formula?.id, formula, placement) { sheet = null }
-            },
-            onDelete = { formulaId -> viewModel.deleteColorFormula(appointment.id, formulaId) { sheet = null } },
-        )
-        is DetailSheet.AddPhoto -> AddPhotoSheet(
-            current = current,
-            onDismiss = { sheet = null },
-            onPick = { category, fromCamera -> startPhoto(current.participant, category, current.replacing, fromCamera) },
-        )
+        // A sheet about something that is no longer in the Appointment closes.
+        is DetailSheet.Formula -> {
+            val service = appointment.services.firstOrNull { it.id == current.serviceId }
+            val formula = service?.colorFormulas?.firstOrNull { it.id == current.formulaId }
+
+            if (service == null || (formula == null && current.formulaId != null)) {
+                sheet = null
+            } else {
+                FormulaSheet(
+                    service = service,
+                    formula = formula,
+                    busy = busy,
+                    onDismiss = { sheet = null },
+                    onMissingFormula = { viewModel.notify(R.string.color_formula_required, isError = true) },
+                    onSave = { text, placement ->
+                        viewModel.saveColorFormula(appointment.id, service.id, formula?.id, text, placement) { sheet = null }
+                    },
+                    onDelete = { formulaId -> viewModel.deleteColorFormula(appointment.id, formulaId) { sheet = null } },
+                )
+            }
+        }
+        is DetailSheet.AddPhoto -> {
+            val participant = appointment.participants.firstOrNull { it.clientId == current.clientId }
+            val replacing = appointment.photos.firstOrNull { it.id == current.replacingPhotoId }
+
+            if (participant == null || (replacing == null && current.replacingPhotoId != null)) {
+                sheet = null
+            } else {
+                AddPhotoSheet(
+                    participant = participant,
+                    replacing = replacing,
+                    onDismiss = { sheet = null },
+                    onPick = { category, fromCamera -> startPhoto(participant, category, replacing, fromCamera) },
+                )
+            }
+        }
         is DetailSheet.Photo -> {
             val photo = appointment.photos.firstOrNull { it.id == current.photoId }
 
@@ -448,7 +518,7 @@ private fun AppointmentDetail(
                         viewModel.deletePhoto(appointment.id, photo.id)
                     },
                     onRetry = {
-                        appointment.participants.firstOrNull { it.clientId == photo.clientId }?.let { sheet = DetailSheet.AddPhoto(it, replacing = photo) }
+                        appointment.participants.firstOrNull { it.clientId == photo.clientId }?.let { sheet = DetailSheet.AddPhoto(it.clientId, replacingPhotoId = photo.id) }
                     },
                 )
             }
@@ -470,6 +540,19 @@ private fun AppointmentDetail(
         )
     }
 }
+
+/**
+ * The text of an inline field of the Appointment. It starts from [saved], and again whenever
+ * [saved] changes. Text that differs from it is kept in saved state, so it survives Android
+ * recreating the screen; an untouched field is not kept and shows what is saved by then.
+ */
+@Composable
+private fun rememberDraft(appointmentId: String, saved: String): MutableState<String> =
+    rememberSaveable(
+        appointmentId,
+        saved,
+        saver = Saver<MutableState<String>, String>(save = { draft -> draft.value.takeIf { it != saved } }, restore = { mutableStateOf(it) }),
+    ) { mutableStateOf(saved) }
 
 /** Opens the SMS app with a reminder in the primary Client's language. Nothing is sent automatically. */
 private fun composeReminder(context: Context, viewModel: AppViewModel, appointment: Appointment, stylistFormat: TimeFormat) {
@@ -607,11 +690,7 @@ private fun ServiceBlock(
 }
 
 @Composable
-private fun TotalsCard(appointment: Appointment, onSaveOverride: (Int?) -> Unit) {
-    var overrideText by remember(appointment.id, appointment.finalTotalCentsOverride) {
-        mutableStateOf(appointment.finalTotalCentsOverride?.let(Money::centsToPrice).orEmpty())
-    }
-
+private fun TotalsCard(appointment: Appointment, overrideText: String, onOverrideText: (String) -> Unit, onSaveOverride: (Int?) -> Unit) {
     HcmCard {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.appointment_totals_title), style = MaterialTheme.typography.headlineSmall)
@@ -620,7 +699,7 @@ private fun TotalsCard(appointment: Appointment, onSaveOverride: (Int?) -> Unit)
             LabeledValue(stringResource(R.string.appointment_final_total), Money.format(appointment.finalTotalCents), emphasized = true)
             HcmTextField(
                 value = overrideText,
-                onValueChange = { overrideText = it },
+                onValueChange = onOverrideText,
                 label = stringResource(R.string.appointment_final_total_override),
                 placeholder = Money.centsToPrice(appointment.finalTotalCents),
                 prefix = "$",
@@ -642,18 +721,16 @@ private fun TotalsCard(appointment: Appointment, onSaveOverride: (Int?) -> Unit)
 }
 
 @Composable
-private fun NoteCard(appointment: Appointment, onSave: (String) -> Unit) {
-    var note by remember(appointment.id, appointment.note) { mutableStateOf(appointment.note) }
-
+private fun NoteCard(appointment: Appointment, note: String, onNote: (String) -> Unit, onSave: (String) -> Unit) {
     HcmCard {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.appointment_note_title), style = MaterialTheme.typography.headlineSmall)
-            HcmTextField(note, { note = it }, label = "", placeholder = stringResource(R.string.appointment_note_placeholder), singleLine = false, minLines = 3)
+            HcmTextField(note, onNote, label = "", placeholder = stringResource(R.string.appointment_note_placeholder), singleLine = false, minLines = 3)
             SecondaryButton(
                 stringResource(R.string.save_appointment_note),
                 onClick = { onSave(note) },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = note.trim() != appointment.note,
+                enabled = UnsavedInput.appointmentNote(note, appointment.note),
             )
         }
     }
@@ -713,11 +790,11 @@ private fun AddServiceSheet(
     onMissingName: () -> Unit,
     onAdd: (clientId: String, menuItemId: String?, name: String?, priceCents: Int?, note: String?) -> Unit,
 ) {
-    var clientId by remember { mutableStateOf(appointment.primaryClientId) }
-    var menuItemId by remember { mutableStateOf<String?>(null) }
-    var name by remember { mutableStateOf("") }
-    var price by remember { mutableStateOf("") }
-    var note by remember { mutableStateOf("") }
+    var clientId by rememberSaveable { mutableStateOf(appointment.primaryClientId) }
+    var menuItemId by rememberSaveable { mutableStateOf<String?>(null) }
+    var name by rememberSaveable { mutableStateOf("") }
+    var price by rememberSaveable { mutableStateOf("") }
+    var note by rememberSaveable { mutableStateOf("") }
     val selectedItem = menu.firstOrNull { it.id == menuItemId }
 
     HcmBottomSheet(title = stringResource(R.string.add_appointment_service), onDismiss = onDismiss) {
@@ -821,26 +898,28 @@ private fun CopyServicesSheet(
 
 @Composable
 private fun FormulaSheet(
-    current: DetailSheet.Formula,
+    service: AppointmentService,
+    formula: ColorFormula?,
     busy: Boolean,
     onDismiss: () -> Unit,
     onMissingFormula: () -> Unit,
     onSave: (formula: String, placement: String) -> Unit,
     onDelete: (String) -> Unit,
 ) {
-    var formula by remember(current) { mutableStateOf(current.formula?.formula.orEmpty()) }
-    var placement by remember(current) { mutableStateOf(current.formula?.placement.orEmpty()) }
+    // Filled from the Color Formula when the sheet opens; what is typed after that is kept as it is.
+    var text by rememberSaveable(service.id, formula?.id) { mutableStateOf(formula?.formula.orEmpty()) }
+    var placement by rememberSaveable(service.id, formula?.id) { mutableStateOf(formula?.placement.orEmpty()) }
 
-    HcmBottomSheet(title = stringResource(R.string.color_formula_label), subtitle = current.service.name, onDismiss = onDismiss) {
-        HcmTextField(formula, { formula = it }, label = stringResource(R.string.color_formula_label), placeholder = "7N + 20 vol", singleLine = false, minLines = 2)
+    HcmBottomSheet(title = stringResource(R.string.color_formula_label), subtitle = service.name, onDismiss = onDismiss) {
+        HcmTextField(text, { text = it }, label = stringResource(R.string.color_formula_label), placeholder = "7N + 20 vol", singleLine = false, minLines = 2)
         HcmTextField(placement, { placement = it }, label = stringResource(R.string.color_formula_placement_label), placeholder = stringResource(R.string.placeholder_formula_placement))
         PrimaryButton(
-            stringResource(if (current.formula != null) R.string.save_color_formula else R.string.add_color_formula),
-            onClick = { if (formula.isBlank()) onMissingFormula() else onSave(formula, placement) },
+            stringResource(if (formula != null) R.string.save_color_formula else R.string.add_color_formula),
+            onClick = { if (text.isBlank()) onMissingFormula() else onSave(text, placement) },
             modifier = Modifier.fillMaxWidth(),
             loading = busy,
         )
-        current.formula?.let { existing ->
+        formula?.let { existing ->
             TextAction(
                 stringResource(R.string.delete_color_formula),
                 onClick = { onDelete(existing.id) },
@@ -854,10 +933,15 @@ private fun FormulaSheet(
 }
 
 @Composable
-private fun AddPhotoSheet(current: DetailSheet.AddPhoto, onDismiss: () -> Unit, onPick: (PhotoCategory, fromCamera: Boolean) -> Unit) {
-    var category by remember(current) { mutableStateOf(current.replacing?.category ?: PhotoCategory.AFTER) }
+private fun AddPhotoSheet(
+    participant: AppointmentParticipant,
+    replacing: AppointmentPhoto?,
+    onDismiss: () -> Unit,
+    onPick: (PhotoCategory, fromCamera: Boolean) -> Unit,
+) {
+    var category by rememberSaveable(participant.clientId, replacing?.id) { mutableStateOf(replacing?.category ?: PhotoCategory.AFTER) }
 
-    HcmBottomSheet(title = stringResource(R.string.appointment_photos_title), subtitle = current.participant.name, onDismiss = onDismiss) {
+    HcmBottomSheet(title = stringResource(R.string.appointment_photos_title), subtitle = participant.name, onDismiss = onDismiss) {
         Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Text(stringResource(R.string.appointment_photo_category_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             SegmentedControl(PhotoCategory.entries, category, { category = it }, label = { stringResource(it.label) })

@@ -100,6 +100,10 @@
     <string name="delete_client_confirm_body">Клиент будет убран из всех записей. Записи, в которых не останется клиентов, тоже удалятся.</string>
     <string name="delete_color_formula">Удалить формулу</string>
     <string name="delete_service_menu_item">Удалить услугу</string>
+    <string name="discard_changes_body">То, что вы ввели на этом экране, не сохранено.</string>
+    <string name="discard_changes_confirm">Выйти</string>
+    <string name="discard_changes_keep">Остаться</string>
+    <string name="discard_changes_title">Выйти без сохранения?</string>
     <string name="duplicate_phone_body">Этот номер уже указан у другого клиента. Можно всё равно сохранить.</string>
     <string name="duplicate_phone_continue">Всё равно сохранить</string>
     <string name="duplicate_phone_title">Номер уже используется</string>

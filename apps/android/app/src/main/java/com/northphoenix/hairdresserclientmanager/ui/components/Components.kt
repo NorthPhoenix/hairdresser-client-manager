@@ -511,13 +511,14 @@ fun ConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     danger: Boolean = false,
+    dismissText: String = stringResource(R.string.cancel),
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title, style = MaterialTheme.typography.headlineSmall) },
         text = { Text(body, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) },
         confirmButton = { TextAction(confirmText, onClick = onConfirm, danger = danger) },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(dismissText, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
         containerColor = MaterialTheme.colorScheme.surface,
         shape = MaterialTheme.shapes.extraLarge,
     )

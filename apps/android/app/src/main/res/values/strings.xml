@@ -101,6 +101,10 @@
     <string name="delete_client_confirm_body">The Client is removed from every Appointment. Appointments left without Clients are deleted too.</string>
     <string name="delete_color_formula">Delete Formula</string>
     <string name="delete_service_menu_item">Delete Service</string>
+    <string name="discard_changes_body">What you entered on this screen hasn\'t been saved.</string>
+    <string name="discard_changes_confirm">Discard</string>
+    <string name="discard_changes_keep">Keep editing</string>
+    <string name="discard_changes_title">Discard changes?</string>
     <string name="duplicate_phone_body">Another Client already has this phone number. You can save anyway.</string>
     <string name="duplicate_phone_continue">Save anyway</string>
     <string name="duplicate_phone_title">Phone already used</string>

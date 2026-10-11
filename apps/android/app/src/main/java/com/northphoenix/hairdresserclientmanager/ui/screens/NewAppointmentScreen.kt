@@ -30,6 +30,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.LocationType
+import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
@@ -67,7 +68,11 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
     var endTime by rememberSaveable { mutableStateOf<LocalTime?>(null) }
     var locationType by rememberSaveable { mutableStateOf(LocationType.IN_SALON) }
     var address by rememberSaveable { mutableStateOf("") }
-    var picker by remember { mutableStateOf<AppointmentPicker?>(null) }
+    var picker by rememberSaveable { mutableStateOf<AppointmentPicker?>(null) }
+
+    // Back asks before it discards the draft, once it differs from what the form opened with.
+    val content = UnsavedInput.newAppointment(primaryClientId, inlineClientName, additionalClientIds, date, startTime, endTime, locationType, address)
+    val opened = rememberSaveable { content }
 
     val primaryClient = clients.firstOrNull { it.id == primaryClientId }
     val additionalClients = clients.filter { it.id in additionalClientIds }
@@ -95,6 +100,7 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
         title = stringResource(R.string.new_appointment_title),
         onBack = onBack,
         busy = busy,
+        unsaved = content != opened,
         bottomBar = {
             BottomActionBar {
                 PrimaryButton(stringResource(R.string.create_appointment), onClick = ::submit, modifier = Modifier.fillMaxWidth(), loading = busy)

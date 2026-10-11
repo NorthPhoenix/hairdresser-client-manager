@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,7 +58,7 @@ fun ClientPickerSheet(
     onDismiss: () -> Unit,
     onCreateInline: ((String) -> Unit)? = null,
 ) {
-    var search by remember { mutableStateOf("") }
+    var search by rememberSaveable { mutableStateOf("") }
     val filtered = remember(clients, search) { ClientRules.filter(clients, search) }
 
     HcmBottomSheet(title = title, onDismiss = onDismiss) {

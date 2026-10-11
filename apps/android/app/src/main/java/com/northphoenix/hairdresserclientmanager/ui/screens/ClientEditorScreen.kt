@@ -74,6 +74,7 @@ import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
 import com.northphoenix.hairdresserclientmanager.domain.ContactImport
 import com.northphoenix.hairdresserclientmanager.domain.ImportedContact
+import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
@@ -129,6 +130,8 @@ fun ClientEditorScreen(
     var email by rememberSaveable { mutableStateOf("") }
     var address by rememberSaveable { mutableStateOf("") }
     var note by rememberSaveable { mutableStateOf("") }
+    // The form as it was when it was opened, filled or last saved. Back asks before it discards what was changed since.
+    var savedContent by rememberSaveable { mutableStateOf(UnsavedInput.clientForm(name, language, phone, email, address, note)) }
     var dialog by remember { mutableStateOf<ClientDialog?>(null) }
     var pendingImport by remember { mutableStateOf<ImportedContact?>(null) }
     var shareImageSvg by remember { mutableStateOf<String?>(null) }
@@ -146,6 +149,7 @@ fun ClientEditorScreen(
             address = existing.address
             note = existing.note
             loadedFor = existing.id
+            savedContent = UnsavedInput.clientForm(name, language, phone, email, address, note)
         }
     }
 
@@ -157,9 +161,12 @@ fun ClientEditorScreen(
     }
 
     fun save() {
+        val submitted = UnsavedInput.clientForm(name, language, phone, email, address, note)
+
         viewModel.saveClient(currentId, name, language, phone, email, address, note) { saved ->
             currentId = saved.id
             loadedFor = saved.id
+            savedContent = submitted
         }
     }
 
@@ -223,6 +230,7 @@ fun ClientEditorScreen(
         title = stringResource(if (existing != null) R.string.edit_client_title else R.string.new_client_title),
         onBack = onBack,
         busy = busy,
+        unsaved = UnsavedInput.clientForm(name, language, phone, email, address, note) != savedContent,
         bottomBar = {
             BottomActionBar {
                 PrimaryButton(

@@ -2,8 +2,10 @@ package com.northphoenix.hairdresserclientmanager.state
 
 import android.net.Uri
 import androidx.annotation.StringRes
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -70,7 +72,7 @@ sealed interface BootstrapState {
  * The app is online-first: after a change we refetch. A local copy is only touched with what the
  * server has just confirmed, so the screen is right even when that refetch fails.
  */
-class AppViewModel(private val container: AppContainer, val auth: AuthGateway) : ViewModel() {
+class AppViewModel(private val container: AppContainer, val auth: AuthGateway, savedState: SavedStateHandle) : ViewModel() {
     private val api = container.api
 
     val authState: StateFlow<AuthState> = auth.state
@@ -114,6 +116,9 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
 
     private val _calendarDate = MutableStateFlow(LocalDate.now())
     val calendarDate: StateFlow<LocalDate> = _calendarDate.asStateFlow()
+
+    /** A day other than today that the Stylist has selected, so that it is still selected after Android has killed the app. */
+    private val savedCalendarDay = SavedCalendarDay(savedState)
 
     private val _calendar = MutableStateFlow<List<Appointment>>(emptyList())
     val calendar: StateFlow<List<Appointment>> = _calendar.asStateFlow()
@@ -246,7 +251,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
                 if (stylist.onboardingComplete) {
                     AppLanguage.apply(stylist.language)
                 }
-                _calendarDate.value = clock.today()
+                // The day that was selected when Android killed the app in the background, today otherwise.
+                _calendarDate.value = savedCalendarDay.take(stylist.id) ?: clock.today()
                 _bootstrap.value = BootstrapState.Ready
 
                 if (stylist.onboardingComplete) {
@@ -387,6 +393,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
             _calendar.value = emptyList()
             calendarLoading.reset()
         }
+        _stylist.value?.let { savedCalendarDay.keep(it.id, date.takeIf { day -> day != clock.today() }) }
 
         calendarJob?.cancel()
         calendarJob = viewModelScope.launch { reporting { loadCalendarDay() } }
@@ -814,7 +821,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway) :
 
     companion object {
         fun factory(container: AppContainer, auth: AuthGateway): ViewModelProvider.Factory =
-            viewModelFactory { initializer { AppViewModel(container, auth) } }
+            viewModelFactory { initializer { AppViewModel(container, auth, createSavedStateHandle()) } }
     }
 }
 

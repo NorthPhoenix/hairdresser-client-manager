@@ -18,7 +18,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,7 +29,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
-import com.northphoenix.hairdresserclientmanager.data.ServiceMenuItem
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
@@ -42,10 +42,31 @@ import com.northphoenix.hairdresserclientmanager.ui.components.ScreenPadding
 import com.northphoenix.hairdresserclientmanager.ui.components.SubScreen
 import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
 
-private sealed interface MenuEditor {
+/** The editor sheet that is open. It is saved state, so it names the Service Menu Item by id only. */
+internal sealed interface MenuEditor {
     data object New : MenuEditor
 
-    data class Edit(val item: ServiceMenuItem) : MenuEditor
+    data class Edit(val itemId: String) : MenuEditor
+
+    companion object {
+        /** No editor is saved as nothing. */
+        val Saver = listSaver<MenuEditor?, String>(
+            save = { editor ->
+                when (editor) {
+                    null -> emptyList()
+                    New -> listOf("new")
+                    is Edit -> listOf("edit", editor.itemId)
+                }
+            },
+            restore = { saved ->
+                when (saved.firstOrNull()) {
+                    "new" -> New
+                    "edit" -> saved.getOrNull(1)?.let(::Edit)
+                    else -> null
+                }
+            },
+        )
+    }
 }
 
 /** Service Menu Items: the Stylist's standard services with default prices. */
@@ -54,7 +75,7 @@ fun ServiceMenuScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     val items by viewModel.serviceMenu.collectAsStateWithLifecycle()
     val load by viewModel.serviceMenuLoad.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
-    var editor by remember { mutableStateOf<MenuEditor?>(null) }
+    var editor by rememberSaveable(stateSaver = MenuEditor.Saver) { mutableStateOf<MenuEditor?>(null) }
 
     SubScreen(
         title = stringResource(R.string.service_menu_title),
@@ -87,7 +108,7 @@ fun ServiceMenuScreen(viewModel: AppViewModel, onBack: () -> Unit) {
             }
 
             items(items, key = { it.id }) { item ->
-                HcmCard(Modifier.fillMaxWidth(), onClick = { editor = MenuEditor.Edit(item) }, contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp)) {
+                HcmCard(Modifier.fillMaxWidth(), onClick = { editor = MenuEditor.Edit(item.id) }, contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(item.name, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(Money.format(item.defaultPriceCents), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
@@ -98,32 +119,36 @@ fun ServiceMenuScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     }
 
     editor?.let { current ->
-        val existing = (current as? MenuEditor.Edit)?.item
-        var name by remember(current) { mutableStateOf(existing?.name.orEmpty()) }
-        var price by remember(current) { mutableStateOf(existing?.let { Money.centsToPrice(it.defaultPriceCents) }.orEmpty()) }
+        val editedId = (current as? MenuEditor.Edit)?.itemId
+        // Filled from the item when the sheet opens. What is typed after that is saved state of its
+        // own, so it comes back after Android has recreated the screen, also before the menu has loaded.
+        var name by rememberSaveable(current) { mutableStateOf(items.firstOrNull { it.id == editedId }?.name.orEmpty()) }
+        var price by rememberSaveable(current) {
+            mutableStateOf(items.firstOrNull { it.id == editedId }?.let { Money.centsToPrice(it.defaultPriceCents) }.orEmpty())
+        }
 
         HcmBottomSheet(
-            title = stringResource(if (existing == null) R.string.create_service_menu_item else R.string.save_service_menu_item),
+            title = stringResource(if (editedId == null) R.string.create_service_menu_item else R.string.save_service_menu_item),
             onDismiss = { editor = null },
         ) {
             HcmTextField(name, { name = it }, label = stringResource(R.string.service_menu_name_label), placeholder = stringResource(R.string.placeholder_service_name))
             HcmTextField(price, { price = it }, label = stringResource(R.string.service_menu_price_label), placeholder = "85.00", prefix = "$", keyboardType = KeyboardType.Decimal)
             PrimaryButton(
-                stringResource(if (existing == null) R.string.create_service_menu_item else R.string.save_service_menu_item),
+                stringResource(if (editedId == null) R.string.create_service_menu_item else R.string.save_service_menu_item),
                 onClick = {
                     if (name.isBlank()) {
                         viewModel.notify(R.string.service_name_required, isError = true)
                     } else {
-                        viewModel.saveServiceMenuItem(existing?.id, name, Money.priceToCents(price)) { editor = null }
+                        viewModel.saveServiceMenuItem(editedId, name, Money.priceToCents(price)) { editor = null }
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
                 loading = busy,
             )
-            if (existing != null) {
+            if (editedId != null) {
                 TextAction(
                     stringResource(R.string.delete_service_menu_item),
-                    onClick = { viewModel.deleteServiceMenuItem(existing.id) { editor = null } },
+                    onClick = { viewModel.deleteServiceMenuItem(editedId) { editor = null } },
                     icon = Icons.Rounded.DeleteOutline,
                     danger = true,
                     modifier = Modifier.align(Alignment.CenterHorizontally),

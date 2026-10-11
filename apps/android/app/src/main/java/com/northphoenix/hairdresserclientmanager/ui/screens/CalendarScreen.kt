@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,7 +67,7 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String, String) 
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
     val today = format.today()
     val weekStart = remember(selected, locale) { selected.with(WeekFields.of(locale).dayOfWeek(), 1) }
-    var showDatePicker by remember { mutableStateOf(false) }
+    var showDatePicker by rememberSaveable { mutableStateOf(false) }
 
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
         LazyColumn(

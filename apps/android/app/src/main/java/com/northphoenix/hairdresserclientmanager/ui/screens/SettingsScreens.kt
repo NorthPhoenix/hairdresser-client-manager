@@ -101,7 +101,7 @@ private fun LanguageField(viewModel: AppViewModel) {
 
 @Composable
 private fun SettingsFields(draft: SettingsDraft) {
-    var showTimezones by remember { mutableStateOf(false) }
+    var showTimezones by rememberSaveable { mutableStateOf(false) }
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         PickerField(
