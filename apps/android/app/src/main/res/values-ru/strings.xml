@@ -113,7 +113,7 @@
     <string name="copy_completed_services">Скопировать услуги из завершённой записи</string>
     <string name="copy_profile_share_link">Копировать ссылку</string>
     <string name="copy_services_done">Скопировано услуг: %1$d.</string>
-    <string name="copy_services_empty">Нет завершённых записей с услугами клиентов этой записи.</string>
+    <string name="copy_services_empty">У клиентов этой записи нет завершённых записей с услугами.</string>
     <string name="copy_services_latest">Последняя завершённая запись</string>
     <string name="copy_services_running">Копируем услуги…</string>
     <string name="copy_services_source_empty">Ничего не скопировано: в той записи нет услуг для клиентов этой записи.</string>
