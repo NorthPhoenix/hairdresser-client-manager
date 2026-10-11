@@ -4,6 +4,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Snackbar
@@ -14,6 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
@@ -24,7 +26,8 @@ val LocalTimeFormat = staticCompositionLocalOf { TimeFormat(Locale.getDefault(),
 
 val LocalSnackbarHostState = staticCompositionLocalOf { SnackbarHostState() }
 
-class NoticeVisuals(override val message: String, val isError: Boolean) : SnackbarVisuals {
+/** [message] is the text when the notice appeared. On screen it is [messageRes], so a notice follows a change of the app language. */
+class NoticeVisuals(override val message: String, @StringRes val messageRes: Int, val isError: Boolean) : SnackbarVisuals {
     override val actionLabel: String? = null
     override val withDismissAction: Boolean = false
     override val duration = if (isError) androidx.compose.material3.SnackbarDuration.Long else androidx.compose.material3.SnackbarDuration.Short
@@ -34,7 +37,8 @@ class NoticeVisuals(override val message: String, val isError: Boolean) : Snackb
 @Composable
 fun HcmSnackbarHost() {
     SnackbarHost(LocalSnackbarHostState.current) { data ->
-        val isError = (data.visuals as? NoticeVisuals)?.isError == true
+        val notice = data.visuals as? NoticeVisuals
+        val isError = notice?.isError == true
 
         Snackbar(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -42,7 +46,7 @@ fun HcmSnackbarHost() {
             containerColor = if (isError) HcmColors.Danger else HcmColors.Ink,
             contentColor = HcmColors.Surface,
         ) {
-            Text(data.visuals.message, style = MaterialTheme.typography.bodyMedium)
+            Text(notice?.let { stringResource(it.messageRes) } ?: data.visuals.message, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }

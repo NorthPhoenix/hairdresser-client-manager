@@ -122,3 +122,23 @@ internal suspend fun together(vararg loads: suspend () -> Unit) {
 
     failures.firstNotNullOfOrNull { it }?.let { throw it }
 }
+
+/**
+ * Runs loads one after another, for a load that needs what the one before it loaded. As in
+ * [together], one that fails does not stop the next, and the first failure is thrown at the end.
+ */
+internal suspend fun inTurn(vararg loads: suspend () -> Unit) {
+    var failure: Exception? = null
+
+    for (load in loads) {
+        try {
+            load()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            failure = failure ?: error
+        }
+    }
+
+    failure?.let { throw it }
+}

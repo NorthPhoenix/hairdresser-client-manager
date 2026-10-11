@@ -49,8 +49,8 @@ import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.auth.AuthState
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.Stylist
-import com.northphoenix.hairdresserclientmanager.i18n.AppLanguage
 import com.northphoenix.hairdresserclientmanager.i18n.label
+import com.northphoenix.hairdresserclientmanager.i18n.shownLanguage
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.ui.HcmSnackbarHost
 import com.northphoenix.hairdresserclientmanager.ui.components.Avatar
@@ -83,17 +83,21 @@ private fun rememberSettingsDraft(stylist: Stylist): SettingsDraft {
     return remember(timezone, salonAddress) { SettingsDraft(timezone, salonAddress) }
 }
 
-/** Switching language takes effect immediately; there is nothing to save. */
+/**
+ * Switching language takes effect immediately; there is no Save button for it. The selected option
+ * is the language the screen is in, and every tap goes to the view model, which knows what is
+ * saved and what is still being saved.
+ */
 @Composable
 private fun LanguageField(viewModel: AppViewModel) {
-    val selected = AppLanguage.current(LocalContext.current)
+    val selected = LocalContext.current.shownLanguage()
 
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Text(stringResource(R.string.language_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         SegmentedControl(
             options = Language.entries,
             selected = selected,
-            onSelect = { if (it != selected) viewModel.setLanguage(it) },
+            onSelect = viewModel::setLanguage,
             label = { stringResource(it.label) },
         )
     }

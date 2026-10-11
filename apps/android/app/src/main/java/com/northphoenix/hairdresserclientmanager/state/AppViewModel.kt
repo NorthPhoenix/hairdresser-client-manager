@@ -31,8 +31,6 @@ import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
 import com.northphoenix.hairdresserclientmanager.data.toApiException
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
 import com.northphoenix.hairdresserclientmanager.domain.zoneOrSystem
-import com.northphoenix.hairdresserclientmanager.i18n.deviceLanguage
-import com.northphoenix.hairdresserclientmanager.i18n.AppLanguage
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
 import com.northphoenix.hairdresserclientmanager.i18n.refusedSignInMessage
 import java.time.Instant
@@ -88,8 +86,11 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     private val _stylist = MutableStateFlow<Stylist?>(null)
     val stylist: StateFlow<Stylist?> = _stylist.asStateFlow()
 
-    /** Chosen on the onboarding screen, where there are no saved settings to update yet. */
-    private var onboardingLanguage: Language? = null
+    /** Decides which language the app is in. Nothing else sets the app language. */
+    private val language = StylistLanguage(container.appLanguage)
+
+    /** Every save and every fetch of the Stylist's settings after the first goes through this, so that none overtakes another. */
+    private val settingsRequests = SettingsRequests()
 
     /** The Stylist's timezone. Appointment times and day boundaries are always in it. */
     val zone: StateFlow<ZoneId> =
@@ -233,7 +234,6 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     private fun clearStylistData() {
         calendarJob?.cancel()
         _stylist.value = null
-        onboardingLanguage = null
         _bootstrap.value = BootstrapState.Loading
         _clients.value = emptyList()
         _serviceMenu.value = emptyList()
@@ -254,19 +254,16 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             _bootstrap.value = BootstrapState.Loading
 
             try {
-                val stylist = api.bootstrap(deviceLanguage(), ZoneId.systemDefault().id)
-                _stylist.value = stylist
-                // An onboarded Stylist's saved language wins over whatever this device last showed.
-                if (stylist.onboardingComplete) {
-                    AppLanguage.apply(stylist.language)
-                }
+                val stylist = api.bootstrap(container.appLanguage.device(), ZoneId.systemDefault().id)
+                showStylist(stylist)
                 // The day that was selected when Android killed the app in the background, today otherwise.
                 day.follow(clock.zone)
                 _calendarDate.value = savedCalendarDay.take(stylist.id) ?: today.value
                 _bootstrap.value = BootstrapState.Ready
 
                 if (stylist.onboardingComplete) {
-                    refreshAll()
+                    // The settings have just been loaded: only the lists.
+                    refreshAll(::loadAll)
                 }
             } catch (error: CancellationException) {
                 throw error
@@ -277,6 +274,26 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
                 message?.let { _bootstrap.value = BootstrapState.Failed(it) }
             }
+        }
+    }
+
+    /** Puts a Stylist the server has just sent in place, and the app in that Stylist's language. */
+    private fun showStylist(stylist: Stylist) {
+        _stylist.value = stylist
+        followLanguage()
+    }
+
+    /**
+     * The Stylist's settings again: they may have been saved on another device since they were
+     * loaded. Whoever calls this loads the lists afterwards, which are of days in the Stylist's
+     * timezone. An answer that a save from this device has overtaken is dropped (see [SettingsRequests]).
+     */
+    private suspend fun refreshSettings() {
+        val loaded = settingsRequests.fetch { api.bootstrap(container.appLanguage.device(), ZoneId.systemDefault().id) } ?: return
+
+        // Not for a Stylist who has signed out in the meantime.
+        if (_stylist.value?.id == loaded.id) {
+            showStylist(loaded)
         }
     }
 
@@ -297,14 +314,15 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     }
 
     /**
-     * The app is in front again, and what it shows may have been changed elsewhere meanwhile.
+     * The app is in front again, and what it shows may have been changed elsewhere meanwhile: the
+     * lists, and the Stylist's settings on another device.
      * Nobody asked for this reload, so it fails quietly and what was on screen stays.
      */
     fun refreshOnReturn() {
         if (_stylist.value?.onboardingComplete == true) {
             // The day may have ended meanwhile. Now, so that the screen is on the new day before the reload has its turn.
             followDay()
-            viewModelScope.launch { actions.reloadWithRetry(::loadAll) }
+            viewModelScope.launch { actions.reloadWithRetry(::loadEverything) }
         }
     }
 
@@ -339,11 +357,17 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         return true
     }
 
-    private suspend fun refreshAll() = reporting {
-        loadAll()
+    private suspend fun refreshAll(load: suspend () -> Unit = ::loadEverything) = reporting {
+        load()
         // The server answers: what could not be reloaded after an earlier change is reloaded as well.
         actions.reloadOwed()
     }
+
+    /**
+     * The settings and then the lists, which are of days in the Stylist's timezone. The lists are
+     * loaded also when the settings could not be, so that each of them shows how its own load went.
+     */
+    private suspend fun loadEverything() = inTurn(::refreshSettings, ::loadAll)
 
     private suspend fun loadAll() = together(::loadClients, ::loadServiceMenu, ::loadAppointmentLists)
 
@@ -510,19 +534,42 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     // --- settings ---
 
     /**
-     * Switches the app language straight away. For an onboarded Stylist it is also saved,
-     * so the choice follows them to other devices; during onboarding it is saved with the rest.
+     * The Stylist chose [chosen] as the app language, in the selector or in Android's settings.
+     * The app shows it straight away. For an onboarded Stylist it is also saved, so the choice
+     * follows them to other devices, and when it cannot be saved the app goes back to the saved
+     * language. During onboarding it is saved with the rest. See [StylistLanguage].
      */
-    fun setLanguage(language: Language) {
-        AppLanguage.apply(language)
+    fun setLanguage(chosen: Language) {
+        val current = _stylist.value ?: return
 
-        val current = _stylist.value
-
-        if (current == null || !current.onboardingComplete) {
-            onboardingLanguage = language
-        } else if (current.language != language) {
-            act("setLanguage:$language") { _stylist.value = api.saveSettings(language, current.timezone, current.salonAddress) }
+        if (!language.choose(current, chosen)) {
+            return
         }
+
+        var confirmed = false
+
+        // No key: the choices are ordered by [language], as in [saveLatest]. Nothing to reload once the server
+        // has confirmed the language; after a request that got no reply, the settings show whether it was saved.
+        act(key = null, reload = { if (!confirmed) refreshSettings() }) {
+            language.save(saved = { _stylist.value?.language }) { next ->
+                settingsRequests.save {
+                    // The settings as they are now, not as they were at the tap: a save that has ended since must not be undone.
+                    _stylist.value?.let { latest -> _stylist.value = api.saveSettings(next, latest.timezone, latest.salonAddress) }
+                }
+            }
+            confirmed = true
+        }
+    }
+
+    /**
+     * Brings the app language in line with the Stylist (see [StylistLanguage]). Called whenever
+     * either may be another one: the Stylist was loaded or saved, or the app's locale changed. A
+     * language chosen in Android's settings arrives as such a change and is saved like one chosen here.
+     */
+    fun followLanguage() {
+        val current = _stylist.value ?: return
+
+        language.follow(current)?.let(::setLanguage)
     }
 
     fun saveSettings(timezone: String, salonAddress: String) {
@@ -534,17 +581,16 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             return
         }
 
-        val wasOnboarded = current.onboardingComplete
-
         act(
             key = "saveSettings",
-            successNotice = if (wasOnboarded) R.string.settings_saved else null,
+            successNotice = if (current.onboardingComplete) R.string.settings_saved else null,
             reload = { loadAll() },
         ) {
-            val language = if (wasOnboarded) current.language else onboardingLanguage ?: current.language
-            val saved = api.saveSettings(language, trimmedTimezone, salonAddress.trim())
-            _stylist.value = saved
-            AppLanguage.apply(saved.language)
+            val saved = settingsRequests.save {
+                // The language as it is now: a language switch that was still being saved has ended by this save's turn.
+                api.saveSettings(language.toSave(_stylist.value ?: current), trimmedTimezone, salonAddress.trim())
+            }
+            showStylist(saved)
             // In another timezone it can be another day. The reload loads it.
             followDay()
         }

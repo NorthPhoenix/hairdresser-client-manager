@@ -69,9 +69,13 @@ fun HcmApp(container: AppContainer) {
                 viewModel.notices.collect { notice ->
                     // Replace whatever is showing instead of queueing behind it.
                     snackbarHostState.currentSnackbarData?.dismiss()
-                    launch { snackbarHostState.showSnackbar(NoticeVisuals(context.getString(notice.message), notice.isError)) }
+                    launch { snackbarHostState.showSnackbar(NoticeVisuals(context.getString(notice.message), notice.message, notice.isError)) }
                 }
             }
+
+            // Another locale is another app language. One chosen in Android's settings arrives this way too,
+            // while the app is open or on the way back to it, and the view model saves it as the Stylist's choice.
+            LaunchedEffect(viewModel, locale) { viewModel.followLanguage() }
 
             CompositionLocalProvider(
                 LocalTimeFormat provides timeFormat,

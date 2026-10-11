@@ -14,6 +14,7 @@ import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
 import com.northphoenix.hairdresserclientmanager.domain.weeksOf
 import com.northphoenix.hairdresserclientmanager.i18n.normalizeLanguage
+import com.northphoenix.hairdresserclientmanager.i18n.stringsLanguage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -105,6 +106,16 @@ class DomainTest {
         assertEquals(Language.RU, normalizeLanguage("ru-RU"))
         assertEquals(Language.RU, normalizeLanguage("de-DE"))
         assertEquals(Language.RU, normalizeLanguage(null))
+    }
+
+    @Test
+    fun `only a Russian locale is shown in Russian, whatever the fallback would choose`() {
+        assertEquals(Language.RU, stringsLanguage("ru"))
+        assertEquals(Language.RU, stringsLanguage("ru-KZ"))
+        assertEquals(Language.EN, stringsLanguage("en-GB"))
+        // No German strings: Android shows the default set, which is English.
+        assertEquals(Language.EN, stringsLanguage("de-DE"))
+        assertEquals(Language.EN, stringsLanguage(null))
     }
 
     @Test
