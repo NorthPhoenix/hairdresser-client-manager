@@ -74,6 +74,9 @@ fun SignInScreen(flow: SignInFlow, modifier: Modifier = Modifier) {
 
     val state by flow.state.collectAsStateWithLifecycle()
     val onFirstStep = state.step == SignInStep.EMAIL
+    // The password of the two password steps is kept above them: it is still there when the
+    // Stylist comes back from the code step. Another email starts with none.
+    var password by rememberSaveable(state.email) { mutableStateOf("") }
 
     BackHandler(enabled = !onFirstStep, onBack = flow::back)
 
@@ -91,8 +94,8 @@ fun SignInScreen(flow: SignInFlow, modifier: Modifier = Modifier) {
 
         when (state.step) {
             SignInStep.EMAIL -> EmailStep(state, flow)
-            SignInStep.PASSWORD -> PasswordStep(state, flow)
-            SignInStep.CREATE_PASSWORD -> CreatePasswordStep(state, flow)
+            SignInStep.PASSWORD -> PasswordStep(state, flow, password) { password = it }
+            SignInStep.CREATE_PASSWORD -> CreatePasswordStep(state, flow, password) { password = it }
             SignInStep.CODE -> CodeStep(state, flow)
             SignInStep.NEW_PASSWORD -> NewPasswordStep(state, flow)
         }
@@ -128,15 +131,14 @@ private fun EmailStep(state: SignInState, flow: SignInFlow) {
 }
 
 @Composable
-private fun PasswordStep(state: SignInState, flow: SignInFlow) {
-    var password by rememberSaveable { mutableStateOf("") }
+private fun PasswordStep(state: SignInState, flow: SignInFlow, password: String, onPasswordChange: (String) -> Unit) {
     val submit = { flow.submitPassword(password) }
 
     ScreenTitle(title = stringResource(R.string.sign_in_password_title), subtitle = state.email)
     PasswordField(
         value = password,
         onValueChange = {
-            password = it
+            onPasswordChange(it)
             flow.clearError()
         },
         label = stringResource(R.string.sign_in_password_label),
@@ -155,8 +157,7 @@ private fun PasswordStep(state: SignInState, flow: SignInFlow) {
 }
 
 @Composable
-private fun CreatePasswordStep(state: SignInState, flow: SignInFlow) {
-    var password by rememberSaveable { mutableStateOf("") }
+private fun CreatePasswordStep(state: SignInState, flow: SignInFlow, password: String, onPasswordChange: (String) -> Unit) {
     val submit = { flow.createAccount(password) }
 
     ScreenTitle(title = stringResource(R.string.sign_in_create_title), subtitle = stringResource(R.string.sign_in_create_body, state.email))
@@ -164,7 +165,7 @@ private fun CreatePasswordStep(state: SignInState, flow: SignInFlow) {
         PasswordField(
             value = password,
             onValueChange = {
-                password = it
+                onPasswordChange(it)
                 flow.clearError()
             },
             label = stringResource(R.string.sign_in_password_label),
