@@ -7,6 +7,7 @@ import {
   buildClientReminderMessage,
   getMissingLocalizationKeys,
   messageKeys,
+  requestedLocale,
   t,
   themeTokens,
   type SupportedLocale
@@ -40,6 +41,30 @@ describe("v1 acceptance hardening", () => {
         expect(t(locale, key).trim(), `${locale}.${key}`).not.toBe("");
       }
     }
+  });
+
+  it("reads the language an address asks for, from the first value when lang is repeated", () => {
+    expect(requestedLocale("en")).toBe("en");
+    expect(requestedLocale("ru")).toBe("ru");
+    expect(requestedLocale("EN-us")).toBe("en");
+    // ?lang=en&lang=ru reaches a page as a list.
+    expect(requestedLocale(["en", "ru"])).toBe("en");
+    expect(requestedLocale(["ru", "en"])).toBe("ru");
+    // No language asked for: the page keeps the Client's language.
+    expect(requestedLocale(undefined)).toBeNull();
+    expect(requestedLocale(null)).toBeNull();
+    expect(requestedLocale("")).toBeNull();
+    expect(requestedLocale([])).toBeNull();
+    expect(requestedLocale(["", "en"])).toBeNull();
+  });
+
+  it("tells a Client in both languages that a link is no longer available", () => {
+    expect(t("ru", "profileShareUnavailableTitle")).toBe("Ссылка больше не действует");
+    expect(t("en", "profileShareUnavailableTitle")).toBe("This link is no longer available");
+    expect(t("ru", "profileShareUnavailableBody")).not.toMatch(/[a-z]/i);
+    expect(t("ru", "profileShareDescription")).not.toMatch(/[a-z]/i);
+    expect(t("ru", "languageSwitchLabel")).toBe("Язык");
+    expect(t("en", "languageSwitchLabel")).toBe("Language");
   });
 
   it("uses Client language for client-facing reminders and shares", () => {

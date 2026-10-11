@@ -1,6 +1,7 @@
 /// <reference types="node" />
 
 import { describe, expect, it, vi } from "vitest";
+import { isProfileShareToken } from "@hcm/shared";
 import type { Db, TRPCContext } from "./context";
 import {
   defaultProfileShareOptions,
@@ -362,6 +363,35 @@ describe("Profile Share photo links", () => {
   });
 });
 
+describe("Profile Share link tokens", () => {
+  const token = "0123456789abcdef".repeat(4);
+
+  it("are 64 hexadecimal digits", () => {
+    expect(isProfileShareToken(token)).toBe(true);
+    expect(isProfileShareToken("f".repeat(64))).toBe(true);
+  });
+
+  it("are nothing else, so that what cannot be a link is never looked up", () => {
+    // A NUL is what the database refuses to compare a text with.
+    for (const other of [
+      "",
+      "demo-token",
+      token.slice(1),
+      `${token}0`,
+      token.toUpperCase(),
+      `${token.slice(1)}g`,
+      `${token}\u0000`,
+      `${token.slice(1)}\u0000`,
+      "x\u0000",
+      `${token}\n`,
+      ` ${token}`,
+      `${token}%00`
+    ]) {
+      expect(isProfileShareToken(other), JSON.stringify(other)).toBe(false);
+    }
+  });
+});
+
 describe("Profile Share times", () => {
   const appointment = {
     startsAt: new Date("2026-10-22T21:30:00.000Z"),
@@ -506,6 +536,8 @@ describe("Profile Share procedures", () => {
       includeAfterPhotos: true,
       includeOtherPhotos: true
     });
+    // The link of a new Profile Share is one the share page looks up.
+    expect(isProfileShareToken(String(profileShareCreate.mock.calls[0]?.[0].data.token))).toBe(true);
     expect(share).toMatchObject({
       includeColorFormulas: false,
       includeAfterPhotos: true,

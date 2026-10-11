@@ -1,5 +1,5 @@
 import { findSharedPhoto } from "@hcm/api";
-import { loadProfileShare, openSharePhoto } from "../../../../../server/profileShare";
+import { loadProfileShare, openSharePhoto, unavailableShareResponse } from "../../../../../server/profileShare";
 
 /**
  * A photo of a Profile Share page, served under the share's own link: it is there only as long as
@@ -12,9 +12,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   const photo = share && findSharedPhoto(share.content, token, name);
 
   if (!photo) {
-    return new Response("Profile Share is unavailable.", {
-      status: 404
-    });
+    return unavailableShareResponse(token);
   }
 
   // A stored file never changes, so the photo's name stands for what it shows. The browser may

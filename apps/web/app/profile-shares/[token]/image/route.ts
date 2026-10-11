@@ -1,19 +1,17 @@
 import { buildShareImage } from "@hcm/api";
-import { normalizeLocale } from "@hcm/shared";
-import { loadProfileShare, readSharePhoto } from "../../../../server/profileShare";
+import { requestedLocale } from "@hcm/shared";
+import { loadProfileShare, readSharePhoto, unavailableShareResponse } from "../../../../server/profileShare";
 
 export async function GET(request: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  const url = new URL(request.url);
+  const lang = new URL(request.url).searchParams.get("lang");
   const share = await loadProfileShare(token);
 
   if (!share) {
-    return new Response("Profile Share is unavailable.", {
-      status: 404
-    });
+    return unavailableShareResponse(token, lang);
   }
 
-  const locale = url.searchParams.get("lang") ? normalizeLocale(url.searchParams.get("lang") ?? undefined) : share.language;
+  const locale = requestedLocale(lang) ?? share.language;
   const svg = await buildShareImage(share.content, locale, readSharePhoto);
 
   return new Response(svg, {

@@ -1,16 +1,36 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { formatAppointmentTime, sharedPhotoName } from "@hcm/api";
-import { normalizeLocale, t, type SupportedLocale } from "@hcm/shared";
+import { formatAppointmentTime, sharedPhotoName, type ProfileShareContent } from "@hcm/api";
+import { requestedLocale, t, type SupportedLocale } from "@hcm/shared";
 import { loadProfileShare } from "../../../server/profileShare";
+import { HtmlDocument } from "../../htmlDocument";
 
 type ProfileSharePageProps = {
   params: Promise<{
     token: string;
   }>;
   searchParams: Promise<{
-    lang?: string;
+    // A list when the address repeats it.
+    lang?: string | string[];
   }>;
 };
+
+// The title and the description are in the language of the page. A link that shows nothing is
+// named by not-found.tsx.
+export async function generateMetadata({ params, searchParams }: ProfileSharePageProps): Promise<Metadata> {
+  const share = await loadProfileShare((await params).token);
+
+  if (!share) {
+    return {};
+  }
+
+  const locale = requestedLocale((await searchParams).lang) ?? share.language;
+
+  return {
+    title: t(locale, "profileShareTitle"),
+    description: t(locale, "profileShareDescription")
+  };
+}
 
 function appointmentLocation(locale: SupportedLocale, appointment: { locationType: "inSalon" | "atHome"; locationAddress: string | null }) {
   return (
@@ -30,8 +50,14 @@ export default async function ProfileSharePage({ params, searchParams }: Profile
     notFound();
   }
 
-  const { content } = share;
-  const locale = lang ? normalizeLocale(lang) : share.language;
+  const locale = requestedLocale(lang) ?? share.language;
+
+  return <HtmlDocument locale={locale}>{profileShare(token, locale, share.content)}</HtmlDocument>;
+}
+
+// Called, not rendered as a component of its own: in development the framework sends what a
+// component is given to the browser, and `content` holds the addresses of the stored photos.
+function profileShare(token: string, locale: SupportedLocale, content: ProfileShareContent) {
   const completed = content.lastCompletedAppointment;
   const photoCaptions = {
     before: t(locale, "profileSharePhotoBefore"),
@@ -55,7 +81,7 @@ export default async function ProfileSharePage({ params, searchParams }: Profile
               ) : null}
             </div>
           ) : null}
-          <nav style={styles.languageNav} aria-label="Language">
+          <nav style={styles.languageNav} aria-label={t(locale, "languageSwitchLabel")}>
             <a style={styles.languageLink} href={`/profile-shares/${token}?lang=ru`}>
               {t(locale, "switchToRussian")}
             </a>
@@ -151,9 +177,14 @@ const styles = {
     minHeight: "100vh",
     padding: 24
   },
+  // No text widens the page: a word longer than its line is broken (the Client name on a phone,
+  // or a Color Formula without a space). `wordBreak` says the same to browsers that do not know
+  // `overflowWrap: "anywhere"`.
   page: {
     margin: "0 auto",
-    maxWidth: 760
+    maxWidth: 760,
+    overflowWrap: "anywhere",
+    wordBreak: "break-word"
   },
   header: {
     borderBottom: "1px solid #17130f",
@@ -168,9 +199,10 @@ const styles = {
     margin: 0,
     textTransform: "uppercase"
   },
+  // Smaller on a phone, so that a long surname stays whole on its line.
   title: {
-    fontSize: 48,
-    lineHeight: 1,
+    fontSize: "clamp(28px, 8vw, 48px)",
+    lineHeight: 1.1,
     margin: "14px 0"
   },
   from: {
@@ -221,7 +253,7 @@ const styles = {
     alignItems: "start",
     display: "grid",
     gap: 12,
-    gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))"
+    gridTemplateColumns: "repeat(auto-fill, minmax(min(200px, 100%), 1fr))"
   },
   photoFigure: {
     margin: 0

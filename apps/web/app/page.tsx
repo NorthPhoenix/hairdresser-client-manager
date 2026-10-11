@@ -1,18 +1,21 @@
 import Link from "next/link";
 import { defaultLocale, t } from "@hcm/shared";
+import { HtmlDocument } from "./htmlDocument";
 
 export default function WebIndexPage() {
   return (
-    <main style={styles.shell}>
-      <section style={styles.panel}>
-        <p style={styles.kicker}>Hairdresser Client Manager</p>
-        <h1 style={styles.title}>{t(defaultLocale, "profileShareTitle")}</h1>
-        <p style={styles.body}>{t(defaultLocale, "profileSharePlaceholder")}</p>
-        <Link href="/profile-shares/demo-token" style={styles.link}>
-          /profile-shares/demo-token
-        </Link>
-      </section>
-    </main>
+    <HtmlDocument locale={defaultLocale}>
+      <main style={styles.shell}>
+        <section style={styles.panel}>
+          <p style={styles.kicker}>Hairdresser Client Manager</p>
+          <h1 style={styles.title}>{t(defaultLocale, "profileShareTitle")}</h1>
+          <p style={styles.body}>{t(defaultLocale, "profileSharePlaceholder")}</p>
+          <Link href="/profile-shares/demo-token" style={styles.link}>
+            /profile-shares/demo-token
+          </Link>
+        </section>
+      </main>
+    </HtmlDocument>
   );
 }
 

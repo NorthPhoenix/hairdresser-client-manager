@@ -33,6 +33,25 @@ export function normalizeLocale(locale: string | undefined): SupportedLocale {
   return defaultLocale;
 }
 
+/**
+ * The language an address asks for with `?lang=`, or null when it asks for none. A parameter that
+ * is repeated (`?lang=en&lang=ru`) arrives as a list: its first value counts.
+ */
+export function requestedLocale(lang: string | string[] | null | undefined): SupportedLocale | null {
+  const value = Array.isArray(lang) ? lang[0] : lang;
+
+  return value ? normalizeLocale(value) : null;
+}
+
+/**
+ * Whether `token` has the form of the token of a Profile Share link: 64 hexadecimal digits, as
+ * the API makes them. Anything else in its place in an address, such as a link that was cut short
+ * or a character the database does not store, is no link and is never looked up.
+ */
+export function isProfileShareToken(token: string): boolean {
+  return /^[0-9a-f]{64}$/.test(token);
+}
+
 // Copy for the client-facing web surfaces: Profile Share pages and Share Images, which are
 // written in the Client's language. The Android app keeps its own copy in Android string
 // resources (apps/android/app/src/main/res/values and values-ru). A `{name}` in a text is filled
@@ -58,6 +77,12 @@ const messages = {
     // Share Image only: what a list or the photos of the picture leave out.
     profileShareMore: "и ещё {count}",
     profileSharePhotosNotShown: "Фото, которых нет на этой картинке: {count}",
+    // What a browser tab and a link preview say about a Profile Share page.
+    profileShareDescription: "Ваши записи и услуги, которыми с вами поделился мастер.",
+    // A link that was revoked or never existed. The title alone answers for its picture and photos.
+    profileShareUnavailableTitle: "Ссылка больше не действует",
+    profileShareUnavailableBody: "Доступ к этому профилю закрыт, или ссылка скопирована не полностью. Попросите у мастера новую ссылку.",
+    languageSwitchLabel: "Язык",
     switchToRussian: "Русский",
     switchToEnglish: "English"
   },
@@ -80,6 +105,10 @@ const messages = {
     profileSharePhotoAfter: "After",
     profileShareMore: "and {count} more",
     profileSharePhotosNotShown: "Photos not shown in this picture: {count}",
+    profileShareDescription: "Your Appointments and Services, shared with you by your Stylist.",
+    profileShareUnavailableTitle: "This link is no longer available",
+    profileShareUnavailableBody: "This Client Profile is no longer shared, or the link is incomplete. Ask your Stylist for a new link.",
+    languageSwitchLabel: "Language",
     switchToRussian: "Русский",
     switchToEnglish: "English"
   }

@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { clerkClient } from "@clerk/nextjs/server";
 import {
   getUploadThingOrigins,
@@ -6,6 +7,8 @@ import {
   type SharePhotoImage
 } from "@hcm/api";
 import { db } from "@hcm/db";
+import { defaultLocale, requestedLocale, t } from "@hcm/shared";
+import { findShareLink } from "./shareLink";
 
 // Appointment Photos are stored by /api/uploadthing, in the UploadThing app of the same token.
 export const photoOrigins = getUploadThingOrigins(process.env.UPLOADTHING_TOKEN);
@@ -152,26 +155,36 @@ export async function openSharePhoto(url: string) {
   }
 }
 
-/** What the Profile Share behind a link shows. Null: the link is unknown or was revoked. */
-export async function loadProfileShare(token: string) {
-  const share = await db.profileShare.findFirst({
-    where: {
-      token,
-      revokedAt: null
-    },
-    include: {
-      client: {
-        include: {
-          stylist: true
-        }
-      }
+/**
+ * What the Profile Share behind a link shows. Null: the link is unknown or was revoked. Loaded
+ * once for a page, which asks for it twice: for what it shows and for its title.
+ */
+export const loadProfileShare = cache(async (token: string) => {
+  const share = await findShareLink(token);
+
+  if (!share || share.revokedAt !== null) {
+    return null;
+  }
+
+  return {
+    language: share.client.language,
+    content: await loadProfileShareContent({ db, photoOrigins, accountName }, share.client, resolveProfileShareOptions(share))
+  };
+});
+
+/**
+ * What the address of a picture or a photo answers when its link shows nothing, in the language
+ * the address asks for, else of the Client the link was made for, else in the primary language
+ * (proxy.ts chooses the same way for the page).
+ */
+export async function unavailableShareResponse(token: string, lang?: string | null) {
+  const locale = requestedLocale(lang) ?? (await findShareLink(token))?.client.language ?? defaultLocale;
+
+  return new Response(t(locale, "profileShareUnavailableTitle"), {
+    status: 404,
+    headers: {
+      "Content-Language": locale,
+      "Content-Type": "text/plain; charset=utf-8"
     }
   });
-
-  return (
-    share && {
-      language: share.client.language,
-      content: await loadProfileShareContent({ db, photoOrigins, accountName }, share.client, resolveProfileShareOptions(share))
-    }
-  );
 }
