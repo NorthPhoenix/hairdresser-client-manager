@@ -34,7 +34,11 @@
     <string name="appointment_location_label">Место</string>
     <string name="appointment_missing_body">Возможно, её удалили.</string>
     <string name="appointment_missing_title">Запись не найдена</string>
+    <string name="appointment_no_clients_body">Основной клиент записи — %1$s, но в записи его больше нет. Верните основного клиента или добавьте другого и сделайте его основным.</string>
+    <string name="appointment_no_clients_title">В записи нет клиентов</string>
     <string name="appointment_no_photos">Фото пока нет.</string>
+    <string name="appointment_no_primary_client_body">Основной клиент записи — %1$s, но среди её клиентов его больше нет. Верните основного клиента или выберите «Сделать основным» в меню одного из клиентов ниже.</string>
+    <string name="appointment_no_primary_client_title">Основного клиента нет в записи</string>
     <string name="appointment_no_services">Услуг пока нет.</string>
     <string name="appointment_note_placeholder">Заметка к записи</string>
     <string name="appointment_note_saved">Заметка сохранена.</string>
@@ -96,6 +100,7 @@
     <string name="client_reminder_message_at_home">Напоминание: ваша запись назначена на %1$s. Место: на дому.</string>
     <string name="client_reminder_message_in_salon">Напоминание: ваша запись назначена на %1$s. Место: в салоне.</string>
     <string name="client_reminder_missing_phone">У основного клиента нет номера телефона для SMS.</string>
+    <string name="client_reminder_no_primary_client">SMS-напоминание отправляется основному клиенту, а среди клиентов этой записи его нет.</string>
     <string name="client_saved">Клиент сохранён.</string>
     <string name="client_search_label">Поиск по имени или телефону</string>
     <string name="clients_title">Клиенты</string>
@@ -136,7 +141,9 @@
     <string name="error_appointment_needs_client">В записи должен остаться хотя бы один клиент.</string>
     <string name="error_appointment_total_too_large">Сумма услуг одной записи не может быть такой большой. Ничего не сохранено.</string>
     <string name="error_client_has_photo_uploads">У этого клиента есть фото, которые ещё не сохранены. Сначала загрузите или удалите их.</string>
+    <string name="error_client_has_photos">Сначала удалите фото этого клиента из записи.</string>
     <string name="error_client_has_services">Сначала удалите услуги этого клиента из записи.</string>
+    <string name="error_client_not_in_appointment">Этого клиента уже нет в записи.</string>
     <string name="error_generic">Что-то пошло не так. Попробуйте ещё раз.</string>
     <string name="error_image_unreadable">Не удалось прочитать выбранное изображение.</string>
     <string name="error_invalid_input">Проверьте введённые данные и попробуйте ещё раз.</string>
@@ -199,7 +206,11 @@
     <string name="remove_additional_client">Убрать клиента: %1$s</string>
     <string name="remove_appointment_photo">Удалить фото</string>
     <string name="remove_appointment_photo_confirm_body">Это фото будет удалено из записи.</string>
+    <string name="remove_client_confirm">Убрать</string>
+    <string name="remove_client_confirm_body">%1$s больше не будет в этой записи.</string>
     <string name="remove_client_from_appointment">Убрать из записи</string>
+    <string name="remove_primary_client_confirm_body">%1$s больше не будет в этой записи. Основным станет другой её клиент.</string>
+    <string name="restore_primary_client">Вернуть основного клиента</string>
     <string name="retry">Повторить</string>
     <string name="retry_appointment_photo">Загрузить заново</string>
     <string name="revoke_profile_share">Закрыть доступ к профилю</string>

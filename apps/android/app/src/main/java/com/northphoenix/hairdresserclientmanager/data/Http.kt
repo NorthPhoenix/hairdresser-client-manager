@@ -39,8 +39,31 @@ class ApiException(
      */
     val outcomeUnknown: Boolean get() = code == NO_REPLY
 
+    /** The change names a Client who is no longer one of the Appointment's Clients. */
+    val isClientNotAttached: Boolean get() = code == "BAD_REQUEST" && message in CLIENT_NOT_ATTACHED
+
+    /**
+     * The API refused a change by who the Clients of an Appointment are now, or by what they have
+     * in it. The app offers such a change only where its own copy of the Appointment allows it, so
+     * that copy is out of date and the Appointment is loaded again.
+     */
+    val screenOutOfDate: Boolean get() = isClientNotAttached || (code == "BAD_REQUEST" && message in CLIENT_KEPT)
+
     companion object {
         const val NO_REPLY = "NO_REPLY"
+
+        // The API's own words. They are the only way it tells these refusals apart.
+        private val CLIENT_NOT_ATTACHED = setOf(
+            "Client must be attached to the Appointment.",
+            "Primary Client must be attached to the Appointment.",
+            "Service Client must be attached to the Appointment.",
+            "Photo Client must be attached to the Appointment.",
+        )
+        private val CLIENT_KEPT = setOf(
+            "Appointment must keep at least one Client.",
+            "Client has Services attached to this Appointment.",
+            "Client has Appointment Photos attached to this Appointment.",
+        )
     }
 }
 

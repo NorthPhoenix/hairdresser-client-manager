@@ -25,6 +25,9 @@ import kotlinx.coroutines.sync.withLock
  * - When the server says that something the change refers to no longer exists
  *   ([ApiException.isNotFound]) the failure is reported and everything is reloaded, so what is
  *   gone leaves the screen.
+ * - When the server refuses a change that the screen should not have offered
+ *   ([ApiException.screenOutOfDate]) the failure is reported and the reload runs, so the screen
+ *   shows what the server has.
  * - When a change that makes several requests fails after one of them was saved (`savedInPart`)
  *   the failure is reported and the reload still runs, so the screen shows what was saved.
  * - A reload after a change that fails stays owed until it works (see [reloadAfterChange]), and
@@ -94,6 +97,8 @@ internal class ActionRunner(
                         reloadAll()
                         reload()
                     }
+                    // Refused by what the server has now, which is not what the screen showed when it offered the change.
+                    failure?.screenOutOfDate == true -> reloadAfterChange(saved = false, reload)
                     // The Stylist has been told what failed. What was saved before it still has to show.
                     savedInPart() -> reloadAfterChange(saved = false, reload)
                 }

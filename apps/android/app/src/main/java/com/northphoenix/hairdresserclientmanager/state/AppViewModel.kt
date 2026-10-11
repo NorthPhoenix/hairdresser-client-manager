@@ -187,7 +187,6 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     // Values the Stylist can change again while they are still being saved, each kept in the order
     // of the taps (see saveLatest). Keyed by the Appointment, the photo's category by the photo.
     private val statusChanges = LatestWins<String, AppointmentStatus>()
-    private val primaryChanges = LatestWins<String, String>()
     private val noteChanges = LatestWins<String, String>()
     private val finalTotalChanges = LatestWins<String, Long?>()
     private val photoCategoryChanges = LatestWins<String, PhotoCategory>()
@@ -859,9 +858,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     // Not put into the loaded copy: the Appointment's address can change with its primary Client, and only the reload shows to what.
     fun setAppointmentPrimary(id: String, clientId: String) =
-        saveLatest(primaryChanges, id, id, clientId, saved = loadedAppointments[id]?.primaryClientId) { next ->
-            api.updateAppointmentPrimary(id, next)
-        }
+        actOnAppointment(id, clientsChangeKey(id)) { api.updateAppointmentPrimary(id, clientId) }
 
     fun saveAppointmentNote(id: String, note: String) =
         saveLatest(noteChanges, id, id, note.trim(), saved = loadedAppointments[id]?.note, R.string.appointment_note_saved) { next ->
@@ -885,7 +882,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         }
 
     fun addParticipant(appointmentId: String, clientId: String) =
-        actOnAppointment(appointmentId, "addParticipant:$appointmentId:$clientId") { api.addParticipant(appointmentId, clientId) }
+        actOnAppointment(appointmentId, clientsChangeKey(appointmentId)) { api.addParticipant(appointmentId, clientId) }
 
     fun removeParticipant(appointmentId: String, clientId: String) {
         // As the server does for the photos it has: the Stylist deals with them first, so none is dropped without a word.
@@ -894,7 +891,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             return
         }
 
-        actOnAppointment(appointmentId, "removeParticipant:$appointmentId:$clientId") { api.removeParticipant(appointmentId, clientId) }
+        actOnAppointment(appointmentId, clientsChangeKey(appointmentId)) { api.removeParticipant(appointmentId, clientId) }
     }
 
     fun addService(
@@ -1116,6 +1113,14 @@ internal fun List<ClientProfile>.withSaved(saved: ClientProfile): List<ClientPro
 
     return listOf(saved.copy(activeProfileShare = saved.activeProfileShare ?: known?.activeProfileShare)) + filterNot { it.id == saved.id }
 }
+
+/**
+ * The key of every change to who the Clients of an Appointment are: adding one, removing one and
+ * making one primary. They share it, so they run one at a time: each is offered by the Clients the
+ * screen shows, and a second one would be decided on Clients that the first is about to change.
+ * The second does nothing until the first has been answered and the Appointment loaded again.
+ */
+internal fun clientsChangeKey(appointmentId: String) = "clients:$appointmentId"
 
 /** The time and the place the server has just answered with, on a loaded copy of that Appointment. */
 internal fun Appointment.withTimeAndPlace(saved: UpdatedAppointment): Appointment =

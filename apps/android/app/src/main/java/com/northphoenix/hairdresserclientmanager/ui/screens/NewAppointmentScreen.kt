@@ -24,6 +24,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.LocationType
+import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
 import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
@@ -66,7 +67,8 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
     var timePicker by rememberSaveable { mutableStateOf<AppointmentTimeField?>(null) }
 
     val primaryClient = clients.firstOrNull { it.id == primaryClientId }
-    val additionalClients = clients.filter { it.id in additionalClientIds }
+    // In the order they were picked, which is the order the Appointment will list them in.
+    val additionalClients = AppointmentClients.inPickedOrder(additionalClientIds, clients)
     val ownAddress = AppointmentDraft.ownAddress(typedAddress, primaryClient?.address)
     // An end time before the start time is on the next day. Null as well when the two times cannot be an Appointment: submit says so.
     val endDate = endTime?.let { AppointmentDraft.endDate(date, startTime, it) }

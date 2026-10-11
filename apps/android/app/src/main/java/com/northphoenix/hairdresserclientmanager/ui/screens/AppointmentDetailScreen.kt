@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -68,6 +69,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
@@ -97,6 +99,7 @@ import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
 import com.northphoenix.hairdresserclientmanager.data.PhotoStatus
 import com.northphoenix.hairdresserclientmanager.data.ServiceMenuItem
 import com.northphoenix.hairdresserclientmanager.domain.Amount
+import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
@@ -104,6 +107,7 @@ import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
 import com.northphoenix.hairdresserclientmanager.i18n.clientReminderTemplate
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.i18n.inLanguage
+import com.northphoenix.hairdresserclientmanager.i18n.messageRes
 import com.northphoenix.hairdresserclientmanager.i18n.toLocale
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
@@ -270,6 +274,10 @@ private fun AppointmentDetail(
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
     // The Service whose delete is being asked about. By id, like an open sheet: it is looked up again on every composition.
     var deletingServiceId by rememberSaveable { mutableStateOf<String?>(null) }
+    // The Client whose removal from the Appointment is being asked about, by id as well.
+    var removingClientId by rememberSaveable { mutableStateOf<String?>(null) }
+    // Null for all but an Appointment that changes at the same moment once left without its primary Client among its Clients.
+    val clientsFault = AppointmentClients.fault(appointment)
 
     // The two inline fields. Back asks before it discards what is typed into them and not saved yet.
     var noteDraft by rememberDraft(appointment.id, saved = appointment.note)
@@ -386,6 +394,14 @@ private fun AppointmentDetail(
             }
 
             // --- clients ---
+            clientsFault?.let { fault ->
+                ClientsFaultWarning(
+                    fault,
+                    primaryClientName = appointment.primaryClientName,
+                    enabled = !busy,
+                    onRestore = { viewModel.addParticipant(appointment.id, appointment.primaryClientId) },
+                )
+            }
             HcmCard(contentPadding = PaddingValues(top = 18.dp, bottom = 8.dp)) {
                 Text(stringResource(R.string.clients_title), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(horizontal = 18.dp))
                 appointment.participants.forEach { participant ->
@@ -393,9 +409,20 @@ private fun AppointmentDetail(
                         participant = participant,
                         showSubtotal = isGroup,
                         canRemove = isGroup,
+                        // The Clients of an Appointment change one at a time: the next change is offered by what the one before it left.
+                        canChange = !busy,
                         onOpen = { onOpenClient(participant.clientId) },
                         onMakePrimary = { viewModel.setAppointmentPrimary(appointment.id, participant.clientId) },
-                        onRemove = { viewModel.removeParticipant(appointment.id, participant.clientId) },
+                        onRemove = {
+                            // Asked only about a removal that can happen. What keeps the Client in the Appointment is said instead.
+                            val kept = AppointmentClients.keptBy(appointment, participant.clientId, uploads.any { it.photo.clientId == participant.clientId })
+
+                            if (kept == null) {
+                                removingClientId = participant.clientId
+                            } else {
+                                viewModel.notify(kept.messageRes(), isError = true)
+                            }
+                        },
                     )
                 }
                 TextAction(
@@ -403,6 +430,7 @@ private fun AppointmentDetail(
                     onClick = { sheet = DetailSheet.AddClient },
                     icon = Icons.Rounded.Add,
                     modifier = Modifier.padding(horizontal = 8.dp),
+                    enabled = !busy,
                 )
             }
 
@@ -429,7 +457,14 @@ private fun AppointmentDetail(
                         )
                     }
 
-                    SecondaryButton(stringResource(R.string.add_appointment_service), onClick = { sheet = DetailSheet.AddService }, modifier = Modifier.fillMaxWidth(), icon = Icons.Rounded.Add)
+                    SecondaryButton(
+                        stringResource(R.string.add_appointment_service),
+                        onClick = { sheet = DetailSheet.AddService },
+                        modifier = Modifier.fillMaxWidth(),
+                        // A Service is for one of the Appointment's Clients. Without any, the warning above the Clients says what to do first.
+                        enabled = clientsFault != AppointmentClients.Fault.NO_CLIENTS,
+                        icon = Icons.Rounded.Add,
+                    )
                     TextAction(
                         stringResource(R.string.copy_completed_services),
                         onClick = { sheet = DetailSheet.CopyServices },
@@ -668,6 +703,31 @@ private fun AppointmentDetail(
         )
     }
 
+    removingClientId?.let { clientId ->
+        val participant = appointment.participants.firstOrNull { it.clientId == clientId }
+
+        if (participant == null || !isGroup) {
+            // Removed on another device by now, or the only Client left. The question is over, also
+            // if that Client is added again later: unlike a Service, a Client can come back.
+            removingClientId = null
+        } else {
+            ConfirmDialog(
+                title = stringResource(R.string.remove_client_from_appointment) + "?",
+                body = stringResource(
+                    if (participant.isPrimary) R.string.remove_primary_client_confirm_body else R.string.remove_client_confirm_body,
+                    participant.name,
+                ),
+                confirmText = stringResource(R.string.remove_client_confirm),
+                danger = true,
+                onConfirm = {
+                    removingClientId = null
+                    viewModel.removeParticipant(appointment.id, participant.clientId)
+                },
+                onDismiss = { removingClientId = null },
+            )
+        }
+    }
+
     // A Service that is gone by now has nothing left to ask about.
     appointment.services.firstOrNull { it.id == deletingServiceId }?.let { service ->
         ConfirmDialog(
@@ -694,8 +754,55 @@ private fun OverlapWarning(appointment: Appointment, overlapping: List<Appointme
     val format = LocalTimeFormat.current
     val day = format.zoned(appointment.startsAt).toLocalDate()
 
+    WarningCard(
+        title = stringResource(R.string.appointment_overlap_title),
+        action = stringResource(R.string.appointment_overlap_dismiss),
+        onAction = onDismiss,
+        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+    ) {
+        Text(stringResource(R.string.appointment_overlap_intro), style = MaterialTheme.typography.bodyMedium, color = HcmColors.Ink)
+        overlapping.forEach { other ->
+            val clients = other.participants.joinToString(", ") { it.name }.ifEmpty { other.primaryClientName }
+
+            Text(format.timeRangeSeenFrom(day, other) + " · " + clients, style = MaterialTheme.typography.titleSmall, color = HcmColors.Ink)
+        }
+    }
+}
+
+/**
+ * Shown above the Clients of an Appointment whose primary Client is not one of them: what is wrong
+ * and how to put it right. [onRestore] adds the primary Client back, which mends either [fault];
+ * 'Make primary' on a Client that is listed mends it as well.
+ */
+@Composable
+private fun ClientsFaultWarning(fault: AppointmentClients.Fault, primaryClientName: String, enabled: Boolean, onRestore: () -> Unit) {
+    val (title, body) = when (fault) {
+        AppointmentClients.Fault.NO_CLIENTS -> R.string.appointment_no_clients_title to R.string.appointment_no_clients_body
+        AppointmentClients.Fault.NO_PRIMARY -> R.string.appointment_no_primary_client_title to R.string.appointment_no_primary_client_body
+    }
+
+    WarningCard(
+        title = stringResource(title),
+        action = stringResource(R.string.restore_primary_client),
+        onAction = onRestore,
+        actionEnabled = enabled,
+    ) {
+        Text(stringResource(body, primaryClientName), style = MaterialTheme.typography.bodyMedium, color = HcmColors.Ink)
+    }
+}
+
+/** A warning about the Appointment: its title, what [content] says about it, and one action under that. */
+@Composable
+private fun WarningCard(
+    title: String,
+    action: String,
+    onAction: () -> Unit,
+    modifier: Modifier = Modifier,
+    actionEnabled: Boolean = true,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     HcmCard(
-        Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        modifier,
         color = HcmColors.WarningSoft,
         borderColor = HcmColors.Warning,
         contentPadding = PaddingValues(start = 18.dp, top = 16.dp, end = 8.dp, bottom = 6.dp),
@@ -703,16 +810,11 @@ private fun OverlapWarning(appointment: Appointment, overlapping: List<Appointme
         Column(Modifier.padding(end = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Rounded.WarningAmber, contentDescription = null, modifier = Modifier.size(20.dp), tint = HcmColors.Warning)
-                Text(stringResource(R.string.appointment_overlap_title), style = MaterialTheme.typography.titleMedium, color = HcmColors.Warning)
+                Text(title, style = MaterialTheme.typography.titleMedium, color = HcmColors.Warning)
             }
-            Text(stringResource(R.string.appointment_overlap_intro), style = MaterialTheme.typography.bodyMedium, color = HcmColors.Ink)
-            overlapping.forEach { other ->
-                val clients = other.participants.joinToString(", ") { it.name }.ifEmpty { other.primaryClientName }
-
-                Text(format.timeRangeSeenFrom(day, other) + " · " + clients, style = MaterialTheme.typography.titleSmall, color = HcmColors.Ink)
-            }
+            content()
         }
-        TextAction(stringResource(R.string.appointment_overlap_dismiss), onClick = onDismiss, modifier = Modifier.align(Alignment.End))
+        TextAction(action, onClick = onAction, modifier = Modifier.align(Alignment.End), enabled = actionEnabled)
     }
 }
 
@@ -735,7 +837,8 @@ private fun composeReminder(context: Context, viewModel: AppViewModel, appointme
     val number = recipient?.let { ClientReminder.recipient(it.phone) }
 
     if (recipient == null || number == null) {
-        viewModel.notify(R.string.client_reminder_missing_phone, isError = true)
+        // No primary Client among the Appointment's Clients is not a Client without a phone.
+        viewModel.notify(if (recipient == null) R.string.client_reminder_no_primary_client else R.string.client_reminder_missing_phone, isError = true)
         return
     }
 
@@ -756,6 +859,8 @@ private fun ParticipantRow(
     participant: AppointmentParticipant,
     showSubtotal: Boolean,
     canRemove: Boolean,
+    /** False while a change is running: 'Make primary' and 'Remove from Appointment' wait for it. */
+    canChange: Boolean,
     onOpen: () -> Unit,
     onMakePrimary: () -> Unit,
     onRemove: () -> Unit,
@@ -802,15 +907,24 @@ private fun ParticipantRow(
                             menuOpen = false
                             onMakePrimary()
                         },
+                        enabled = canChange,
                     )
                 }
                 if (canRemove) {
                     DropdownMenuItem(
-                        text = { Text(stringResource(R.string.remove_client_from_appointment), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error) },
+                        text = {
+                            Text(
+                                stringResource(R.string.remove_client_from_appointment),
+                                style = MaterialTheme.typography.bodyLarge,
+                                // Its own colour only while it can be tapped: disabled, it is as pale as the menu makes the others.
+                                color = if (canChange) MaterialTheme.colorScheme.error else Color.Unspecified,
+                            )
+                        },
                         onClick = {
                             menuOpen = false
                             onRemove()
                         },
+                        enabled = canChange,
                     )
                 }
             }
@@ -1056,7 +1170,9 @@ private fun AddServiceSheet(
     onMissingName: () -> Unit,
     onAdd: (clientId: String, menuItemId: String?, name: String?, priceCents: Long?, note: String?) -> Unit,
 ) {
-    var clientId by rememberSaveable { mutableStateOf(appointment.primaryClientId) }
+    // The Client picked here, if any. They can have been removed from the Appointment while the sheet is open.
+    var pickedClientId by rememberSaveable { mutableStateOf<String?>(null) }
+    val clientId = AppointmentClients.serviceClientId(appointment, pickedClientId)
     var menuItemId by rememberSaveable { mutableStateOf<String?>(null) }
     var name by rememberSaveable { mutableStateOf("") }
     var price by rememberSaveable { mutableStateOf("") }
@@ -1071,7 +1187,7 @@ private fun AddServiceSheet(
                 Text(stringResource(R.string.appointment_service_client_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     appointment.participants.forEach { participant ->
-                        ChoiceChip(participant.name, selected = clientId == participant.clientId, onClick = { clientId = participant.clientId })
+                        ChoiceChip(participant.name, selected = clientId == participant.clientId, onClick = { pickedClientId = participant.clientId })
                     }
                 }
             }
@@ -1168,7 +1284,7 @@ private fun CopyServicesSheet(
                 SecondaryButton(stringResource(R.string.copy_services_latest), onClick = { onCopy(null) }, modifier = Modifier.fillMaxWidth(), icon = Icons.Rounded.ContentCopy)
                 sources.forEach { source ->
                     HcmCard(Modifier.fillMaxWidth(), onClick = { onCopy(source.id) }, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)) {
-                        Text(source.primaryClientName, style = MaterialTheme.typography.titleMedium)
+                        Text(AppointmentClients.leadName(source), style = MaterialTheme.typography.titleMedium)
                         Text(format.dateAndTimeRange(source), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (source.services.isNotEmpty()) {
                             Text(

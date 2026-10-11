@@ -9,6 +9,7 @@ import com.northphoenix.hairdresserclientmanager.auth.SignInError
 import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.data.PhotoPreparer
 import com.northphoenix.hairdresserclientmanager.domain.Amount
+import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 
 /**
  * The API reports failures in English only. Rather than show that text in a Russian UI,
@@ -22,6 +23,9 @@ fun ApiException.messageRes(): Int =
         outcomeUnknown -> R.string.error_outcome_unknown
         message == "Appointment must keep at least one Client." -> R.string.error_appointment_needs_client
         message == "Client has Services attached to this Appointment." -> R.string.error_client_has_services
+        message == "Client has Appointment Photos attached to this Appointment." -> R.string.error_client_has_photos
+        // Removed from the Appointment on another device, and still on this screen until it is loaded again.
+        isClientNotAttached -> R.string.error_client_not_in_appointment
         message == "End time must be after start time." -> R.string.appointment_end_before_start
         message == "Completed source Appointment not found." -> R.string.copy_services_empty
         message == "Appointment total is too large." -> R.string.error_appointment_total_too_large
@@ -35,6 +39,15 @@ fun ApiException.messageRes(): Int =
         isNotFound -> R.string.error_not_found
         code == "BAD_REQUEST" -> R.string.error_invalid_input
         else -> R.string.error_generic
+    }
+
+/** Why a Client cannot be removed from an Appointment yet. For Services and photos these are the words of the server's refusal. */
+@StringRes
+fun AppointmentClients.Kept.messageRes(): Int =
+    when (this) {
+        AppointmentClients.Kept.SERVICES -> R.string.error_client_has_services
+        AppointmentClients.Kept.PHOTOS -> R.string.error_client_has_photos
+        AppointmentClients.Kept.UNSAVED_PHOTOS -> R.string.error_client_has_photo_uploads
     }
 
 /**

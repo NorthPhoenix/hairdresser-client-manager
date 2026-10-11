@@ -3,6 +3,7 @@ package com.northphoenix.hairdresserclientmanager
 import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.state.ActionRunner
 import com.northphoenix.hairdresserclientmanager.state.LatestWins
+import com.northphoenix.hairdresserclientmanager.state.clientsChangeKey
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
@@ -218,8 +219,8 @@ class ActionRunnerTest {
         var reloads = 0
 
         runner.run<Unit>(
-            key = "removeParticipant:a1:c1",
-            change = { throw ApiException("Client has Services attached to this Appointment.", code = "BAD_REQUEST") },
+            key = "editAppointment:a1",
+            change = { throw ApiException("End time must be after start time.", code = "BAD_REQUEST") },
             reload = { reloads++ },
             onSaved = { saved = true },
         )
@@ -229,6 +230,70 @@ class ActionRunnerTest {
         assertFalse(saved)
         assertEquals(0, reloads)
         assertFalse(runner.busy.value)
+    }
+
+    @Test
+    fun `a change refused because of the Clients the Appointment has now is reported and the Appointment loaded again`() = runTest {
+        val reloads = mutableListOf<String>()
+        val runner = ActionRunner(backgroundScope, { failures += it }, reloadAll = { reloads += "everything" })
+        var saved = false
+        // L29, H1, A1: what the screen offered is not what the server has. Another device removed the Client, or gave them a Service or a photo.
+        val refusals = listOf(
+            "Client must be attached to the Appointment.",
+            "Primary Client must be attached to the Appointment.",
+            "Service Client must be attached to the Appointment.",
+            "Client has Services attached to this Appointment.",
+            "Client has Appointment Photos attached to this Appointment.",
+            "Appointment must keep at least one Client.",
+        )
+
+        refusals.forEach { message ->
+            runner.run<Unit>(
+                key = clientsChangeKey("a1"),
+                change = { throw ApiException(message, code = "BAD_REQUEST") },
+                reload = { reloads += message },
+                onSaved = { saved = true },
+            )
+            runCurrent()
+        }
+
+        // Each is told to the Stylist, and the screen then shows the Clients the server has. Nothing else is reloaded.
+        assertEquals(refusals, failures.map { it.message })
+        assertEquals(refusals, reloads)
+        assertFalse(saved)
+        assertFalse(runner.busy.value)
+    }
+
+    @Test
+    fun `a second change to the Clients of an Appointment waits until the first is answered and the Appointment loaded again`() = runTest {
+        val runner = runner()
+        val answered = CompletableDeferred<Unit>()
+        val reloaded = CompletableDeferred<Unit>()
+        val sent = mutableListOf<String>()
+
+        // A2: 'Make primary' on a Client and, within a second, 'Remove from Appointment' on the same one.
+        runner.run(key = clientsChangeKey("a1"), change = { sent += "make primary"; answered.await() }, reload = { reloaded.await() })
+        runner.run(key = clientsChangeKey("a1"), change = { sent += "remove" })
+        runCurrent()
+        assertEquals(listOf("make primary"), sent)
+
+        // Not while the Appointment is being loaded again either: the screen still shows the Clients of before.
+        answered.complete(Unit)
+        runCurrent()
+        runner.run(key = clientsChangeKey("a1"), change = { sent += "remove" })
+        // The Clients of another Appointment are not held back.
+        runner.run(key = clientsChangeKey("a2"), change = { sent += "remove from another Appointment" })
+        runCurrent()
+        assertEquals(listOf("make primary", "remove from another Appointment"), sent)
+        assertTrue(runner.busy.value)
+
+        reloaded.complete(Unit)
+        runCurrent()
+        assertFalse(runner.busy.value)
+
+        runner.run(key = clientsChangeKey("a1"), change = { sent += "remove" })
+        runCurrent()
+        assertEquals(listOf("make primary", "remove from another Appointment", "remove"), sent)
     }
 
     @Test

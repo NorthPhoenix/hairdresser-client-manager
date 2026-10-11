@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.LocationType
+import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
@@ -50,7 +51,9 @@ val LocationType.icon get() = if (this == LocationType.AT_HOME) Icons.Rounded.Ho
 @Composable
 fun AppointmentCard(appointment: Appointment, onClick: () -> Unit, modifier: Modifier = Modifier, showDate: Boolean = false) {
     val format = LocalTimeFormat.current
-    val others = appointment.participants.count { !it.isPrimary }
+    // Named by a Client who is in it, also when its primary Client is not (AppointmentClients.Fault).
+    val name = AppointmentClients.leadName(appointment)
+    val others = AppointmentClients.othersCount(appointment)
 
     HcmCard(modifier.fillMaxWidth(), onClick = onClick, contentPadding = PaddingValues(0.dp)) {
         Row(Modifier.height(IntrinsicSize.Min).padding(vertical = 16.dp)) {
@@ -70,7 +73,7 @@ fun AppointmentCard(appointment: Appointment, onClick: () -> Unit, modifier: Mod
             Column(Modifier.weight(1f).padding(start = 14.dp, end = 18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        appointment.primaryClientName,
+                        name,
                         modifier = Modifier.weight(1f, fill = false),
                         style = MaterialTheme.typography.titleLarge,
                         maxLines = 1,

@@ -141,6 +141,23 @@ class TranslationsTest {
     }
 
     @Test
+    fun `a refusal about the Clients of an Appointment says what it is about`() {
+        fun refusal(message: String) = ApiException(message, code = "BAD_REQUEST").messageRes()
+
+        // H1: photos keep a Client in the Appointment as Services do, and the message says which of the two it is.
+        assertEquals(R.string.error_client_has_photos, refusal("Client has Appointment Photos attached to this Appointment."))
+        assertEquals(R.string.error_client_has_services, refusal("Client has Services attached to this Appointment."))
+        assertEquals(R.string.error_appointment_needs_client, refusal("Appointment must keep at least one Client."))
+        // L29: a Client who was removed on another device is not "check what you entered", whatever was tried with them.
+        listOf(
+            "Client must be attached to the Appointment.",
+            "Primary Client must be attached to the Appointment.",
+            "Service Client must be attached to the Appointment.",
+            "Photo Client must be attached to the Appointment.",
+        ).forEach { assertEquals(it, R.string.error_client_not_in_appointment, refusal(it)) }
+    }
+
+    @Test
     fun `a Client picker with nothing to list says why`() {
         assertEquals(R.string.no_clients_title, emptyClientPickerText(clients = 0, offered = 0))
         // 'Add Client' on an Appointment that every Client is in already: not "No Clients yet", with or without a search.

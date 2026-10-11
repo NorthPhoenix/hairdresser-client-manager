@@ -329,8 +329,9 @@ internal class PhotoUploads(
                 show(photo.id) { it.copy(photo = photo.copy(failed = true), state = UploadState.FAILED) }
                 tell(failure)
                 withContext(io) { store.update(photo.copy(failed = true)) }
-                if (failure.outcomeUnknown) {
+                if (failure.outcomeUnknown || failure.screenOutOfDate) {
                     // The photo may have been recorded although the reply never came: the screen shows whether it was.
+                    // Or its Client is no longer in the Appointment: the screen stops listing them.
                     quietly { reload(photo, false) }
                 }
                 if (isRecorded(photo)) {

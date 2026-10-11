@@ -420,6 +420,23 @@ class PhotoUploadsTest {
         assertEquals(listOf("appointment-1" to false), reloads)
     }
 
+    @Test
+    fun `a photo for a Client who is no longer in the Appointment stays on the device and the Appointment is loaded again`() = runTest {
+        val queue = uploads()
+
+        // L29: the Client was removed from the Appointment on another device while this one still listed them.
+        record = { throw ApiException("Photo Client must be attached to the Appointment.", code = "BAD_REQUEST") }
+        queue.addPictures(1)
+        runCurrent()
+
+        // The picture is not thrown away: it is the Stylist's, and the Client can be added again.
+        assertEquals(listOf("photo-1" to UploadState.FAILED), queue.states())
+        assertEquals(listOf(true), store.all().map { it.failed })
+        assertEquals(listOf("Photo Client must be attached to the Appointment."), failures.map { it.message })
+        // The screen stops listing the Client.
+        assertEquals(listOf("appointment-1" to false), reloads)
+    }
+
     // --- a selection ---
 
     @Test

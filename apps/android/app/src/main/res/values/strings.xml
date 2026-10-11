@@ -35,7 +35,11 @@
     <string name="appointment_location_label">Location</string>
     <string name="appointment_missing_body">It may have been deleted.</string>
     <string name="appointment_missing_title">Appointment not found</string>
+    <string name="appointment_no_clients_body">%1$s is its primary Client but is no longer in it. Add the primary Client back, or add another Client and make them primary.</string>
+    <string name="appointment_no_clients_title">No Clients in this Appointment</string>
     <string name="appointment_no_photos">No photos yet.</string>
+    <string name="appointment_no_primary_client_body">%1$s is its primary Client but is no longer one of its Clients. Add the primary Client back, or choose “Make primary” in the menu of a Client below.</string>
+    <string name="appointment_no_primary_client_title">Primary Client is not in this Appointment</string>
     <string name="appointment_no_services">No Services yet.</string>
     <string name="appointment_note_placeholder">Appointment note</string>
     <string name="appointment_note_saved">Note saved.</string>
@@ -97,6 +101,7 @@
     <string name="client_reminder_message_at_home">Reminder: your appointment is scheduled for %1$s. Location: at home.</string>
     <string name="client_reminder_message_in_salon">Reminder: your appointment is scheduled for %1$s. Location: in the salon.</string>
     <string name="client_reminder_missing_phone">The primary Client has no phone number for SMS.</string>
+    <string name="client_reminder_no_primary_client">The SMS reminder goes to the primary Client, and this Appointment has none among its Clients.</string>
     <string name="client_saved">Client saved.</string>
     <string name="client_search_label">Search by name or phone</string>
     <string name="clients_title">Clients</string>
@@ -137,7 +142,9 @@
     <string name="error_appointment_needs_client">An Appointment must keep at least one Client.</string>
     <string name="error_appointment_total_too_large">The Services of one Appointment can\'t add up to this much. Nothing was saved.</string>
     <string name="error_client_has_photo_uploads">This Client has photos that aren\'t saved yet. Upload or remove them first.</string>
+    <string name="error_client_has_photos">Remove this Client\'s photos from the Appointment first.</string>
     <string name="error_client_has_services">Remove this Client\'s Services from the Appointment first.</string>
+    <string name="error_client_not_in_appointment">This Client is no longer part of the Appointment.</string>
     <string name="error_generic">Something went wrong. Try again.</string>
     <string name="error_image_unreadable">The selected image couldn\'t be read.</string>
     <string name="error_invalid_input">Check what you entered and try again.</string>
@@ -202,7 +209,11 @@
     <string name="remove_additional_client">Remove Client: %1$s</string>
     <string name="remove_appointment_photo">Remove photo</string>
     <string name="remove_appointment_photo_confirm_body">This photo will be deleted from the Appointment.</string>
+    <string name="remove_client_confirm">Remove</string>
+    <string name="remove_client_confirm_body">%1$s will no longer be in this Appointment.</string>
     <string name="remove_client_from_appointment">Remove from Appointment</string>
+    <string name="remove_primary_client_confirm_body">%1$s will no longer be in this Appointment. Another of its Clients becomes the primary one.</string>
+    <string name="restore_primary_client">Add primary Client back</string>
     <string name="retry">Try again</string>
     <string name="retry_appointment_photo">Upload again</string>
     <string name="revoke_profile_share">Revoke Profile Share</string>

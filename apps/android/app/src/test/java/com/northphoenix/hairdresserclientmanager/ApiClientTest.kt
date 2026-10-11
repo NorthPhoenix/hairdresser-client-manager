@@ -193,6 +193,61 @@ class ApiClientTest {
     }
 
     @Test
+    fun `Appointments and their Clients are in the order the server lists them`() = runTest {
+        // C15, C1: the server keeps one order for Appointments that start together and lists the primary Client
+        // first, then the others as they were added. The app shows that order as it is.
+        fun appointment(id: String, vararg clients: String) =
+            """{"id":"$id","primaryClientId":"${clients.first()}","primaryClientName":"${clients.first()}","participants":[""" +
+                clients.mapIndexed { index, client -> """{"clientId":"$client","name":"$client","isPrimary":${index == 0}}""" }.joinToString(",") +
+                """],"startsAt":"2026-10-09T23:33:00.000Z","status":"scheduled","locationType":"inSalon"}"""
+        enqueue("""{"result":{"data":[${appointment("tia", "Tia")},${appointment("tom", "Dana", "Cara", "Bob", "Anna")},${appointment("ada", "Ada")}]}}""")
+
+        val day = api.listAppointments(Instant.parse("2026-10-09T05:00:00Z"), Instant.parse("2026-10-10T05:00:00Z"))
+
+        assertEquals(listOf("tia", "tom", "ada"), day.map { it.id })
+        assertEquals(listOf("Dana", "Cara", "Bob", "Anna"), day[1].participants.map { it.name })
+        assertTrue(day[1].participants.first().isPrimary)
+    }
+
+    @Test
+    fun `a change the api refuses because of the Clients an Appointment has now is told from any other refusal`() = runTest {
+        fun refusal(message: String) = enqueue("""{"error":{"message":"$message","code":-32600,"data":{"code":"BAD_REQUEST","httpStatus":400}}}""", code = 400)
+        suspend fun refused(change: suspend () -> Unit): ApiException =
+            try {
+                change()
+                throw AssertionError("expected a refused change")
+            } catch (error: ApiException) {
+                error
+            }
+
+        // L29: the Client was removed from the Appointment on another device.
+        refusal("Client must be attached to the Appointment.")
+        refusal("Primary Client must be attached to the Appointment.")
+        refusal("Service Client must be attached to the Appointment.")
+        val gone = listOf(
+            refused { api.removeParticipant("a1", "c2") },
+            refused { api.updateAppointmentPrimary("a1", "c2") },
+            refused { api.addService("a1", "c2", menuItemId = "m1", name = null, priceCents = null, note = null) },
+        )
+
+        assertTrue(gone.all { it.isClientNotAttached && it.screenOutOfDate })
+
+        // H1, A1: the Client has photos or Services there, or is the last one left.
+        refusal("Client has Appointment Photos attached to this Appointment.")
+        refusal("Client has Services attached to this Appointment.")
+        refusal("Appointment must keep at least one Client.")
+        val kept = List(3) { refused { api.removeParticipant("a1", "c2") } }
+
+        assertTrue(kept.all { it.screenOutOfDate && !it.isClientNotAttached })
+
+        // Input the api does not take is no sign that the screen is out of date.
+        refusal("End time must be after start time.")
+        val invalid = refused { api.removeParticipant("a1", "c2") }
+
+        assertFalse(invalid.screenOutOfDate || invalid.isClientNotAttached)
+    }
+
+    @Test
     fun `server errors carry the tRPC code and message`() = runTest {
         enqueue("""{"error":{"message":"Client not found.","code":-32004,"data":{"code":"NOT_FOUND","httpStatus":404}}}""", code = 404)
 
