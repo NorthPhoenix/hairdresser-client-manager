@@ -19,6 +19,8 @@ class AppointmentDraftTest {
     private val auckland = ZoneId.of("Pacific/Auckland")
     private val berlin = TimeFormat(Locale.US, ZoneId.of("Europe/Berlin"))
     private val springForward = LocalDate.of(2027, 3, 28)
+    private val utc = TimeFormat(Locale.US, ZoneId.of("UTC"))
+    private val day = LocalDate.of(2026, 10, 24)
 
     private fun at(zone: ZoneId, date: String, time: String) = ZonedDateTime.of(LocalDate.parse(date), LocalTime.parse(time), zone)
 
@@ -110,26 +112,57 @@ class AppointmentDraftTest {
     }
 
     @Test
-    fun `an end time at or before the start time is on the next day`() {
-        val utc = TimeFormat(Locale.US, ZoneId.of("UTC"))
-        val day = LocalDate.of(2026, 10, 24)
-
+    fun `an end time before the start time is on the next day`() {
         // 11:30 PM to 12:30 AM, the end the picker itself suggests: it used to be refused.
         assertEquals(day.plusDays(1), AppointmentDraft.endDate(day, LocalTime.of(23, 30), LocalTime.of(0, 30)))
         assertEquals(
             Times.Valid(Instant.parse("2026-10-24T23:30:00Z"), Instant.parse("2026-10-25T00:30:00Z")),
             AppointmentDraft.times(day, LocalTime.of(23, 30), LocalTime.of(0, 30), utc),
         )
-        // The same time as the start is a whole day later, never an Appointment of no length.
-        assertEquals(day.plusDays(1), AppointmentDraft.endDate(day, LocalTime.of(14, 0), LocalTime.of(14, 0)))
+        // A long evening: 8:00 PM to 2:00 AM.
         assertEquals(
-            Times.Valid(Instant.parse("2026-10-24T14:00:00Z"), Instant.parse("2026-10-25T14:00:00Z")),
-            AppointmentDraft.times(day, LocalTime.of(14, 0), LocalTime.of(14, 0), utc),
+            Times.Valid(Instant.parse("2026-10-24T20:00:00Z"), Instant.parse("2026-10-25T02:00:00Z")),
+            AppointmentDraft.times(day, LocalTime.of(20, 0), LocalTime.of(2, 0), utc),
         )
+        // Until midnight is the first minute of the next day, up to the half day an overnight Appointment can be.
+        assertEquals(day.plusDays(1), AppointmentDraft.endDate(day, LocalTime.of(21, 0), LocalTime.MIDNIGHT))
+        assertEquals(day.plusDays(1), AppointmentDraft.endDate(day, LocalTime.NOON, LocalTime.MIDNIGHT))
 
-        // An end after the start stays on the day.
+        // An end after the start stays on the day, however long that is.
         assertEquals(day, AppointmentDraft.endDate(day, LocalTime.of(14, 0), LocalTime.of(14, 1)))
         assertEquals(day, AppointmentDraft.endDate(day, LocalTime.of(0, 0), LocalTime.of(23, 59)))
+    }
+
+    @Test
+    fun `times that only a mistake puts on the next day are refused`() {
+        fun refused(start: LocalTime, end: LocalTime) {
+            assertNull("$start to $end", AppointmentDraft.endDate(day, start, end))
+            assertEquals("$start to $end", Times.EndNotAfterStart, AppointmentDraft.times(day, start, end, utc))
+        }
+
+        // The same time as the start: it was saved as an Appointment of 24 hours.
+        refused(LocalTime.of(14, 0), LocalTime.of(14, 0))
+        // End 3:00 PM chosen, then the start moved to 4:00 PM: it was saved as 23 hours.
+        refused(LocalTime.of(16, 0), LocalTime.of(15, 0))
+        // 12:30 AM picked for 12:30 PM after a start of 9:00 AM: it was saved as 15 and a half hours.
+        refused(LocalTime.of(9, 0), LocalTime.of(0, 30))
+        // One minute more than half a day.
+        refused(LocalTime.of(11, 59), LocalTime.MIDNIGHT)
+
+        // AM for PM, or PM for AM, in the end of any Appointment that was meant to end on its day never passes as an overnight one.
+        val quarterHours = (0 until 96).map { LocalTime.MIDNIGHT.plusMinutes(15L * it) }
+        for (start in quarterHours) {
+            for (meant in quarterHours.filter { it.isAfter(start) }) {
+                val slip = meant.plusHours(12)
+
+                if (!slip.isAfter(start)) {
+                    assertNull("$start to $meant, picked $slip", AppointmentDraft.endDate(day, start, slip))
+                }
+            }
+        }
+
+        // A start time the clocks skip is still what the Stylist is told first.
+        assertEquals(Times.StartSkipped, AppointmentDraft.times(springForward, LocalTime.of(2, 30), LocalTime.of(2, 30), berlin))
     }
 
     // --- the at-home address ---

@@ -624,7 +624,7 @@ class DomainTest {
         val nextYear = LocalDate.of(2027, 10, 9)
         fun String.plain() = replace(Regex("\\p{Zs}"), " ")
 
-        // The New Appointment date field, the Appointment title and the Calendar's day label.
+        // The New Appointment date field and the Calendar's day label.
         assertEquals("Thursday, October 8", english.longDay(thisYear))
         assertEquals("Friday, January 10, 2025", english.longDay(lastYear))
         // The same day and month as today, in the wrong year: only the year tells.
@@ -641,7 +641,39 @@ class DomainTest {
 
         // A format that was not told the year shows none.
         assertEquals("Friday, January 10", TimeFormat(Locale.US, utc).longDay(lastYear))
+        assertEquals("Friday, January 10", TimeFormat(Locale.US, utc).dayTitle(lastYear))
         assertEquals("Jan 10", TimeFormat(Locale.US, utc).shortDate(lastYear))
+    }
+
+    @Test
+    fun `the Appointment title of a day of another year keeps its year on one line`() {
+        val utc = ZoneId.of("UTC")
+        val english = TimeFormat(Locale.US, utc, thisYear = 2026)
+        val russian = TimeFormat(Locale.forLanguageTag("ru-RU"), utc, thisYear = 2026)
+
+        // A day of this year is titled as before.
+        assertEquals("Thursday, October 8", english.dayTitle(LocalDate.of(2026, 10, 8)))
+        assertEquals("Четверг, 8 октября", russian.dayTitle(LocalDate.of(2026, 10, 8)))
+
+        assertEquals("Fri, Jan 10, 2025", english.dayTitle(LocalDate.of(2025, 1, 10)))
+        assertEquals("Sat, Oct 9, 2027", english.dayTitle(LocalDate.of(2027, 10, 9)))
+        // In full these are longer than the line and their year was cut: "Tuesday, September 30, 2025", "Понедельник, 22 декабря 2025 г.".
+        assertEquals("Tue, Sep 30, 2025", english.dayTitle(LocalDate.of(2025, 9, 30)))
+        assertTrue(russian.dayTitle(LocalDate.of(2025, 12, 22)), russian.dayTitle(LocalDate.of(2025, 12, 22)).matches(Regex("Пн, 22 дек\\.? 2025")))
+        assertTrue(russian.dayTitle(LocalDate.of(2025, 9, 28)), russian.dayTitle(LocalDate.of(2025, 9, 28)).matches(Regex("Вс, 28 сент\\.? 2025")))
+
+        // Whatever the day, the title of another year ends with the year and is shorter than every title of this year that fills the line.
+        for (format in listOf(english, russian)) {
+            for (year in listOf(2025, 2027)) {
+                for (date in (0L until 365).map { LocalDate.of(year, 1, 1).plusDays(it) }) {
+                    val title = format.dayTitle(date)
+
+                    assertTrue(title, title.endsWith(" $year"))
+                    // "Wed, Sep 30, 2025" and "Ср, 30 сент. 2025"; the longest of this year, "Понедельник, 30 сентября", has 24.
+                    assertTrue(title, title.length <= 17)
+                }
+            }
+        }
     }
 
     @Test

@@ -75,7 +75,7 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
     val primaryClient = clients.firstOrNull { it.id == primaryClientId }
     val additionalClients = clients.filter { it.id in additionalClientIds }
     val ownAddress = AppointmentDraft.ownAddress(typedAddress, primaryClient?.address)
-    // An end time at or before the start time is on the next day.
+    // An end time before the start time is on the next day. Null as well when the two times cannot be an Appointment: submit says so.
     val endDate = endTime?.let { AppointmentDraft.endDate(date, startTime, it) }
 
     // Back asks before it discards the draft, once it differs from what the form opened with.
@@ -96,6 +96,7 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
         when (val times = AppointmentDraft.times(date, startTime, endTime, format)) {
             AppointmentDraft.Times.StartSkipped -> viewModel.notify(R.string.appointment_start_time_skipped, isError = true)
             AppointmentDraft.Times.EndSkipped -> viewModel.notify(R.string.appointment_end_time_skipped, isError = true)
+            AppointmentDraft.Times.EndNotAfterStart -> viewModel.notify(R.string.appointment_end_before_start, isError = true)
             is AppointmentDraft.Times.Valid -> viewModel.createAppointment(
                 primaryClientId = primaryClientId,
                 additionalClientIds = additionalClientIds,

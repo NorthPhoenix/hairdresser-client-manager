@@ -86,6 +86,14 @@ class TimeFormat(val locale: Locale, val zone: ZoneId, private val thisYear: Int
     fun longDay(date: LocalDate): String =
         if (isThisYear(date)) capitalize(weekday.format(date)) + ", " + dayAndMonth.format(date) else fullDate(date)
 
+    /**
+     * A day as the one-line title of a screen: "Thursday, October 8", and "Wed, Oct 8, 2025" for a
+     * day of another year. [longDay] of such a day is longer than the line, and the year at its end
+     * is the first thing the ellipsis cuts.
+     */
+    fun dayTitle(date: LocalDate): String =
+        if (isThisYear(date)) longDay(date) else shortWeekday(date) + ", " + shortDateWithYear.format(date)
+
     fun shortWeekday(date: LocalDate): String = capitalize(shortWeekday.format(date)).trimEnd('.')
 
     fun monthAndYear(date: LocalDate): String = capitalize(monthAndYear.format(date))

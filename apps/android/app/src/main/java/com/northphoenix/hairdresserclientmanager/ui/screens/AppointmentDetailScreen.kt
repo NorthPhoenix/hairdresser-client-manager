@@ -277,7 +277,7 @@ private fun AppointmentDetail(
     }
 
     SubScreen(
-        title = format.longDay(format.zoned(appointment.startsAt).toLocalDate()),
+        title = format.dayTitle(format.zoned(appointment.startsAt).toLocalDate()),
         onBack = onBack,
         busy = busy,
         unsaved = unsaved,
