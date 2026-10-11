@@ -3,6 +3,7 @@ package com.northphoenix.hairdresserclientmanager.i18n
 import android.icu.text.TimeZoneNames
 import android.icu.util.TimeZone
 import android.icu.util.ULocale
+import android.os.Build
 import com.northphoenix.hairdresserclientmanager.domain.ZoneNames
 import java.time.Instant
 import java.time.ZoneId
@@ -19,11 +20,27 @@ import java.util.concurrent.ConcurrentHashMap
 object DeviceZoneNames : ZoneNames {
     private val names = ConcurrentHashMap<Locale, TimeZoneNames>()
 
+    /** The region ICU gives a timezone that belongs to no place. */
+    private const val WORLD_REGION = "001"
+
     override fun listed(): Collection<String> {
         // Only what java.time knows too: every time the app shows is worked out with it.
         val usable = ZoneId.getAvailableZoneIds()
 
-        return TimeZone.getAvailableIDs(TimeZone.SystemTimeZoneType.CANONICAL_LOCATION, null, null).filter { it in usable }
+        return placeIds().filter { it in usable }
+    }
+
+    /** One id per timezone of a place on the map, without the technical ones ("Etc/GMT+3"). */
+    private fun placeIds(): Collection<String> {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            return TimeZone.getAvailableIDs(TimeZone.SystemTimeZoneType.CANONICAL_LOCATION, null, null)
+        }
+
+        // Android 8 cannot be asked for that list: every id, by the name its names are kept under, that has a region.
+        return TimeZone.getAvailableIDs()
+            .mapNotNull(TimeZone::getCanonicalID)
+            .distinct()
+            .filter { id -> runCatching { TimeZone.getRegion(id) }.getOrNull().let { it != null && it != WORLD_REGION } }
     }
 
     override fun all(): Collection<String> = ZoneId.getAvailableZoneIds()

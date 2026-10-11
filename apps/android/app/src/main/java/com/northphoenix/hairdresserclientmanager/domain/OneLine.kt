@@ -19,7 +19,7 @@ object OneLine {
      * character, which is all a keyboard gives, is left as it is.
      */
     fun typed(text: String): String {
-        if (text.none { it.isISOControl() || it == ' ' || it == ' ' }) {
+        if (text.none { it.isISOControl() || it == '\u2028' || it == '\u2029' }) {
             return text
         }
 
@@ -63,5 +63,5 @@ object OneLine {
 
     /** What the server trims: the spaces of every script, line breaks, tabs and the byte order mark. */
     private fun isSpace(char: Char): Boolean =
-        char in '\t'..'\r' || char == '﻿' || char == ' ' || char == ' ' || char.category == CharCategory.SPACE_SEPARATOR
+        char in '\t'..'\r' || char == '\uFEFF' || char == '\u2028' || char == '\u2029' || char.category == CharCategory.SPACE_SEPARATOR
 }

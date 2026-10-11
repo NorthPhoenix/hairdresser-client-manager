@@ -182,15 +182,17 @@ class SignInFlow(private val backend: SignInBackend, private val scope: Coroutin
     /**
      * Takes up what Android kept ([SignInState.kept]) from before it killed the app. The attempt
      * itself is still with the provider, so the step it was at can go on. A flow that has already
-     * started knows better than what was kept, and ignores it.
+     * started knows better than what was kept, and ignores it. Answers whether it took it up.
      */
-    fun restore(kept: List<String>) {
+    fun restore(kept: List<String>): Boolean {
         if (started) {
-            return
+            return false
         }
 
         started = true
-        SignInState.fromKept(kept)?.let { mutableState.value = it }
+        val state = SignInState.fromKept(kept) ?: return false
+        mutableState.value = state
+        return true
     }
 
     /**
