@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { addedOrder } from "@hcm/api";
 import { db } from "@hcm/db";
 import { normalizeLocale, t, type SupportedLocale } from "@hcm/shared";
 
@@ -84,14 +85,10 @@ export default async function ProfileSharePage({ params, searchParams }: Profile
         },
         include: {
           colorFormulas: {
-            orderBy: {
-              createdAt: "asc"
-            }
+            orderBy: addedOrder
           }
         },
-        orderBy: {
-          createdAt: "asc"
-        }
+        orderBy: addedOrder
       }
     },
     orderBy: {

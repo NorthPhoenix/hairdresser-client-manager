@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { addedOrder } from "../addedOrder";
 import { getPrimaryClientChange } from "../appointmentLocation";
 import {
   emailText,
@@ -182,14 +183,10 @@ export const clientRouter = createTRPCRouter({
         services: {
           include: {
             colorFormulas: {
-              orderBy: {
-                createdAt: "asc"
-              }
+              orderBy: addedOrder
             }
           },
-          orderBy: {
-            createdAt: "asc"
-          }
+          orderBy: addedOrder
         },
         photos: {
           where: {
@@ -434,14 +431,10 @@ export const clientRouter = createTRPCRouter({
           },
           include: {
             colorFormulas: {
-              orderBy: {
-                createdAt: "asc"
-              }
+              orderBy: addedOrder
             }
           },
-          orderBy: {
-            createdAt: "asc"
-          }
+          orderBy: addedOrder
         }
       },
       orderBy: {

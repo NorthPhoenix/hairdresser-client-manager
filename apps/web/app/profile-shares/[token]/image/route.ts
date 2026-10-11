@@ -1,4 +1,4 @@
-import { buildShareImageSvg } from "@hcm/api";
+import { addedOrder, buildShareImageSvg } from "@hcm/api";
 import { db } from "@hcm/db";
 import { normalizeLocale } from "@hcm/shared";
 
@@ -56,14 +56,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
         },
         include: {
           colorFormulas: {
-            orderBy: {
-              createdAt: "asc"
-            }
+            orderBy: addedOrder
           }
         },
-        orderBy: {
-          createdAt: "asc"
-        }
+        orderBy: addedOrder
       }
     },
     orderBy: {

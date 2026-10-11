@@ -53,7 +53,7 @@ Not a v1 concept. The app does not manage recurring appointment rules, skipped o
 _Avoid_: Repeat booking, recurring series
 
 **Appointment Copying**:
-A convenience action that copies Services and Color Formulas, but not Appointment Photos, from any completed Appointment into another Appointment, defaulting to the last completed Appointment. For group Appointments, copying only applies to Clients already attached to both Appointments, and copied details can be edited for the new Appointment.
+A convenience action that copies Services and Color Formulas, but not Appointment Photos, from any completed Appointment into another Appointment. Copying only applies to Clients already attached to both Appointments, so a completed Appointment can be copied from only when one of those Clients has Services in it, and the default is the last completed Appointment that can be copied from. Copied Services and Color Formulas keep the order they have in the source, and copied details can be edited for the new Appointment.
 _Avoid_: Recurrence, repeat appointment, template appointment
 
 **Payment Tracking**:

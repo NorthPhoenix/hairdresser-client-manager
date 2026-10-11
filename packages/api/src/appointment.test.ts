@@ -1158,6 +1158,7 @@ describe("appointment router", () => {
       })
       .mockResolvedValueOnce({
         id: "source_last",
+        status: "completed",
         participants: [
           {
             clientId: "client_1"
@@ -1225,13 +1226,28 @@ describe("appointment router", () => {
       targetAppointmentId: "target_1"
     });
 
+    // The last completed Appointment in which a Client of the target has Services.
     expect(appointmentFindFirst).toHaveBeenNthCalledWith(2, {
       where: {
         stylistId: "stylist_1",
         status: "completed",
         id: {
           not: "target_1"
-        }
+        },
+        OR: [
+          {
+            participants: {
+              some: {
+                clientId: "client_1"
+              }
+            },
+            services: {
+              some: {
+                clientId: "client_1"
+              }
+            }
+          }
+        ]
       },
       include: expect.any(Object),
       orderBy: [{ startsAt: "desc" }, { createdAt: "desc" }, { id: "desc" }]
@@ -1244,11 +1260,13 @@ describe("appointment router", () => {
         name: "Color",
         priceCents: 12000,
         note: "Copy me",
+        createdAt: expect.any(Date),
         colorFormulas: {
           create: [
             {
               formula: "7N",
-              placement: "Roots"
+              placement: "Roots",
+              createdAt: expect.any(Date)
             }
           ]
         }
@@ -1269,13 +1287,24 @@ describe("appointment router", () => {
       })
       .mockResolvedValueOnce({
         id: "older_source",
+        status: "completed",
         participants: [
           {
             clientId: "client_1"
           }
         ],
-        services: []
+        services: [
+          {
+            clientId: "client_1",
+            menuItemId: null,
+            name: "Older cut",
+            priceCents: 4000,
+            note: "",
+            colorFormulas: []
+          }
+        ]
       });
+    const appointmentServiceCreate = vi.fn();
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
@@ -1303,7 +1332,7 @@ describe("appointment router", () => {
           })
         },
         appointmentService: {
-          create: vi.fn()
+          create: appointmentServiceCreate
         }
       } as unknown as TRPCContext["db"])
     );
@@ -1313,13 +1342,21 @@ describe("appointment router", () => {
       sourceAppointmentId: "older_source"
     });
 
+    // Whether it is still Completed is checked on the Appointment found, to say so when it is not.
     expect(appointmentFindFirst).toHaveBeenNthCalledWith(2, {
       where: {
         id: "older_source",
-        stylistId: "stylist_1",
-        status: "completed"
+        stylistId: "stylist_1"
       },
-      include: expect.any(Object)
+      include: expect.any(Object),
+      orderBy: expect.any(Array)
+    });
+    expect(appointmentServiceCreate).toHaveBeenCalledTimes(1);
+    expect(appointmentServiceCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        appointmentId: "target_1",
+        name: "Older cut"
+      })
     });
   });
 
@@ -1343,6 +1380,7 @@ describe("appointment router", () => {
             })
             .mockResolvedValueOnce({
               id: "source_1",
+              status: "completed",
               participants: [
                 {
                   clientId: "client_1"
@@ -2558,6 +2596,7 @@ describe("appointment router", () => {
     const appointmentServiceCreate = vi.fn();
     const source = (priceCents: number) => ({
       id: "source_1",
+      status: "completed",
       participants: [
         {
           clientId: "client_1"
@@ -2565,19 +2604,23 @@ describe("appointment router", () => {
       ],
       services: [
         {
+          id: "service_1",
           clientId: "client_1",
           menuItemId: null,
           name: "Cut",
           priceCents: 1000,
           note: "",
+          createdAt: new Date("2026-06-01T10:00:00.000Z"),
           colorFormulas: []
         },
         {
+          id: "service_2",
           clientId: "client_1",
           menuItemId: null,
           name: "Extensions",
           priceCents,
           note: "",
+          createdAt: new Date("2026-06-01T10:30:00.000Z"),
           colorFormulas: []
         }
       ]

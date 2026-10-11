@@ -1,6 +1,7 @@
 import type { Prisma } from "@hcm/db";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { inAddedOrder } from "../addedOrder";
 import { getClientAddress, getPrimaryClientChange, getSalonAddress, hasCustomAddress } from "../appointmentLocation";
 import type { Db } from "../context";
 import { amountCents, maxAmountCents, nameText, oneLineText, requestKey, text, textLimits } from "../input";
@@ -85,9 +86,15 @@ const colorFormulaDeleteInput = z.object({
 
 const appointmentCopyServicesInput = z.object({
   targetAppointmentId: z.string(),
+  // Left out: the last completed Appointment that has something to copy.
   sourceAppointmentId: z.string().optional(),
   requestKey: requestKey.optional()
 });
+
+const completedSourcesInput = z.object({
+  // The Appointment to copy into. Left out: every completed Appointment, whatever it could copy.
+  targetAppointmentId: z.string().optional()
+}).optional();
 
 const appointmentDeleteInput = z.object({
   id: z.string()
@@ -144,6 +151,48 @@ function refuseTotalAboveMaximum(services: { priceCents: number }[], raisedByCen
       message: "Appointment total is too large."
     });
   }
+}
+
+type AttachedClients = {
+  id: string;
+  participants: { clientId: string }[];
+};
+
+// Appointment Copying applies to the Clients attached to both Appointments: what a copy adds to
+// the target is their Services in the source. An Appointment has nothing to copy into itself.
+function getServicesToCopy<Service extends { clientId: string }>(
+  source: AttachedClients & { services: Service[] },
+  target: AttachedClients
+) {
+  const sourceClientIds = new Set(source.participants.map((participant) => participant.clientId));
+  const sharedClientIds = new Set(
+    target.participants.map((participant) => participant.clientId).filter((clientId) => sourceClientIds.has(clientId))
+  );
+
+  return source.id === target.id ? [] : source.services.filter((service) => sharedClientIds.has(service.clientId));
+}
+
+// The Stylist's Completed Appointments that getServicesToCopy finds something in for this target.
+function getCopySourceFilter(stylistId: string, target: AttachedClients): Prisma.AppointmentWhereInput {
+  return {
+    stylistId,
+    status: "completed",
+    id: {
+      not: target.id
+    },
+    OR: target.participants.map(({ clientId }) => ({
+      participants: {
+        some: {
+          clientId
+        }
+      },
+      services: {
+        some: {
+          clientId
+        }
+      }
+    }))
+  };
 }
 
 function addMinutes(date: Date, minutes: number) {
@@ -246,7 +295,8 @@ function toAppointmentOutput(appointment: {
     createdAt: Date;
   }[];
 }) {
-  const services = appointment.services ?? [];
+  // Services and their Color Formulas come out in one order whatever order they were read in.
+  const services = inAddedOrder(appointment.services ?? []);
   const serviceTotalCents = services.reduce((total, service) => total + service.priceCents, 0);
   const clientSubtotals = services.reduce<Record<string, number>>((subtotals, service) => {
     subtotals[service.clientId] = (subtotals[service.clientId] ?? 0) + service.priceCents;
@@ -298,13 +348,13 @@ function toAppointmentOutput(appointment: {
       priceCents: service.priceCents,
       note: service.note ?? "",
       createdAt: service.createdAt.toISOString(),
-      colorFormulas: service.colorFormulas?.map((formula) => ({
+      colorFormulas: inAddedOrder(service.colorFormulas ?? []).map((formula) => ({
         id: formula.id,
         appointmentServiceId: formula.appointmentServiceId,
         formula: formula.formula,
         placement: formula.placement ?? "",
         createdAt: formula.createdAt.toISOString()
-      })) ?? []
+      }))
     })),
     photos: appointment.photos?.map((photo) => ({
       id: photo.id,
@@ -568,12 +618,36 @@ export const appointmentRouter = createTRPCRouter({
 
     return appointments.map(toAppointmentOutput);
   }),
-  completedSources: stylistProcedure.query(async ({ ctx }) => {
+  // What Appointment Copying can copy from, newest first. For a target: only the Appointments
+  // with something to copy into it, the first one being the source that copyServices takes when
+  // none is named.
+  completedSources: stylistProcedure.input(completedSourcesInput).query(async ({ ctx, input }) => {
+    const targetAppointment = input?.targetAppointmentId
+      ? await ctx.db.appointment.findFirst({
+          where: {
+            id: input.targetAppointmentId,
+            stylistId: ctx.stylist.id
+          },
+          include: {
+            participants: true
+          }
+        })
+      : null;
+
+    if (input?.targetAppointmentId && !targetAppointment) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Target Appointment not found."
+      });
+    }
+
     const appointments = await ctx.db.appointment.findMany({
-      where: {
-        stylistId: ctx.stylist.id,
-        status: "completed"
-      },
+      where: targetAppointment
+        ? getCopySourceFilter(ctx.stylist.id, targetAppointment)
+        : {
+            stylistId: ctx.stylist.id,
+            status: "completed"
+          },
       include: {
         primaryClient: {
           select: {
@@ -612,7 +686,24 @@ export const appointmentRouter = createTRPCRouter({
       orderBy: appointmentOrderNewestFirst
     });
 
-    return appointments.map(toAppointmentOutput);
+    return appointments.map((appointment) => {
+      const output = toAppointmentOutput(appointment);
+
+      if (!targetAppointment) {
+        return output;
+      }
+
+      const servicesToCopy = getServicesToCopy(appointment, targetAppointment);
+
+      return {
+        ...output,
+        // What a copy from this Appointment into the target adds, and for which of its Clients.
+        copyableServiceCount: servicesToCopy.length,
+        copyableClientIds: output.participants
+          .map((participant) => participant.clientId)
+          .filter((clientId) => servicesToCopy.some((service) => service.clientId === clientId))
+      };
+    });
   }),
   create: stylistTransactionProcedure.input(appointmentCreateInput).mutation(async ({ ctx, input }) => {
     const startsAt = new Date(input.startsAt);
@@ -1582,79 +1673,70 @@ export const appointmentRouter = createTRPCRouter({
       });
     }
 
-    if (input.requestKey && targetAppointment.services.some((service) => service.requestKey === input.requestKey)) {
-      return getAppointmentOutput(ctx.db, targetAppointment.id);
+    const repeatedServiceCount = input.requestKey
+      ? targetAppointment.services.filter((service) => service.requestKey === input.requestKey).length
+      : 0;
+
+    if (repeatedServiceCount > 0) {
+      return {
+        ...(await getAppointmentOutput(ctx.db, targetAppointment.id)),
+        copiedServiceCount: repeatedServiceCount
+      };
     }
 
-    const sourceAppointment = input.sourceAppointmentId
-      ? await ctx.db.appointment.findFirst({
-          where: {
+    // Without a named source: the last completed Appointment that has something to copy.
+    const sourceAppointment = await ctx.db.appointment.findFirst({
+      where: input.sourceAppointmentId
+        ? {
             id: input.sourceAppointmentId,
-            stylistId: ctx.stylist.id,
-            status: "completed"
-          },
-          include: {
-            participants: true,
-            services: {
-              include: {
-                colorFormulas: {
-                  orderBy: {
-                    createdAt: "asc"
-                  }
-                }
-              },
-              orderBy: {
-                createdAt: "asc"
-              }
-            }
+            stylistId: ctx.stylist.id
           }
-        })
-      : await ctx.db.appointment.findFirst({
-          where: {
-            stylistId: ctx.stylist.id,
-            status: "completed",
-            id: {
-              not: targetAppointment.id
-            }
-          },
+        : getCopySourceFilter(ctx.stylist.id, targetAppointment),
+      include: {
+        participants: true,
+        services: {
           include: {
-            participants: true,
-            services: {
-              include: {
-                colorFormulas: {
-                  orderBy: {
-                    createdAt: "asc"
-                  }
-                }
-              },
-              orderBy: {
-                createdAt: "asc"
-              }
-            }
-          },
-          orderBy: appointmentOrderNewestFirst
-        });
+            colorFormulas: true
+          }
+        }
+      },
+      orderBy: appointmentOrderNewestFirst
+    });
 
     if (!sourceAppointment) {
       throw new TRPCError({
         code: "NOT_FOUND",
-        message: "Completed source Appointment not found."
+        message: input.sourceAppointmentId ? "Source Appointment not found." : "Completed source Appointment not found."
       });
     }
 
-    const sourceClientIds = new Set(sourceAppointment.participants.map((participant) => participant.clientId));
-    const targetClientIds = new Set(targetAppointment.participants.map((participant) => participant.clientId));
-    const sharedClientIds = new Set(
-      [...sourceClientIds].filter((clientId) => targetClientIds.has(clientId))
-    );
-    const servicesToCopy = sourceAppointment.services.filter((service) => sharedClientIds.has(service.clientId));
+    if (sourceAppointment.status !== "completed") {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Source Appointment is no longer Completed."
+      });
+    }
+
+    const servicesToCopy = inAddedOrder(getServicesToCopy(sourceAppointment, targetAppointment));
+
+    if (servicesToCopy.length === 0) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Source Appointment has no Services to copy."
+      });
+    }
 
     refuseTotalAboveMaximum(
       targetAppointment.services,
       servicesToCopy.reduce((total, service) => total + service.priceCents, 0)
     );
 
-    for (const service of servicesToCopy) {
+    // Rows written together would share a timestamp, and the timestamp is their order. The copies
+    // are dated one millisecond apart instead, so they keep the order of the source for good.
+    // Writing them takes longer than the milliseconds they span, so what is added next comes after.
+    const copiedAt = Date.now();
+
+    for (const [index, service] of servicesToCopy.entries()) {
       await ctx.db.appointmentService.create({
         data: {
           appointmentId: targetAppointment.id,
@@ -1664,58 +1746,22 @@ export const appointmentRouter = createTRPCRouter({
           priceCents: service.priceCents,
           note: service.note ?? "",
           requestKey: input.requestKey,
+          createdAt: new Date(copiedAt + index),
           colorFormulas: {
-            create: service.colorFormulas.map((formula) => ({
+            create: inAddedOrder(service.colorFormulas).map((formula, formulaIndex) => ({
               formula: formula.formula,
-              placement: formula.placement ?? ""
+              placement: formula.placement ?? "",
+              createdAt: new Date(copiedAt + formulaIndex)
             }))
           }
         }
       });
     }
 
-    const updatedAppointment = await ctx.db.appointment.findUniqueOrThrow({
-      where: {
-        id: targetAppointment.id
-      },
-      include: {
-        primaryClient: {
-          select: {
-            id: true,
-            name: true,
-            address: true
-          }
-        },
-        participants: {
-          include: {
-            client: {
-              select: {
-                id: true,
-                name: true,
-                address: true
-              }
-            }
-          },
-          orderBy: {
-            createdAt: "asc"
-          }
-        },
-        services: {
-          include: {
-            colorFormulas: {
-              orderBy: {
-                createdAt: "asc"
-              }
-            }
-          },
-          orderBy: {
-            createdAt: "asc"
-          }
-        }
-      }
-    });
-
-    return toAppointmentOutput(updatedAppointment);
+    return {
+      ...(await getAppointmentOutput(ctx.db, targetAppointment.id)),
+      copiedServiceCount: servicesToCopy.length
+    };
   }),
   addParticipant: stylistTransactionProcedure.input(appointmentParticipantInput).mutation(async ({ ctx, input }) => {
     const appointment = await ctx.db.appointment.findFirst({

@@ -319,9 +319,11 @@ describe("a creating request that is sent again", () => {
     const [first, second] = await Promise.all([caller.appointment.copyServices(input), caller.appointment.copyServices(input)]);
     const third = await caller.appointment.copyServices(input);
 
+    // A second tap in the copy sheet, or the same copy sent again: what the first call copied.
     for (const reply of [first, second, third]) {
       expect(reply.services.map((service) => service.name)).toEqual(["Src Cut", "Src Color"]);
       expect(reply.serviceTotalCents).toBe(12000);
+      expect(reply.copiedServiceCount).toBe(2);
     }
 
     expect(rows.services.filter((service) => service.appointmentId === "appointment_1")).toHaveLength(2);
