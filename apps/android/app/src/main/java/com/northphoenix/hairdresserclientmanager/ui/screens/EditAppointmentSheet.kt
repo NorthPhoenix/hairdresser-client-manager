@@ -41,9 +41,11 @@ internal fun EditAppointmentSheet(
     val saved = AppointmentDraft.saved(appointment, format)
     val primaryClientAddress = appointment.participants.firstOrNull { it.isPrimary }?.address
 
-    var date by rememberSaveable(appointment.id, appointment.startsAt, appointment.endsAt) { mutableStateOf(saved.date) }
-    var startTime by rememberSaveable(appointment.id, appointment.startsAt, appointment.endsAt) { mutableStateOf(saved.startTime) }
-    var endTime by rememberSaveable(appointment.id, appointment.startsAt, appointment.endsAt) { mutableStateOf(saved.endTime) }
+    // The day and the times are the Appointment's in the Stylist's timezone: in another timezone they are other ones.
+    val zone = format.zone.id
+    var date by rememberSaveable(appointment.id, appointment.startsAt, appointment.endsAt, zone) { mutableStateOf(saved.date) }
+    var startTime by rememberSaveable(appointment.id, appointment.startsAt, appointment.endsAt, zone) { mutableStateOf(saved.startTime) }
+    var endTime by rememberSaveable(appointment.id, appointment.startsAt, appointment.endsAt, zone) { mutableStateOf(saved.endTime) }
     var locationType by rememberSaveable(appointment.id, appointment.locationType, appointment.customLocationAddress) { mutableStateOf(saved.locationType) }
     // What the Stylist typed into the at-home address field. Null shows the primary Client's address, as in Appointment Creation.
     var typedAddress by rememberSaveable(appointment.id, appointment.locationType, appointment.customLocationAddress) { mutableStateOf(saved.ownAddress) }
