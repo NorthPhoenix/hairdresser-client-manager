@@ -37,16 +37,106 @@ export const shareImageLimits = {
   upcomingAppointments: 6,
   services: 10,
   colorFormulas: 6,
-  photos: 6
+  photos: 6,
+  /** Long texts take many lines: a picture that is already this tall lists no further Service. */
+  height: 8000
 };
 
-// The text starts at `left`; photos stand in two columns of `photoWidth`.
+// The text starts at `left` and ends at `right` at the latest, both 40 inside the frame; photos
+// stand in two columns of `photoWidth`.
 const left = 112;
+const right = 1088;
 const photoWidth = 476;
 const photoMaxHeight = 640;
 const photoGap = 24;
 
-function escapeSvg(value: string): string {
+/**
+ * The widest a character is, in ems, in the fonts that draw a Share Image: Roboto on Android,
+ * Arial, and DejaVu Sans where neither is installed. The server cannot measure the text, so it
+ * breaks lines by these upper bounds: a line may end early, but not outside the frame. The first
+ * class that holds a character counts; a character of no class is one em wide.
+ */
+const characterWidths: [RegExp, number][] = [
+  [/[ \u00a0\u202f'’.,:;|·ijlI]/, 0.34],
+  [/[-!()[\]/\\frt]/, 0.42],
+  [/[mwжмфшщъыю]/, 0.98],
+  [/[MWЖМФШЩЪЫЮ@%№]/, 1.11],
+  [/[0-9a-z]/, 0.64],
+  [/[а-яё]/, 0.7],
+  [/[A-ZА-ЯЁ]/, 0.79],
+  [/[!-~]/, 0.84],
+  [/\p{Extended_Pictographic}/u, 1.3]
+];
+// Bold letters are up to a fifth wider.
+const boldWidth = 1.2;
+
+function textWidth(text: string, size: number, weight: number): number {
+  let ems = 0;
+
+  for (const character of text) {
+    ems += characterWidths.find(([characters]) => characters.test(character))?.[1] ?? 1;
+  }
+
+  return ems * size * (weight > 500 ? boldWidth : 1);
+}
+
+// What a picture cannot hold or show: the characters XML forbids (control characters, a half of a
+// surrogate pair, U+FFFE and U+FFFF) and the other control characters. Line breaks and tabs stay.
+const unprintable = /[^\t\n\r\x20-\x7e\u00a0-\ud7ff\ue000-\ufffd\u{10000}-\u{10ffff}]/gu;
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/**
+ * `text` as lines of a Share Image, none wider than `width`. The text keeps its own line breaks,
+ * a longer line is broken between words, and a word wider than a whole line is cut. An unprintable
+ * character becomes a space.
+ */
+function wrapText(text: string, width: number, size: number, weight: number): string[] {
+  const lines: string[] = [];
+  const space = textWidth(" ", size, weight);
+
+  for (const typedLine of text.replace(unprintable, " ").split(/\r\n?|[\n\u2028\u2029]/)) {
+    let current = "";
+    let used = 0;
+    const end = () => {
+      if (current) {
+        lines.push(current);
+      }
+
+      current = "";
+      used = 0;
+    };
+
+    for (const word of typedLine.split(/[ \t]+/).filter(Boolean)) {
+      const wordWidth = textWidth(word, size, weight);
+
+      if (current && used + space + wordWidth <= width) {
+        current += ` ${word}`;
+        used += space + wordWidth;
+        continue;
+      }
+
+      end();
+
+      // Letter by letter, so that a word wider than a whole line is cut where the line ends.
+      for (const { segment } of graphemes.segment(word)) {
+        const segmentWidth = textWidth(segment, size, weight);
+
+        if (used + segmentWidth > width) {
+          end();
+        }
+
+        current += segment;
+        used += segmentWidth;
+      }
+    }
+
+    end();
+  }
+
+  return lines;
+}
+
+function escapeSvgAttribute(value: string): string {
   return value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -54,8 +144,19 @@ function escapeSvg(value: string): string {
     .replaceAll('"', "&quot;");
 }
 
+/**
+ * Text as the content of an element: a CDATA section, never entity references. The app draws the
+ * picture with AndroidSVG 1.4, whose parser skips every entity reference in text, so `&amp;` would
+ * lose its `&`; it reads CDATA sections, and so do browsers. A `]]>` in the text ends one section
+ * and starts the next. (In attribute values the parser itself resolves entity references.)
+ */
+function svgText(value: string): string {
+  return `<![CDATA[${value.replaceAll("]]>", "]]]]><![CDATA[>")}]]>`;
+}
+
+/** One line of text as it is: text that may be long or hold line breaks goes through `wrapText`. */
 function svgLine(text: string, x: number, y: number, size = 28, weight = 500): string {
-  return `<text x="${x}" y="${y}" font-family="Arial, sans-serif" font-size="${size}" font-weight="${weight}" fill="#17130f">${escapeSvg(text)}</text>`;
+  return `<text x="${x}" y="${y}" font-family="Arial, sans-serif" font-size="${size}" font-weight="${weight}" fill="#17130f">${svgText(text)}</text>`;
 }
 
 function appointmentLocation(locale: SupportedLocale, appointment: SharedAppointment): string {
@@ -68,10 +169,14 @@ export function buildShareImageSvg(input: ShareImageInput): string {
   const { locale } = input;
   const parts: string[] = [];
   let y = 150;
-  // Puts one line of text `gap` below the line before it.
+  // Puts a text `gap` below the line before it, on as many lines as it needs inside the frame.
   const line = (gap: number, text: string, x = left, size = 26, weight = 500) => {
     y += gap;
-    parts.push(svgLine(text, x, y, size, weight));
+    wrapText(text, right - x, size, weight).forEach((part, index) => {
+      // The lines of one text stand closer together than two texts.
+      y += index === 0 ? 0 : Math.round(size * 1.2);
+      parts.push(svgLine(part, x, y, size, weight));
+    });
   };
   // Says that a list was cut, when it was.
   const more = (gap: number, count: number, x = left) => {
@@ -120,25 +225,30 @@ export function buildShareImageSvg(input: ShareImageInput): string {
       800
     );
 
-    const services = completed.services.slice(0, shareImageLimits.services);
+    let listedServices = 0;
 
-    services.forEach((service, index) => {
+    for (const service of completed.services.slice(0, shareImageLimits.services)) {
+      if (listedServices > 0 && y >= shareImageLimits.height) {
+        break;
+      }
+
       const colorFormulas = service.colorFormulas.slice(0, shareImageLimits.colorFormulas);
 
-      line(index === 0 ? 46 : 50, service.name, left + 24, 27, 700);
+      line(listedServices === 0 ? 46 : 50, service.name, left + 24, 27, 700);
 
       for (const formula of colorFormulas) {
         line(36, formula.placement ? `${formula.placement}: ${formula.formula}` : formula.formula, left + 48, 24);
       }
 
       more(36, service.colorFormulas.length - colorFormulas.length, left + 48);
-    });
+      listedServices += 1;
+    }
 
-    if (services.length === 0) {
+    if (listedServices === 0) {
       line(46, t(locale, "profileShareNoServices"));
     }
 
-    more(50, completed.services.length - services.length, left + 24);
+    more(50, completed.services.length - listedServices, left + 24);
 
     if (completed.photos.length > 0) {
       line(64, t(locale, "profileSharePhotosTitle"), left, 30, 800);
@@ -155,7 +265,7 @@ export function buildShareImageSvg(input: ShareImageInput): string {
           let bottom = top + height;
 
           parts.push(
-            `<image x="${x}" y="${top}" width="${width}" height="${height}" xlink:href="${escapeSvg(photo.dataUri)}"/>`
+            `<image x="${x}" y="${top}" width="${width}" height="${height}" xlink:href="${escapeSvgAttribute(photo.dataUri)}"/>`
           );
 
           // Which of the photos were taken before and which after.

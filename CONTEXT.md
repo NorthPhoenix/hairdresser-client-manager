@@ -77,7 +77,7 @@ A reusable service option configured by a Stylist with a default one-line name a
 _Avoid_: Template service, catalog item
 
 **Color Formula**:
-The formula text and optional placement used for a Service. A Service can have multiple Color Formulas.
+The formula text and optional placement used for a Service. A Service can have multiple Color Formulas. The formula text can have several lines; Profile Share pages and Share Images keep its line breaks.
 _Avoid_: Dye, recipe, mix
 
 **Color Formula Library**:
@@ -153,7 +153,7 @@ Not a v1 concept. The app does not record consent events, signatures, or permiss
 _Avoid_: Release form, consent record, signed waiver
 
 **Share Image**:
-A static image generated on demand from selected Client Profile information for sharing outside the app. A Share Image language is chosen at generation time, defaults to the Client's language, and is not revocable after it leaves the app. It shows what the Client's Profile Share page shows, with the same choices of the Stylist, and carries its photos inside itself; where a list or the photos are too many for one picture, it says how many it leaves out.
+A static image generated on demand from selected Client Profile information for sharing outside the app. A Share Image language is chosen at generation time, defaults to the Client's language, and is not revocable after it leaves the app. It shows what the Client's Profile Share page shows, with the same choices of the Stylist, and carries its photos inside itself; where a list or the photos are too many for one picture, or long texts have made it tall, it says how many it leaves out. Text is shown as it was typed and stays inside the picture: a text too long for one line continues on the next.
 _Avoid_: Profile image, export image, card
 
 **Share Branding**:

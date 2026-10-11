@@ -97,7 +97,7 @@ export default async function ProfileSharePage({ params, searchParams }: Profile
                     <div key={serviceIndex} style={styles.service}>
                       <p style={styles.itemTitle}>{service.name}</p>
                       {service.colorFormulas.map((formula, formulaIndex) => (
-                        <p key={formulaIndex} style={styles.body}>
+                        <p key={formulaIndex} style={formulaStyle}>
                           {formula.placement ? `${formula.placement}: ${formula.formula}` : formula.formula}
                         </p>
                       ))}
@@ -254,3 +254,6 @@ const styles = {
     margin: 0
   }
 } as const;
+
+// A Color Formula keeps the line breaks the Stylist typed.
+const formulaStyle = { ...styles.body, whiteSpace: "pre-line" } as const;

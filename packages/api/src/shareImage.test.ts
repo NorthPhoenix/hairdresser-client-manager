@@ -43,6 +43,76 @@ const image = (name: string, width = 720, height = 960) => ({
   height
 });
 
+const entities: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+
+/**
+ * Reads a picture the way an XML parser does: its elements, and each line of text with its place.
+ * With `entityReferences: false` it reads like AndroidSVG 1.4, the app's SVG reader, which skips
+ * every entity reference in text and keeps CDATA sections. Throws on markup that is not
+ * well-formed.
+ */
+function readPicture(svg: string, entityReferences = true) {
+  const token = /<!\[CDATA\[([\s\S]*?)\]\]>|<(\/?)([a-z]+)((?:"[^"]*"|[^">])*)>|&(#?\w+);|([^<&]+)/y;
+  const elements: string[] = [];
+  const lines: { text: string; x: number; y: number; size: number }[] = [];
+  let line: (typeof lines)[number] | null = null;
+
+  while (token.lastIndex < svg.length) {
+    const at = token.lastIndex;
+    const match = token.exec(svg);
+
+    if (!match) {
+      throw new Error(`The picture is not well-formed at ${at}: ${svg.slice(at, at + 40)}`);
+    }
+
+    const [, cdata, closing, element, attributes = "", entity, text] = match;
+    const attribute = (name: string) => Number(new RegExp(` ${name}="(\\d+)"`).exec(attributes)?.[1]);
+
+    if (element && !closing) {
+      elements.push(element);
+
+      if (element === "text") {
+        line = { text: "", x: attribute("x"), y: attribute("y"), size: attribute("font-size") };
+      }
+    } else if (element === "text" && line) {
+      lines.push(line);
+      line = null;
+    } else if (line && entity !== undefined) {
+      const code = /^#(x?)(.+)$/.exec(entity);
+
+      if (entityReferences) {
+        line.text += code ? String.fromCodePoint(parseInt(code[2] ?? "", code[1] ? 16 : 10)) : (entities[entity] ?? "");
+      }
+    } else if (line) {
+      line.text += cdata ?? text ?? "";
+    }
+  }
+
+  return { elements, lines, texts: lines.map((entry) => entry.text) };
+}
+
+/** The lines of text of a picture, as the app reads them. */
+const texts = (svg: string) => readPicture(svg, false).texts;
+
+// Every character that XML 1.0 allows in a document.
+const wellFormedCharacters = /^[\t\n\r\x20-\ud7ff\ue000-\ufffd\u{10000}-\u{10ffff}]*$/u;
+
+// Where the text of a picture ends at the latest: 40 inside the frame, like its left edge.
+const textRight = 1088;
+
+/**
+ * Advance widths in ems of the widest of the fonts that draw a picture (DejaVu Sans and DejaVu
+ * Sans Bold; Roboto for the slash), measured from the font files and rounded up.
+ */
+const widestRegular = {
+  a: 0.613, i: 0.278, r: 0.412, m: 0.975, W: 0.989, O: 0.788, д: 0.692, щ: 0.942, Щ: 1.094,
+  "0": 0.637, "/": 0.416, "+": 0.838
+};
+const widestBold = {
+  a: 0.675, i: 0.343, r: 0.494, m: 1.042, W: 1.104, O: 0.851, д: 0.808, щ: 1.106, Щ: 1.326, Ц: 0.928,
+  "0": 0.696
+};
+
 describe("share image", () => {
   it("renders the selected language and allowed Client-scoped details", () => {
     const svg = shareImage({
@@ -204,22 +274,24 @@ describe("share image", () => {
       })
     });
 
-    expect(svg).toContain(`Service ${shareImageLimits.services}<`);
-    expect(svg).not.toContain(`Service ${shareImageLimits.services + 1}<`);
-    expect(svg).toContain(">and 2 more<");
-    expect(svg).toContain(">and 3 more<");
-    expect(svg).toContain(">and 4 more<");
+    expect(texts(svg)).toContain(`Service ${shareImageLimits.services}`);
+    expect(texts(svg)).not.toContain(`Service ${shareImageLimits.services + 1}`);
+    expect(texts(svg)).toContain("and 2 more");
+    expect(texts(svg)).toContain("and 3 more");
+    expect(texts(svg)).toContain("and 4 more");
     expect(
-      shareImage({
-        locale: "ru",
-        lastCompletedAppointment: completedAppointment({
-          services: Array.from({ length: shareImageLimits.services + 3 }, (_, index) => ({
-            name: `Услуга ${index + 1}`,
-            colorFormulas: []
-          }))
+      texts(
+        shareImage({
+          locale: "ru",
+          lastCompletedAppointment: completedAppointment({
+            services: Array.from({ length: shareImageLimits.services + 3 }, (_, index) => ({
+              name: `Услуга ${index + 1}`,
+              colorFormulas: []
+            }))
+          })
         })
-      })
-    ).toContain(">и ещё 3<");
+      )
+    ).toContain("и ещё 3");
   });
 
   it("says that a completed Appointment has no Services instead of that there is no completed Appointment", () => {
@@ -243,9 +315,9 @@ describe("share image", () => {
       ]
     });
 
-    expect(shareImage({ lastCompletedAppointment, includesColorFormulas: false })).toContain(">Services<");
+    expect(texts(shareImage({ lastCompletedAppointment, includesColorFormulas: false }))).toContain("Services");
     expect(shareImage({ lastCompletedAppointment, includesColorFormulas: false })).not.toContain("formulas");
-    expect(shareImage({ lastCompletedAppointment })).toContain(">Services and formulas<");
+    expect(texts(shareImage({ lastCompletedAppointment }))).toContain("Services and formulas");
   });
 
   it("carries the shared photos inside the picture, each under its kind", () => {
@@ -264,9 +336,9 @@ describe("share image", () => {
     expect(svg).toContain('xmlns:xlink="http://www.w3.org/1999/xlink"');
     expect(svg.match(/<image [^>]*xlink:href="data:image\/jpeg;base64,[A-D]{4}"\/>/g)).toHaveLength(3);
     expect(svg).not.toContain("https://app.ufs.sh");
-    expect(svg).toContain(">Photos<");
-    expect(svg).toContain(">After<");
-    expect(svg).toContain(">Before<");
+    expect(texts(svg)).toContain("Photos");
+    expect(texts(svg)).toContain("After");
+    expect(texts(svg)).toContain("Before");
     expect(svg).not.toContain("not shown");
     // A portrait and a landscape photo each keep their shape within a column.
     expect(svg).toContain('width="476" height="635" xlink:href="data:image/jpeg;base64,AAAA"');
@@ -296,7 +368,7 @@ describe("share image", () => {
       })
     });
 
-    expect(svg).not.toContain(">Photos<");
+    expect(texts(svg)).not.toContain("Photos");
     expect(svg).not.toContain("selected for sharing");
     expect(svg).not.toContain("<image");
   });
@@ -327,6 +399,286 @@ describe("share image", () => {
     expect(frameBottom).toBe(height - 72);
     expect(photoBottoms).toHaveLength(3);
     expect(Math.max(...textBottoms, ...photoBottoms)).toBeLessThan(frameBottom - 40);
+  });
+});
+
+describe("share image text", () => {
+  const withFormulas = (...formulas: { formula: string; placement: string | null }[]) =>
+    shareImage({
+      lastCompletedAppointment: completedAppointment({ services: [{ name: "Color", colorFormulas: formulas }] })
+    });
+  // The Color Formulas of a picture stand at 160, in letters of 24; Service names at 136, in bold letters of 27.
+  const formulaLines = (svg: string) => readPicture(svg, false).lines.filter((line) => line.x === 160);
+  const serviceLines = (svg: string) => readPicture(svg, false).lines.filter((line) => line.x === 136);
+
+  it("keeps &, <, > and quotes for the app's SVG reader, which skips entity references", () => {
+    const typed = {
+      clientName: `Oak & <Elm> "Co"`,
+      stylistName: "Maria & Co",
+      salonAddress: `5 Main St <b>x</b> & "A"`,
+      address: "Bee's & Sons",
+      service: `Cut & Color <b>bold</b> "Q"`,
+      placement: "Roots <1>",
+      formula: "5N&6G &amp; 20 vol"
+    };
+    const svg = shareImage({
+      clientName: typed.clientName,
+      stylistName: typed.stylistName,
+      salonAddress: typed.salonAddress,
+      lastCompletedAppointment: completedAppointment({
+        locationAddress: typed.address,
+        services: [{ name: typed.service, colorFormulas: [{ formula: typed.formula, placement: typed.placement }] }]
+      })
+    });
+    const inTheApp = readPicture(svg, false);
+
+    for (const text of [
+      typed.clientName,
+      `Stylist: ${typed.stylistName}`,
+      `Salon: ${typed.salonAddress}`,
+      `In salon · ${typed.address}`,
+      typed.service,
+      `${typed.placement}: ${typed.formula}`
+    ]) {
+      expect(inTheApp.texts).toContain(text);
+    }
+
+    // Not one entity reference in text, so a reader that resolves them sees the same.
+    expect(readPicture(svg).texts).toEqual(inTheApp.texts);
+    // And nothing that was typed became markup.
+    expect(new Set(inTheApp.elements)).toEqual(new Set(["svg", "rect", "text"]));
+  });
+
+  it("keeps text that holds the end of a CDATA section, and markup after it, as text", () => {
+    const svg = shareImage({
+      clientName: "a]]>b",
+      lastCompletedAppointment: completedAppointment({
+        services: [
+          {
+            name: "]]><script>alert(1)</script>",
+            colorFormulas: [
+              { formula: "7N]]", placement: null },
+              { formula: "]]>]]>", placement: "]" }
+            ]
+          }
+        ]
+      })
+    });
+
+    for (const reader of [readPicture(svg, false), readPicture(svg)]) {
+      for (const text of ["a]]>b", "]]><script>alert(1)</script>", "7N]]", "]: ]]>]]>"]) {
+        expect(reader.texts).toContain(text);
+      }
+
+      expect(new Set(reader.elements)).toEqual(new Set(["svg", "rect", "text"]));
+    }
+  });
+
+  it("breaks a long Color Formula between words into lines that follow each other", () => {
+    const formula =
+      "6N 30g + 7N 30g + 20 vol 60g, apply to the roots first and process 35 min, then pull through to the ends " +
+      "for the last 10 min, rinse, then gloss 9V 20g + 9N 10g with 6 vol 30g for 12 min at the basin";
+    const lines = formulaLines(withFormulas({ formula, placement: "Roots" }, { formula: "8A 40g", placement: null }));
+    const wrapped = lines.slice(0, -1);
+
+    expect(wrapped.length).toBeGreaterThan(2);
+    // Every word is there, whole and in its place.
+    expect(wrapped.map((line) => line.text).join(" ")).toBe(`Roots: ${formula}`);
+    expect(Math.max(...wrapped.map((line) => line.text.length))).toBeLessThan(80);
+    // The lines of one formula stand closer together than two formulas.
+    expect(wrapped.slice(1).map((line, index) => line.y - (wrapped[index]?.y ?? 0))).toEqual(wrapped.slice(1).map(() => 29));
+    expect(lines.at(-1)).toMatchObject({ text: "8A 40g", y: (wrapped.at(-1)?.y ?? 0) + 36 });
+  });
+
+  it("leaves a line that fits as it is", () => {
+    const formula = "6N 30g + 7N 30g + 20 vol 60g, 35 min, then gloss 9V";
+
+    expect(formulaLines(withFormulas({ formula, placement: "Roots" })).map((line) => line.text)).toEqual([`Roots: ${formula}`]);
+    expect(texts(shareImage({ clientName: "Екатерина Смирнова" }))).toContain("Екатерина Смирнова");
+  });
+
+  it.each(Object.entries(widestRegular))("ends a line of %s inside the frame in the widest font", (letter, width) => {
+    const lines = formulaLines(withFormulas({ formula: letter.repeat(400), placement: null }));
+
+    expect(lines.map((line) => line.text).join("")).toBe(letter.repeat(400));
+
+    for (const line of lines.slice(0, -1)) {
+      const right = line.x + line.text.length * width * line.size;
+
+      expect(right).toBeLessThanOrEqual(textRight);
+      // Not much earlier than it has to, either.
+      expect(right).toBeGreaterThan(line.x + (textRight - line.x) * 0.75);
+    }
+  });
+
+  it.each(Object.entries(widestBold))("ends a bold line of %s inside the frame in the widest font", (letter, width) => {
+    const lines = serviceLines(
+      shareImage({
+        lastCompletedAppointment: completedAppointment({ services: [{ name: letter.repeat(100), colorFormulas: [] }] })
+      })
+    );
+
+    expect(lines.map((line) => line.text).join("")).toBe(letter.repeat(100));
+    expect(lines.length).toBeGreaterThan(1);
+
+    for (const line of lines.slice(0, -1)) {
+      const right = line.x + line.text.length * width * line.size;
+
+      expect(right).toBeLessThanOrEqual(textRight);
+      expect(right).toBeGreaterThan(line.x + (textRight - line.x) * 0.75);
+    }
+  });
+
+  it("breaks a long Client name, address and Service name too, and never inside a pair of code units", () => {
+    const clientName = `<img src=x onerror=alert(1)> & "Co" Oak & Elm`;
+    const salonAddress =
+      "Бизнес-центр «Северное сияние», 3 этаж, офис 314, улица Большая Конюшенная, дом 27, Санкт-Петербург, 191186";
+    const emoji = "💇‍♀️".repeat(60);
+    const picture = readPicture(
+      shareImage({
+        clientName,
+        salonAddress,
+        lastCompletedAppointment: completedAppointment({ services: [{ name: emoji, colorFormulas: [] }] })
+      }),
+      false
+    );
+    const nameLines = picture.lines.filter((line) => line.size === 64);
+    const addressLines = picture.lines.filter((line) => line.size === 26 && line.y > (nameLines.at(-1)?.y ?? 0)).slice(0, 2);
+    const emojiLines = picture.lines.filter((line) => line.x === 136);
+
+    expect(nameLines.length).toBeGreaterThan(1);
+    expect(nameLines.map((line) => line.text).join(" ")).toBe(clientName);
+    expect(addressLines.map((line) => line.text).join(" ")).toBe(`Salon: ${salonAddress}`);
+    // What follows the name moves down with it.
+    expect(addressLines[0]?.y).toBeGreaterThan(nameLines.at(-1)?.y ?? 0);
+    expect(emojiLines.length).toBeGreaterThan(1);
+    expect(emojiLines.map((line) => line.text).join("")).toBe(emoji);
+
+    for (const line of emojiLines) {
+      // Each line holds whole signs: none is cut between the parts that make one sign.
+      expect(line.text.length % "💇‍♀️".length).toBe(0);
+    }
+  });
+
+  it("keeps the line breaks of a Color Formula", () => {
+    const lines = formulaLines(
+      withFormulas(
+        { formula: "Line1: 30g 7N\nLine2: 30g 7G\r\nLine3: 60g 6pct\n\n\rLine4: tone", placement: "Roots" },
+        { formula: "Корни: 6N\u2028Длина: 7G", placement: null }
+      )
+    );
+
+    expect(lines.map((line) => line.text)).toEqual([
+      "Roots: Line1: 30g 7N",
+      "Line2: 30g 7G",
+      "Line3: 60g 6pct",
+      "Line4: tone",
+      "Корни: 6N",
+      "Длина: 7G"
+    ]);
+    expect(lines.map((line) => line.y - (lines[0]?.y ?? 0))).toEqual([0, 29, 58, 87, 123, 152]);
+  });
+
+  it("is well-formed and readable when a text holds characters that XML forbids", () => {
+    const svg = shareImage({
+      clientName: "Zoe\u0001Ctrl",
+      stylistName: "Vera\u000bTab\u0000",
+      salonAddress: "1 Main\u007f St\u0085\ufffe\uffff",
+      lastCompletedAppointment: completedAppointment({
+        locationAddress: "Flat\u001b 5",
+        services: [
+          {
+            name: "Cut\u0008\u000c& Go \ud83d",
+            colorFormulas: [{ formula: "6N\u000b20 vol \ude00", placement: "Ro\u0002ots" }]
+          }
+        ]
+      })
+    });
+
+    expect(svg).toMatch(wellFormedCharacters);
+    expect(svg).not.toMatch(/[\u007f-\u009f]/);
+
+    for (const reader of [readPicture(svg, false), readPicture(svg)]) {
+      for (const text of ["Zoe Ctrl", "Stylist: Vera Tab", "Salon: 1 Main St", "In salon · Flat 5", "Cut & Go"]) {
+        expect(reader.texts).toContain(text);
+      }
+
+      expect(reader.texts).toContain("Ro ots: 6N 20 vol");
+    }
+
+    // A sign outside the first plane is no forbidden character.
+    expect(texts(shareImage({ clientName: "Zoe 💇" }))).toContain("Zoe 💇");
+  });
+
+  it("draws nothing for a text of only forbidden characters and keeps its place", () => {
+    const plain = readPicture(shareImage({ clientName: "Anna", stylistName: "Maria" }));
+    const empty = readPicture(shareImage({ clientName: "\u0001\u0002", stylistName: "Maria" }));
+
+    expect(empty.texts).toEqual(plain.texts.filter((text) => text !== "Anna"));
+    expect(empty.lines.find((line) => line.text === "Stylist: Maria")?.y).toBe(
+      plain.lines.find((line) => line.text === "Stylist: Maria")?.y
+    );
+  });
+
+  it("stops listing Services once long texts have made the picture tall, and says how many it leaves out", () => {
+    const longFormula = Array.from({ length: 250 }, (_, index) => `part${index}`).join(" ");
+    const services = Array.from({ length: 8 }, (_, serviceIndex) => ({
+      name: `Service ${serviceIndex + 1}`,
+      colorFormulas: Array.from({ length: 4 }, () => ({ formula: longFormula, placement: null }))
+    }));
+    const svg = shareImage({
+      lastCompletedAppointment: completedAppointment({ services, photos: [photo("a")] }),
+      embeddedPhotos: [{ ...image("AAAA"), category: "after" }]
+    });
+    const picture = readPicture(svg, false);
+    const listed = picture.texts.filter((text) => text.startsWith("Service ")).length;
+    const height = Number(svg.match(/<svg [^>]*height="(\d+)"/)?.[1]);
+    const top = (text: string) => picture.lines.find((line) => line.text === text)?.y ?? 0;
+    const oneService = top("Service 2") - top("Service 1");
+
+    expect(listed).toBeGreaterThan(1);
+    expect(listed).toBeLessThan(services.length);
+    expect(picture.texts).toContain(`and ${services.length - listed} more`);
+    // The Service that was begun is whole, and the photos still follow.
+    expect(picture.texts.join(" ")).toContain(`Service ${listed} ${Array.from({ length: 4 }, () => longFormula).join(" ")} and`);
+    expect(picture.elements).toContain("image");
+    expect(height).toBeLessThan(shareImageLimits.height + oneService + 1000);
+
+    // The first Service is listed however long its texts are.
+    const tall = readPicture(
+      shareImage({
+        lastCompletedAppointment: completedAppointment({
+          services: [
+            { name: "Only", colorFormulas: Array.from({ length: 6 }, () => ({ formula: "Щ".repeat(2000), placement: null })) },
+            { name: "Next", colorFormulas: [] }
+          ]
+        })
+      }),
+      false
+    );
+
+    expect(tall.texts).toContain("Only");
+    expect(tall.texts).not.toContain("Next");
+    expect(tall.texts).toContain("and 1 more");
+  });
+
+  it("keeps wrapped text inside the frame from top to bottom", () => {
+    const svg = shareImage({
+      clientName: "Anastasia Konstantinopolskaya-Zadunaiskaya",
+      lastCompletedAppointment: completedAppointment({
+        services: [
+          {
+            name: "Color",
+            colorFormulas: Array.from({ length: 6 }, () => ({ formula: "7N + 20 vol ".repeat(60), placement: "Roots" }))
+          }
+        ]
+      })
+    });
+    const height = Number(svg.match(/<svg [^>]*height="(\d+)"/)?.[1]);
+    const picture = readPicture(svg, false);
+
+    expect(height).toBeGreaterThan(1600);
+    expect(Math.max(...picture.lines.map((line) => line.y))).toBeLessThan(height - 72 - 40);
   });
 });
 

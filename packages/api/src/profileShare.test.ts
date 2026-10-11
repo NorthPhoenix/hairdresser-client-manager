@@ -596,7 +596,7 @@ describe("Profile Share procedures", () => {
     const asShared = await shareImage(caller.clientProfile.buildProfileShareImage({ clientId: "client_1", language: "en" }));
 
     expect(asShared).not.toContain("7N");
-    expect(asShared).toContain(">Services<");
+    expect(asShared).toContain("<![CDATA[Services]]>");
     expect(readSharePhoto.mock.calls.map(([url]) => url.split("/").pop())).toEqual(["after_1", "after_2", "before_1", "other_1"]);
 
     readSharePhoto.mockClear();
@@ -613,7 +613,7 @@ describe("Profile Share procedures", () => {
 
     expect(asStated).toContain("Roots: 7N + 20 vol");
     expect(asStated).not.toContain("<image");
-    expect(asStated).not.toContain(">Photos<");
+    expect(asStated).not.toContain("<![CDATA[Photos]]>");
     expect(readSharePhoto).not.toHaveBeenCalled();
   });
 });
