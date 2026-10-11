@@ -40,3 +40,29 @@ export async function findShareLink(token: string) {
     }
   });
 }
+
+/**
+ * What proxy.ts has to know of the link of a share page before the page is made: whether the link
+ * is known to show nothing (it is unknown or revoked), and the language of its Client where there
+ * is one. This lookup decides only how such a link is answered, so a failure of it is not the
+ * answer: thrown in proxy.ts it would end the request before any page and without the headers of
+ * next.config.mjs. The link then counts as not known to show nothing, and the request goes on to
+ * the share page, which loads the link itself and answers for what it finds or for its own failure.
+ */
+export async function lookUpSharePage(token: string) {
+  try {
+    const link = await findShareLink(token);
+
+    return {
+      showsNothing: !link || link.revokedAt !== null,
+      language: link?.client.language
+    };
+  } catch (error) {
+    console.error("A Profile Share link could not be looked up before its page:", error);
+
+    return {
+      showsNothing: false,
+      language: undefined
+    };
+  }
+}

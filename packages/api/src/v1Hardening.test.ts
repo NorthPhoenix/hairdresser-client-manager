@@ -190,6 +190,59 @@ describe("v1 acceptance hardening", () => {
     expect(readWorkspaceFile("apps/web/app/profile-shares/[token]/page.tsx")).toMatch(/robots: \{\s+index: false,\s+follow: false\s+\}/);
   });
 
+  it("hands every Profile Share address to the proxy, also one with a dot in it", () => {
+    // The matcher of proxy.ts as the framework reads it: each entry stands for a whole path.
+    const matcher: string[] = JSON.parse(/matcher: (\[.*\])/.exec(readWorkspaceFile("apps/web/proxy.ts"))?.[1] ?? "[]");
+    const reachesProxy = (path: string) => matcher.some((source) => new RegExp(`^${source}$`).test(path));
+
+    // A link copied with the full stop of its sentence, or mangled otherwise, is a link that shows
+    // nothing: only the proxy has its page answered whole and in the language the address asks for.
+    for (const path of [sharePath, `${sharePath}.`, "/profile-shares/abc.def", `${sharePath}/image`, `${sharePath}/photos/abc`]) {
+      expect(reachesProxy(path), path).toBe(true);
+    }
+
+    expect(reachesProxy("/")).toBe(true);
+    expect(reachesProxy("/api/trpc/clientProfile.list")).toBe(true);
+    // The framework's own files stay out.
+    expect(reachesProxy("/_next/static/chunks/main.js")).toBe(false);
+  });
+
+  it("answers for a share page before the page only when its link is known to show nothing", async () => {
+    const findUnique = vi.fn();
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    vi.doMock("@hcm/db", () => ({ db: { profileShare: { findUnique } } }));
+
+    try {
+      const { lookUpSharePage } = await import(
+        /* @vite-ignore */ new URL("../../../apps/web/server/shareLink.ts", import.meta.url).href
+      );
+      const token = "ab".repeat(32);
+
+      findUnique.mockResolvedValueOnce(null);
+      expect(await lookUpSharePage(token)).toEqual({ showsNothing: true, language: undefined });
+
+      findUnique.mockResolvedValueOnce({ revokedAt: new Date(), client: { language: "en" } });
+      expect(await lookUpSharePage(token)).toEqual({ showsNothing: true, language: "en" });
+
+      findUnique.mockResolvedValueOnce({ revokedAt: null, client: { language: "en" } });
+      expect(await lookUpSharePage(token)).toEqual({ showsNothing: false, language: "en" });
+
+      // Anything but a token is not looked up.
+      expect(await lookUpSharePage(`${token}.`)).toEqual({ showsNothing: true, language: undefined });
+      expect(findUnique).toHaveBeenCalledTimes(3);
+      expect(logged).not.toHaveBeenCalled();
+
+      // A lookup that fails does not fail the request: the page is left to load the link itself.
+      findUnique.mockRejectedValueOnce(new Error("The database is away."));
+      expect(await lookUpSharePage(token)).toEqual({ showsNothing: false, language: undefined });
+      expect(logged).toHaveBeenCalledOnce();
+    } finally {
+      vi.doUnmock("@hcm/db");
+      logged.mockRestore();
+    }
+  });
+
   it("uses Client language for client-facing reminders and shares", () => {
     expect(t("ru", "profileShareTitle")).toBe("Профиль клиента");
     expect(t("en", "profileShareTitle")).toBe("Client Profile");
