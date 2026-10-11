@@ -1,3 +1,4 @@
 [tools]
 node = "26.3.0"
+"npm:neon" = "8.3.5"
 pnpm = "10.33.0"
