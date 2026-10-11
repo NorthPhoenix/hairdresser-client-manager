@@ -12,15 +12,25 @@ export type CreateTRPCContextOptions = {
    * storage service it emulates. Left out: no stored photo is accepted.
    */
   photoOrigins?: string[];
+  /**
+   * Deletes files from this server's photo storage, by file key. It is called with the files of
+   * deleted Appointment Photos; see `deleteUnusedFiles`. Left out: no file is deleted.
+   */
+  deleteStoredFiles?: (fileKeys: string[]) => Promise<unknown>;
 };
 
-export async function createTRPCContext({ auth, photoOrigins = [] }: CreateTRPCContextOptions) {
+export async function createTRPCContext({
+  auth,
+  photoOrigins = [],
+  deleteStoredFiles = async () => undefined
+}: CreateTRPCContextOptions) {
   const clerkAuth = await auth();
 
   return {
     db,
     clerkAuth,
-    photoOrigins
+    photoOrigins,
+    deleteStoredFiles
   };
 }
 

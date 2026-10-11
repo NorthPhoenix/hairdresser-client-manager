@@ -15,6 +15,7 @@ function createContext(overrides: Partial<TRPCContext>): TRPCContext {
         update: vi.fn()
       }
     },
+    photoOrigins: [],
     ...overrides
   } as unknown as TRPCContext;
 }
@@ -151,6 +152,54 @@ describe("stylist bootstrap", () => {
       salonAddress: "123 Main St",
       onboardingCompletedAt: "2026-06-13T12:00:00.000Z",
       onboardingComplete: true
+    });
+  });
+
+  it("says whether this server has photo storage, also in the reply to saved settings", async () => {
+    const stylistRow = {
+      id: "stylist_1",
+      clerkId: "clerk_1",
+      language: "en",
+      timezone: "America/Chicago",
+      salonAddress: null,
+      onboardingCompletedAt: null,
+      updatedAt
+    };
+    const callerWith = (photoOrigins: string[]) =>
+      appRouter.createCaller(
+        createContext({
+          clerkAuth: {
+            userId: "clerk_1"
+          },
+          db: withTransaction({
+            stylist: {
+              upsert: vi.fn().mockResolvedValue(stylistRow),
+              update: vi.fn().mockResolvedValue(stylistRow)
+            },
+            appointment: {
+              updateMany: vi.fn()
+            }
+          }),
+          photoOrigins
+        })
+      );
+    const settings = {
+      language: "en",
+      timezone: "America/Chicago"
+    } as const;
+
+    // No usable UploadThing token: no Appointment Photo can be added on this server.
+    await expect(callerWith([]).stylist.bootstrap()).resolves.toMatchObject({
+      photoStorageConfigured: false
+    });
+    await expect(callerWith([]).stylist.saveSettings(settings)).resolves.toMatchObject({
+      photoStorageConfigured: false
+    });
+    await expect(callerWith(["https://app-id.ufs.sh"]).stylist.bootstrap()).resolves.toMatchObject({
+      photoStorageConfigured: true
+    });
+    await expect(callerWith(["https://app-id.ufs.sh"]).stylist.saveSettings(settings)).resolves.toMatchObject({
+      photoStorageConfigured: true
     });
   });
 

@@ -13,6 +13,7 @@ import {
   text,
   textLimits
 } from "../input";
+import { markFilesUnused } from "../photoStorage";
 import { buildShareImageSvg } from "../shareImage";
 import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from "../trpc";
 
@@ -464,6 +465,20 @@ export const clientRouter = createTRPCRouter({
     };
   }),
   delete: stylistTransactionProcedure.input(clientDeleteInput).mutation(async ({ ctx, input }) => {
+    // The Client's Appointment Photos go with the Client, and their stored files with them. An
+    // Appointment that is deleted below has no other Client, so it has no other Client's photos.
+    const photos = await ctx.db.appointmentPhoto.findMany({
+      where: {
+        clientId: input.id,
+        appointment: {
+          stylistId: ctx.stylist.id
+        }
+      },
+      select: {
+        fileKey: true
+      }
+    });
+
     // Also Appointments that name the Client as primary without listing them as a Client: the
     // primary Client relation would otherwise block the delete.
     const appointments = await ctx.db.appointment.findMany({
@@ -530,6 +545,7 @@ export const clientRouter = createTRPCRouter({
         stylistId: ctx.stylist.id
       }
     });
+    await markFilesUnused(ctx, photos);
 
     return {
       id: input.id

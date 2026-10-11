@@ -16,15 +16,18 @@ const stylistSettingsInput = z.object({
   expectedUpdatedAt: expectedUpdatedAt.optional()
 });
 
-function toStylistOutput(stylist: {
-  id: string;
-  clerkId: string;
-  language: "ru" | "en";
-  timezone: string;
-  salonAddress: string | null;
-  onboardingCompletedAt: Date | null;
-  updatedAt: Date;
-}) {
+function toStylistOutput(
+  stylist: {
+    id: string;
+    clerkId: string;
+    language: "ru" | "en";
+    timezone: string;
+    salonAddress: string | null;
+    onboardingCompletedAt: Date | null;
+    updatedAt: Date;
+  },
+  photoOrigins: string[]
+) {
   return {
     id: stylist.id,
     clerkId: stylist.clerkId,
@@ -33,13 +36,16 @@ function toStylistOutput(stylist: {
     salonAddress: stylist.salonAddress ?? "",
     onboardingCompletedAt: stylist.onboardingCompletedAt?.toISOString() ?? null,
     onboardingComplete: Boolean(stylist.onboardingCompletedAt),
-    updatedAt: stylist.updatedAt.toISOString()
+    updatedAt: stylist.updatedAt.toISOString(),
+    // Not about the Stylist but about this server: without photo storage no Appointment Photo
+    // can be added, and the app says so instead of offering an upload that cannot work.
+    photoStorageConfigured: photoOrigins.length > 0
   };
 }
 
 export const stylistRouter = createTRPCRouter({
   bootstrap: stylistProcedure.input(stylistBootstrapInput).query(({ ctx }) => {
-    return toStylistOutput(ctx.stylist);
+    return toStylistOutput(ctx.stylist, ctx.photoOrigins);
   }),
   saveSettings: stylistTransactionProcedure.input(stylistSettingsInput).mutation(async ({ ctx, input }) => {
     const salonAddress = input.salonAddress ?? "";
@@ -86,6 +92,6 @@ export const stylistRouter = createTRPCRouter({
       }
     });
 
-    return toStylistOutput(stylist);
+    return toStylistOutput(stylist, ctx.photoOrigins);
   })
 });

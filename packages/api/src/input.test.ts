@@ -109,10 +109,8 @@ describe("text limits", () => {
         () => caller.appointment.updateColorFormula({ id: "formula_1", formula: "7N", placement: tooLong(textLimits.placement) }),
         "placement"
       ],
-      [() => caller.appointment.addPhoto({ appointmentId, clientId, category: "after", status: "failed", uploadError: tooLong(500) }), "uploadError"],
       [() => caller.appointment.addPhoto({ appointmentId, clientId, category: "after", fileKey: tooLong(200), url: "https://utfs.io/f/a" }), "fileKey"],
-      [() => caller.appointment.addPhoto({ appointmentId, clientId, category: "after", fileKey: "a", url: `https://utfs.io/f/${tooLong(2000)}` }), "url"],
-      [() => caller.appointment.updatePhoto({ id: "photo_1", uploadError: tooLong(500) }), "uploadError"]
+      [() => caller.appointment.addPhoto({ appointmentId, clientId, category: "after", fileKey: "a", url: `https://utfs.io/f/${tooLong(2000)}` }), "url"]
     ] as const;
 
     for (const [call, field] of refused) {

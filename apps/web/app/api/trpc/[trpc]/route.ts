@@ -1,9 +1,20 @@
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { auth } from "@clerk/nextjs/server";
 import { appRouter, createTRPCContext, getUploadThingOrigins } from "@hcm/api";
+import { UTApi } from "uploadthing/server";
 
 // Appointment Photos are stored by /api/uploadthing, in the UploadThing app of the same token.
 const photoOrigins = getUploadThingOrigins(process.env.UPLOADTHING_TOKEN);
+const uploadThing = new UTApi();
+
+// The files of deleted Appointment Photos are deleted there too. The router logs a failure.
+async function deleteStoredFiles(fileKeys: string[]) {
+  const { success } = await uploadThing.deleteFiles(fileKeys);
+
+  if (!success) {
+    throw new Error("UploadThing did not delete the files.");
+  }
+}
 
 function handler(request: Request) {
   return fetchRequestHandler({
@@ -19,7 +30,8 @@ function handler(request: Request) {
             userId: clerkAuth.userId
           };
         },
-        photoOrigins
+        photoOrigins,
+        deleteStoredFiles
       }),
     // The reply to an unexpected failure says nothing about it, so the log has to.
     onError: ({ error, path }) => {

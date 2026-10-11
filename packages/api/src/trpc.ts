@@ -2,6 +2,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import type { TRPCContext } from "./context";
 import { timezoneText } from "./input";
+import { deleteUnusedFiles } from "./photoStorage";
 
 const t = initTRPC.context<TRPCContext>().create({
   // No reply carries a stack trace, also not in development: failures are logged by the server
@@ -138,15 +139,21 @@ export const stylistProcedure = protectedProcedure.use(async ({ ctx, getRawInput
  * never interleave: the second waits and then reads what the first committed. `ctx.stylist` was
  * read before the lock; a procedure that depends on a Stylist field reads it again.
  * See docs/adr/0014-one-checking-mutation-at-a-time-per-stylist.md.
+ *
+ * A procedure that deletes Appointment Photos names their stored files in `ctx.unusedFiles`
+ * (`markFilesUnused`). They are deleted from photo storage after the commit, never before: a file
+ * has to outlive every record that names it.
  */
-export const stylistTransactionProcedure = stylistProcedure.use(({ ctx, next }) =>
-  ctx.db.$transaction(
+export const stylistTransactionProcedure = stylistProcedure.use(async ({ ctx, next }) => {
+  const unusedFiles: string[] = [];
+  const committed = await ctx.db.$transaction(
     async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${ctx.stylist.id}, 0))`;
 
       const result = await next({
         ctx: {
-          db: tx
+          db: tx,
+          unusedFiles
         }
       });
 
@@ -164,5 +171,9 @@ export const stylistTransactionProcedure = stylistProcedure.use(({ ctx, next }) 
       maxWait: 10_000,
       timeout: 20_000
     }
-  )
-);
+  );
+
+  await deleteUnusedFiles(ctx.deleteStoredFiles, unusedFiles);
+
+  return committed;
+});

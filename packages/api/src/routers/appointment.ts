@@ -14,7 +14,7 @@ import {
   text,
   textLimits
 } from "../input";
-import { isStoredFileUrl } from "../photoStorage";
+import { isStoredFileUrl, markFilesUnused } from "../photoStorage";
 import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from "../trpc";
 
 const dateRangeInput = z.object({
@@ -111,7 +111,6 @@ const appointmentDeleteInput = z.object({
 
 const maxFileKeyLength = 200;
 const maxUrlLength = 2000;
-const maxUploadErrorLength = 500;
 // Far more than any camera produces, and inside the database's 32-bit column.
 const photoPixels = z.number().int().positive().max(100_000);
 
@@ -124,16 +123,16 @@ const appointmentPhotoInput = z.object({
   thumbnailUrl: text(maxUrlLength).url().optional(),
   width: photoPixels.optional(),
   height: photoPixels.optional(),
+  // A failed photo has a state and no stored reason: what to say about it is for the app, in the
+  // Stylist's language.
   status: z.enum(["pendingUpload", "stored", "failed"]).default("stored"),
-  uploadError: text(maxUploadErrorLength).optional(),
   requestKey: requestKey.optional()
 });
 
 const appointmentPhotoUpdateInput = z.object({
   id: z.string(),
   category: z.enum(["before", "after", "other"]).optional(),
-  status: z.enum(["pendingUpload", "stored", "failed"]).optional(),
-  uploadError: text(maxUploadErrorLength).nullable().optional()
+  status: z.enum(["pendingUpload", "stored", "failed"]).optional()
 });
 
 const appointmentPhotoDeleteInput = z.object({
@@ -304,7 +303,6 @@ function toAppointmentOutput(appointment: {
     thumbnailUrl: string | null;
     width: number | null;
     height: number | null;
-    uploadError: string | null;
     createdAt: Date;
   }[];
 }) {
@@ -381,7 +379,6 @@ function toAppointmentOutput(appointment: {
       thumbnailUrl: photo.thumbnailUrl ?? "",
       width: photo.width,
       height: photo.height,
-      uploadError: photo.uploadError ?? "",
       createdAt: photo.createdAt.toISOString()
     })) ?? [],
     serviceTotalCents,
@@ -1397,7 +1394,6 @@ export const appointmentRouter = createTRPCRouter({
         thumbnailUrl: input.thumbnailUrl ?? null,
         width: input.width ?? null,
         height: input.height ?? null,
-        uploadError: input.uploadError ?? null,
         requestKey: input.requestKey
       }
     });
@@ -1427,14 +1423,13 @@ export const appointmentRouter = createTRPCRouter({
       },
       data: {
         ...(input.category ? { category: input.category } : {}),
-        ...(input.status ? { status: input.status } : {}),
-        ...(input.uploadError !== undefined ? { uploadError: input.uploadError } : {})
+        ...(input.status ? { status: input.status } : {})
       }
     });
 
     return getAppointmentOutput(ctx.db, photo.appointmentId);
   }),
-  deletePhoto: stylistProcedure.input(appointmentPhotoDeleteInput).mutation(async ({ ctx, input }) => {
+  deletePhoto: stylistTransactionProcedure.input(appointmentPhotoDeleteInput).mutation(async ({ ctx, input }) => {
     const photo = await ctx.db.appointmentPhoto.findFirst({
       where: {
         id: input.id,
@@ -1456,6 +1451,7 @@ export const appointmentRouter = createTRPCRouter({
         id: photo.id
       }
     });
+    await markFilesUnused(ctx, [photo]);
 
     return getAppointmentOutput(ctx.db, photo.appointmentId);
   }),
@@ -1949,13 +1945,27 @@ export const appointmentRouter = createTRPCRouter({
       clientId: input.clientId
     };
   }),
-  delete: stylistProcedure.input(appointmentDeleteInput).mutation(async ({ ctx, input }) => {
+  delete: stylistTransactionProcedure.input(appointmentDeleteInput).mutation(async ({ ctx, input }) => {
+    // The Appointment Photos go with the Appointment, and their stored files with them.
+    const photos = await ctx.db.appointmentPhoto.findMany({
+      where: {
+        appointment: {
+          id: input.id,
+          stylistId: ctx.stylist.id
+        }
+      },
+      select: {
+        fileKey: true
+      }
+    });
+
     await ctx.db.appointment.deleteMany({
       where: {
         id: input.id,
         stylistId: ctx.stylist.id
       }
     });
+    await markFilesUnused(ctx, photos);
 
     return {
       id: input.id

@@ -8,7 +8,13 @@ function createContext(db: TRPCContext["db"]): TRPCContext {
     clerkAuth: {
       userId: "clerk_1"
     },
-    db: withTransaction(db),
+    // No Appointment Photos, unless the database of a test has its own.
+    db: withTransaction({
+      appointmentPhoto: {
+        findMany: vi.fn().mockResolvedValue([])
+      },
+      ...(db as object)
+    }),
     stylist: {
       id: "stylist_1",
       clerkId: "clerk_1",

@@ -1,3 +1,5 @@
+import type { Db } from "./context";
+
 /**
  * The origins that serve the files of one UploadThing app: `https://<app id>.ufs.sh`. The app id is
  * read from the app's token (`UPLOADTHING_TOKEN`), which is base64 of
@@ -28,4 +30,60 @@ export function isStoredFileUrl(value: string, fileKey: string, origins: string[
   }
 
   return fileKey !== "" && origins.includes(url.origin) && url.pathname.endsWith(`/${encodeURIComponent(fileKey)}`);
+}
+
+/**
+ * Names the stored files of Appointment Photos that were just deleted, so that they are deleted
+ * from photo storage once the transaction has committed (`stylistTransactionProcedure`). Call it
+ * after the records are gone: a file that another Appointment Photo still names is kept, which can
+ * only be a photo recorded before one stored file was one Appointment Photo.
+ */
+export async function markFilesUnused(ctx: { db: Db; unusedFiles: string[] }, photos: { fileKey: string | null }[]) {
+  const fileKeys = [...new Set(photos.flatMap((photo) => photo.fileKey || []))];
+
+  if (fileKeys.length === 0) {
+    return;
+  }
+
+  const stillNamed = await ctx.db.appointmentPhoto.findMany({
+    where: {
+      fileKey: {
+        in: fileKeys
+      }
+    },
+    select: {
+      fileKey: true
+    }
+  });
+
+  ctx.unusedFiles.push(...fileKeys.filter((fileKey) => !stillNamed.some((photo) => photo.fileKey === fileKey)));
+}
+
+// How long the Stylist's action waits for photo storage before it answers without it.
+const storageDeleteTimeoutMs = 5_000;
+
+/**
+ * Deletes files that no Appointment Photo names any more from photo storage. The photos are
+ * already gone for the Stylist, so a storage failure does not fail the action: it is logged with
+ * the file keys, and those files stay in storage until someone deletes them there.
+ */
+export async function deleteUnusedFiles(deleteStoredFiles: (fileKeys: string[]) => Promise<unknown>, fileKeys: string[]) {
+  if (fileKeys.length === 0) {
+    return;
+  }
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    await Promise.race([
+      deleteStoredFiles(fileKeys),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Photo storage did not answer in time.")), storageDeleteTimeoutMs);
+      })
+    ]);
+  } catch (error) {
+    console.error(`Photo storage still holds the files of deleted Appointment Photos: ${fileKeys.join(", ")}`, error);
+  } finally {
+    clearTimeout(timer);
+  }
 }

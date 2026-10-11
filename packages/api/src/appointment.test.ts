@@ -33,7 +33,10 @@ function createDb(appointment: Record<string, unknown>, client: Record<string, u
       findUniqueOrThrow: vi.fn().mockResolvedValue(stylist)
     },
     appointment,
-    client
+    client,
+    appointmentPhoto: {
+      findMany: vi.fn().mockResolvedValue([])
+    }
   } as unknown as TRPCContext["db"];
 }
 
@@ -1969,16 +1972,14 @@ describe("appointment router", () => {
         url: "https://app-id.ufs.sh/f/ut_file_1",
         thumbnailUrl: "https://app-id.ufs.sh/f/ut_file_1",
         width: 1200,
-        height: 900,
-        uploadError: null
+        height: 900
       }
     });
 
     await caller.appointment.updatePhoto({
       id: "photo_1",
       category: "before",
-      status: "pendingUpload",
-      uploadError: null
+      status: "pendingUpload"
     });
     expect(photoUpdate).toHaveBeenCalledWith({
       where: {
@@ -1986,8 +1987,7 @@ describe("appointment router", () => {
       },
       data: {
         category: "before",
-        status: "pendingUpload",
-        uploadError: null
+        status: "pendingUpload"
       }
     });
 
