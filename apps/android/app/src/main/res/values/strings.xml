@@ -44,11 +44,15 @@
     <string name="appointment_photo_before">Before</string>
     <string name="appointment_photo_category_label">Photo category</string>
     <string name="appointment_photo_description">Photo: %1$s</string>
+    <string name="appointment_photo_failed_description">Photo: %1$s, not saved</string>
     <string name="appointment_photo_other">Other</string>
     <string name="appointment_photo_permission_denied">Couldn\'t open the camera or gallery.</string>
     <string name="appointment_photo_too_large">The photo is larger than 8 MB.</string>
     <string name="appointment_photo_upload_failed">The photo wasn\'t saved. Try again.</string>
     <string name="appointment_photo_uploading">Uploading photo…</string>
+    <string name="appointment_photo_uploading_description">Photo: %1$s, uploading</string>
+    <string name="appointment_photos_none_read">None of the selected photos could be read.</string>
+    <string name="appointment_photos_some_unread">%1$d of %2$d selected photos couldn\'t be read. The others were added.</string>
     <string name="appointment_photos_title">Photos</string>
     <string name="appointment_saved">Appointment created.</string>
     <string name="appointment_service_client_label">Client</string>
@@ -127,6 +131,7 @@
     <string name="edit_client_title">Client Profile</string>
     <string name="error_appointment_needs_client">An Appointment must keep at least one Client.</string>
     <string name="error_appointment_total_too_large">The Services of one Appointment can\'t add up to this much. Nothing was saved.</string>
+    <string name="error_client_has_photo_uploads">This Client has photos that aren\'t saved yet. Upload or remove them first.</string>
     <string name="error_client_has_services">Remove this Client\'s Services from the Appointment first.</string>
     <string name="error_generic">Something went wrong. Try again.</string>
     <string name="error_image_unreadable">The selected image couldn\'t be read.</string>
@@ -269,4 +274,13 @@
     <string name="timezone_label">Timezone</string>
     <string name="timezone_required">Confirm a timezone.</string>
     <string name="timezone_search_placeholder">Search timezones</string>
+
+    <plurals name="appointment_photos_not_saved">
+        <item quantity="one">The photo wasn\'t saved.</item>
+        <item quantity="other">%d photos weren\'t saved.</item>
+    </plurals>
+    <plurals name="appointment_photos_uploading">
+        <item quantity="one">Uploading photo…</item>
+        <item quantity="other">Uploading %d photos…</item>
+    </plurals>
 </resources>

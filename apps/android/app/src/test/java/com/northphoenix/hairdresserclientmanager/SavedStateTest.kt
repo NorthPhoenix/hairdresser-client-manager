@@ -126,6 +126,7 @@ class SavedStateTest {
             DetailSheet.AddPhoto(clientId = "client-1"),
             DetailSheet.AddPhoto(clientId = "client-1", replacingPhotoId = "photo-1"),
             DetailSheet.Photo(photoId = "photo-1"),
+            DetailSheet.Upload(uploadId = "upload-1"),
         )
 
         for (sheet in sheets) {

@@ -26,8 +26,13 @@ val LocalTimeFormat = staticCompositionLocalOf { TimeFormat(Locale.getDefault(),
 
 val LocalSnackbarHostState = staticCompositionLocalOf { SnackbarHostState() }
 
-/** [message] is the text when the notice appeared. On screen it is [messageRes], so a notice follows a change of the app language. */
-class NoticeVisuals(override val message: String, @StringRes val messageRes: Int, val isError: Boolean) : SnackbarVisuals {
+/** [message] is the text when the notice appeared. On screen it is [messageRes] filled with [args], so a notice follows a change of the app language. */
+class NoticeVisuals(
+    override val message: String,
+    @StringRes val messageRes: Int,
+    val isError: Boolean,
+    val args: List<Any> = emptyList(),
+) : SnackbarVisuals {
     override val actionLabel: String? = null
     override val withDismissAction: Boolean = false
     override val duration = if (isError) androidx.compose.material3.SnackbarDuration.Long else androidx.compose.material3.SnackbarDuration.Short
@@ -46,7 +51,7 @@ fun HcmSnackbarHost(modifier: Modifier = Modifier) {
             containerColor = if (isError) HcmColors.Danger else HcmColors.Ink,
             contentColor = HcmColors.Surface,
         ) {
-            Text(notice?.let { stringResource(it.messageRes) } ?: data.visuals.message, style = MaterialTheme.typography.bodyMedium)
+            Text(notice?.let { stringResource(it.messageRes, *it.args.toTypedArray()) } ?: data.visuals.message, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }

@@ -1,0 +1,342 @@
+package com.northphoenix.hairdresserclientmanager.state
+
+import com.northphoenix.hairdresserclientmanager.data.ApiException
+import com.northphoenix.hairdresserclientmanager.data.PendingPhoto
+import com.northphoenix.hairdresserclientmanager.data.PendingPhotoStore
+import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
+import com.northphoenix.hairdresserclientmanager.data.StoredFile
+import com.northphoenix.hairdresserclientmanager.data.toApiException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.UUID
+
+enum class UploadState {
+    /** Its turn has not come yet: one picture is sent at a time. */
+    WAITING,
+    UPLOADING,
+
+    /** The last try failed. It stays until the Stylist uploads it again or removes it. */
+    FAILED,
+}
+
+/** A photo on its way to the server, as a screen shows it. [picture] is the prepared file on the device. */
+data class PhotoUpload(val photo: PendingPhoto, val state: UploadState, val picture: File) {
+    val id: String get() = photo.id
+}
+
+/** What pictures are added to. [replacingPhotoId] is a failed photo on the server whose place the first of them takes. */
+data class PhotoTarget(
+    val appointmentId: String,
+    val clientId: String,
+    val category: PhotoCategory,
+    val replacingPhotoId: String? = null,
+)
+
+/**
+ * The Stylist's photos on their way to the server. Each picture goes through:
+ *
+ *     prepared -> WAITING -> UPLOADING -> recorded by the server: gone from here
+ *                    ^           |
+ *                    |           v
+ *              'Upload again'  FAILED -> 'Remove photo': gone from here
+ *
+ * - A picture is kept by [store] from the moment it is prepared until the server has recorded it
+ *   or the Stylist removes it. So a picture that failed can be sent again, a camera capture is
+ *   never only in a cache, and what Android interrupted goes on when the app is opened again.
+ * - Pictures are sent one at a time, oldest first, each as a try of its own: one that fails does
+ *   not hold up the others.
+ * - Nothing leaves a picture UPLOADING: a try that ends in any way other than success leaves it
+ *   FAILED, also when a request it waited for was cancelled by someone else.
+ * - The record's id is the request key of the photo, and a picture that is in photo storage is
+ *   not uploaded a second time, so a try that is repeated never makes a second photo.
+ * - Of the failures that follow one thing the Stylist did (a selection, 'Upload again', opening
+ *   the app), only the first is reported through [onFailure]: the pictures show the rest.
+ *
+ * Not thread-safe: call it from the scope's own (main) thread.
+ */
+internal class PhotoUploads(
+    private val scope: CoroutineScope,
+    private val store: PendingPhotoStore,
+    /** Puts the picture into photo storage. */
+    private val send: suspend (PendingPhoto, ByteArray) -> StoredFile,
+    /** Records the stored picture as an Appointment Photo. Asked again for the same photo, the server answers as the first time. */
+    private val record: suspend (PendingPhoto, StoredFile) -> Unit,
+    /** The Appointment of this photo has to be loaded again. [saved] says that the server has the photo for certain. */
+    private val reload: suspend (PendingPhoto, saved: Boolean) -> Unit,
+    private val onFailure: (ApiException) -> Unit,
+    private val io: CoroutineDispatcher = Dispatchers.IO,
+    private val newId: () -> String = { UUID.randomUUID().toString() },
+    private val now: () -> Long = System::currentTimeMillis,
+) {
+    private val _uploads = MutableStateFlow<List<PhotoUpload>>(emptyList())
+
+    /** Of the Stylist who is signed in, oldest first. */
+    val uploads: StateFlow<List<PhotoUpload>> = _uploads.asStateFlow()
+
+    private val _preparing = MutableStateFlow<List<PhotoTarget>>(emptyList())
+
+    /** One entry for every selected picture that is still being read and is not in [uploads] yet. */
+    val preparing: StateFlow<List<PhotoTarget>> = _preparing.asStateFlow()
+
+    private var stylistId: String? = null
+    private var worker: Job? = null
+
+    /** The picture that is being sent, with its try. */
+    private var sending: Pair<String, Job>? = null
+    private var failureTold = false
+    private val wake = Channel<Unit>(Channel.CONFLATED)
+
+    /**
+     * Starts for the Stylist who has signed in: their pictures that are still on the device are
+     * shown again. Those that had failed stay failed; the others were interrupted and go on.
+     */
+    fun open(stylistId: String) {
+        if (this.stylistId == stylistId) {
+            return
+        }
+
+        close()
+        this.stylistId = stylistId
+        worker = scope.launch {
+            val kept = quietly { withContext(io) { store.all() } }.orEmpty().filter { it.stylistId == stylistId }
+
+            _uploads.update { added ->
+                // A picture added while the device was being read is in both.
+                val known = added.map { it.id }.toSet()
+
+                kept.filterNot { it.id in known }.map { shown(it, if (it.failed) UploadState.FAILED else UploadState.WAITING) } + added
+            }
+            sendInTurn()
+        }
+    }
+
+    /** The Stylist is no longer signed in. Nothing more is sent, and the pictures stay on the device for when they are back. */
+    fun close() {
+        worker?.cancel()
+        worker = null
+        sending = null
+        stylistId = null
+        failureTold = false
+        _uploads.value = emptyList()
+        _preparing.value = emptyList()
+    }
+
+    /**
+     * Prepares each of [sources] and puts it in line. A picture that cannot be prepared is left
+     * out and the others are not affected by it; what went wrong with each is returned.
+     */
+    suspend fun <S> add(target: PhotoTarget, sources: List<S>, prepare: suspend (S) -> ByteArray): List<ApiException> {
+        val owner = stylistId ?: return emptyList()
+        val failures = mutableListOf<ApiException>()
+        var replacing = target.replacingPhotoId
+        var unread = sources.size
+
+        failureTold = false
+        _preparing.update { it + List(sources.size) { target } }
+        try {
+            for (source in sources) {
+                try {
+                    val bytes = prepare(source)
+                    val photo = PendingPhoto(newId(), owner, target.appointmentId, target.clientId, target.category, replacing, now())
+
+                    withContext(io) { store.add(photo, bytes) }
+                    replacing = null
+                    // Not shown to someone else who has signed in meanwhile. It is on the device for its Stylist.
+                    if (stylistId == owner) {
+                        _uploads.update { it + shown(photo, UploadState.WAITING) }
+                        wake.trySend(Unit)
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    failures += error.toApiException()
+                } finally {
+                    unread--
+                    _preparing.update { it - target }
+                }
+            }
+        } finally {
+            // Stopped before the end: what was not reached is not being read any more.
+            repeat(unread) { _preparing.update { it - target } }
+        }
+
+        return failures
+    }
+
+    /** 'Upload again' for one failed picture. */
+    fun retry(id: String) = retryAll { it.id == id }
+
+    /** 'Upload again' for every failed picture that [which] picks. */
+    fun retryAll(which: (PendingPhoto) -> Boolean) {
+        val failed = _uploads.value.filter { it.state == UploadState.FAILED && which(it.photo) }.map { it.id }.toSet()
+
+        if (failed.isEmpty()) {
+            return
+        }
+
+        failureTold = false
+        _uploads.update { all -> all.map { if (it.id in failed) it.copy(state = UploadState.WAITING) else it } }
+        wake.trySend(Unit)
+    }
+
+    /** 'Remove photo' for a picture that is not on the server: it is deleted from the device and never sent. */
+    fun remove(id: String) = removeAll { it.id == id }
+
+    /** Removes every picture that [which] picks. The one that is being sent is stopped first. */
+    fun removeAll(which: (PendingPhoto) -> Boolean) {
+        val removed = _uploads.value.filter { which(it.photo) }.map { it.id }.toSet()
+
+        if (removed.isEmpty()) {
+            return
+        }
+
+        val stopped = sending?.takeIf { it.first in removed }?.second
+
+        stopped?.cancel()
+        _uploads.update { all -> all.filterNot { it.id in removed } }
+        scope.launch {
+            // Deleted once the try has let go of the files.
+            stopped?.join()
+            quietly { withContext(io) { removed.forEach(store::remove) } }
+        }
+    }
+
+    private suspend fun sendInTurn() =
+        coroutineScope {
+            while (true) {
+                val next = _uploads.value.firstOrNull { it.state == UploadState.WAITING }
+
+                if (next == null) {
+                    wake.receive()
+                    continue
+                }
+
+                show(next.id) { it.copy(state = UploadState.UPLOADING) }
+                // A job of its own, so that 'Remove photo' can stop this try and nothing else. It ends with the worker.
+                val attempt = launch { attempt(next.photo) }
+
+                sending = next.id to attempt
+                attempt.join()
+                sending = null
+            }
+        }
+
+    private suspend fun attempt(waiting: PendingPhoto) {
+        var photo = waiting
+
+        try {
+            val failure = failureOrNull {
+                val stored = photo.stored ?: send(photo, withContext(io) { store.picture(photo.id).readBytes() }).also { file ->
+                    // Kept before it is recorded: another try records this file instead of uploading the picture again.
+                    photo = photo.copy(stored = file)
+                    show(photo.id) { it.copy(photo = photo) }
+                    withContext(io) { store.update(photo) }
+                }
+
+                record(photo, stored)
+            }
+
+            settle(photo, failure)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            // The device's own storage failed while the outcome was being kept.
+            tell(error.toApiException())
+        } finally {
+            // However the try ended, the picture does not go on looking as if it were being sent.
+            show(photo.id) { if (it.state == UploadState.UPLOADING) it.copy(state = UploadState.FAILED) else it }
+        }
+    }
+
+    private suspend fun settle(photo: PendingPhoto, failure: ApiException?) {
+        when {
+            // A conflict is the server's answer for a photo that an earlier try recorded without
+            // its reply arriving, and whose category the Stylist has changed since: it has the photo.
+            failure == null || failure.code == "CONFLICT" -> {
+                // Gone from here in the same moment as [record] returns: whoever shows the photo as stored from then on shows it once.
+                hide(photo.id)
+                withContext(io) { store.remove(photo.id) }
+                quietly { reload(photo, true) }
+            }
+            // The Appointment is gone, so there is nothing to add the photo to and no screen to show it on.
+            failure.isNotFound -> {
+                withContext(io) { store.remove(photo.id) }
+                hide(photo.id)
+                tell(failure)
+                quietly { reload(photo, false) }
+            }
+            else -> {
+                show(photo.id) { it.copy(photo = photo.copy(failed = true), state = UploadState.FAILED) }
+                tell(failure)
+                withContext(io) { store.update(photo.copy(failed = true)) }
+                if (failure.outcomeUnknown) {
+                    // The photo may have been recorded although the reply never came: the screen shows whether it was.
+                    quietly { reload(photo, false) }
+                }
+            }
+        }
+    }
+
+    /**
+     * What went wrong in [block], if anything. A cancellation that is not this coroutine's own
+     * is a failure like any other: a request the upload waited for was cancelled by someone else
+     * (the sign-in provider drops the token request that everyone shares when it restarts its
+     * refresh), and passing it on would end the try without a word.
+     */
+    private suspend fun failureOrNull(block: suspend () -> Unit): ApiException? =
+        try {
+            block()
+            null
+        } catch (error: CancellationException) {
+            // Our own: 'Remove photo', a sign-out or the app going away.
+            currentCoroutineContext().ensureActive()
+            ApiException("A request the upload waited for was cancelled.", code = "INTERRUPTED", cause = error)
+        } catch (error: Exception) {
+            error.toApiException()
+        }
+
+    /**
+     * Runs [block] for something a failure of which is not the Stylist's to act on here: the
+     * device's storage, a reload. As in [failureOrNull], only this coroutine's own cancellation is passed on.
+     */
+    private suspend fun <T> quietly(block: suspend () -> T): T? =
+        try {
+            block()
+        } catch (error: CancellationException) {
+            currentCoroutineContext().ensureActive()
+            null
+        } catch (_: Exception) {
+            null
+        }
+
+    private fun tell(failure: ApiException) {
+        if (!failureTold) {
+            failureTold = true
+            onFailure(failure)
+        }
+    }
+
+    private fun shown(photo: PendingPhoto, state: UploadState) = PhotoUpload(photo, state, store.picture(photo.id))
+
+    private fun show(id: String, change: (PhotoUpload) -> PhotoUpload) {
+        _uploads.update { all -> all.map { if (it.id == id) change(it) else it } }
+    }
+
+    private fun hide(id: String) {
+        _uploads.update { all -> all.filterNot { it.id == id } }
+    }
+}

@@ -11,12 +11,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,6 +35,7 @@ import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PhotoLibrary
@@ -59,6 +62,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -92,6 +96,8 @@ import com.northphoenix.hairdresserclientmanager.i18n.inLanguage
 import com.northphoenix.hairdresserclientmanager.i18n.toLocale
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
+import com.northphoenix.hairdresserclientmanager.state.PhotoUpload
+import com.northphoenix.hairdresserclientmanager.state.UploadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.AmountField
 import com.northphoenix.hairdresserclientmanager.ui.components.Avatar
@@ -143,6 +149,9 @@ internal sealed interface DetailSheet {
 
     data class Photo(val photoId: String) : DetailSheet
 
+    /** A photo that is not on the server yet: it is still being uploaded, or its upload failed. */
+    data class Upload(val uploadId: String) : DetailSheet
+
     companion object {
         /** A sheet is saved as its kind followed by its ids, and no sheet as nothing. */
         val Saver = listSaver<DetailSheet?, String>(
@@ -155,6 +164,7 @@ internal sealed interface DetailSheet {
                     is Formula -> listOfNotNull("formula", sheet.serviceId, sheet.formulaId)
                     is AddPhoto -> listOfNotNull("addPhoto", sheet.clientId, sheet.replacingPhotoId)
                     is Photo -> listOf("photo", sheet.photoId)
+                    is Upload -> listOf("upload", sheet.uploadId)
                 }
             },
             restore = { saved ->
@@ -167,6 +177,7 @@ internal sealed interface DetailSheet {
                     "formula" -> id?.let { Formula(it, saved.getOrNull(2)) }
                     "addPhoto" -> id?.let { AddPhoto(it, saved.getOrNull(2)) }
                     "photo" -> id?.let(::Photo)
+                    "upload" -> id?.let(::Upload)
                     else -> null
                 }
             },
@@ -229,7 +240,9 @@ private fun AppointmentDetail(
     val serviceMenuLoad by viewModel.serviceMenuLoad.collectAsStateWithLifecycle()
     val completedSources by viewModel.completedSources.collectAsStateWithLifecycle()
     val completedSourcesLoad by viewModel.completedSourcesLoad.collectAsStateWithLifecycle()
-    val uploadingPhoto by viewModel.uploadingPhoto.collectAsStateWithLifecycle()
+    // The photos of this Appointment that are not on the server yet, and the selected pictures still being read for it.
+    val uploads = viewModel.photoUploads.collectAsStateWithLifecycle().value.filter { it.photo.appointmentId == appointment.id }
+    val photosBeingRead = viewModel.photosBeingRead.collectAsStateWithLifecycle().value.filter { it.appointmentId == appointment.id }
     val isGroup = appointment.participants.size > 1
     var sheet by rememberSaveable(stateSaver = DetailSheet.Saver) { mutableStateOf<DetailSheet?>(null) }
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
@@ -397,33 +410,59 @@ private fun AppointmentDetail(
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Text(stringResource(R.string.appointment_photos_title), style = MaterialTheme.typography.headlineSmall)
 
-                    if (appointment.photos.isEmpty() && !uploadingPhoto) {
+                    if (appointment.photos.isEmpty() && uploads.isEmpty() && photosBeingRead.isEmpty()) {
                         InlineEmpty(stringResource(R.string.appointment_no_photos))
                     }
 
                     appointment.participants.forEach { participant ->
                         val photos = appointment.photos.filter { it.clientId == participant.clientId }
+                        val onTheirWay = uploads.filter { it.photo.clientId == participant.clientId }
+                        val failed = onTheirWay.count { it.state == UploadState.FAILED }
+                        val uploading = onTheirWay.size - failed + photosBeingRead.count { it.clientId == participant.clientId }
 
                         if (isGroup) {
                             Kicker(participant.name)
                         }
-                        if (photos.isNotEmpty()) {
-                            PhotoGrid(photos, onOpen = { sheet = DetailSheet.Photo(it.id) })
+                        if (photos.isNotEmpty() || onTheirWay.isNotEmpty()) {
+                            PhotoGrid(
+                                photos,
+                                onTheirWay,
+                                onOpen = { sheet = DetailSheet.Photo(it.id) },
+                                onOpenUpload = { sheet = DetailSheet.Upload(it.id) },
+                            )
                         }
+                        // What is on its way is said here, with the Client it is for and above the button that started it.
+                        if (uploading > 0) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                Text(
+                                    pluralStringResource(R.plurals.appointment_photos_uploading, uploading, uploading),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        if (failed > 0) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text(
+                                    pluralStringResource(R.plurals.appointment_photos_not_saved, failed, failed),
+                                    modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                                TextAction(
+                                    stringResource(R.string.retry_appointment_photo),
+                                    onClick = { viewModel.retryPhotoUploads(appointment.id, participant.clientId) },
+                                )
+                            }
+                        }
+                        // Not held back while photos upload: more pictures wait for their turn.
                         SecondaryButton(
                             stringResource(R.string.add_appointment_photo),
                             onClick = { sheet = DetailSheet.AddPhoto(participant.clientId) },
                             modifier = Modifier.fillMaxWidth(),
                             icon = Icons.Rounded.CameraAlt,
-                            enabled = !uploadingPhoto,
                         )
-                    }
-
-                    if (uploadingPhoto) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                            Text(stringResource(R.string.appointment_photo_uploading), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
                     }
                 }
             }
@@ -537,6 +576,25 @@ private fun AppointmentDetail(
                     },
                     onRetry = {
                         appointment.participants.firstOrNull { it.clientId == photo.clientId }?.let { sheet = DetailSheet.AddPhoto(it.clientId, replacingPhotoId = photo.id) }
+                    },
+                )
+            }
+        }
+        // Closes once the photo is on the server: it is among the stored ones then.
+        is DetailSheet.Upload -> {
+            val upload = uploads.firstOrNull { it.id == current.uploadId }
+
+            if (upload == null) {
+                sheet = null
+            } else {
+                UploadSheet(
+                    upload = upload,
+                    clientName = appointment.participants.firstOrNull { it.clientId == upload.photo.clientId }?.name.orEmpty(),
+                    onDismiss = { sheet = null },
+                    onRetry = { viewModel.retryPhotoUpload(upload.id) },
+                    onRemove = {
+                        sheet = null
+                        viewModel.removePhotoUpload(upload.id)
                     },
                 )
             }
@@ -779,51 +837,91 @@ private fun NoteCard(appointment: Appointment, note: String, onNote: (String) ->
     }
 }
 
+/** The stored photos, then the ones that are not on the server yet: those are the newest. */
 @Composable
-private fun PhotoGrid(photos: List<AppointmentPhoto>, onOpen: (AppointmentPhoto) -> Unit) {
+private fun PhotoGrid(
+    photos: List<AppointmentPhoto>,
+    uploads: List<PhotoUpload>,
+    onOpen: (AppointmentPhoto) -> Unit,
+    onOpenUpload: (PhotoUpload) -> Unit,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        photos.chunked(3).forEach { row ->
+        (0 until photos.size + uploads.size).chunked(3).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { photo ->
-                    val category = stringResource(photo.category.label)
-                    val description = stringResource(R.string.appointment_photo_description, category)
-
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .aspectRatio(1f)
-                            .clip(MaterialTheme.shapes.medium)
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .clickable(role = Role.Button) { onOpen(photo) }
-                            // Says that it is a photo and names the category once: the image and the tag are not read out as well.
-                            .semantics { contentDescription = description },
-                    ) {
-                        if (photo.status == PhotoStatus.STORED && photo.url.isNotBlank()) {
-                            AsyncImage(
-                                model = photo.thumbnailUrl.ifBlank { photo.url },
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        } else {
-                            Icon(
-                                Icons.Rounded.BrokenImage,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.align(Alignment.Center),
-                            )
-                        }
-                        Tag(
-                            category,
-                            modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).clearAndSetSemantics {},
-                            content = HcmColors.Surface,
-                            container = HcmColors.Ink.copy(alpha = 0.72f),
-                        )
+                row.forEach { index ->
+                    if (index < photos.size) {
+                        StoredPhotoTile(photos[index], onOpen)
+                    } else {
+                        UploadTile(uploads[index - photos.size], onOpenUpload)
                     }
                 }
                 // Keep cells square when the last row is short.
                 repeat(3 - row.size) { Box(Modifier.weight(1f)) }
             }
+        }
+    }
+}
+
+/** One square of the photo grid. [description] is all a screen reader is told: the picture and the tag are not read out as well. */
+@Composable
+private fun RowScope.PhotoTile(description: String, category: String, onClick: () -> Unit, picture: @Composable BoxScope.() -> Unit) {
+    Box(
+        Modifier
+            .weight(1f)
+            .aspectRatio(1f)
+            .clip(MaterialTheme.shapes.medium)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = description },
+    ) {
+        picture()
+        Tag(
+            category,
+            modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).clearAndSetSemantics {},
+            content = HcmColors.Surface,
+            container = HcmColors.Ink.copy(alpha = 0.72f),
+        )
+    }
+}
+
+@Composable
+private fun RowScope.StoredPhotoTile(photo: AppointmentPhoto, onOpen: (AppointmentPhoto) -> Unit) {
+    val category = stringResource(photo.category.label)
+
+    // Says that it is a photo and names the category once.
+    PhotoTile(stringResource(R.string.appointment_photo_description, category), category, onClick = { onOpen(photo) }) {
+        if (photo.status == PhotoStatus.STORED && photo.url.isNotBlank()) {
+            AsyncImage(
+                model = photo.thumbnailUrl.ifBlank { photo.url },
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Icon(
+                Icons.Rounded.BrokenImage,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.Center),
+            )
+        }
+    }
+}
+
+/** A photo that is not on the server yet: the picture as it is on the device, dimmed, under a spinner or a failure mark. */
+@Composable
+private fun RowScope.UploadTile(upload: PhotoUpload, onOpen: (PhotoUpload) -> Unit) {
+    val category = stringResource(upload.photo.category.label)
+    val failed = upload.state == UploadState.FAILED
+    val description = if (failed) R.string.appointment_photo_failed_description else R.string.appointment_photo_uploading_description
+
+    PhotoTile(stringResource(description, category), category, onClick = { onOpen(upload) }) {
+        AsyncImage(model = upload.picture, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        Box(Modifier.fillMaxSize().background(HcmColors.Ink.copy(alpha = 0.5f)))
+        if (failed) {
+            Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = HcmColors.Surface, modifier = Modifier.align(Alignment.Center))
+        } else {
+            CircularProgressIndicator(Modifier.align(Alignment.Center).size(24.dp), color = HcmColors.Surface, strokeWidth = 2.dp)
         }
     }
 }
@@ -1073,6 +1171,45 @@ private fun PhotoSheet(
             Text(stringResource(R.string.appointment_photo_category_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             // Not compared with the category shown: while a change is being saved, a tap back to it is a change again.
             SegmentedControl(PhotoCategory.entries, photo.category, onCategory, label = { stringResource(it.label) })
+        }
+        TextAction(
+            stringResource(R.string.remove_appointment_photo),
+            onClick = onRemove,
+            icon = Icons.Rounded.DeleteOutline,
+            danger = true,
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+        )
+    }
+}
+
+/** A photo that is not on the server yet. One that failed is uploaded again or removed from here; one on its way can be removed. */
+@Composable
+private fun UploadSheet(
+    upload: PhotoUpload,
+    clientName: String,
+    onDismiss: () -> Unit,
+    onRetry: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    HcmBottomSheet(title = stringResource(upload.photo.category.label), subtitle = clientName, onDismiss = onDismiss) {
+        AsyncImage(
+            model = upload.picture,
+            contentDescription = stringResource(upload.photo.category.label),
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(MaterialTheme.shapes.large).background(MaterialTheme.colorScheme.surfaceVariant),
+        )
+        if (upload.state == UploadState.FAILED) {
+            Text(
+                stringResource(R.string.appointment_photo_upload_failed),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.error,
+            )
+            SecondaryButton(stringResource(R.string.retry_appointment_photo), onClick = onRetry, modifier = Modifier.fillMaxWidth())
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                Text(stringResource(R.string.appointment_photo_uploading), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         TextAction(
             stringResource(R.string.remove_appointment_photo),

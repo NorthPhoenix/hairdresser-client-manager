@@ -2,6 +2,10 @@ package com.northphoenix.hairdresserclientmanager.auth
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.northphoenix.hairdresserclientmanager.data.ApiException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.StateFlow
 
 sealed interface AuthState {
@@ -44,4 +48,27 @@ interface AuthGateway {
 
     @Composable
     fun SignInContent(modifier: Modifier)
+}
+
+/**
+ * Asks the sign-in provider through [ask] on behalf of a request. A provider that shares one
+ * token request between everyone who asks at the same moment can cancel that request for reasons
+ * of its own (Clerk does when it restarts its token refresh as the app comes back to the front),
+ * and everyone who waited is then thrown a cancellation that nobody asked for. Passed on, it would
+ * end the caller's coroutine without a word. So the provider is asked once more, and a second
+ * cancellation becomes a failure the caller reports. The caller's own cancellation is passed on.
+ */
+internal suspend fun <T> askingAgainWhenDropped(ask: suspend () -> T): T {
+    try {
+        return ask()
+    } catch (error: CancellationException) {
+        currentCoroutineContext().ensureActive()
+    }
+
+    return try {
+        ask()
+    } catch (error: CancellationException) {
+        currentCoroutineContext().ensureActive()
+        throw ApiException("The sign-in provider dropped the token request.", code = "TOKEN_REQUEST_DROPPED", cause = error)
+    }
 }

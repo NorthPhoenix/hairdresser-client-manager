@@ -1,5 +1,6 @@
 package com.northphoenix.hairdresserclientmanager.data
 
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
@@ -232,6 +233,13 @@ class HcmApi(private val trpc: TrpcClient) {
         trpc.mutation<JsonObject>("appointment.deleteColorFormula", idInput(id))
     }
 
+    /**
+     * [requestKey] names this photo for the server (16 to 64 of `A-Z a-z 0-9 _ -`). A call that is
+     * sent again with the key of a photo the Appointment already has creates nothing and is
+     * answered like the first, so a try whose reply was lost can be repeated.
+     * Returns the Appointment's photos as the reply states them, or null when it does not state
+     * them in a form this app reads: the photo is recorded either way.
+     */
     suspend fun addStoredPhoto(
         appointmentId: String,
         clientId: String,
@@ -239,8 +247,9 @@ class HcmApi(private val trpc: TrpcClient) {
         fileKey: String,
         url: String,
         thumbnailUrl: String,
-    ) {
-        trpc.mutation<JsonObject>(
+        requestKey: String,
+    ): List<AppointmentPhoto>? {
+        val reply = trpc.mutation<JsonObject>(
             "appointment.addPhoto",
             buildJsonObject {
                 put("appointmentId", appointmentId)
@@ -250,8 +259,15 @@ class HcmApi(private val trpc: TrpcClient) {
                 put("fileKey", fileKey)
                 put("url", url)
                 put("thumbnailUrl", thumbnailUrl)
+                put("requestKey", requestKey)
             },
         )
+
+        return try {
+            reply["photos"]?.let { hcmJson.decodeFromJsonElement(ListSerializer(AppointmentPhoto.serializer()), it) }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     suspend fun updatePhotoCategory(id: String, category: PhotoCategory) {

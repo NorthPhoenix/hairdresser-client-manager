@@ -9,6 +9,7 @@ import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.LocationType
+import com.northphoenix.hairdresserclientmanager.data.PhotoPreparer
 import com.northphoenix.hairdresserclientmanager.data.isConnectionFailure
 import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
@@ -48,6 +49,19 @@ class TranslationsTest {
         }
     }
 
+    /** Every `plurals` entry by name, with the text of each of its quantities. */
+    private fun plurals(directory: String): Map<String, Map<String, String>> {
+        val document = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(File("src/main/res/$directory/strings.xml"))
+        val nodes = document.getElementsByTagName("plurals")
+
+        return (0 until nodes.length).associate { index ->
+            val items = (nodes.item(index) as org.w3c.dom.Element).getElementsByTagName("item")
+
+            nodes.item(index).attributes.getNamedItem("name").nodeValue to
+                (0 until items.length).associate { items.item(it).attributes.getNamedItem("quantity").nodeValue to items.item(it).textContent }
+        }
+    }
+
     private val english = strings("values")
     private val russian = strings("values-ru")
     private val placeholder = Regex("%\\d+\\$[sd]")
@@ -55,6 +69,25 @@ class TranslationsTest {
     @Test
     fun `every translatable string has a Russian translation and nothing else does`() {
         assertEquals(english.filterValues { it.translatable }.keys.sorted(), russian.keys.sorted())
+    }
+
+    @Test
+    fun `every counted text has each form its language needs`() {
+        val englishPlurals = plurals("values")
+        val russianPlurals = plurals("values-ru")
+
+        assertEquals(englishPlurals.keys, russianPlurals.keys)
+        for ((name, forms) in englishPlurals) {
+            assertEquals(name, setOf("one", "other"), forms.keys)
+        }
+        for ((name, forms) in russianPlurals) {
+            assertEquals(name, setOf("one", "few", "many", "other"), forms.keys)
+            // In Russian "one" is also 21, 31 and so on, so every form names the number.
+            forms.forEach { (quantity, text) -> assertTrue("$name $quantity", text.contains("%d")) }
+        }
+        for ((name, text) in (englishPlurals.values + russianPlurals.values).flatMap { it.entries }.map { it.key to it.value }) {
+            assertTrue(name, text.isNotBlank())
+        }
     }
 
     @Test
@@ -102,6 +135,9 @@ class TranslationsTest {
         assertEquals(R.string.error_generic, ApiException("boom").messageRes())
         assertEquals(R.string.error_appointment_total_too_large, ApiException("Appointment total is too large.", code = "BAD_REQUEST").messageRes())
         assertEquals(R.string.client_email_invalid, ApiException("Email is not valid.", code = "BAD_REQUEST").messageRes())
+        // A picked picture that could not be made into a photo: said as what it is, not as a failed upload.
+        assertEquals(R.string.error_image_unreadable, ApiException("The selected image could not be read.", code = PhotoPreparer.UNREADABLE).messageRes())
+        assertEquals(R.string.appointment_photo_too_large, ApiException("The photo is larger than 8 MB.", code = PhotoPreparer.TOO_LARGE).messageRes())
     }
 
     @Test

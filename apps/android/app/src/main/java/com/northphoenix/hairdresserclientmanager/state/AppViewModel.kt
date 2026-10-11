@@ -22,10 +22,13 @@ import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.CreateAppointmentResult
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.LocationType
+import com.northphoenix.hairdresserclientmanager.data.PendingPhoto
+import com.northphoenix.hairdresserclientmanager.data.PendingPhotoStore
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
 import com.northphoenix.hairdresserclientmanager.data.PhotoPreparer
 import com.northphoenix.hairdresserclientmanager.data.ServiceMenuItem
 import com.northphoenix.hairdresserclientmanager.data.ShareImage
+import com.northphoenix.hairdresserclientmanager.data.StoredFile
 import com.northphoenix.hairdresserclientmanager.data.Stylist
 import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
 import com.northphoenix.hairdresserclientmanager.data.toApiException
@@ -34,6 +37,7 @@ import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
 import com.northphoenix.hairdresserclientmanager.domain.zoneOrSystem
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
 import com.northphoenix.hairdresserclientmanager.i18n.refusedSignInMessage
+import java.io.File
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -55,8 +59,8 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** A transient message for the snackbar, resolved to text by the UI in the current app language. */
-data class Notice(@StringRes val message: Int, val isError: Boolean = false)
+/** A transient message for the snackbar, resolved to text by the UI in the current app language. [args] fill the text's placeholders. */
+data class Notice(@StringRes val message: Int, val isError: Boolean = false, val args: List<Any> = emptyList())
 
 sealed interface BootstrapState {
     data object Loading : BootstrapState
@@ -172,8 +176,21 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     private val finalTotalChanges = LatestWins<String, Long?>()
     private val photoCategoryChanges = LatestWins<String, PhotoCategory>()
 
-    private val _uploadingPhoto = MutableStateFlow(false)
-    val uploadingPhoto: StateFlow<Boolean> = _uploadingPhoto.asStateFlow()
+    /** The photos on their way to the server: kept on the device and sent one at a time until the server has them (see [PhotoUploads]). */
+    private val photos = PhotoUploads(
+        viewModelScope,
+        PendingPhotoStore(File(container.appContext.filesDir, "photo-uploads")),
+        send = ::sendPhoto,
+        record = ::recordPhoto,
+        reload = ::reloadForPhoto,
+        onFailure = ::report,
+    )
+
+    /** Every Appointment's, so each screen picks its own: an upload is shown on the Appointment and the Client it belongs to. */
+    val photoUploads: StateFlow<List<PhotoUpload>> = photos.uploads
+
+    /** One entry for each selected picture that is still being read and is not among [photoUploads] yet. */
+    val photosBeingRead: StateFlow<List<PhotoTarget>> = photos.preparing
 
     private val noticeChannel = Channel<Notice>(Channel.BUFFERED)
     val notices = noticeChannel.receiveAsFlow()
@@ -194,8 +211,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     fun profileShareUrl(token: String): String = container.config.profileShareUrl(token)
 
-    fun notify(@StringRes message: Int, isError: Boolean = false) {
-        noticeChannel.trySend(Notice(message, isError))
+    fun notify(@StringRes message: Int, isError: Boolean = false, vararg args: Any) {
+        noticeChannel.trySend(Notice(message, isError, args.toList()))
     }
 
     /**
@@ -245,6 +262,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         listOf(clientsLoading, serviceMenuLoading, homeLoading, calendarLoading, completedSourcesLoading).forEach(LoadTracker::reset)
         loadedAppointments.clear()
         actions.forgetOwed()
+        photos.close()
     }
 
     // --- loading ---
@@ -257,6 +275,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             try {
                 val stylist = api.bootstrap(container.appLanguage.device(), ZoneId.systemDefault().id)
                 showStylist(stylist)
+                // What was still on its way when the app was last closed goes on.
+                photos.open(stylist.id)
                 // The day that was selected when Android killed the app in the background, today otherwise.
                 day.follow(clock.zone)
                 _calendarDate.value = savedCalendarDay.take(stylist.id, today.value) ?: today.value
@@ -667,6 +687,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         ) {
             api.deleteClient(id)
             _clients.update { clients -> clients.filterNot { it.id == id } }
+            photos.removeAll { it.clientId == id }
             affected = appointments.value.values.filter { appointment -> appointment.participants.any { it.clientId == id } }
             // An Appointment left without Clients is deleted with its last one. The reload checks each of them again.
             affected.filter { appointment -> appointment.participants.all { it.clientId == id } }.forEach { forgetAppointment(it.id) }
@@ -804,13 +825,21 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         actOnAppointment(id, "deleteAppointment:$id", onSuccess = onSuccess) {
             api.deleteAppointment(id)
             forgetAppointment(id)
+            photos.removeAll { it.appointmentId == id }
         }
 
     fun addParticipant(appointmentId: String, clientId: String) =
         actOnAppointment(appointmentId, "addParticipant:$appointmentId:$clientId") { api.addParticipant(appointmentId, clientId) }
 
-    fun removeParticipant(appointmentId: String, clientId: String) =
+    fun removeParticipant(appointmentId: String, clientId: String) {
+        // As the server does for the photos it has: the Stylist deals with them first, so none is dropped without a word.
+        if (photos.uploads.value.any { it.photo.appointmentId == appointmentId && it.photo.clientId == clientId }) {
+            notify(R.string.error_client_has_photo_uploads, isError = true)
+            return
+        }
+
         actOnAppointment(appointmentId, "removeParticipant:$appointmentId:$clientId") { api.removeParticipant(appointmentId, clientId) }
+    }
 
     fun addService(
         appointmentId: String,
@@ -853,76 +882,99 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     // --- photos ---
 
     /**
-     * Uploads through UploadThing first and only then records the photo, so the
-     * database never points at a file that failed to store.
-     * Several [sources] upload one after another and stop at the first failure.
-     * [replacingPhotoId] removes a failed attempt once its retry succeeds.
+     * Reads the selected pictures and hands them to [photos], which keeps each on the device and
+     * uploads it. A picture that cannot be read is left out without stopping the others, and the
+     * Stylist is told how many were.
+     * [replacingPhotoId] is a failed photo on the server, removed once the picture taken for it is stored.
      */
     fun addPhotos(appointmentId: String, clientId: String, category: PhotoCategory, sources: List<Uri>, replacingPhotoId: String? = null) {
-        if (_uploadingPhoto.value || sources.isEmpty()) {
+        if (sources.isEmpty()) {
             return
         }
 
         viewModelScope.launch {
-            _uploadingPhoto.value = true
-            var stored = 0
-            var outcomeUnknown = false
-            try {
-                for (source in sources) {
-                    val photo = PhotoPreparer.prepare(container.appContext, source)
+            reporting {
+                val unread = photos.add(PhotoTarget(appointmentId, clientId, category, replacingPhotoId), sources, ::preparedPhoto)
 
-                    if (photo.bytes.size > UploadThingClient.MAX_PHOTO_BYTES) {
-                        notify(R.string.appointment_photo_too_large, isError = true)
-                        break
-                    }
-
-                    val uploaded = container.uploads.upload(
-                        slug = UploadThingClient.APPOINTMENT_PHOTO_SLUG,
-                        input = buildJsonObject {
-                            put("appointmentId", appointmentId)
-                            put("clientId", clientId)
-                            put("category", category.wire)
-                        },
-                        fileName = photo.fileName,
-                        mimeType = photo.mimeType,
-                        bytes = photo.bytes,
-                    )
-                    val serverData = UploadThingClient.decodeUploadedPhoto(uploaded.serverData)
-                    val url = serverData?.url ?: uploaded.ufsUrl
-
-                    api.addStoredPhoto(
-                        appointmentId = serverData?.appointmentId ?: appointmentId,
-                        clientId = serverData?.clientId ?: clientId,
-                        category = serverData?.category ?: category,
-                        fileKey = serverData?.fileKey ?: uploaded.key,
-                        url = url,
-                        thumbnailUrl = serverData?.thumbnailUrl ?: url,
-                    )
-                    if (stored == 0) {
-                        replacingPhotoId?.let { api.deletePhoto(it) }
-                    }
-                    stored++
-                }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                val failure = error.toApiException()
-
-                // The photo may have been recorded even though the reply to that step never came.
-                outcomeUnknown = failure.outcomeUnknown
-                report(failure)
-            }
-
-            try {
-                if (stored > 0 || outcomeUnknown) {
-                    // Saved in full only when every photo was stored; otherwise the Stylist has been told what went wrong.
-                    actions.reloadAfterChange(saved = stored == sources.size) { reloadAppointmentAndLists(appointmentId) }
-                }
-            } finally {
-                _uploadingPhoto.value = false
+                unreadPhotosNotice(sources.size, unread)?.let(noticeChannel::trySend)
             }
         }
     }
+
+    private suspend fun preparedPhoto(source: Uri): ByteArray {
+        val bytes = PhotoPreparer.prepare(container.appContext, source)
+
+        if (bytes.size > UploadThingClient.MAX_PHOTO_BYTES) {
+            throw ApiException("The photo is larger than 8 MB.", code = PhotoPreparer.TOO_LARGE)
+        }
+
+        return bytes
+    }
+
+    /** Uploads through UploadThing first, and only what is stored there is recorded: the database never points at a file that failed to store. */
+    private suspend fun sendPhoto(photo: PendingPhoto, bytes: ByteArray): StoredFile {
+        val uploaded = container.uploads.upload(
+            slug = UploadThingClient.APPOINTMENT_PHOTO_SLUG,
+            input = buildJsonObject {
+                put("appointmentId", photo.appointmentId)
+                put("clientId", photo.clientId)
+                put("category", photo.category.wire)
+            },
+            fileName = "appointment-photo-${photo.createdAt}.jpg",
+            mimeType = PhotoPreparer.MIME_TYPE,
+            bytes = bytes,
+        )
+        val serverData = UploadThingClient.decodeUploadedPhoto(uploaded.serverData)
+        val url = serverData?.url ?: uploaded.ufsUrl
+
+        return StoredFile(fileKey = serverData?.fileKey ?: uploaded.key, url = url, thumbnailUrl = serverData?.thumbnailUrl ?: url)
+    }
+
+    private suspend fun recordPhoto(photo: PendingPhoto, stored: StoredFile) {
+        // The photo's id is its request key: recorded once, however often this is sent.
+        val photosNow =
+            api.addStoredPhoto(photo.appointmentId, photo.clientId, photo.category, stored.fileKey, stored.url, stored.thumbnailUrl, requestKey = photo.id)
+
+        if (photosNow?.any { it.url == stored.url } == true) {
+            // The reply states the Appointment's photos with this one among them: it is shown at once, also when the reload after it fails.
+            updateLoaded(photo.appointmentId) { it.copy(photos = photosNow) }
+        } else {
+            loadedAppointments.changed(photo.appointmentId)
+        }
+
+        photo.replacingPhotoId?.let { replaced ->
+            try {
+                api.deletePhoto(replaced)
+            } catch (error: ApiException) {
+                // Removed already is as good.
+                if (!error.isNotFound) {
+                    throw error
+                }
+            }
+        }
+    }
+
+    /**
+     * The Appointment of a photo that has reached the server, or may have, is loaded again. One
+     * that is not loaded is left alone: it comes with its photos when the Stylist opens it, which
+     * is how it is after the app was closed with an upload still on its way.
+     */
+    private suspend fun reloadForPhoto(photo: PendingPhoto, saved: Boolean) =
+        actions.reloadAfterChange(saved) {
+            if (loadedAppointments[photo.appointmentId] != null) {
+                reloadAppointmentAndLists(photo.appointmentId)
+            }
+        }
+
+    /** 'Upload again' for one photo that failed to upload. */
+    fun retryPhotoUpload(uploadId: String) = photos.retry(uploadId)
+
+    /** 'Upload again' for every photo of this Client in this Appointment that failed to upload. */
+    fun retryPhotoUploads(appointmentId: String, clientId: String) =
+        photos.retryAll { it.appointmentId == appointmentId && it.clientId == clientId }
+
+    /** 'Remove photo' for a photo that is not on the server yet: it is deleted from the device and never sent. */
+    fun removePhotoUpload(uploadId: String) = photos.remove(uploadId)
 
     fun setPhotoCategory(appointmentId: String, photoId: String, category: PhotoCategory) =
         saveLatest(
@@ -946,6 +998,20 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             viewModelFactory { initializer { AppViewModel(container, auth, createSavedStateHandle()) } }
     }
 }
+
+/**
+ * What to say about the pictures of a selection that were left out because they could not be read
+ * ([unread], of [selected] pictures), or null when every one was added.
+ */
+internal fun unreadPhotosNotice(selected: Int, unread: List<ApiException>): Notice? =
+    when {
+        unread.isEmpty() -> null
+        // The only picture: why it was not added.
+        selected == 1 -> Notice(unread.single().messageRes(), isError = true)
+        unread.size == selected -> Notice(R.string.appointment_photos_none_read, isError = true)
+        // How many, so that the Stylist knows the pictures on screen are not the whole selection.
+        else -> Notice(R.string.appointment_photos_some_unread, isError = true, args = listOf(unread.size, selected))
+    }
 
 /**
  * The Client list with a just-saved Client in it, first as on the server (latest change first).

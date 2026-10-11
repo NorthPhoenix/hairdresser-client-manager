@@ -82,7 +82,7 @@ class ClerkAuthGateway(
         start()
     }
 
-    override suspend fun token(): String? = Clerk.auth.getToken().successOrNull()
+    override suspend fun token(): String? = askingAgainWhenDropped { Clerk.auth.getToken().successOrNull() }
 
     override suspend fun signOut() {
         Clerk.auth.signOut()

@@ -7,6 +7,7 @@ import com.northphoenix.hairdresserclientmanager.auth.CodePurpose
 import com.northphoenix.hairdresserclientmanager.auth.SessionCheck
 import com.northphoenix.hairdresserclientmanager.auth.SignInError
 import com.northphoenix.hairdresserclientmanager.data.ApiException
+import com.northphoenix.hairdresserclientmanager.data.PhotoPreparer
 import com.northphoenix.hairdresserclientmanager.domain.Amount
 
 /**
@@ -26,7 +27,8 @@ fun ApiException.messageRes(): Int =
         message == "Appointment total is too large." -> R.string.error_appointment_total_too_large
         // The Client Profile form refuses such an email itself, under the field, with these words.
         message == "Email is not valid." -> R.string.client_email_invalid
-        code == "BAD_IMAGE" -> R.string.error_image_unreadable
+        code == PhotoPreparer.UNREADABLE -> R.string.error_image_unreadable
+        code == PhotoPreparer.TOO_LARGE -> R.string.appointment_photo_too_large
         code == "UPLOAD_FAILED" || code == "UPLOAD_REJECTED" -> R.string.appointment_photo_upload_failed
         // What a refused sign-in really means is for the sign-in provider to say: see refusedSignInMessage.
         isUnauthorized -> R.string.error_sign_in_rejected
