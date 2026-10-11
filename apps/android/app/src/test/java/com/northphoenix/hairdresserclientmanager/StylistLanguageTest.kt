@@ -1,5 +1,6 @@
 package com.northphoenix.hairdresserclientmanager
 
+import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.Stylist
 import com.northphoenix.hairdresserclientmanager.i18n.AppLanguageSetting
@@ -7,6 +8,7 @@ import com.northphoenix.hairdresserclientmanager.i18n.AppLocales
 import com.northphoenix.hairdresserclientmanager.i18n.stringsLanguage
 import com.northphoenix.hairdresserclientmanager.state.SettingsRequests
 import com.northphoenix.hairdresserclientmanager.state.StylistLanguage
+import com.northphoenix.hairdresserclientmanager.state.onLatestSettings
 import com.northphoenix.hairdresserclientmanager.state.withSettings
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -620,5 +622,78 @@ class StylistLanguageTest {
         }
 
         assertEquals(listOf("lists"), loaded)
+    }
+
+    /** The server of L67: it keeps the three settings and refuses a save that names another version than it has. */
+    private class VersionedSettings(var saved: Stylist) {
+        val requests = mutableListOf<String>()
+
+        fun save(language: Language, built: Stylist): Stylist {
+            requests += "save ${language.tag} / ${built.timezone} / ${built.salonAddress}"
+            if (built.updatedAt != saved.updatedAt) {
+                throw ApiException("This record was changed since it was loaded.", code = "CONFLICT")
+            }
+            saved = saved.copy(language = language, timezone = built.timezone, salonAddress = built.salonAddress, updatedAt = saved.updatedAt + "+")
+
+            return saved
+        }
+
+        fun load(): Stylist = saved.also { requests += "load" }
+    }
+
+    private val onboardedAt = "2026-10-01T00:00:00Z"
+
+    @Test
+    fun `a language switch from settings that are out of date keeps the timezone and address saved on another device`() = runTest {
+        // L67: this device has en / UTC / 12 Salon Street. Another one saved en / Asia/Tokyo / 9 Other Road since.
+        val known = Stylist("s1", Language.EN, "UTC", "12 Salon Street", onboardedAt, updatedAt = "v1")
+        val server = VersionedSettings(known.copy(timezone = "Asia/Tokyo", salonAddress = "9 Other Road", updatedAt = "v2"))
+
+        val answered = onLatestSettings(known, load = { server.load() }) { settings -> server.save(Language.RU, settings) }
+
+        // Only the language changed: the switch was sent again on top of what is saved now.
+        assertEquals(Stylist("s1", Language.RU, "Asia/Tokyo", "9 Other Road", onboardedAt, updatedAt = "v2+"), server.saved)
+        assertEquals(server.saved, answered)
+        assertEquals(listOf("save ru / UTC / 12 Salon Street", "load", "save ru / Asia/Tokyo / 9 Other Road"), server.requests)
+    }
+
+    @Test
+    fun `a language switch from up-to-date settings is one request`() = runTest {
+        val known = Stylist("s1", Language.EN, "UTC", "12 Salon Street", onboardedAt, updatedAt = "v1")
+        val server = VersionedSettings(known)
+
+        onLatestSettings(known, load = { server.load() }) { settings -> server.save(Language.RU, settings) }
+
+        assertEquals(listOf("save ru / UTC / 12 Salon Street"), server.requests)
+        assertEquals(Language.RU, server.saved.language)
+    }
+
+    @Test
+    fun `a switch that fails for another reason, or is refused again, is not sent a third time`() = runTest {
+        val known = Stylist("s1", Language.EN, "UTC", "12 Salon Street", onboardedAt, updatedAt = "v1")
+        var sent = 0
+        var loaded = 0
+
+        try {
+            onLatestSettings<Stylist>(known, load = { loaded++; known }) { sent++; throw ApiException("Internal server error.", code = "INTERNAL_SERVER_ERROR") }
+            fail("the failure was swallowed")
+        } catch (error: ApiException) {
+            assertEquals("INTERNAL_SERVER_ERROR", error.code)
+        }
+        assertEquals(1, sent)
+        assertEquals(0, loaded)
+
+        // Saved elsewhere once more between the load and the second try: the Stylist is told, and the app goes back to the saved language.
+        try {
+            onLatestSettings<Stylist>(known, load = { loaded++; known }) {
+                sent++
+                throw ApiException("This record was changed since it was loaded.", code = "CONFLICT")
+            }
+            fail("the refusal was swallowed")
+        } catch (error: ApiException) {
+            assertTrue(error.isChangedElsewhere)
+        }
+        assertEquals(3, sent)
+        assertEquals(1, loaded)
     }
 }

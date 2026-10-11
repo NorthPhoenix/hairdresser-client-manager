@@ -40,6 +40,7 @@ import com.northphoenix.hairdresserclientmanager.data.UpdatedAppointment
 import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
 import com.northphoenix.hairdresserclientmanager.data.toApiException
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
+import com.northphoenix.hairdresserclientmanager.domain.ChangedElsewhere
 import com.northphoenix.hairdresserclientmanager.domain.OneLine
 import com.northphoenix.hairdresserclientmanager.domain.ServiceEdit
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
@@ -643,14 +644,22 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         }
 
         var confirmed = false
+        // The other settings came from the server with the switch: they may be another timezone.
+        var settingsLoaded = false
 
         // No key: the choices are ordered by [language], as in [saveLatest]. Nothing to reload once the server
         // has confirmed the language; after a request that got no reply, the settings show whether it was saved.
-        act(key = null, reload = { if (!confirmed) loadEverything() }) {
+        act(key = null, reload = { if (!confirmed || settingsLoaded) loadEverything() }) {
             language.save(saved = { _stylist.value?.language }) { next ->
                 settingsRequests.save {
                     // The settings as they are now, not as they were at the tap: a save that has ended since must not be undone.
-                    _stylist.value?.let { latest -> _stylist.value = api.saveSettings(next, latest.timezone, latest.salonAddress) }
+                    // And when they were saved on another device since, as they are there: the switch is of the language alone.
+                    _stylist.value?.let { latest ->
+                        _stylist.value = onLatestSettings(
+                            known = latest,
+                            load = { api.bootstrap(container.appLanguage.device(), ZoneId.systemDefault().id).also { settingsLoaded = true } },
+                        ) { settings -> api.saveSettings(next, settings.timezone, settings.salonAddress, settings.updatedAt) }
+                    }
                 }
             }
             confirmed = true
@@ -677,16 +686,31 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             return
         }
 
+        var saved = false
+
         act(
             key = "saveSettings",
             successNotice = if (current.onboardingComplete) R.string.settings_saved else null,
-            reload = { loadAll() },
+            // Not saved: refused because the settings were saved on another device, or never answered. Both show in the settings.
+            reload = { if (saved) loadAll() else loadEverything() },
         ) {
             settingsRequests.save {
-                // The language as it is now: a language switch that was still being saved has ended by this save's turn.
+                // The settings as they are now: a language switch that was still being saved has ended by this save's turn,
+                // and it may have brought settings from another device with it. What the Stylist changed in the form goes
+                // on top of those, under their version, so the server refuses it when they have been saved elsewhere since.
                 // The reply is put in place here, before the next save has its turn: that one is built from it.
-                showStylist(api.saveSettings(language.toSave(_stylist.value ?: current), trimmedTimezone, salonAddress.trim()))
+                val latest = _stylist.value ?: current
+
+                showStylist(
+                    api.saveSettings(
+                        language.toSave(latest),
+                        ChangedElsewhere.field(current.timezone, trimmedTimezone, latest.timezone),
+                        ChangedElsewhere.field(current.salonAddress, salonAddress.trim(), latest.salonAddress),
+                        latest.updatedAt,
+                    ),
+                )
             }
+            saved = true
             // In another timezone it can be another day. The reload loads it.
             followDay()
         }
@@ -706,6 +730,12 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     // --- clients ---
 
+    /**
+     * Saves the Client Profile form. For a Client who exists, [loadedUpdatedAt] is the version of
+     * the Client the form was filled from: a save from a form that is older than the Client is
+     * refused, and the list is loaded again for the form to take in. For a new Client,
+     * [requestKey] is the form's own (see `rememberRequestKey`), so a second try creates no second Client.
+     */
     fun saveClient(
         id: String?,
         name: String,
@@ -714,6 +744,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         email: String,
         address: String,
         note: String,
+        loadedUpdatedAt: String?,
+        requestKey: String,
         onSuccess: (ClientProfile) -> Unit,
     ) {
         act(
@@ -722,7 +754,9 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             onSuccess = onSuccess,
             reload = { together(::loadClients, { if (id != null) loadAppointmentLists() }) },
         ) {
-            api.saveClient(id, OneLine.clean(name), language, OneLine.clean(phone), email.trim(), address.trim(), note.trim()).also { saved ->
+            api.saveClient(
+                id, OneLine.clean(name), language, OneLine.clean(phone), email.trim(), address.trim(), note.trim(), loadedUpdatedAt, requestKey,
+            ).also { saved ->
                 _clients.update { it.withSaved(saved) }
                 // Names and phone numbers shown on Appointments come from the Client: every loaded
                 // copy gets them now, on whatever day it is, so no reminder goes to the old number.
@@ -823,14 +857,15 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     // --- service menu ---
 
-    fun saveServiceMenuItem(id: String?, name: String, defaultPriceCents: Long, onSuccess: () -> Unit) =
+    /** [requestKey] is the editor sheet's own (see `rememberRequestKey`): it counts for a new Service Menu Item. */
+    fun saveServiceMenuItem(id: String?, name: String, defaultPriceCents: Long, requestKey: String, onSuccess: () -> Unit) =
         act(
             key = "saveServiceMenuItem:${id ?: "new"}",
             successNotice = R.string.service_menu_item_saved,
             onSuccess = { onSuccess() },
             reload = ::loadServiceMenu,
         ) {
-            api.saveServiceMenuItem(id, name.trim(), defaultPriceCents)
+            api.saveServiceMenuItem(id, name.trim(), defaultPriceCents, requestKey)
         }
 
     fun deleteServiceMenuItem(id: String, onSuccess: () -> Unit) =
@@ -845,6 +880,11 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     // --- appointments ---
 
+    // What creates something takes the `requestKey` of the form or sheet it is sent from (see
+    // `rememberRequestKey`): sent again from the same one, after a reply that never came, it
+    // creates nothing more. When the form was changed in between, the server refuses it
+    // ([ApiException.isMadeWithOtherValues]) and the reload shows what the first try saved.
+
     fun createAppointment(
         primaryClientId: String?,
         additionalClientIds: List<String>,
@@ -853,6 +893,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         endsAt: Instant?,
         locationType: LocationType,
         customLocationAddress: String?,
+        requestKey: String,
         onSuccess: (CreateAppointmentResult) -> Unit,
     ) = act(
         key = "createAppointment",
@@ -871,6 +912,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             endsAt = endsAt,
             locationType = locationType,
             customLocationAddress = customLocationAddress?.trim(),
+            requestKey = requestKey,
         ).also {
             loadedAppointments.remember(listOf(it.appointment))
             // The notice only says that there is an overlap. The Appointment's own screen names it, until dismissed.
@@ -958,9 +1000,10 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         name: String?,
         priceCents: Long?,
         note: String?,
+        requestKey: String,
         onSuccess: () -> Unit,
     ) = actOnAppointment(appointmentId, "addService:$appointmentId", R.string.appointment_service_saved, onSuccess) {
-        api.addService(appointmentId, clientId, menuItemId, name?.trim(), priceCents, note?.trim())
+        api.addService(appointmentId, clientId, menuItemId, name?.trim(), priceCents, note?.trim(), requestKey)
     }
 
     /**
@@ -1000,16 +1043,18 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             }
         }
 
+    /** [requestKey] counts for a new Color Formula; an edit ([formulaId]) does not send it. */
     fun saveColorFormula(
         appointmentId: String,
         serviceId: String,
         formulaId: String?,
         formula: String,
         placement: String,
+        requestKey: String,
         onSuccess: () -> Unit,
     ) = actOnAppointment(appointmentId, "saveColorFormula:${formulaId ?: serviceId}", onSuccess = onSuccess) {
         if (formulaId == null) {
-            api.addColorFormula(serviceId, formula.trim(), placement.trim())
+            api.addColorFormula(serviceId, formula.trim(), placement.trim(), requestKey)
         } else {
             api.updateColorFormula(formulaId, formula.trim(), placement.trim())
         }

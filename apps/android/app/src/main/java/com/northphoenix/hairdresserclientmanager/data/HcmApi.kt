@@ -22,13 +22,19 @@ class HcmApi(private val trpc: TrpcClient) {
             },
         )
 
-    suspend fun saveSettings(language: Language, timezone: String, salonAddress: String): Stylist =
+    /**
+     * A save sends all three settings. [loadedUpdatedAt] is the [Stylist.updatedAt] of the settings
+     * the unchanged ones are taken from: when the server has another version, it refuses the save
+     * ([ApiException.isChangedElsewhere]) instead of putting old settings back over newer ones.
+     */
+    suspend fun saveSettings(language: Language, timezone: String, salonAddress: String, loadedUpdatedAt: String?): Stylist =
         trpc.mutation(
             "stylist.saveSettings",
             buildJsonObject {
                 put("language", language.tag)
                 put("timezone", timezone)
                 put("salonAddress", salonAddress)
+                loadedUpdatedAt?.let { put("expectedUpdatedAt", it) }
             },
         )
 
@@ -36,6 +42,13 @@ class HcmApi(private val trpc: TrpcClient) {
 
     suspend fun listClients(): List<ClientProfile> = trpc.query("clientProfile.list", JsonObject(emptyMap()))
 
+    /**
+     * A save is the whole form. For a Client who exists ([id]), [loadedUpdatedAt] is the
+     * [ClientProfile.updatedAt] of the Client the form was filled from: when the server has
+     * another version, it refuses the save ([ApiException.isChangedElsewhere]) instead of putting
+     * old fields back over newer ones. For a new Client, [requestKey] names this creation (see
+     * [REQUEST_KEY]). Each is sent only in its own case.
+     */
     suspend fun saveClient(
         id: String?,
         name: String,
@@ -44,6 +57,8 @@ class HcmApi(private val trpc: TrpcClient) {
         email: String,
         address: String,
         note: String,
+        loadedUpdatedAt: String?,
+        requestKey: String,
     ): ClientProfile =
         trpc.mutation(
             "clientProfile.save",
@@ -55,6 +70,7 @@ class HcmApi(private val trpc: TrpcClient) {
                 put("email", email)
                 put("address", address)
                 put("note", note)
+                if (id == null) put(REQUEST_KEY, requestKey) else loadedUpdatedAt?.let { put("expectedUpdatedAt", it) }
             },
         )
 
@@ -106,13 +122,15 @@ class HcmApi(private val trpc: TrpcClient) {
 
     suspend fun listServiceMenu(): List<ServiceMenuItem> = trpc.query("serviceMenu.list")
 
-    suspend fun saveServiceMenuItem(id: String?, name: String, defaultPriceCents: Long): ServiceMenuItem =
+    /** [requestKey] names the creation of a new Service Menu Item (see [REQUEST_KEY]); an edit ([id]) does not send it. */
+    suspend fun saveServiceMenuItem(id: String?, name: String, defaultPriceCents: Long, requestKey: String): ServiceMenuItem =
         trpc.mutation(
             "serviceMenu.save",
             buildJsonObject {
                 id?.let { put("id", it) }
                 put("name", name)
                 put("defaultPriceCents", defaultPriceCents)
+                if (id == null) put(REQUEST_KEY, requestKey)
             },
         )
 
@@ -161,6 +179,7 @@ class HcmApi(private val trpc: TrpcClient) {
         endsAt: Instant?,
         locationType: LocationType,
         customLocationAddress: String?,
+        requestKey: String,
     ): CreateAppointmentResult =
         trpc.mutation(
             "appointment.create",
@@ -172,6 +191,7 @@ class HcmApi(private val trpc: TrpcClient) {
                 endsAt?.let { put("endsAt", it.toString()) }
                 put("locationType", locationType.wire)
                 putIfNotBlank("customLocationAddress", customLocationAddress)
+                put(REQUEST_KEY, requestKey)
             },
         )
 
@@ -248,6 +268,7 @@ class HcmApi(private val trpc: TrpcClient) {
         name: String?,
         priceCents: Long?,
         note: String?,
+        requestKey: String,
     ) {
         trpc.mutation<JsonObject>(
             "appointment.addService",
@@ -258,6 +279,7 @@ class HcmApi(private val trpc: TrpcClient) {
                 putIfNotBlank("name", name)
                 priceCents?.let { put("priceCents", it) }
                 putIfNotBlank("note", note)
+                put(REQUEST_KEY, requestKey)
             },
         )
     }
@@ -285,8 +307,8 @@ class HcmApi(private val trpc: TrpcClient) {
     /**
      * Copies from [sourceAppointmentId], or from the last Completed Appointment that has something
      * to copy when none is named. A copy that would add nothing is refused. [requestKey] names
-     * this copy for the server (16 to 64 of `A-Z a-z 0-9 _ -`): sent again with the key of a copy
-     * that was made, the call copies nothing and is answered like the first.
+     * this copy (see [REQUEST_KEY]): sent again with the key of a copy that was made, the call
+     * copies nothing and is answered like the first.
      * Returns how many Services the copy added, or null when the reply does not say.
      */
     suspend fun copyServices(targetAppointmentId: String, sourceAppointmentId: String?, requestKey: String): Int? =
@@ -295,17 +317,18 @@ class HcmApi(private val trpc: TrpcClient) {
             buildJsonObject {
                 put("targetAppointmentId", targetAppointmentId)
                 sourceAppointmentId?.let { put("sourceAppointmentId", it) }
-                put("requestKey", requestKey)
+                put(REQUEST_KEY, requestKey)
             },
         ).copiedServiceCount
 
-    suspend fun addColorFormula(appointmentServiceId: String, formula: String, placement: String?) {
+    suspend fun addColorFormula(appointmentServiceId: String, formula: String, placement: String?, requestKey: String) {
         trpc.mutation<JsonObject>(
             "appointment.addColorFormula",
             buildJsonObject {
                 put("appointmentServiceId", appointmentServiceId)
                 put("formula", formula)
                 putIfNotBlank("placement", placement)
+                put(REQUEST_KEY, requestKey)
             },
         )
     }
@@ -326,9 +349,9 @@ class HcmApi(private val trpc: TrpcClient) {
     }
 
     /**
-     * [requestKey] names this photo for the server (16 to 64 of `A-Z a-z 0-9 _ -`). A call that is
-     * sent again with the key of a photo the Appointment already has creates nothing and is
-     * answered like the first, so a try whose reply was lost can be repeated.
+     * [requestKey] names this photo (see [REQUEST_KEY]). A call that is sent again with the key of
+     * a photo the Appointment already has creates nothing and is answered like the first, so a try
+     * whose reply was lost can be repeated.
      * Returns the Appointment's photos as the reply states them, or null when it does not state
      * them in a form this app reads: the photo is recorded either way.
      */
@@ -351,7 +374,7 @@ class HcmApi(private val trpc: TrpcClient) {
                 put("fileKey", fileKey)
                 put("url", url)
                 put("thumbnailUrl", thumbnailUrl)
-                put("requestKey", requestKey)
+                put(REQUEST_KEY, requestKey)
             },
         )
 
@@ -379,6 +402,16 @@ class HcmApi(private val trpc: TrpcClient) {
     private fun idInput(id: String) = buildJsonObject { put("id", id) }
 
     private companion object {
+        /**
+         * The input field that names one intended creation, chosen by the app: 16 to 64 of
+         * `A-Z a-z 0-9 _ -`, a UUID fits. A creating call sent again under the key of a creation
+         * the server has carried out creates nothing more and is answered like the first, so a try
+         * whose reply never came can be repeated. The same key with other values is refused
+         * ([ApiException.isMadeWithOtherValues]). One key per form or sheet that is opened, kept
+         * for every try from it.
+         */
+        const val REQUEST_KEY = "requestKey"
+
         /** What `appointment.get` answers for an Appointment that is gone or is another Stylist's. */
         const val APPOINTMENT_NOT_FOUND = "Appointment not found."
 

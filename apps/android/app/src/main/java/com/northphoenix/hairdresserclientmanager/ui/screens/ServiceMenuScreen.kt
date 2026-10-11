@@ -42,6 +42,7 @@ import com.northphoenix.hairdresserclientmanager.ui.components.LoadFailed
 import com.northphoenix.hairdresserclientmanager.ui.components.PrimaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenPadding
 import com.northphoenix.hairdresserclientmanager.ui.components.SubScreen
+import com.northphoenix.hairdresserclientmanager.ui.components.rememberRequestKey
 import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
 
 /** The editor sheet that is open. It is saved state, so it names the Service Menu Item by id only. */
@@ -131,6 +132,8 @@ fun ServiceMenuScreen(viewModel: AppViewModel, onBack: () -> Unit) {
         // The price text a save was refused for. The reason stays under the field for as long as the text is that one.
         var refusedPrice by rememberSaveable(current) { mutableStateOf<String?>(null) }
         var confirmDelete by rememberSaveable(current) { mutableStateOf(false) }
+        // Names the Service Menu Item this sheet creates, so that a second try of it creates no second one. Another one for a sheet opened again.
+        val requestKey = rememberRequestKey(current)
 
         HcmBottomSheet(
             title = stringResource(if (editedId == null) R.string.create_service_menu_item else R.string.save_service_menu_item),
@@ -154,7 +157,7 @@ fun ServiceMenuScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                     if (name.isBlank()) {
                         viewModel.notify(R.string.service_name_required, isError = true)
                     } else if (amount is Amount.Valid) {
-                        viewModel.saveServiceMenuItem(editedId, name, amount.cents) { editor = null }
+                        viewModel.saveServiceMenuItem(editedId, name, amount.cents, requestKey) { editor = null }
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),

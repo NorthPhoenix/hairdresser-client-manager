@@ -36,6 +36,7 @@ import com.northphoenix.hairdresserclientmanager.ui.components.PickerField
 import com.northphoenix.hairdresserclientmanager.ui.components.PrimaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenColumn
 import com.northphoenix.hairdresserclientmanager.ui.components.SubScreen
+import com.northphoenix.hairdresserclientmanager.ui.components.rememberRequestKey
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZonedDateTime
@@ -76,6 +77,8 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
     // Back asks before it discards the draft, once it differs from what the form opened with.
     val content = UnsavedInput.newAppointment(primaryClientId, inlineClientName, additionalClientIds, date, startTime, endTime, locationType, ownAddress.orEmpty())
     val opened = rememberSaveable { content }
+    // Names the Appointment this form creates, so that a second try of it creates no second one.
+    val requestKey = rememberRequestKey()
 
     // Called before the primary Client or the location changes: an address that is not the Stylist's own must not stay for the next one.
     fun keepOnlyOwnAddress() {
@@ -101,6 +104,7 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
                 locationType = locationType,
                 // Sent only when it is the Stylist's own: otherwise the Appointment takes the address of its primary Client.
                 customLocationAddress = ownAddress.takeIf { locationType == LocationType.AT_HOME },
+                requestKey = requestKey,
                 onSuccess = { onCreated(it.appointment) },
             )
         }

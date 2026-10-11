@@ -69,6 +69,8 @@ data class Stylist(
     val timezone: String,
     val salonAddress: String = "",
     val onboardingCompletedAt: String? = null,
+    /** When the settings were last saved, as the server states it: the version a save names (see [HcmApi.saveSettings]). */
+    val updatedAt: String? = null,
 ) {
     val onboardingComplete: Boolean get() = onboardingCompletedAt != null
 }
@@ -119,6 +121,8 @@ data class ClientProfile(
     val address: String = "",
     val note: String = "",
     val activeProfileShare: ProfileShare? = null,
+    /** When the Client Profile was last saved, as the server states it: the version a save names (see [HcmApi.saveClient]). */
+    val updatedAt: String? = null,
 )
 
 // Every amount is whole cents in a Long: the totals of one Appointment can be more than an Int holds.

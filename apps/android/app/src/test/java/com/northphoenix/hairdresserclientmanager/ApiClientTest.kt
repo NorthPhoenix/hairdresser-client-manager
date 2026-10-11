@@ -43,6 +43,11 @@ class ApiClientTest {
         server.close()
     }
 
+    private companion object {
+        /** The key of one form or sheet, as `rememberRequestKey` makes it. */
+        const val KEY = "3f0c1b6e-0000-4000-8000-000000000001"
+    }
+
     private fun enqueue(body: String, code: Int = 200) {
         server.enqueue(MockResponse.Builder().code(code).body(body).build())
     }
@@ -65,12 +70,122 @@ class ApiClientTest {
     fun `mutations post the input and omit optional fields`() = runTest {
         enqueue("""{"result":{"data":{}}}""")
 
-        api.addService("a1", "c1", menuItemId = "m1", name = null, priceCents = null, note = " ")
+        api.addService("a1", "c1", menuItemId = "m1", name = null, priceCents = null, note = " ", requestKey = KEY)
         val request = server.takeRequest()
 
         assertEquals("POST", request.method)
         assertEquals("/api/trpc/appointment.addService", request.url.encodedPath)
-        assertEquals("""{"appointmentId":"a1","clientId":"c1","menuItemId":"m1"}""", request.body?.utf8())
+        assertEquals("""{"appointmentId":"a1","clientId":"c1","menuItemId":"m1","requestKey":"$KEY"}""", request.body?.utf8())
+    }
+
+    @Test
+    fun `whatever creates something names its key, so that a second try creates nothing more`() = runTest {
+        // A4: a try whose reply never came is sent again under the same key, and the server answers with what the first one created.
+        val client = """{"result":{"data":{"id":"c1","name":"Lost Carl","language":"en","phone":"5550123","updatedAt":"2026-10-10T18:31:00.000Z"}}}"""
+        val appointment = """{"id":"a1","primaryClientId":"c1","primaryClientName":"Lost Carl","startsAt":"2026-10-10T18:31:00.000Z","status":"scheduled","locationType":"inSalon"}"""
+        val startsAt = Instant.parse("2026-10-10T18:31:00Z")
+
+        suspend fun sent(reply: String, request: suspend () -> Unit): String {
+            enqueue(reply)
+            request()
+            return server.takeRequest().body?.utf8().orEmpty()
+        }
+
+        // Twice, as after a lost reply: both name the same creation.
+        repeat(2) {
+            assertEquals(
+                """{"name":"Lost Carl","language":"en","phone":"5550123","email":"","address":"","note":"","requestKey":"$KEY"}""",
+                sent(client) { api.saveClient(null, "Lost Carl", Language.EN, "5550123", "", "", "", loadedUpdatedAt = null, requestKey = KEY) },
+            )
+        }
+        assertEquals(
+            """{"name":"Lost Svc","defaultPriceCents":1200,"requestKey":"$KEY"}""",
+            sent("""{"result":{"data":{"id":"m1","name":"Lost Svc","defaultPriceCents":1200}}}""") { api.saveServiceMenuItem(null, "Lost Svc", 1200, KEY) },
+        )
+        assertEquals(
+            """{"additionalClientIds":[],"inlineClientName":"Lost Dana","startsAt":"2026-10-10T18:31:00Z","locationType":"inSalon","requestKey":"$KEY"}""",
+            sent("""{"result":{"data":{"appointment":$appointment,"conflicts":[]}}}""") {
+                api.createAppointment(null, emptyList(), "Lost Dana", startsAt, null, LocationType.IN_SALON, null, KEY)
+            },
+        )
+        assertEquals(
+            """{"appointmentId":"a1","clientId":"c1","name":"Lost Svc","priceCents":1200,"requestKey":"$KEY"}""",
+            sent("""{"result":{"data":{}}}""") { api.addService("a1", "c1", null, "Lost Svc", 1200, null, KEY) },
+        )
+        assertEquals(
+            """{"appointmentServiceId":"sv1","formula":"7N lost","requestKey":"$KEY"}""",
+            sent("""{"result":{"data":{}}}""") { api.addColorFormula("sv1", "7N lost", "", KEY) },
+        )
+
+        // An edit creates nothing: the key of the form it is sent from is not a part of it.
+        assertEquals(
+            """{"id":"m1","name":"Cut","defaultPriceCents":1200}""",
+            sent("""{"result":{"data":{"id":"m1","name":"Cut","defaultPriceCents":1200}}}""") { api.saveServiceMenuItem("m1", "Cut", 1200, KEY) },
+        )
+    }
+
+    @Test
+    fun `a save names the version its form was loaded from`() = runTest {
+        // A15, L67: the server refuses a save from a form that is older than the record instead of putting old values back.
+        val loaded = "2026-10-10T18:31:00.123Z"
+        val client = """{"result":{"data":{"id":"c1","name":"Two Tina","language":"en","phone":"5550999","note":"old note app-note","updatedAt":"2026-10-10T18:32:00.456Z"}}}"""
+        val stylist = """{"result":{"data":{"id":"s1","language":"ru","timezone":"Asia/Tokyo","salonAddress":"9 Other Road","onboardingCompletedAt":"2026-10-01T00:00:00.000Z","updatedAt":"2026-10-10T18:33:00.789Z"}}}"""
+        enqueue(client)
+        enqueue(stylist)
+        enqueue(stylist)
+
+        val savedClient = api.saveClient("c1", "Two Tina", Language.EN, "5550999", "", "", "old note app-note", loadedUpdatedAt = loaded, requestKey = KEY)
+        val savedSettings = api.saveSettings(Language.RU, "Asia/Tokyo", "9 Other Road", loadedUpdatedAt = loaded)
+        api.saveSettings(Language.RU, "Asia/Tokyo", "9 Other Road", loadedUpdatedAt = null)
+
+        // The version, and not the key: the Client exists.
+        assertEquals(
+            """{"id":"c1","name":"Two Tina","language":"en","phone":"5550999","email":"","address":"","note":"old note app-note","expectedUpdatedAt":"$loaded"}""",
+            server.takeRequest().body?.utf8(),
+        )
+        assertEquals(
+            """{"language":"ru","timezone":"Asia/Tokyo","salonAddress":"9 Other Road","expectedUpdatedAt":"$loaded"}""",
+            server.takeRequest().body?.utf8(),
+        )
+        // From a server that states no version the last save wins, as before.
+        assertEquals("""{"language":"ru","timezone":"Asia/Tokyo","salonAddress":"9 Other Road"}""", server.takeRequest().body?.utf8())
+        // The reply states the version the next save from the same screen names.
+        assertEquals("2026-10-10T18:32:00.456Z", savedClient.updatedAt)
+        assertEquals("2026-10-10T18:33:00.789Z", savedSettings.updatedAt)
+    }
+
+    @Test
+    fun `the conflicts the api answers with are told apart by their words`() = runTest {
+        fun conflict(message: String) = """{"error":{"message":"$message","code":-32009,"data":{"code":"CONFLICT","httpStatus":409}}}"""
+
+        suspend fun refused(message: String): ApiException {
+            enqueue(conflict(message), code = 409)
+
+            return try {
+                api.saveClient(null, "Lost Carl", Language.EN, "5550123", "", "", "", loadedUpdatedAt = null, requestKey = KEY)
+                throw AssertionError("expected a refused save")
+            } catch (error: ApiException) {
+                error
+            }
+        }
+
+        // A15, L67: saved elsewhere since the form was filled. The record is loaded again for the form to take in.
+        val changed = refused("This record was changed since it was loaded.")
+        assertTrue(changed.isChangedElsewhere)
+        assertFalse(changed.isMadeWithOtherValues)
+        assertTrue(changed.screenOutOfDate)
+        assertEquals(R.string.error_changed_elsewhere, changed.messageRes())
+
+        // A4: the first try was saved, and the form was changed before the second. What was saved is loaded.
+        val made = refused("This request was already carried out with other values.")
+        assertTrue(made.isMadeWithOtherValues)
+        assertFalse(made.isChangedElsewhere)
+        assertTrue(made.screenOutOfDate)
+        assertEquals(R.string.error_already_saved_as_before, made.messageRes())
+
+        // A uniqueness rule of the database is neither, and nothing on the screen is out of date.
+        val exists = refused("This record already exists.")
+        assertFalse(exists.isChangedElsewhere || exists.isMadeWithOtherValues || exists.screenOutOfDate)
     }
 
     @Test
@@ -373,7 +488,7 @@ class ApiClientTest {
         val gone = listOf(
             refused { api.removeParticipant("a1", "c2") },
             refused { api.updateAppointmentPrimary("a1", "c2") },
-            refused { api.addService("a1", "c2", menuItemId = "m1", name = null, priceCents = null, note = null) },
+            refused { api.addService("a1", "c2", menuItemId = "m1", name = null, priceCents = null, note = null, requestKey = KEY) },
         )
 
         assertTrue(gone.all { it.isClientNotAttached && it.screenOutOfDate })
@@ -413,7 +528,7 @@ class ApiClientTest {
         enqueue("""{"error":{"message":"$issues","code":-32600,"data":{"code":"BAD_REQUEST","httpStatus":400}}}""", code = 400)
 
         try {
-            api.saveServiceMenuItem(null, "", 0)
+            api.saveServiceMenuItem(null, "", 0, KEY)
             fail("expected an ApiException")
         } catch (error: ApiException) {
             assertEquals("Too small: expected string to have >=1 characters", error.message)
@@ -458,7 +573,7 @@ class ApiClientTest {
         enqueueNoReply()
 
         try {
-            impatientApi().saveClient(null, "Lost Carl", Language.EN, "5550123", "", "", "")
+            impatientApi().saveClient(null, "Lost Carl", Language.EN, "5550123", "", "", "", loadedUpdatedAt = null, requestKey = KEY)
             fail("expected an ApiException")
         } catch (error: ApiException) {
             assertTrue(error.outcomeUnknown)
@@ -495,7 +610,7 @@ class ApiClientTest {
         for ((status, reply) in replies) {
             enqueue(reply, code = status)
             try {
-                api.saveClient(null, "Lost Carl", Language.EN, "5550123", "", "", "")
+                api.saveClient(null, "Lost Carl", Language.EN, "5550123", "", "", "", loadedUpdatedAt = null, requestKey = KEY)
                 fail("expected an ApiException for the $status reply")
             } catch (error: ApiException) {
                 assertTrue("$status", error.outcomeUnknown)

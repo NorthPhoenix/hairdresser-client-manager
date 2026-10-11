@@ -34,6 +34,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -57,6 +58,7 @@ import com.northphoenix.hairdresserclientmanager.auth.AccountName
 import com.northphoenix.hairdresserclientmanager.auth.AuthState
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.Stylist
+import com.northphoenix.hairdresserclientmanager.domain.ChangedElsewhere
 import com.northphoenix.hairdresserclientmanager.domain.Timezones
 import com.northphoenix.hairdresserclientmanager.domain.ZoneOption
 import com.northphoenix.hairdresserclientmanager.i18n.DeviceZoneNames
@@ -87,10 +89,26 @@ private class SettingsDraft(timezone: MutableState<String>, salonAddress: Mutabl
     var salonAddress by salonAddress
 }
 
+/**
+ * The draft follows the Stylist's settings field by field. When they are saved again, here or on
+ * another device, a field the Stylist has not changed shows what is saved now, and one they
+ * changed keeps what is in it (see [ChangedElsewhere]): the form never shows a setting that is no
+ * longer saved as if it were, and nothing typed is lost.
+ */
 @Composable
 private fun rememberSettingsDraft(stylist: Stylist): SettingsDraft {
-    val timezone = rememberSaveable(stylist.timezone) { mutableStateOf(stylist.timezone) }
-    val salonAddress = rememberSaveable(stylist.salonAddress) { mutableStateOf(stylist.salonAddress) }
+    val timezone = rememberSaveable { mutableStateOf(stylist.timezone) }
+    val salonAddress = rememberSaveable { mutableStateOf(stylist.salonAddress) }
+    // The settings the fields were last filled from.
+    var loadedTimezone by rememberSaveable { mutableStateOf(stylist.timezone) }
+    var loadedAddress by rememberSaveable { mutableStateOf(stylist.salonAddress) }
+
+    LaunchedEffect(stylist.timezone, stylist.salonAddress) {
+        timezone.value = ChangedElsewhere.field(loadedTimezone, timezone.value, stylist.timezone)
+        salonAddress.value = ChangedElsewhere.field(loadedAddress, salonAddress.value, stylist.salonAddress)
+        loadedTimezone = stylist.timezone
+        loadedAddress = stylist.salonAddress
+    }
 
     return remember(timezone, salonAddress) { SettingsDraft(timezone, salonAddress) }
 }

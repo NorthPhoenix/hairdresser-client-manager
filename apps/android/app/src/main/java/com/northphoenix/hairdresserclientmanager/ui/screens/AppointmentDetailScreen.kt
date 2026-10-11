@@ -593,18 +593,23 @@ private fun AppointmentDetail(
                 sheet = null
             },
         )
-        DetailSheet.AddService -> AddServiceSheet(
-            appointment = appointment,
-            menu = serviceMenu,
-            menuLoad = serviceMenuLoad,
-            onRetry = viewModel::retryLoad,
-            busy = busy,
-            onDismiss = { sheet = null },
-            onMissingName = { viewModel.notify(R.string.service_name_required, isError = true) },
-            onAdd = { clientId, menuItemId, name, priceCents, note ->
-                viewModel.addService(appointment.id, clientId, menuItemId, name, priceCents, note) { sheet = null }
-            },
-        )
+        DetailSheet.AddService -> {
+            // One key for the Service this sheet is opened to add, so that a second try of it adds no second one.
+            val requestKey = rememberRequestKey(appointment.id)
+
+            AddServiceSheet(
+                appointment = appointment,
+                menu = serviceMenu,
+                menuLoad = serviceMenuLoad,
+                onRetry = viewModel::retryLoad,
+                busy = busy,
+                onDismiss = { sheet = null },
+                onMissingName = { viewModel.notify(R.string.service_name_required, isError = true) },
+                onAdd = { clientId, menuItemId, name, priceCents, note ->
+                    viewModel.addService(appointment.id, clientId, menuItemId, name, priceCents, note, requestKey) { sheet = null }
+                },
+            )
+        }
         DetailSheet.CopyServices -> {
             // One key for the copy this sheet is opened for, so that it is made once however often it is sent.
             val requestKey = rememberRequestKey(appointment.id)
@@ -658,6 +663,9 @@ private fun AppointmentDetail(
             if (service == null || (formula == null && current.formulaId != null)) {
                 sheet = null
             } else {
+                // One key for the Color Formula this sheet is opened to add, as for a Service.
+                val requestKey = rememberRequestKey(service.id, current.formulaId)
+
                 FormulaSheet(
                     service = service,
                     formula = formula,
@@ -665,7 +673,7 @@ private fun AppointmentDetail(
                     onDismiss = { sheet = null },
                     onMissingFormula = { viewModel.notify(R.string.color_formula_required, isError = true) },
                     onSave = { text, placement ->
-                        viewModel.saveColorFormula(appointment.id, service.id, formula?.id, text, placement) { sheet = null }
+                        viewModel.saveColorFormula(appointment.id, service.id, formula?.id, text, placement, requestKey) { sheet = null }
                     },
                     onDelete = { formulaId -> viewModel.deleteColorFormula(appointment.id, formulaId) { sheet = null } },
                 )

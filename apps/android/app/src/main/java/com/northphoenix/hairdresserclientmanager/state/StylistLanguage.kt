@@ -1,5 +1,6 @@
 package com.northphoenix.hairdresserclientmanager.state
 
+import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.Stylist
 import com.northphoenix.hairdresserclientmanager.i18n.AppLanguageSetting
@@ -87,6 +88,27 @@ internal class StylistLanguage(private val setting: AppLanguageSetting) {
     /** The language to send with a save of the other settings. During onboarding it is the one the screen is in. */
     fun toSave(stylist: Stylist): Language = if (stylist.onboardingComplete) stylist.language else setting.chosen() ?: stylist.language
 }
+
+/**
+ * Saves one setting on top of the others as they are saved now, for a change that the Stylist
+ * made to that setting alone: the language switch.
+ *
+ * [save] sends the change together with the other settings and the version of the Stylist it is
+ * given, first [known], the settings as this device has them. When the server refuses that
+ * because they were saved elsewhere since ([ApiException.isChangedElsewhere]), they are loaded
+ * again with [load] and the change is sent once more with those: what another device saved stays,
+ * and the Stylist has nothing to decide. A second refusal, and any other failure, is thrown.
+ */
+internal suspend fun <T> onLatestSettings(known: Stylist, load: suspend () -> Stylist, save: suspend (Stylist) -> T): T =
+    try {
+        save(known)
+    } catch (error: ApiException) {
+        if (!error.isChangedElsewhere) {
+            throw error
+        }
+
+        save(load())
+    }
 
 /**
  * Keeps the app's requests about the Stylist's settings from overtaking each other.

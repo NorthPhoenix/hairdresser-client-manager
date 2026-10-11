@@ -265,6 +265,35 @@ class ActionRunnerTest {
     }
 
     @Test
+    fun `a save from a form that is older than its record, and a creation that was already made, load what the server has`() = runTest {
+        val reloads = mutableListOf<String>()
+        val runner = ActionRunner(backgroundScope, { failures += it }, reloadAll = { reloads += "everything" })
+        var saved = false
+        val refusals = listOf(
+            // A15, L67: the Client or the settings were saved on another device since the form was filled.
+            "This record was changed since it was loaded.",
+            // A4: the first try was saved without its reply arriving, and the form was changed before the second.
+            "This request was already carried out with other values.",
+        )
+
+        refusals.forEach { message ->
+            runner.run<Unit>(
+                key = "saveClient:c1",
+                change = { throw ApiException(message, code = "CONFLICT") },
+                reload = { reloads += message },
+                onSaved = { saved = true },
+            )
+            runCurrent()
+        }
+
+        // The Stylist is told, nothing counts as saved, and the screen then shows the record the server has.
+        assertEquals(refusals, failures.map { it.message })
+        assertEquals(refusals, reloads)
+        assertFalse(saved)
+        assertFalse(runner.busy.value)
+    }
+
+    @Test
     fun `a second change to the Clients of an Appointment waits until the first is answered and the Appointment loaded again`() = runTest {
         val runner = runner()
         val answered = CompletableDeferred<Unit>()

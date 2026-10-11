@@ -93,6 +93,7 @@ import com.northphoenix.hairdresserclientmanager.domain.ContactFields
 import com.northphoenix.hairdresserclientmanager.domain.ContactImport
 import com.northphoenix.hairdresserclientmanager.domain.CopiedContact
 import com.northphoenix.hairdresserclientmanager.domain.ImportedContact
+import com.northphoenix.hairdresserclientmanager.domain.ChangedElsewhere
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.OneLine
 import com.northphoenix.hairdresserclientmanager.domain.ShareImageSize
@@ -114,6 +115,7 @@ import com.northphoenix.hairdresserclientmanager.ui.components.ItemMissing
 import com.northphoenix.hairdresserclientmanager.ui.components.LoadFailed
 import com.northphoenix.hairdresserclientmanager.ui.components.PrimaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenColumn
+import com.northphoenix.hairdresserclientmanager.ui.components.rememberRequestKey
 import com.northphoenix.hairdresserclientmanager.ui.components.SecondaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.SegmentedControl
 import com.northphoenix.hairdresserclientmanager.ui.components.StatusChip
@@ -174,6 +176,10 @@ fun ClientEditorScreen(
     val defaultLanguage = stylist?.language ?: Language.RU
 
     var loadedFor by rememberSaveable { mutableStateOf<String?>(null) }
+    // The version of the Client the form was filled from or last saved as: a save names it, so the server can refuse a form that is older than the Client.
+    var loadedVersion by rememberSaveable { mutableStateOf<String?>(null) }
+    // Names the creation of this form's new Client, so that a second try of it creates no second Client.
+    val requestKey = rememberRequestKey()
     var name by rememberSaveable { mutableStateOf("") }
     var language by rememberSaveable { mutableStateOf(defaultLanguage) }
     var phone by rememberSaveable { mutableStateOf("") }
@@ -198,17 +204,29 @@ fun ClientEditorScreen(
     var lookupAttempt by remember { mutableIntStateOf(0) }
 
     // Fill the form once per Client; later list refreshes must not overwrite what is being typed.
-    LaunchedEffect(existing?.id) {
-        if (existing != null && loadedFor != existing.id) {
+    // A Client who was saved on another device since is taken in field by field: what the Stylist
+    // has not changed in the form is the Client's again, so that the form neither shows nor saves
+    // what is no longer saved, and what they changed stays as it is (see ChangedElsewhere).
+    LaunchedEffect(existing?.id, existing?.updatedAt) {
+        if (existing != null && (loadedFor != existing.id || loadedVersion != existing.updatedAt)) {
+            // What the form was filled with for this Client, in the order of UnsavedInput.clientForm. None: it is filled now.
+            val loaded = savedContent.takeIf { loadedFor == existing.id }
+
+            fun taken(field: Int, typed: String, now: String) = loaded?.let { ChangedElsewhere.field(it[field], typed, now) } ?: now
+
             // One line each, as a save stores them, also when they were saved before names were cleaned.
-            name = OneLine.clean(existing.name)
-            language = existing.language
-            phone = OneLine.clean(existing.phone)
-            email = existing.email
-            address = existing.address
-            note = existing.note
+            val savedName = OneLine.clean(existing.name)
+            val savedPhone = OneLine.clean(existing.phone)
+
+            name = taken(0, name, savedName)
+            language = Language.valueOf(taken(1, language.name, existing.language.name))
+            phone = taken(2, phone, savedPhone)
+            email = taken(3, email, existing.email)
+            address = taken(4, address, existing.address)
+            note = taken(5, note, existing.note)
             loadedFor = existing.id
-            savedContent = UnsavedInput.clientForm(name, language, phone, email, address, note)
+            loadedVersion = existing.updatedAt
+            savedContent = UnsavedInput.clientForm(savedName, existing.language, savedPhone, existing.email, existing.address, existing.note)
         }
     }
 
@@ -226,9 +244,10 @@ fun ClientEditorScreen(
     fun save() {
         val submitted = UnsavedInput.clientForm(name, language, phone, email, address, note)
 
-        viewModel.saveClient(currentId, name, language, phone, email, address, note) { saved ->
+        viewModel.saveClient(currentId, name, language, phone, email, address, note, loadedVersion, requestKey) { saved ->
             currentId = saved.id
             loadedFor = saved.id
+            loadedVersion = saved.updatedAt
             savedContent = submitted
             // What a contact put in the form is the Client's own from here on.
             lastImport = null

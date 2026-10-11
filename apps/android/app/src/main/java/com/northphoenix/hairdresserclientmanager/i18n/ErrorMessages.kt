@@ -35,6 +35,10 @@ fun ApiException.messageRes(): Int =
         message == "Source Appointment is no longer Completed." -> R.string.copy_services_source_not_completed
         message == "Source Appointment not found." -> R.string.copy_services_source_gone
         message == "Appointment total is too large." -> R.string.error_appointment_total_too_large
+        // Saved on another device since the form was filled. Nothing was saved; the form takes in what is saved now and keeps what was typed.
+        isChangedElsewhere -> R.string.error_changed_elsewhere
+        // An earlier try of this form was saved although its reply never came, and the form was changed since.
+        isMadeWithOtherValues -> R.string.error_already_saved_as_before
         // Revoked on another device, and still on this screen until the Client is loaded again.
         message == "Profile Share not found." -> R.string.error_profile_share_gone
         // The sign-in provider's own reason is technical English: only that the name was not saved is said.

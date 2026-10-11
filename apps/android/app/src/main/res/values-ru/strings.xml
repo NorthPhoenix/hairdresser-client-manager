@@ -151,8 +151,10 @@
     <string name="edit_appointment">Изменить время или место</string>
     <string name="edit_appointment_service">Изменить услугу</string>
     <string name="edit_client_title">Профиль клиента</string>
+    <string name="error_already_saved_as_before">Это уже сохранено с первой попытки, в том виде, в каком было тогда. Закройте форму и измените сохранённое, если нужно.</string>
     <string name="error_appointment_needs_client">В записи должен остаться хотя бы один клиент.</string>
     <string name="error_appointment_total_too_large">Сумма услуг одной записи не может быть такой большой. Ничего не сохранено.</string>
+    <string name="error_changed_elsewhere">Эти данные изменили на другом устройстве, поэтому ничего не сохранено. Ваши правки остались: проверьте их и сохраните ещё раз.</string>
     <string name="error_client_has_photo_uploads">У этого клиента есть фото, которые ещё не сохранены. Сначала загрузите или удалите их.</string>
     <string name="error_client_has_photos">Сначала удалите фото этого клиента из записи.</string>
     <string name="error_client_has_services">Сначала удалите услуги этого клиента из записи.</string>

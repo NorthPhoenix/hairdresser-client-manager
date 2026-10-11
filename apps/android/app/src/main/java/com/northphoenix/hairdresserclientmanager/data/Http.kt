@@ -48,9 +48,29 @@ class ApiException(
      * that copy is out of date and the Appointment is loaded again.
      * A copy from an Appointment that has nothing to copy is such a change as well: the copy sheet
      * lists only Appointments that have, so its list is out of date.
+     * So are a save from a form that is older than its record, and a creation the server has
+     * already carried out: what the server has is loaded, and the Stylist goes on from there.
      */
     val screenOutOfDate: Boolean
-        get() = isClientNotAttached || (code == "BAD_REQUEST" && (message in CLIENT_KEPT || message == SOURCE_HAS_NOTHING_TO_COPY))
+        get() = isClientNotAttached ||
+            (code == "BAD_REQUEST" && (message in CLIENT_KEPT || message == SOURCE_HAS_NOTHING_TO_COPY)) ||
+            isChangedElsewhere ||
+            isMadeWithOtherValues
+
+    /**
+     * A save named the version of the record its form was loaded from, and the server has another
+     * one: the record was saved elsewhere since, on another device. Nothing was written. The record
+     * is loaded again, and the form keeps what the Stylist changed in it (see `ChangedElsewhere`).
+     */
+    val isChangedElsewhere: Boolean get() = code == "CONFLICT" && message == RECORD_CHANGED
+
+    /**
+     * A creating request named a key the server has already carried out, with other values: an
+     * earlier try of the same form was saved although its reply never came, and the form was
+     * changed since. Nothing was written, and the record of the earlier try is loaded. The form
+     * must not be sent again under another key: that would create a second record.
+     */
+    val isMadeWithOtherValues: Boolean get() = code == "CONFLICT" && message == REQUEST_MADE_WITH_OTHER_VALUES
 
     companion object {
         const val NO_REPLY = "NO_REPLY"
@@ -68,6 +88,8 @@ class ApiException(
             "Client has Appointment Photos attached to this Appointment.",
         )
         const val SOURCE_HAS_NOTHING_TO_COPY = "Source Appointment has no Services to copy."
+        private const val RECORD_CHANGED = "This record was changed since it was loaded."
+        private const val REQUEST_MADE_WITH_OTHER_VALUES = "This request was already carried out with other values."
     }
 }
 

@@ -8,6 +8,7 @@ import com.northphoenix.hairdresserclientmanager.data.DeviceContacts
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.domain.Amount
+import com.northphoenix.hairdresserclientmanager.domain.ChangedElsewhere
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
 import com.northphoenix.hairdresserclientmanager.domain.ContactFields
@@ -762,5 +763,25 @@ class DomainTest {
         assertEquals(listOf(null, null, null, null, null, 1, 2), longest.first().map { it?.dayOfMonth })
         assertEquals(listOf(31, null, null, null, null, null, null), longest.last().map { it?.dayOfMonth })
         assertTrue(longest.all { it.size == 7 })
+    }
+
+    @Test
+    fun `a form takes in a record that was saved elsewhere without losing what was changed in it`() {
+        // A15: the form was filled with phone 5550141 and 'old note'. The Stylist added to the note,
+        // and another device saved a new phone. The phone was not touched here: it is the saved one now.
+        assertEquals("5550999", ChangedElsewhere.field(loaded = "5550141", typed = "5550141", now = "5550999"))
+        // The note was changed here: it stays as typed, whatever was saved since.
+        assertEquals("old note app-note", ChangedElsewhere.field(loaded = "old note", typed = "old note app-note", now = "old note"))
+        assertEquals("old note app-note", ChangedElsewhere.field(loaded = "old note", typed = "old note app-note", now = "their note"))
+        // Emptied here is changed here.
+        assertEquals("", ChangedElsewhere.field(loaded = "old note", typed = "", now = "their note"))
+        // Spaces around a text are not a change: a save does not send them.
+        assertEquals("9 Other Road", ChangedElsewhere.field(loaded = "12 Salon Street", typed = " 12 Salon Street ", now = "9 Other Road"))
+        // After the Stylist's own save the record is what was typed, and the field is not touched.
+        assertEquals("12 Salon StreetX ", ChangedElsewhere.field(loaded = "12 Salon Street", typed = "12 Salon StreetX ", now = "12 Salon StreetX"))
+        assertEquals("9 Other Road", ChangedElsewhere.field(loaded = "12 Salon StreetX", typed = "12 Salon StreetX ", now = "9 Other Road"))
+        // Nothing saved elsewhere: nothing moves.
+        assertEquals("UTC", ChangedElsewhere.field(loaded = "UTC", typed = "UTC", now = "UTC"))
+        assertEquals("Asia/Tokyo", ChangedElsewhere.field(loaded = "UTC", typed = "Asia/Tokyo", now = "UTC"))
     }
 }
