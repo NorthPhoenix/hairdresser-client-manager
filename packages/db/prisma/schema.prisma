@@ -178,6 +178,11 @@ model ProfileShare {
   clientId  String
   token     String   @unique
   language  Language @default(ru)
+  // What the Stylist chose to show of the last completed Appointment. "Other" photos are the
+  // before and the other photos.
+  includeColorFormulas Boolean @default(true)
+  includeAfterPhotos   Boolean @default(true)
+  includeOtherPhotos   Boolean @default(false)
   revokedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

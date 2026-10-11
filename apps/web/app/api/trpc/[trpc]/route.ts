@@ -1,10 +1,9 @@
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { auth } from "@clerk/nextjs/server";
-import { appRouter, createTRPCContext, getUploadThingOrigins } from "@hcm/api";
+import { appRouter, createTRPCContext } from "@hcm/api";
 import { UTApi } from "uploadthing/server";
+import { accountName, photoOrigins, readSharePhoto } from "../../../../server/profileShare";
 
-// Appointment Photos are stored by /api/uploadthing, in the UploadThing app of the same token.
-const photoOrigins = getUploadThingOrigins(process.env.UPLOADTHING_TOKEN);
 const uploadThing = new UTApi();
 
 // The files of deleted Appointment Photos are deleted there too. The router logs a failure.
@@ -31,7 +30,9 @@ function handler(request: Request) {
           };
         },
         photoOrigins,
-        deleteStoredFiles
+        deleteStoredFiles,
+        accountName,
+        readSharePhoto
       }),
     // The reply to an unexpected failure says nothing about it, so the log has to.
     onError: ({ error, path }) => {

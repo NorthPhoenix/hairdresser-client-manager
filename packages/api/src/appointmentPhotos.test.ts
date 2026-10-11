@@ -152,7 +152,9 @@ function createPhotoCaller(photos: PhotoRow[], deleteStoredFiles = vi.fn().mockR
         committedAtStorageCall.push(committed);
 
         return deleteStoredFiles(fileKeys);
-      }
+      },
+      accountName: async () => null,
+      readSharePhoto: async () => null
     })
   };
 }

@@ -32,6 +32,15 @@ export function isStoredFileUrl(value: string, fileKey: string, origins: string[
   return fileKey !== "" && origins.includes(url.origin) && url.pathname.endsWith(`/${encodeURIComponent(fileKey)}`);
 }
 
+/** Whether a URL is a file in the photo storage of this server, whose origins are `origins`. */
+export function isInPhotoStorage(value: string, origins: string[]) {
+  try {
+    return origins.includes(new URL(value).origin);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Names the stored files of Appointment Photos that were just deleted, so that they are deleted
  * from photo storage once the transaction has committed (`stylistTransactionProcedure`). Call it

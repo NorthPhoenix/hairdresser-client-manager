@@ -27,9 +27,9 @@ Android is the only device target: the Stylist app is the native Android app in 
 
 ## Public Profile Share privacy
 
-Profile Share pages and Share Images must show only client-facing shared history. They may show the Client name, upcoming Appointment timing/location, last completed Appointment timing/location, Services, Color Formulas, and selected Appointment Photos after the photo provider is implemented.
+Profile Share pages and Share Images must show only client-facing shared history. They may show the Client name, the Stylist's account name and salon address, upcoming Appointment timing/location, last completed Appointment timing/location, Services, and what the Stylist chose to include of the last completed Appointment: Color Formulas and stored after photos (both included by default) and stored before and other photos (included when selected). Every date and time is shown in the Stylist's timezone. A Share Image shows the same as the page; what does not fit one picture is counted in it, not dropped silently.
 
-They must not expose Client phone, Client email, Client Note, Appointment note, Service note, prices, internal provider identifiers, Clerk identifiers, or other Stylist-private data. Revoked links must return unavailable behavior, and group Appointment history must be scoped to Services and photos for the shared Client.
+They must not expose Client phone, Client email, Client Note, Appointment note, Service note, prices, internal provider identifiers, Clerk identifiers, the Stylist's email address, or other Stylist-private data. Revoked links must return unavailable behavior, and group Appointment history must be scoped to Services and photos for the shared Client.
 
 ## Optional providers
 

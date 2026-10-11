@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
-import { addedOrder } from "@hcm/api";
-import { db } from "@hcm/db";
+import { formatAppointmentTime } from "@hcm/api";
 import { normalizeLocale, t, type SupportedLocale } from "@hcm/shared";
+import { loadProfileShare } from "../../../server/profileShare";
 
 type ProfileSharePageProps = {
   params: Promise<{
@@ -12,98 +12,49 @@ type ProfileSharePageProps = {
   }>;
 };
 
-type SharedAppointment = {
-  id: string;
-  startsAt: Date;
-  endsAt: Date | null;
-  locationType: "inSalon" | "atHome";
-  locationAddress: string | null;
-};
-
-function formatAppointmentTime(locale: SupportedLocale, appointment: SharedAppointment): string {
-  const dateLocale = locale === "ru" ? "ru-RU" : "en-US";
-  const start = appointment.startsAt.toLocaleString(dateLocale, {
-    dateStyle: "medium",
-    timeStyle: "short"
-  });
-  const end = appointment.endsAt?.toLocaleTimeString(dateLocale, {
-    timeStyle: "short"
-  });
-
-  return [start, end].filter(Boolean).join(" - ");
+function appointmentLocation(locale: SupportedLocale, appointment: { locationType: "inSalon" | "atHome"; locationAddress: string | null }) {
+  return (
+    <>
+      {appointment.locationType === "atHome" ? t(locale, "appointmentAtHome") : t(locale, "appointmentInSalon")}
+      {appointment.locationAddress ? ` · ${appointment.locationAddress}` : ""}
+    </>
+  );
 }
 
 export default async function ProfileSharePage({ params, searchParams }: ProfileSharePageProps) {
   const { token } = await params;
   const { lang } = await searchParams;
-  const share = await db.profileShare.findFirst({
-    where: {
-      token,
-      revokedAt: null
-    },
-    include: {
-      client: true
-    }
-  });
+  const share = await loadProfileShare(token);
 
   if (!share) {
     notFound();
   }
 
-  const locale = lang ? normalizeLocale(lang) : share.client.language;
-  const upcomingAppointments = await db.appointment.findMany({
-    where: {
-      stylistId: share.client.stylistId,
-      status: "scheduled",
-      startsAt: {
-        gte: new Date()
-      },
-      participants: {
-        some: {
-          clientId: share.clientId
-        }
-      }
-    },
-    orderBy: {
-      startsAt: "asc"
-    }
-  });
-  const lastCompletedAppointment = await db.appointment.findFirst({
-    where: {
-      stylistId: share.client.stylistId,
-      status: "completed",
-      participants: {
-        some: {
-          clientId: share.clientId
-        }
-      }
-    },
-    include: {
-      services: {
-        where: {
-          clientId: share.clientId
-        },
-        include: {
-          colorFormulas: {
-            orderBy: addedOrder
-          }
-        },
-        orderBy: addedOrder
-      }
-    },
-    orderBy: {
-      startsAt: "desc"
-    }
-  });
-  const lastCompletedServices = lastCompletedAppointment?.services ?? [];
-  const sharedPhotos: { id: string; thumbnailUrl: string | null; url: string | null }[] = [];
+  const { content } = share;
+  const locale = lang ? normalizeLocale(lang) : share.language;
+  const completed = content.lastCompletedAppointment;
+  const photoCaptions = {
+    before: t(locale, "profileSharePhotoBefore"),
+    after: t(locale, "profileSharePhotoAfter"),
+    other: null
+  };
 
   return (
     <main style={styles.shell}>
       <article style={styles.page}>
         <header style={styles.header}>
           <p style={styles.kicker}>{t(locale, "profileShareTitle")}</p>
-          <h1 style={styles.title}>{share.client.name}</h1>
+          <h1 style={styles.title}>{content.clientName}</h1>
+          {content.stylistName || content.salonAddress ? (
+            <div style={styles.from}>
+              {content.stylistName ? (
+                <p style={styles.body}>{t(locale, "profileShareStylist", { name: content.stylistName })}</p>
+              ) : null}
+              {content.salonAddress ? (
+                <p style={styles.body}>{t(locale, "profileShareSalon", { address: content.salonAddress })}</p>
+              ) : null}
+            </div>
+          ) : null}
           <nav style={styles.languageNav} aria-label="Language">
             <a style={styles.languageLink} href={`/profile-shares/${token}?lang=ru`}>
               {t(locale, "switchToRussian")}
@@ -116,15 +67,12 @@ export default async function ProfileSharePage({ params, searchParams }: Profile
 
         <section style={styles.section}>
           <h2 style={styles.sectionTitle}>{t(locale, "profileShareUpcomingTitle")}</h2>
-          {upcomingAppointments.length > 0 ? (
+          {content.upcomingAppointments.length > 0 ? (
             <div style={styles.list}>
-              {upcomingAppointments.map((appointment) => (
-                <div key={appointment.id} style={styles.item}>
-                  <p style={styles.itemTitle}>{formatAppointmentTime(locale, appointment)}</p>
-                  <p style={styles.body}>
-                    {appointment.locationType === "atHome" ? t(locale, "appointmentAtHome") : t(locale, "appointmentInSalon")}
-                    {appointment.locationAddress ? ` · ${appointment.locationAddress}` : ""}
-                  </p>
+              {content.upcomingAppointments.map((appointment, index) => (
+                <div key={index} style={styles.item}>
+                  <p style={styles.itemTitle}>{formatAppointmentTime(locale, content.timezone, appointment)}</p>
+                  <p style={styles.body}>{appointmentLocation(locale, appointment)}</p>
                 </div>
               ))}
             </div>
@@ -135,22 +83,21 @@ export default async function ProfileSharePage({ params, searchParams }: Profile
 
         <section style={styles.section}>
           <h2 style={styles.sectionTitle}>{t(locale, "profileShareLastCompletedTitle")}</h2>
-          {lastCompletedAppointment ? (
+          {completed ? (
             <div style={styles.item}>
-              <p style={styles.itemTitle}>{formatAppointmentTime(locale, lastCompletedAppointment)}</p>
-              <p style={styles.body}>
-                {lastCompletedAppointment.locationType === "atHome" ? t(locale, "appointmentAtHome") : t(locale, "appointmentInSalon")}
-                {lastCompletedAppointment.locationAddress ? ` · ${lastCompletedAppointment.locationAddress}` : ""}
-              </p>
+              <p style={styles.itemTitle}>{formatAppointmentTime(locale, content.timezone, completed)}</p>
+              <p style={styles.body}>{appointmentLocation(locale, completed)}</p>
 
-              <h3 style={styles.subsectionTitle}>{t(locale, "profileShareServicesTitle")}</h3>
-              {lastCompletedServices.length > 0 ? (
+              <h3 style={styles.subsectionTitle}>
+                {t(locale, content.includesColorFormulas ? "profileShareServicesTitle" : "profileShareServicesOnlyTitle")}
+              </h3>
+              {completed.services.length > 0 ? (
                 <div style={styles.list}>
-                  {lastCompletedServices.map((service) => (
-                    <div key={service.id} style={styles.service}>
+                  {completed.services.map((service, serviceIndex) => (
+                    <div key={serviceIndex} style={styles.service}>
                       <p style={styles.itemTitle}>{service.name}</p>
-                      {service.colorFormulas.map((formula) => (
-                        <p key={formula.id} style={styles.body}>
+                      {service.colorFormulas.map((formula, formulaIndex) => (
+                        <p key={formulaIndex} style={styles.body}>
                           {formula.placement ? `${formula.placement}: ${formula.formula}` : formula.formula}
                         </p>
                       ))}
@@ -158,24 +105,31 @@ export default async function ProfileSharePage({ params, searchParams }: Profile
                   ))}
                 </div>
               ) : (
-                <p style={styles.body}>{t(locale, "profileShareNoCompleted")}</p>
+                <p style={styles.body}>{t(locale, "profileShareNoServices")}</p>
               )}
 
-              <h3 style={styles.subsectionTitle}>{t(locale, "profileSharePhotosTitle")}</h3>
-              {sharedPhotos.length > 0 ? (
-                <div style={styles.photoGrid}>
-                  {sharedPhotos.map((photo) => (
-                    <img
-                      key={photo.id}
-                      alt=""
-                      src={photo.thumbnailUrl ?? photo.url ?? ""}
-                      style={styles.photo}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <p style={styles.body}>{t(locale, "profileSharePhotosEmpty")}</p>
-              )}
+              {completed.photos.length > 0 ? (
+                <>
+                  <h3 style={styles.subsectionTitle}>{t(locale, "profileSharePhotosTitle")}</h3>
+                  <div style={styles.photoGrid}>
+                    {completed.photos.map((photo, index) => (
+                      <figure key={index} style={styles.photoFigure}>
+                        <a href={photo.url}>
+                          <img
+                            alt={photoCaptions[photo.category] ?? t(locale, "profileSharePhotosTitle")}
+                            loading="lazy"
+                            src={photo.url}
+                            style={styles.photo}
+                          />
+                        </a>
+                        {photoCaptions[photo.category] ? (
+                          <figcaption style={styles.photoCaption}>{photoCaptions[photo.category]}</figcaption>
+                        ) : null}
+                      </figure>
+                    ))}
+                  </div>
+                </>
+              ) : null}
             </div>
           ) : (
             <p style={styles.body}>{t(locale, "profileShareNoCompleted")}</p>
@@ -213,6 +167,9 @@ const styles = {
     fontSize: 48,
     lineHeight: 1,
     margin: "14px 0"
+  },
+  from: {
+    marginBottom: 14
   },
   languageNav: {
     display: "flex",
@@ -256,15 +213,26 @@ const styles = {
     padding: 12
   },
   photoGrid: {
+    alignItems: "start",
     display: "grid",
     gap: 12,
-    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))"
+    gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))"
   },
+  photoFigure: {
+    margin: 0
+  },
+  // The whole photo, not a cut of it.
   photo: {
-    aspectRatio: "4 / 3",
     borderRadius: 6,
-    objectFit: "cover",
+    display: "block",
+    height: "auto",
     width: "100%"
+  },
+  photoCaption: {
+    color: "#6d6259",
+    fontFamily: "Arial, sans-serif",
+    fontSize: 13,
+    marginTop: 4
   },
   itemTitle: {
     color: "#17130f",

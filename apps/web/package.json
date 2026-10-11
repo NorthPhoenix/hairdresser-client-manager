@@ -17,6 +17,7 @@
     "next": "latest",
     "react": "latest",
     "react-dom": "latest",
+    "sharp": "^0.34.5",
     "uploadthing": "^7.7.4",
     "zod": "^4.4.3"
   },

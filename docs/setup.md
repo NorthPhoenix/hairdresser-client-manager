@@ -116,6 +116,8 @@ The Android app intentionally renders a clear setup screen when no Clerk publish
 
 The web app currently exposes only public Profile Share placeholder routes. Clerk is installed for future shared auth/provider compatibility, but the v1 web app does not create a Stylist management surface.
 
+Profile Share pages and Share Images name the Stylist with the first and last name of the Stylist's Clerk user. The app signs up with an email address and a password only, so a Clerk user has no name until it is given one (in the Clerk dashboard, or through Clerk's user API); until then, and whenever Clerk does not answer within three seconds, a share shows no Stylist name and still works. The name is read from Clerk with the server's `CLERK_SECRET_KEY` and reused for one minute. A Share Image embeds the shared Appointment Photos: the server reads each from photo storage and shrinks it with `sharp` (a dependency of `apps/web`); a photo it cannot read is counted in the picture as not shown.
+
 UploadThing, Google Calendar, and Stylist Reminder push notification credentials are optional provider setup points. Until those providers are configured, core Client, Appointment, Service, Color Formula, Contact Import, Profile Share, Share Image, and Client Reminder SMS compose flows should remain usable, while provider-specific controls should show clear setup or unavailable behavior.
 
 ## Verification

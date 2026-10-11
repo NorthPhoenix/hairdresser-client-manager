@@ -35,20 +35,29 @@ export function normalizeLocale(locale: string | undefined): SupportedLocale {
 
 // Copy for the client-facing web surfaces: Profile Share pages and Share Images, which are
 // written in the Client's language. The Android app keeps its own copy in Android string
-// resources (apps/android/app/src/main/res/values and values-ru).
+// resources (apps/android/app/src/main/res/values and values-ru). A `{name}` in a text is filled
+// in by `t`.
 const messages = {
   ru: {
     appointmentInSalon: "В салоне",
     appointmentAtHome: "На дому",
     profileShareTitle: "Профиль клиента",
+    profileShareStylist: "Мастер: {name}",
+    profileShareSalon: "Салон: {address}",
     profileSharePlaceholder: "Здесь открываются профили клиентов по ссылке от мастера.",
     profileShareUpcomingTitle: "Будущие записи",
     profileShareLastCompletedTitle: "Последняя завершённая запись",
     profileShareNoUpcoming: "Будущих записей нет.",
     profileShareNoCompleted: "Завершённых записей пока нет.",
     profileShareServicesTitle: "Услуги и формулы",
+    profileShareServicesOnlyTitle: "Услуги",
+    profileShareNoServices: "Для этой записи услуги не указаны.",
     profileSharePhotosTitle: "Фото",
-    profileSharePhotosEmpty: "Фото для показа пока нет.",
+    profileSharePhotoBefore: "До",
+    profileSharePhotoAfter: "После",
+    // Share Image only: what a list or the photos of the picture leave out.
+    profileShareMore: "и ещё {count}",
+    profileSharePhotosNotShown: "Фото, которых нет на этой картинке: {count}",
     switchToRussian: "Русский",
     switchToEnglish: "English"
   },
@@ -56,14 +65,21 @@ const messages = {
     appointmentInSalon: "In salon",
     appointmentAtHome: "At home",
     profileShareTitle: "Client Profile",
+    profileShareStylist: "Stylist: {name}",
+    profileShareSalon: "Salon: {address}",
     profileSharePlaceholder: "Client pages open here from a link shared by the Stylist.",
     profileShareUpcomingTitle: "Upcoming Appointments",
     profileShareLastCompletedTitle: "Last completed Appointment",
     profileShareNoUpcoming: "No upcoming Appointments.",
     profileShareNoCompleted: "No completed Appointments yet.",
     profileShareServicesTitle: "Services and formulas",
+    profileShareServicesOnlyTitle: "Services",
+    profileShareNoServices: "No Services were recorded for this Appointment.",
     profileSharePhotosTitle: "Photos",
-    profileSharePhotosEmpty: "No stored photos are selected for sharing yet.",
+    profileSharePhotoBefore: "Before",
+    profileSharePhotoAfter: "After",
+    profileShareMore: "and {count} more",
+    profileSharePhotosNotShown: "Photos not shown in this picture: {count}",
     switchToRussian: "Русский",
     switchToEnglish: "English"
   }
@@ -73,8 +89,12 @@ export type MessageKey = keyof (typeof messages)["ru"];
 
 export const messageKeys = Object.keys(messages.ru) as MessageKey[];
 
-export function t(locale: SupportedLocale, key: MessageKey): string {
-  return messages[locale][key];
+export function t(locale: SupportedLocale, key: MessageKey, values: Record<string, string | number> = {}): string {
+  return Object.entries(values).reduce<string>(
+    // A function, so that a `$` in a value stays a `$`.
+    (text, [name, value]) => text.replaceAll(`{${name}}`, () => String(value)),
+    messages[locale][key]
+  );
 }
 
 export function getMissingLocalizationKeys(): Record<SupportedLocale, MessageKey[]> {

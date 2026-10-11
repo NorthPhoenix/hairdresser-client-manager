@@ -16,6 +16,17 @@ function readWorkspaceFile(path: string): string {
   return readFileSync(new URL(`../../../${path}`, import.meta.url), "utf8");
 }
 
+const emptyShare = {
+  clientName: "Anna",
+  stylistName: null,
+  salonAddress: null,
+  timezone: "UTC",
+  upcomingAppointments: [],
+  lastCompletedAppointment: null,
+  includesColorFormulas: true,
+  embeddedPhotos: []
+};
+
 describe("v1 acceptance hardening", () => {
   it("keeps Russian and English copy present for every shared client-facing message", () => {
     expect(messageKeys.length).toBeGreaterThan(0);
@@ -52,20 +63,14 @@ describe("v1 acceptance hardening", () => {
 
     expect(
       buildShareImageSvg({
-        clientName: "Anna",
-        locale: "ru",
-        nextAppointment: null,
-        lastCompletedAppointment: null,
-        services: []
+        ...emptyShare,
+        locale: "ru"
       })
     ).toContain("Будущие записи");
     expect(
       buildShareImageSvg({
-        clientName: "Anna",
-        locale: "en",
-        nextAppointment: null,
-        lastCompletedAppointment: null,
-        services: []
+        ...emptyShare,
+        locale: "en"
       })
     ).toContain("Upcoming Appointments");
   });

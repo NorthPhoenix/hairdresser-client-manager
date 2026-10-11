@@ -242,6 +242,9 @@ describe("client router", () => {
                 id: "share_1",
                 token: "existing-token",
                 language: "ru",
+                includeColorFormulas: false,
+                includeAfterPhotos: true,
+                includeOtherPhotos: true,
                 revokedAt: null,
                 createdAt
               }
@@ -254,14 +257,20 @@ describe("client router", () => {
       } as unknown as TRPCContext["db"])
     );
 
+    // The existing Profile Share is answered as it is: creating again changes nothing of it.
     await expect(
       caller.clientProfile.createProfileShare({
-        clientId: "client_1"
+        clientId: "client_1",
+        includeColorFormulas: true,
+        includeOtherPhotos: false
       })
     ).resolves.toEqual({
       id: "share_1",
       token: "existing-token",
       language: "ru",
+      includeColorFormulas: false,
+      includeAfterPhotos: true,
+      includeOtherPhotos: true,
       createdAt: createdAt.toISOString()
     });
     expect(profileShareCreate).not.toHaveBeenCalled();
@@ -304,11 +313,15 @@ describe("client router", () => {
       clientId: "client_1"
     });
 
+    // Nothing was chosen, so the Profile Share shows what one shows by default.
     expect(profileShareCreate).toHaveBeenCalledWith({
       data: {
         clientId: "client_1",
         token: expect.stringMatching(/^[A-Za-z0-9_-]{40,}$/),
-        language: "en"
+        language: "en",
+        includeColorFormulas: true,
+        includeAfterPhotos: true,
+        includeOtherPhotos: false
       }
     });
   });

@@ -13,7 +13,7 @@ Not a v1 concept. Removing a Stylist account and all stylist-owned data is defer
 _Avoid_: Account closure, data purge
 
 **Stylist Display Name**:
-Not a v1 concept. Client-facing Stylist identity uses the Stylist account identity rather than a separate app-specific display name.
+Not a v1 concept. Client-facing Stylist identity uses the Stylist account identity rather than a separate app-specific display name: the first and last name on the Stylist's sign-in account, when the account has them. The account's email address is a personal contact detail and never stands in for the name; an account without a name shows none.
 _Avoid_: Business name, public name
 
 **Stylist Availability**:
@@ -141,7 +141,7 @@ A Stylist-initiated SMS reminder message before an Appointment. In v1, the app c
 _Avoid_: Client notification, appointment text, confirmation message
 
 **Profile Share**:
-A revocable Stylist-selected subset of a Client Profile intended for the Client to view. In v1, each Client has at most one active Profile Share, Profile Shares default to the target Client's language and can be toggled between supported languages on the share page, do not require Client contact details, revoked Profile Share links are not reused, Profile Shares do not expire by default, and Profile Shares expose all future Appointments and the last completed Appointment by default through unguessable links or share images; group Appointments are scoped to the target Client and do not show other Clients by default; future Appointments show scheduling and location details only, while completed Appointment details can include Color Formulas and successfully stored after photos by default with the option to exclude them, can include successfully stored before or other photos when selected, show the Stylist name and optional business address, exclude Client contact details except appointment location when relevant, exclude Stylist personal contact details, prices, canceled and no-show Appointments, and internal notes, and do not require a Client Account or passcode.
+A revocable Stylist-selected subset of a Client Profile intended for the Client to view. In v1, each Client has at most one active Profile Share, Profile Shares default to the target Client's language and can be toggled between supported languages on the share page, do not require Client contact details, revoked Profile Share links are not reused, Profile Shares do not expire by default, and Profile Shares expose all future Appointments and the last completed Appointment by default through unguessable links or share images; group Appointments are scoped to the target Client and do not show other Clients by default; future Appointments show scheduling and location details only, while completed Appointment details can include Color Formulas and successfully stored after photos by default with the option to exclude them, can include successfully stored before or other photos when selected, show every date and time in the Stylist's timezone, show the Stylist name and optional business address, exclude Client contact details except appointment location when relevant, exclude Stylist personal contact details, prices, canceled and no-show Appointments, and internal notes, and do not require a Client Account or passcode. The Stylist makes the three choices (Color Formulas, after photos, before and other photos) when creating a Profile Share and can change them later without changing its link; a Service is still listed by name when its Color Formulas are excluded.
 _Avoid_: Shared profile, export, client portal
 
 **Profile Share Analytics**:
@@ -153,7 +153,7 @@ Not a v1 concept. The app does not record consent events, signatures, or permiss
 _Avoid_: Release form, consent record, signed waiver
 
 **Share Image**:
-A static image generated on demand from selected Client Profile information for sharing outside the app. A Share Image language is chosen at generation time, defaults to the Client's language, and is not revocable after it leaves the app.
+A static image generated on demand from selected Client Profile information for sharing outside the app. A Share Image language is chosen at generation time, defaults to the Client's language, and is not revocable after it leaves the app. It shows what the Client's Profile Share page shows, with the same choices of the Stylist, and carries its photos inside itself; where a list or the photos are too many for one picture, it says how many it leaves out.
 _Avoid_: Profile image, export image, card
 
 **Share Branding**:
