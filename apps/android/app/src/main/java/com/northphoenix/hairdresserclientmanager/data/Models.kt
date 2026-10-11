@@ -165,7 +165,18 @@ data class Appointment(
     val customLocationAddress: String = "",
     val note: String = "",
     val mapUrl: String? = null,
+    /**
+     * Only in the list of what can be copied into one Appointment (`appointment.completedSources`
+     * for that target): how many Services a copy from this one adds to it.
+     */
+    val copyableServiceCount: Int = 0,
+    /** Only in that list too: the Clients whose Services are copied, those attached to both Appointments. */
+    val copyableClientIds: List<String> = emptyList(),
 )
+
+/** What the app reads of the reply of `appointment.copyServices`: how many Services the copy added. */
+@Serializable
+data class CopiedServices(val copiedServiceCount: Int? = null)
 
 /**
  * What the app reads of the reply of `appointment.update`: the time and the place as they are
@@ -189,17 +200,19 @@ data class CreateAppointmentResult(
     val conflicts: List<Appointment> = emptyList(),
 )
 
+/**
+ * One Appointment in a Client's Appointment history. [services] and [photos] are that Client's
+ * alone, also in a group Appointment, and every photo is a stored one.
+ */
 @Serializable
 data class ClientHistoryEntry(
     val id: String,
     val primaryClientName: String,
     val startsAt: String,
     val status: AppointmentStatus,
-    val services: List<HistoryService> = emptyList(),
-) {
-    @Serializable
-    data class HistoryService(val id: String, val clientId: String, val name: String, val priceCents: Long)
-}
+    val services: List<AppointmentService> = emptyList(),
+    val photos: List<AppointmentPhoto> = emptyList(),
+)
 
 @Serializable
 data class ShareImage(val svg: String)

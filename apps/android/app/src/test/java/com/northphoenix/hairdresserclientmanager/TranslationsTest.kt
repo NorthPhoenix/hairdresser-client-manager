@@ -141,6 +141,30 @@ class TranslationsTest {
     }
 
     @Test
+    fun `a copy that was refused says that nothing was copied and why`() {
+        fun refusal(message: String, code: String) = ApiException(message, code = code).messageRes()
+
+        // L25, L26: the source the Stylist tapped is not what its card showed any more. Never the text of the empty list.
+        val told = listOf(
+            refusal("Source Appointment has no Services to copy.", "BAD_REQUEST") to R.string.copy_services_source_empty,
+            refusal("Source Appointment is no longer Completed.", "NOT_FOUND") to R.string.copy_services_source_not_completed,
+            refusal("Source Appointment not found.", "NOT_FOUND") to R.string.copy_services_source_gone,
+        )
+
+        told.forEach { (message, expected) -> assertEquals(expected, message) }
+        assertFalse(told.any { (message, _) -> message == R.string.copy_services_empty })
+        // Without a named source ('Latest completed Appointment'): there is none with anything to copy, which is the empty list.
+        assertEquals(R.string.copy_services_empty, refusal("Completed source Appointment not found.", "NOT_FOUND"))
+        // The Appointment that is open is gone itself.
+        assertEquals(R.string.error_not_found, refusal("Target Appointment not found.", "NOT_FOUND"))
+
+        for (name in listOf("copy_services_source_empty", "copy_services_source_not_completed", "copy_services_source_gone")) {
+            assertTrue(name, english.getValue(name).text.startsWith("Nothing was copied"))
+            assertTrue(name, russian.getValue(name).text.startsWith("Ничего не скопировано"))
+        }
+    }
+
+    @Test
     fun `a refusal about the Clients of an Appointment says what it is about`() {
         fun refusal(message: String) = ApiException(message, code = "BAD_REQUEST").messageRes()
 

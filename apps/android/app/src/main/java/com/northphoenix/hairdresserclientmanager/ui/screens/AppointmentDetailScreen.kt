@@ -39,6 +39,7 @@ import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.EditCalendar
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Map
@@ -52,9 +53,9 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
@@ -68,6 +69,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -100,8 +102,10 @@ import com.northphoenix.hairdresserclientmanager.data.PhotoStatus
 import com.northphoenix.hairdresserclientmanager.data.ServiceMenuItem
 import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
+import com.northphoenix.hairdresserclientmanager.domain.AppointmentCopying
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.Money
+import com.northphoenix.hairdresserclientmanager.domain.ServiceEdit
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
 import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
 import com.northphoenix.hairdresserclientmanager.i18n.clientReminderTemplate
@@ -117,6 +121,7 @@ import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.AmountField
 import com.northphoenix.hairdresserclientmanager.ui.components.Avatar
 import com.northphoenix.hairdresserclientmanager.ui.components.ChoiceChip
+import com.northphoenix.hairdresserclientmanager.ui.components.ColorFormulaCard
 import com.northphoenix.hairdresserclientmanager.ui.components.ConfirmDialog
 import com.northphoenix.hairdresserclientmanager.ui.components.Hairline
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmBottomSheet
@@ -141,6 +146,7 @@ import com.northphoenix.hairdresserclientmanager.ui.components.TagPadding
 import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
 import com.northphoenix.hairdresserclientmanager.ui.components.fittedTextStyle
 import com.northphoenix.hairdresserclientmanager.ui.components.icon
+import com.northphoenix.hairdresserclientmanager.ui.components.rememberRequestKey
 import com.northphoenix.hairdresserclientmanager.ui.components.tagTextStyle
 import com.northphoenix.hairdresserclientmanager.ui.openUri
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
@@ -163,6 +169,9 @@ internal sealed interface DetailSheet {
     /** Edit Appointment: the day, the times and the place. */
     data object Edit : DetailSheet
 
+    /** A Service of the Appointment that is being edited: its name, its price and its note. */
+    data class Service(val serviceId: String) : DetailSheet
+
     /** [formulaId] is null for a Color Formula that is being added. */
     data class Formula(val serviceId: String, val formulaId: String? = null) : DetailSheet
 
@@ -184,6 +193,7 @@ internal sealed interface DetailSheet {
                     AddService -> listOf("addService")
                     CopyServices -> listOf("copyServices")
                     Edit -> listOf("edit")
+                    is Service -> listOf("service", sheet.serviceId)
                     is Formula -> listOfNotNull("formula", sheet.serviceId, sheet.formulaId)
                     is AddPhoto -> listOfNotNull("addPhoto", sheet.clientId, sheet.replacingPhotoId)
                     is Photo -> listOf("photo", sheet.photoId)
@@ -198,6 +208,7 @@ internal sealed interface DetailSheet {
                     "addService" -> AddService
                     "copyServices" -> CopyServices
                     "edit" -> Edit
+                    "service" -> id?.let(::Service)
                     "formula" -> id?.let { Formula(it, saved.getOrNull(2)) }
                     "addPhoto" -> id?.let { AddPhoto(it, saved.getOrNull(2)) }
                     "photo" -> id?.let(::Photo)
@@ -263,6 +274,7 @@ private fun AppointmentDetail(
     val serviceMenuLoad by viewModel.serviceMenuLoad.collectAsStateWithLifecycle()
     val completedSources by viewModel.completedSources.collectAsStateWithLifecycle()
     val completedSourcesLoad by viewModel.completedSourcesLoad.collectAsStateWithLifecycle()
+    val copyingInto by viewModel.copyingInto.collectAsStateWithLifecycle()
     // The photos of this Appointment that are not on the server yet.
     val uploads = viewModel.photoUploads.collectAsStateWithLifecycle().value.filter { it.photo.appointmentId == appointment.id }
     val today by viewModel.today.collectAsStateWithLifecycle()
@@ -451,6 +463,7 @@ private fun AppointmentDetail(
                             service = service,
                             clientName = appointment.participants.firstOrNull { it.clientId == service.clientId }?.name.takeIf { isGroup },
                             busy = busy,
+                            onEdit = { sheet = DetailSheet.Service(service.id) },
                             onDelete = { deletingServiceId = service.id },
                             onAddFormula = { sheet = DetailSheet.Formula(service.id) },
                             onEditFormula = { sheet = DetailSheet.Formula(service.id, it.id) },
@@ -592,14 +605,26 @@ private fun AppointmentDetail(
                 viewModel.addService(appointment.id, clientId, menuItemId, name, priceCents, note) { sheet = null }
             },
         )
-        DetailSheet.CopyServices -> CopyServicesSheet(
-            sources = completedSources.filter { it.id != appointment.id },
-            load = completedSourcesLoad,
-            onRetry = viewModel::retryLoad,
-            format = format,
-            onDismiss = { sheet = null },
-            onCopy = { sourceId -> viewModel.copyServices(appointment.id, sourceId) { sheet = null } },
-        )
+        DetailSheet.CopyServices -> {
+            // One key for the copy this sheet is opened for, so that it is made once however often it is sent.
+            val requestKey = rememberRequestKey(appointment.id)
+            val clientIds = appointment.participants.map { it.clientId }
+
+            // What can be copied depends on the Appointment's Clients: loaded when the sheet opens, and again when they change under it.
+            LaunchedEffect(appointment.id, clientIds) { viewModel.showCopySources(appointment.id) }
+            DisposableEffect(appointment.id) { onDispose { viewModel.closeCopySources(appointment.id) } }
+
+            CopyServicesSheet(
+                sources = completedSources,
+                load = completedSourcesLoad,
+                onRetry = viewModel::retryLoad,
+                copying = copyingInto == appointment.id,
+                busy = busy,
+                format = format,
+                onDismiss = { sheet = null },
+                onCopy = { sourceId -> viewModel.copyServices(appointment.id, sourceId, requestKey) { sheet = null } },
+            )
+        }
         DetailSheet.Edit -> EditAppointmentSheet(
             appointment = appointment,
             today = today,
@@ -611,6 +636,21 @@ private fun AppointmentDetail(
             },
         )
         // A sheet about something that is no longer in the Appointment closes.
+        is DetailSheet.Service -> {
+            val service = appointment.services.firstOrNull { it.id == current.serviceId }
+
+            if (service == null) {
+                sheet = null
+            } else {
+                EditServiceSheet(
+                    service = service,
+                    clientName = appointment.participants.firstOrNull { it.clientId == service.clientId }?.name.takeIf { isGroup },
+                    busy = busy,
+                    onDismiss = { sheet = null },
+                    onSave = { edit -> viewModel.updateService(appointment.id, service.id, edit) { sheet = null } },
+                )
+            }
+        }
         is DetailSheet.Formula -> {
             val service = appointment.services.firstOrNull { it.id == current.serviceId }
             val formula = service?.colorFormulas?.firstOrNull { it.id == current.formulaId }
@@ -932,11 +972,13 @@ private fun ParticipantRow(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ServiceBlock(
     service: AppointmentService,
     clientName: String?,
     busy: Boolean,
+    onEdit: () -> Unit,
     onDelete: () -> Unit,
     onAddFormula: () -> Unit,
     onEditFormula: (ColorFormula) -> Unit,
@@ -958,20 +1000,14 @@ private fun ServiceBlock(
             Text(service.note, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         service.colorFormulas.forEach { formula ->
-            Surface(
-                onClick = { onEditFormula(formula) },
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Kicker(formula.placement.ifBlank { stringResource(R.string.color_formula_label) }, color = MaterialTheme.colorScheme.primary)
-                    Text(formula.formula, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                }
-            }
+            ColorFormulaCard(formula, onClick = { onEditFormula(formula) })
         }
-        // Pull the text button's own padding back so its label lines up with the Service name.
-        TextAction(stringResource(R.string.add_color_formula), onClick = onAddFormula, icon = Icons.Rounded.Add, modifier = Modifier.offset(x = (-10).dp))
+        // Pull the text buttons' own padding back so the first label lines up with the Service name.
+        // Side by side while both fit, and one under the other when they do not.
+        FlowRow(Modifier.offset(x = (-10).dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextAction(stringResource(R.string.add_color_formula), onClick = onAddFormula, icon = Icons.Rounded.Add)
+            TextAction(stringResource(R.string.edit_appointment_service), onClick = onEdit, icon = Icons.Rounded.Edit)
+        }
     }
 }
 
@@ -1262,39 +1298,127 @@ private fun AddServiceSheet(
     }
 }
 
+/**
+ * Edit Service: the name, the price and the note of a Service that is on the Appointment. They are
+ * saved together, as the form shows them. Its Client and its Color Formulas are not part of it.
+ */
+@Composable
+private fun EditServiceSheet(
+    service: AppointmentService,
+    clientName: String?,
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (ServiceEdit.Values) -> Unit,
+) {
+    // Filled from the Service when the sheet opens; what is typed after that is kept as it is.
+    var name by rememberSaveable(service.id) { mutableStateOf(service.name) }
+    var price by rememberSaveable(service.id) { mutableStateOf(Money.centsToPrice(service.priceCents)) }
+    var note by rememberSaveable(service.id) { mutableStateOf(service.note) }
+    // The texts a save was refused for. Each reason stays under its field for as long as the text is that one.
+    var refusedName by rememberSaveable(service.id) { mutableStateOf<String?>(null) }
+    var refusedPrice by rememberSaveable(service.id) { mutableStateOf<String?>(null) }
+
+    HcmBottomSheet(title = stringResource(R.string.edit_appointment_service), subtitle = clientName, onDismiss = onDismiss) {
+        HcmTextField(
+            name,
+            { name = it },
+            label = stringResource(R.string.appointment_service_name_label),
+            placeholder = stringResource(R.string.placeholder_service_name),
+            error = stringResource(R.string.service_name_required).takeIf { name == refusedName },
+        )
+        AmountField(
+            price,
+            { price = it },
+            label = stringResource(R.string.appointment_service_price_label),
+            placeholder = "85.00",
+            refusal = Money.parse(price).takeIf { price == refusedPrice },
+        )
+        HcmTextField(note, { note = it }, label = stringResource(R.string.appointment_service_note_label), placeholder = stringResource(R.string.optional), singleLine = false, minLines = 2)
+        PrimaryButton(
+            stringResource(R.string.save_appointment_service),
+            onClick = {
+                refusedName = name.takeIf(ServiceEdit::isNameRefused)
+                refusedPrice = price.takeIf(ServiceEdit::isPriceRefused)
+                ServiceEdit.values(name, price, note)?.let(onSave)
+            },
+            modifier = Modifier.fillMaxWidth(),
+            loading = busy,
+        )
+    }
+}
+
+/**
+ * Appointment Copying: the Completed Appointments that have something to copy into this one,
+ * each with whose Services and how many a copy from it adds. [copying] is a copy into this
+ * Appointment whose request is running: the sheet says so and takes no second tap. [busy] is
+ * any change in flight.
+ */
 @Composable
 private fun CopyServicesSheet(
     sources: List<Appointment>,
     load: LoadState,
     onRetry: () -> Unit,
+    copying: Boolean,
+    busy: Boolean,
     format: TimeFormat,
     onDismiss: () -> Unit,
     onCopy: (String?) -> Unit,
 ) {
     HcmBottomSheet(title = stringResource(R.string.copy_completed_services), onDismiss = onDismiss) {
-        // "No completed Appointments" is only true of a list that has loaded.
         if (load is LoadState.Failed) {
             InlineLoadFailed(load.message, onRetry)
         } else if (load != LoadState.Loaded) {
             LoadingRow(Modifier.heightIn(max = 96.dp))
         } else if (sources.isEmpty()) {
+            // "Nothing to copy" is only true of a list that has loaded.
             InlineEmpty(stringResource(R.string.copy_services_empty))
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SecondaryButton(stringResource(R.string.copy_services_latest), onClick = { onCopy(null) }, modifier = Modifier.fillMaxWidth(), icon = Icons.Rounded.ContentCopy)
+                if (copying) {
+                    // In the button's place and as tall as it, so that nothing moves under a second tap.
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 50.dp).semantics { liveRegion = LiveRegionMode.Polite },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                    ) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text(stringResource(R.string.copy_services_running), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else {
+                    // The first source of the list is the one a copy takes when it names none.
+                    SecondaryButton(
+                        stringResource(R.string.copy_services_latest),
+                        onClick = { onCopy(null) },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !busy,
+                        icon = Icons.Rounded.ContentCopy,
+                    )
+                }
                 sources.forEach { source ->
-                    HcmCard(Modifier.fillMaxWidth(), onClick = { onCopy(source.id) }, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)) {
-                        Text(AppointmentClients.leadName(source), style = MaterialTheme.typography.titleMedium)
+                    HcmCard(
+                        // Off, and dimmed to show it, while the copy runs and until the screen is loaded again after it,
+                        // which is also after a copy that was refused: the sources stay where they are and take no tap.
+                        Modifier.fillMaxWidth().alpha(if (busy) 0.5f else 1f),
+                        onClick = { onCopy(source.id) },
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                        enabled = !busy,
+                    ) {
+                        // What the copy takes of the source: in a group Appointment that is not all of it.
+                        Text(AppointmentCopying.clientNames(source).joinToString(", "), style = MaterialTheme.typography.titleMedium)
                         Text(format.dateAndTimeRange(source), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (source.services.isNotEmpty()) {
-                            Text(
-                                source.services.joinToString(", ") { it.name },
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+                        Text(
+                            AppointmentCopying.services(source).joinToString(", ") { it.name },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        // How many, because the names above are cut off after two lines.
+                        Text(
+                            pluralStringResource(R.plurals.copy_services_count, source.copyableServiceCount, source.copyableServiceCount),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
                     }
                 }
             }

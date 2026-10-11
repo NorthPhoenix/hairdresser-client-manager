@@ -27,7 +27,12 @@ fun ApiException.messageRes(): Int =
         // Removed from the Appointment on another device, and still on this screen until it is loaded again.
         isClientNotAttached -> R.string.error_client_not_in_appointment
         message == "End time must be after start time." -> R.string.appointment_end_before_start
+        // Appointment Copying. Without a named source: no Completed Appointment has anything to copy, which is what the empty sheet says.
         message == "Completed source Appointment not found." -> R.string.copy_services_empty
+        // The source the Stylist tapped is not what its card showed any more. Each says that nothing was copied, and why.
+        message == ApiException.SOURCE_HAS_NOTHING_TO_COPY -> R.string.copy_services_source_empty
+        message == "Source Appointment is no longer Completed." -> R.string.copy_services_source_not_completed
+        message == "Source Appointment not found." -> R.string.copy_services_source_gone
         message == "Appointment total is too large." -> R.string.error_appointment_total_too_large
         // The Client Profile form refuses such an email itself, under the field, with these words.
         message == "Email is not valid." -> R.string.client_email_invalid

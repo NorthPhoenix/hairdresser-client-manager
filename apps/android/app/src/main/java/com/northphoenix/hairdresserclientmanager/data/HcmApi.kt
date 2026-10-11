@@ -107,7 +107,18 @@ class HcmApi(private val trpc: TrpcClient) {
     suspend fun homeAppointments(start: Instant, end: Instant): List<Appointment> =
         trpc.query("appointment.home", rangeInput(start, end))
 
-    suspend fun completedSources(): List<Appointment> = trpc.query("appointment.completedSources")
+    /**
+     * The Completed Appointments that have something to copy into [targetAppointmentId], newest
+     * first, each with what a copy from it adds (`copyableServiceCount`, `copyableClientIds`). The
+     * first is the one a copy takes when it names no source. None for an Appointment the server
+     * no longer has: nothing can be copied into it.
+     */
+    suspend fun completedSources(targetAppointmentId: String): List<Appointment> =
+        try {
+            trpc.query("appointment.completedSources", buildJsonObject { put("targetAppointmentId", targetAppointmentId) })
+        } catch (error: ApiException) {
+            if (error.isNotFound && error.message == TARGET_NOT_FOUND) emptyList() else throw error
+        }
 
     /**
      * One Appointment as the server has it now, by its id, or null when the server has no such
@@ -227,19 +238,42 @@ class HcmApi(private val trpc: TrpcClient) {
         )
     }
 
+    /**
+     * An edit of a Service is a save of its whole form: the name, the price and the note are sent
+     * together, and an empty note clears the note.
+     */
+    suspend fun updateService(id: String, name: String, priceCents: Long, note: String) {
+        trpc.mutation<JsonObject>(
+            "appointment.updateService",
+            buildJsonObject {
+                put("id", id)
+                put("name", name)
+                put("priceCents", priceCents)
+                put("note", note)
+            },
+        )
+    }
+
     suspend fun deleteService(id: String) {
         trpc.mutation<JsonObject>("appointment.deleteService", idInput(id))
     }
 
-    suspend fun copyServices(targetAppointmentId: String, sourceAppointmentId: String?) {
-        trpc.mutation<JsonObject>(
+    /**
+     * Copies from [sourceAppointmentId], or from the last Completed Appointment that has something
+     * to copy when none is named. A copy that would add nothing is refused. [requestKey] names
+     * this copy for the server (16 to 64 of `A-Z a-z 0-9 _ -`): sent again with the key of a copy
+     * that was made, the call copies nothing and is answered like the first.
+     * Returns how many Services the copy added, or null when the reply does not say.
+     */
+    suspend fun copyServices(targetAppointmentId: String, sourceAppointmentId: String?, requestKey: String): Int? =
+        trpc.mutation<CopiedServices>(
             "appointment.copyServices",
             buildJsonObject {
                 put("targetAppointmentId", targetAppointmentId)
                 sourceAppointmentId?.let { put("sourceAppointmentId", it) }
+                put("requestKey", requestKey)
             },
-        )
-    }
+        ).copiedServiceCount
 
     suspend fun addColorFormula(appointmentServiceId: String, formula: String, placement: String?) {
         trpc.mutation<JsonObject>(
@@ -323,6 +357,9 @@ class HcmApi(private val trpc: TrpcClient) {
     private companion object {
         /** What `appointment.get` answers for an Appointment that is gone or is another Stylist's. */
         const val APPOINTMENT_NOT_FOUND = "Appointment not found."
+
+        /** What `appointment.completedSources` answers for a target that is gone or is another Stylist's. */
+        const val TARGET_NOT_FOUND = "Target Appointment not found."
     }
 
     private fun participantInput(appointmentId: String, clientId: String) =

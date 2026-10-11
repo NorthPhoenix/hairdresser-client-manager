@@ -38,6 +38,7 @@ import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
 import com.northphoenix.hairdresserclientmanager.data.toApiException
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
 import com.northphoenix.hairdresserclientmanager.domain.OneLine
+import com.northphoenix.hairdresserclientmanager.domain.ServiceEdit
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
 import com.northphoenix.hairdresserclientmanager.domain.zoneOrSystem
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
@@ -150,10 +151,14 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     private val calendarLoading = LoadTracker()
     val calendarLoad: StateFlow<LoadState> = calendarLoading.state
 
-    private val _completedSources = MutableStateFlow<List<Appointment>>(emptyList())
-    val completedSources: StateFlow<List<Appointment>> = _completedSources.asStateFlow()
-    private val completedSourcesLoading = LoadTracker()
-    val completedSourcesLoad: StateFlow<LoadState> = completedSourcesLoading.state
+    // What can be copied into the Appointment whose copy sheet is open (see [showCopySources]).
+    private val copySources = CopySources { api.completedSources(it) }
+    val completedSources: StateFlow<List<Appointment>> = copySources.sources
+    val completedSourcesLoad: StateFlow<LoadState> = copySources.state
+
+    // The Appointment a copy is being made into, for its copy sheet to say so. Null when no copy request is running.
+    private val _copyingInto = MutableStateFlow<String?>(null)
+    val copyingInto: StateFlow<String?> = _copyingInto.asStateFlow()
 
     private val loadedAppointments = LoadedAppointments()
 
@@ -280,9 +285,9 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         _serviceMenu.value = emptyList()
         _home.value = emptyList()
         _calendar.value = emptyList()
-        _completedSources.value = emptyList()
+        copySources.clear()
         // Resetting also drops whatever is still on its way for the previous Stylist.
-        listOf(clientsLoading, serviceMenuLoading, homeLoading, calendarLoading, completedSourcesLoading).forEach(LoadTracker::reset)
+        listOf(clientsLoading, serviceMenuLoading, homeLoading, calendarLoading).forEach(LoadTracker::reset)
         loadedAppointments.clear()
         overlaps.clear()
         actions.forgetOwed()
@@ -424,7 +429,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     /** Every load of the lists looks at the clock first, so that none of them loads a day that has ended. */
     private suspend fun loadAppointmentLists() {
         followDay()
-        together(::loadHome, ::loadCalendarDay, ::loadCompletedSources)
+        together(::loadHome, ::loadCalendarDay, copySources::load)
     }
 
     private suspend fun loadHome() {
@@ -446,8 +451,19 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         }
     }
 
-    // The completed-sources projection omits photos and phone numbers, so it is not kept for detail screens.
-    private suspend fun loadCompletedSources() = completedSourcesLoading.load(api::completedSources) { _completedSources.value = it }
+    /**
+     * The copy sheet of [targetAppointmentId] is open: loads what can be copied into it. Called
+     * when the sheet opens and again when the Clients of the Appointment change under it, because
+     * the list depends on them. While the sheet is open the list is loaded with the Appointment
+     * lists (see [loadAppointmentLists]), so a refused copy leaves it up to date.
+     */
+    fun showCopySources(targetAppointmentId: String) {
+        copySources.open(targetAppointmentId)
+        viewModelScope.launch { reporting { copySources.load() } }
+    }
+
+    /** The copy sheet of [targetAppointmentId] has closed: its list is not kept, nor loaded any longer. */
+    fun closeCopySources(targetAppointmentId: String) = copySources.close(targetAppointmentId)
 
     /** Applies a change the server has just accepted to the loaded copies of an Appointment. */
     private fun updateLoaded(id: String, change: (Appointment) -> Appointment) {
@@ -464,7 +480,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
         _home.update(without)
         _calendar.update(without)
-        _completedSources.update(without)
+        copySources.forget(id)
         loadedAppointments.forget(id)
     }
 
@@ -508,7 +524,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     /** Whether a list on screen has a card for this Appointment. */
     private fun isListed(id: String): Boolean =
-        listOf(_home, _calendar, _completedSources).any { list -> list.value.any { it.id == id } }
+        listOf(_home, _calendar, copySources.sources).any { list -> list.value.any { it.id == id } }
 
     /** Shows [date] in the Calendar. Choosing the day that is already shown loads it again, which is also the retry after a failed load. */
     fun setCalendarDate(date: LocalDate) {
@@ -906,12 +922,41 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         api.addService(appointmentId, clientId, menuItemId, name?.trim(), priceCents, note?.trim())
     }
 
+    /**
+     * Saves an edit of a Service: its name, its price and its note, all three as the form has
+     * them (see [ServiceEdit]). Its Client, its Color Formulas and its place among the Services stay.
+     */
+    fun updateService(appointmentId: String, serviceId: String, edit: ServiceEdit.Values, onSuccess: () -> Unit) =
+        actOnAppointment(appointmentId, "updateService:$serviceId", R.string.appointment_service_updated, onSuccess) {
+            api.updateService(serviceId, edit.name, edit.priceCents, edit.note)
+        }
+
     fun deleteService(appointmentId: String, serviceId: String) =
         actOnAppointment(appointmentId, "deleteService:$serviceId") { api.deleteService(serviceId) }
 
-    fun copyServices(targetAppointmentId: String, sourceAppointmentId: String?, onSuccess: () -> Unit) =
-        actOnAppointment(targetAppointmentId, "copyServices:$targetAppointmentId", onSuccess = onSuccess) {
-            api.copyServices(targetAppointmentId, sourceAppointmentId)
+    /**
+     * Copies Services into [targetAppointmentId] from [sourceAppointmentId], or from the last
+     * Completed Appointment that has something to copy when none is named, and says how many
+     * were copied. [requestKey] is the copy sheet's own for as long as it is open: a copy sent
+     * again with it, after a reply that never came, is not made a second time.
+     * A copy the server refuses copied nothing; the failure says why (see `messageRes`), and the
+     * reload brings the sheet's list up to date.
+     */
+    fun copyServices(targetAppointmentId: String, sourceAppointmentId: String?, requestKey: String, onSuccess: () -> Unit) =
+        act(
+            key = "copyServices:$targetAppointmentId",
+            onSuccess = { copied: Int? ->
+                copied?.let { notify(R.string.copy_services_done, isError = false, it) }
+                onSuccess()
+            },
+            reload = { reloadAppointmentAndLists(targetAppointmentId) },
+        ) {
+            _copyingInto.value = targetAppointmentId
+            try {
+                api.copyServices(targetAppointmentId, sourceAppointmentId, requestKey).also { loadedAppointments.changed(targetAppointmentId) }
+            } finally {
+                _copyingInto.value = null
+            }
         }
 
     fun saveColorFormula(

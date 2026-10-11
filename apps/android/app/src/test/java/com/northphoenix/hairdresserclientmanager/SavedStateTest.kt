@@ -122,6 +122,7 @@ class SavedStateTest {
             DetailSheet.AddService,
             DetailSheet.CopyServices,
             DetailSheet.Edit,
+            DetailSheet.Service(serviceId = "service-1"),
             DetailSheet.Formula(serviceId = "service-1"),
             DetailSheet.Formula(serviceId = "service-1", formulaId = "formula-1"),
             DetailSheet.AddPhoto(clientId = "client-1"),
@@ -139,6 +140,7 @@ class SavedStateTest {
     fun `no open sheet is saved as nothing, and what cannot be read is no sheet`() {
         assertNull(DetailSheet.Saver.saved(null))
         assertNull(DetailSheet.Saver.restore(listOf("formula")))
+        assertNull(DetailSheet.Saver.restore(listOf("service")))
         assertNull(DetailSheet.Saver.restore(listOf("somethingElse", "id")))
 
         assertNull(MenuEditor.Saver.saved(null))

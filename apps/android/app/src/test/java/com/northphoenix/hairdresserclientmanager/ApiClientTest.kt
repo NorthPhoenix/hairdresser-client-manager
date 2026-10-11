@@ -210,6 +210,137 @@ class ApiClientTest {
     }
 
     @Test
+    fun `Services and their Color Formulas are in the order the server lists them`() = runTest {
+        // L21: the server keeps the order they were added in, also for copies and after an edit. The app shows it as it is.
+        enqueue(
+            """{"result":{"data":{"id":"a1","primaryClientId":"c1","primaryClientName":"Anna Avery","services":[""" +
+                """{"id":"s2","clientId":"c1","name":"Gloss","priceCents":6499,"colorFormulas":[{"id":"f9","formula":"6N + 7N 1:1 EDIT","placement":"Roots"},{"id":"f1","formula":"Toner 9V","placement":""}]},""" +
+                """{"id":"s1","clientId":"c1","name":"Cut","priceCents":4000}""" +
+                """],"startsAt":"2026-10-10T10:57:00.000Z","status":"scheduled","locationType":"inSalon"}}}""",
+        )
+
+        val appointment = api.findAppointment("a1")!!
+
+        assertEquals(listOf("Gloss", "Cut"), appointment.services.map { it.name })
+        assertEquals(listOf("6N + 7N 1:1 EDIT", "Toner 9V"), appointment.services.first().colorFormulas.map { it.formula })
+    }
+
+    @Test
+    fun `an edit of a Service sends its name, price and note together, and an emptied note as empty`() = runTest {
+        // M22. Left out, the note would be cleared as well, but all three are what the form shows.
+        enqueue("""{"result":{"data":{}}}""")
+        enqueue("""{"result":{"data":{}}}""")
+
+        api.updateService("s1", name = "Fix Me Again", priceCents = 1_250, note = "new note")
+        api.updateService("s1", name = "Fix Me Again", priceCents = 0, note = "")
+        val edited = server.takeRequest()
+        val cleared = server.takeRequest()
+
+        assertEquals("POST", edited.method)
+        assertEquals("/api/trpc/appointment.updateService", edited.url.encodedPath)
+        assertEquals("""{"id":"s1","name":"Fix Me Again","priceCents":1250,"note":"new note"}""", edited.body?.utf8())
+        assertEquals("""{"id":"s1","name":"Fix Me Again","priceCents":0,"note":""}""", cleared.body?.utf8())
+    }
+
+    @Test
+    fun `the copy sheet asks for what can be copied into its Appointment and reads what each source copies`() = runTest {
+        // L25: only sources with something to copy, each with how many Services and whose.
+        enqueue(
+            """{"result":{"data":[{"id":"src","primaryClientId":"bob","primaryClientName":"Bob Baker","participants":[""" +
+                """{"clientId":"bob","name":"Bob Baker","isPrimary":true},{"clientId":"anna","name":"Anna Avery"}],"services":[""" +
+                """{"id":"s1","clientId":"anna","name":"Anna Color","priceCents":12050},{"id":"s2","clientId":"bob","name":"Bob Fade","priceCents":4000}],""" +
+                """"startsAt":"2026-10-10T15:19:00.000Z","status":"completed","locationType":"inSalon","copyableServiceCount":1,"copyableClientIds":["anna"]}]}}""",
+        )
+
+        val sources = api.completedSources("target-1")
+        val request = server.takeRequest()
+
+        assertEquals("/api/trpc/appointment.completedSources", request.url.encodedPath)
+        assertEquals("""{"targetAppointmentId":"target-1"}""", request.url.queryParameter("input"))
+        assertEquals(1, sources.single().copyableServiceCount)
+        assertEquals(listOf("anna"), sources.single().copyableClientIds)
+    }
+
+    @Test
+    fun `nothing can be copied into an Appointment that is gone, and any other failure of the list is a failure`() = runTest {
+        enqueue("""{"error":{"message":"Target Appointment not found.","code":-32004,"data":{"code":"NOT_FOUND","httpStatus":404}}}""", code = 404)
+        assertTrue(api.completedSources("gone").isEmpty())
+
+        enqueue("""{"error":{"message":"Stylist not found.","code":-32004,"data":{"code":"NOT_FOUND","httpStatus":404}}}""", code = 404)
+        try {
+            api.completedSources("a1")
+            fail("expected ApiException")
+        } catch (error: ApiException) {
+            assertTrue(error.isNotFound)
+        }
+    }
+
+    @Test
+    fun `a copy is sent with its key and answers how many Services it added`() = runTest {
+        // M8: the key makes a copy that is sent twice one copy. M7, L25: the reply says how many were copied.
+        val reply = """{"result":{"data":{"id":"a1","primaryClientId":"c1","primaryClientName":"Anna Avery","startsAt":"2026-10-10T18:31:00.000Z","status":"scheduled","locationType":"inSalon","copiedServiceCount":2}}}"""
+        enqueue(reply)
+        enqueue(reply)
+        enqueue("""{"result":{"data":{"id":"a1"}}}""")
+
+        assertEquals(2, api.copyServices("a1", "src", requestKey = "3f0c1b6e-0000-4000-8000-000000000001"))
+        assertEquals(2, api.copyServices("a1", sourceAppointmentId = null, requestKey = "3f0c1b6e-0000-4000-8000-000000000001"))
+        // A reply that does not say how many is still a copy that was made.
+        assertNull(api.copyServices("a1", "src", requestKey = "3f0c1b6e-0000-4000-8000-000000000002"))
+
+        assertEquals(
+            """{"targetAppointmentId":"a1","sourceAppointmentId":"src","requestKey":"3f0c1b6e-0000-4000-8000-000000000001"}""",
+            server.takeRequest().body?.utf8(),
+        )
+        // The latest Completed Appointment with something to copy: no source is named.
+        assertEquals("""{"targetAppointmentId":"a1","requestKey":"3f0c1b6e-0000-4000-8000-000000000001"}""", server.takeRequest().body?.utf8())
+    }
+
+    @Test
+    fun `a copy refused because its source has nothing to copy means the sheet's list is out of date`() = runTest {
+        // L25: the sheet lists only sources that have something to copy, so the list is loaded again after this refusal.
+        enqueue("""{"error":{"message":"Source Appointment has no Services to copy.","code":-32600,"data":{"code":"BAD_REQUEST","httpStatus":400}}}""", code = 400)
+        enqueue("""{"error":{"message":"Appointment total is too large.","code":-32600,"data":{"code":"BAD_REQUEST","httpStatus":400}}}""", code = 400)
+
+        suspend fun refused(): ApiException =
+            try {
+                api.copyServices("a1", "src", requestKey = "3f0c1b6e-0000-4000-8000-000000000001")
+                throw AssertionError("expected a refused copy")
+            } catch (error: ApiException) {
+                error
+            }
+
+        assertTrue(refused().screenOutOfDate)
+        assertFalse(refused().screenOutOfDate)
+    }
+
+    @Test
+    fun `a Client's history keeps each Service's price, note and Color Formulas, and the Client's photos`() = runTest {
+        // L22, L49: all of this was in the reply and dropped by the model.
+        enqueue(
+            """{"result":{"data":[{"id":"a1","primaryClientId":"c1","primaryClientName":"Anna Avery","startsAt":"2026-10-10T12:17:00.000Z","status":"completed","participantClientIds":["c1","c2"],""" +
+                """"services":[{"id":"s1","clientId":"c1","menuItemId":null,"name":"Old Trim","priceCents":3000,"note":"dry cut","colorFormulas":[{"id":"f1","formula":"5N + 20 vol","placement":"Ends"},{"id":"f2","formula":"Toner 9V","placement":""}]}],""" +
+                """"photos":[{"id":"p1","clientId":"c1","category":"before","url":"https://app.ufs.sh/f/k1","thumbnailUrl":"","width":null,"height":null,"createdAt":"2026-10-10T12:20:00.000Z"},""" +
+                """{"id":"p2","clientId":"c1","category":"after","url":"https://app.ufs.sh/f/k2","thumbnailUrl":"https://app.ufs.sh/f/k2","width":1200,"height":1600,"createdAt":"2026-10-10T13:20:00.000Z"}]},""" +
+                """{"id":"a0","primaryClientId":"c2","primaryClientName":"Bob Baker","startsAt":"2026-10-01T12:00:00.000Z","status":"canceled","participantClientIds":["c2","c1"],"services":[],"photos":[]}]}}""",
+        )
+
+        val history = api.clientAppointmentHistory("c1")
+        val service = history.first().services.single()
+
+        assertEquals("""{"id":"c1"}""", server.takeRequest().url.queryParameter("input"))
+        assertEquals(listOf("a1", "a0"), history.map { it.id })
+        assertEquals("Old Trim", service.name)
+        assertEquals(3_000L, service.priceCents)
+        assertEquals("dry cut", service.note)
+        assertEquals(listOf("Ends" to "5N + 20 vol", "" to "Toner 9V"), service.colorFormulas.map { it.placement to it.formula })
+        assertEquals(listOf(PhotoCategory.BEFORE, PhotoCategory.AFTER), history.first().photos.map { it.category })
+        assertEquals("https://app.ufs.sh/f/k1", history.first().photos.first().url)
+        // An Appointment in which the Client has no Services and no photos is a row of the history all the same.
+        assertTrue(history.last().services.isEmpty() && history.last().photos.isEmpty())
+    }
+
+    @Test
     fun `a change the api refuses because of the Clients an Appointment has now is told from any other refusal`() = runTest {
         fun refusal(message: String) = enqueue("""{"error":{"message":"$message","code":-32600,"data":{"code":"BAD_REQUEST","httpStatus":400}}}""", code = 400)
         suspend fun refused(change: suspend () -> Unit): ApiException =

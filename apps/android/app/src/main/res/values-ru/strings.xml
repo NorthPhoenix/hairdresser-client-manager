@@ -67,6 +67,7 @@
     <string name="appointment_service_price_label">Цена</string>
     <string name="appointment_service_saved">Услуга добавлена.</string>
     <string name="appointment_service_total">Сумма услуг</string>
+    <string name="appointment_service_updated">Услуга сохранена.</string>
     <string name="appointment_services_title">Услуги</string>
     <string name="appointment_start_label">Начало</string>
     <string name="appointment_start_time_skipped">В этот день часы переводят вперёд, и такого времени начала нет. Выберите другое время.</string>
@@ -111,8 +112,13 @@
     <string name="compose_client_reminder">SMS-напоминание</string>
     <string name="copy_completed_services">Скопировать услуги из завершённой записи</string>
     <string name="copy_profile_share_link">Копировать ссылку</string>
-    <string name="copy_services_empty">Нет завершённых записей, из которых можно скопировать услуги.</string>
+    <string name="copy_services_done">Скопировано услуг: %1$d.</string>
+    <string name="copy_services_empty">Нет завершённых записей с услугами клиентов этой записи.</string>
     <string name="copy_services_latest">Последняя завершённая запись</string>
+    <string name="copy_services_running">Копируем услуги…</string>
+    <string name="copy_services_source_empty">Ничего не скопировано: в той записи нет услуг для клиентов этой записи.</string>
+    <string name="copy_services_source_gone">Ничего не скопировано: той записи больше нет.</string>
+    <string name="copy_services_source_not_completed">Ничего не скопировано: та запись больше не завершена.</string>
     <string name="create_appointment">Создать запись</string>
     <string name="create_client">Создать клиента</string>
     <string name="create_profile_share">Создать ссылку на профиль</string>
@@ -137,6 +143,7 @@
     <string name="duplicate_phone_continue">Всё равно сохранить</string>
     <string name="duplicate_phone_title">Номер уже используется</string>
     <string name="edit_appointment">Изменить время или место</string>
+    <string name="edit_appointment_service">Изменить услугу</string>
     <string name="edit_client_title">Профиль клиента</string>
     <string name="error_appointment_needs_client">В записи должен остаться хотя бы один клиент.</string>
     <string name="error_appointment_total_too_large">Сумма услуг одной записи не может быть такой большой. Ничего не сохранено.</string>
@@ -215,6 +222,7 @@
     <string name="retry_appointment_photo">Загрузить заново</string>
     <string name="revoke_profile_share">Закрыть доступ к профилю</string>
     <string name="save_appointment_note">Сохранить заметку</string>
+    <string name="save_appointment_service">Сохранить услугу</string>
     <string name="save_appointment_time_and_place">Сохранить</string>
     <string name="save_client">Сохранить</string>
     <string name="save_color_formula">Сохранить формулу</string>
@@ -301,5 +309,11 @@
         <item quantity="few">Загружаются %d фото…</item>
         <item quantity="many">Загружается %d фото…</item>
         <item quantity="other">Загружается %d фото…</item>
+    </plurals>
+    <plurals name="copy_services_count">
+        <item quantity="one">Скопируется %d услуга</item>
+        <item quantity="few">Скопируются %d услуги</item>
+        <item quantity="many">Скопируется %d услуг</item>
+        <item quantity="other">Скопируется %d услуги</item>
     </plurals>
 </resources>

@@ -68,6 +68,7 @@
     <string name="appointment_service_price_label">Price</string>
     <string name="appointment_service_saved">Service added.</string>
     <string name="appointment_service_total">Services total</string>
+    <string name="appointment_service_updated">Service saved.</string>
     <string name="appointment_services_title">Services</string>
     <string name="appointment_start_label">Start time</string>
     <string name="appointment_start_time_skipped">The clocks go forward on that day, so this start time does not exist. Choose another start time.</string>
@@ -112,8 +113,13 @@
     <string name="compose_client_reminder">SMS reminder</string>
     <string name="copy_completed_services">Copy services from completed Appointment</string>
     <string name="copy_profile_share_link">Copy link</string>
-    <string name="copy_services_empty">No completed Appointments to copy Services from.</string>
+    <string name="copy_services_done">Services copied: %1$d.</string>
+    <string name="copy_services_empty">No completed Appointments with Services for this Appointment\'s Clients.</string>
     <string name="copy_services_latest">Latest completed Appointment</string>
+    <string name="copy_services_running">Copying Services…</string>
+    <string name="copy_services_source_empty">Nothing was copied: that Appointment has no Services for this Appointment\'s Clients.</string>
+    <string name="copy_services_source_gone">Nothing was copied: that Appointment no longer exists.</string>
+    <string name="copy_services_source_not_completed">Nothing was copied: that Appointment is no longer Completed.</string>
     <string name="create_appointment">Create Appointment</string>
     <string name="create_client">Create Client</string>
     <string name="create_profile_share">Create Profile Share</string>
@@ -138,6 +144,7 @@
     <string name="duplicate_phone_continue">Save anyway</string>
     <string name="duplicate_phone_title">Phone already used</string>
     <string name="edit_appointment">Change time or location</string>
+    <string name="edit_appointment_service">Edit Service</string>
     <string name="edit_client_title">Client Profile</string>
     <string name="error_appointment_needs_client">An Appointment must keep at least one Client.</string>
     <string name="error_appointment_total_too_large">The Services of one Appointment can\'t add up to this much. Nothing was saved.</string>
@@ -218,6 +225,7 @@
     <string name="retry_appointment_photo">Upload again</string>
     <string name="revoke_profile_share">Revoke Profile Share</string>
     <string name="save_appointment_note">Save note</string>
+    <string name="save_appointment_service">Save Service</string>
     <string name="save_appointment_time_and_place">Save</string>
     <string name="save_client">Save</string>
     <string name="save_color_formula">Save Formula</string>
@@ -300,5 +308,9 @@
     <plurals name="appointment_photos_uploading">
         <item quantity="one">Uploading photo…</item>
         <item quantity="other">Uploading %d photos…</item>
+    </plurals>
+    <plurals name="copy_services_count">
+        <item quantity="one">Copies %d Service</item>
+        <item quantity="other">Copies %d Services</item>
     </plurals>
 </resources>

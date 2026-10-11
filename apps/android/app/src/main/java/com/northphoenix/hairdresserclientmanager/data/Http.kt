@@ -46,8 +46,11 @@ class ApiException(
      * The API refused a change by who the Clients of an Appointment are now, or by what they have
      * in it. The app offers such a change only where its own copy of the Appointment allows it, so
      * that copy is out of date and the Appointment is loaded again.
+     * A copy from an Appointment that has nothing to copy is such a change as well: the copy sheet
+     * lists only Appointments that have, so its list is out of date.
      */
-    val screenOutOfDate: Boolean get() = isClientNotAttached || (code == "BAD_REQUEST" && message in CLIENT_KEPT)
+    val screenOutOfDate: Boolean
+        get() = isClientNotAttached || (code == "BAD_REQUEST" && (message in CLIENT_KEPT || message == SOURCE_HAS_NOTHING_TO_COPY))
 
     companion object {
         const val NO_REPLY = "NO_REPLY"
@@ -64,6 +67,7 @@ class ApiException(
             "Client has Services attached to this Appointment.",
             "Client has Appointment Photos attached to this Appointment.",
         )
+        const val SOURCE_HAS_NOTHING_TO_COPY = "Source Appointment has no Services to copy."
     }
 }
 

@@ -82,6 +82,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
+import com.northphoenix.hairdresserclientmanager.data.ColorFormula
 import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
 import com.northphoenix.hairdresserclientmanager.domain.Money
@@ -102,13 +103,15 @@ fun HcmCard(
     color: Color = MaterialTheme.colorScheme.surface,
     borderColor: Color = MaterialTheme.colorScheme.outlineVariant,
     contentPadding: PaddingValues = PaddingValues(18.dp),
+    /** For a card with [onClick]: whether a tap does anything now. */
+    enabled: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val shape = MaterialTheme.shapes.large
     val body: @Composable () -> Unit = { Column(Modifier.fillMaxWidth().padding(contentPadding), content = content) }
 
     if (onClick != null) {
-        Surface(onClick = onClick, modifier = modifier, shape = shape, color = color, border = BorderStroke(1.dp, borderColor), content = body)
+        Surface(onClick = onClick, modifier = modifier, enabled = enabled, shape = shape, color = color, border = BorderStroke(1.dp, borderColor), content = body)
     } else {
         Surface(modifier = modifier, shape = shape, color = color, border = BorderStroke(1.dp, borderColor), content = body)
     }
@@ -118,6 +121,29 @@ fun HcmCard(
 @Composable
 fun Kicker(text: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
     Text(text.uppercase(), modifier = modifier, style = MaterialTheme.typography.labelSmall, color = color)
+}
+
+/**
+ * A Color Formula as it reads wherever it is shown: the formula under where it was placed, or
+ * under what it is when no placement was noted. With [onClick] the card is a button.
+ */
+@Composable
+fun ColorFormulaCard(formula: ColorFormula, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
+    val shape = MaterialTheme.shapes.medium
+    val color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+    val body: @Composable () -> Unit = {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Kicker(formula.placement.ifBlank { stringResource(R.string.color_formula_label) }, color = MaterialTheme.colorScheme.primary)
+            Text(formula.formula, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+        }
+    }
+
+    if (onClick != null) {
+        Surface(onClick = onClick, shape = shape, color = color, modifier = modifier.fillMaxWidth(), content = body)
+    } else {
+        // Not a Surface: one that is no button takes the taps meant for what it lies in.
+        Box(modifier.fillMaxWidth().clip(shape).background(color)) { body() }
+    }
 }
 
 @Composable

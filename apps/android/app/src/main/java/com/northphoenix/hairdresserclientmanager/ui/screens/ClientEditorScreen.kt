@@ -10,12 +10,17 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -46,10 +51,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.toClipEntry
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -68,15 +78,18 @@ import coil3.size.Size
 import coil3.toBitmap
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.ApiException
+import com.northphoenix.hairdresserclientmanager.data.AppointmentPhoto
 import com.northphoenix.hairdresserclientmanager.data.ClientHistoryEntry
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.DeviceContacts
 import com.northphoenix.hairdresserclientmanager.data.Language
+import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
 import com.northphoenix.hairdresserclientmanager.domain.ContactFields
 import com.northphoenix.hairdresserclientmanager.domain.ContactImport
 import com.northphoenix.hairdresserclientmanager.domain.CopiedContact
 import com.northphoenix.hairdresserclientmanager.domain.ImportedContact
+import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.OneLine
 import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
 import com.northphoenix.hairdresserclientmanager.i18n.label
@@ -85,6 +98,7 @@ import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.BottomActionBar
+import com.northphoenix.hairdresserclientmanager.ui.components.ColorFormulaCard
 import com.northphoenix.hairdresserclientmanager.ui.components.ConfirmDialog
 import com.northphoenix.hairdresserclientmanager.ui.components.Hairline
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmCard
@@ -99,8 +113,13 @@ import com.northphoenix.hairdresserclientmanager.ui.components.SecondaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.SegmentedControl
 import com.northphoenix.hairdresserclientmanager.ui.components.StatusChip
 import com.northphoenix.hairdresserclientmanager.ui.components.SubScreen
+import com.northphoenix.hairdresserclientmanager.ui.components.Tag
+import com.northphoenix.hairdresserclientmanager.ui.components.TagPadding
 import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
+import com.northphoenix.hairdresserclientmanager.ui.components.fittedTextStyle
+import com.northphoenix.hairdresserclientmanager.ui.components.tagTextStyle
 import com.northphoenix.hairdresserclientmanager.ui.openUri
+import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -451,9 +470,12 @@ private fun ProfileShareCard(
     }
 }
 
+/**
+ * The Client's Appointment history, newest first: each Appointment with this Client's part of it,
+ * the Services with their prices, notes and Color Formulas, and the Client's photos.
+ */
 @Composable
 private fun ClientHistoryCard(viewModel: AppViewModel, clientId: String, onOpenAppointment: (String) -> Unit) {
-    val format = LocalTimeFormat.current
     val scope = rememberCoroutineScope()
     var history by remember(clientId) { mutableStateOf<List<ClientHistoryEntry>?>(null) }
     // Why there is no history to show; null while it is loading.
@@ -488,31 +510,110 @@ private fun ClientHistoryCard(viewModel: AppViewModel, clientId: String, onOpenA
                 if (index > 0) {
                     Hairline(Modifier.padding(horizontal = 18.dp))
                 }
-                Surface(onClick = { onOpenAppointment(entry.id) }, color = Color.Transparent) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(
-                                format.mediumDate(format.zoned(entry.startsAt).toLocalDate()) + ", " + format.time(entry.startsAt),
-                                style = MaterialTheme.typography.titleSmall,
-                            )
-                            val services = entry.services.filter { it.clientId == clientId }.joinToString(", ") { it.name }
-                            if (services.isNotEmpty()) {
-                                Text(
-                                    services,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        }
-                        StatusChip(entry.status)
+                ClientHistoryRow(entry, onOpen = { onOpenAppointment(entry.id) })
+            }
+        }
+    }
+}
+
+private val HistoryInset = 18.dp
+private val HistoryPhotoSize = 96.dp
+private val HistoryPhotoTagMargin = 6.dp
+
+/**
+ * One Appointment of the history: when it was and how it ended, then what the Client had in it.
+ * The Services and photos are this Client's alone, also in a group Appointment. The whole row
+ * opens the Appointment.
+ */
+@Composable
+private fun ClientHistoryRow(entry: ClientHistoryEntry, onOpen: () -> Unit) {
+    val format = LocalTimeFormat.current
+
+    Surface(onClick = onOpen, color = Color.Transparent) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                Modifier.padding(horizontal = HistoryInset),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    format.mediumDate(format.zoned(entry.startsAt).toLocalDate()) + ", " + format.time(entry.startsAt),
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                StatusChip(entry.status)
+            }
+            // In the order they were added, as on the Appointment.
+            entry.services.forEach { service ->
+                Column(Modifier.padding(horizontal = HistoryInset), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(service.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                        Text(Money.format(service.priceCents), style = MaterialTheme.typography.bodyLarge)
                     }
+                    if (service.note.isNotBlank()) {
+                        Text(service.note, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    service.colorFormulas.forEach { formula -> ColorFormulaCard(formula) }
                 }
+            }
+            if (entry.photos.isNotEmpty()) {
+                HistoryPhotos(entry.photos)
+            }
+        }
+    }
+}
+
+/**
+ * The Client's photos of one Appointment, oldest first, in a row that scrolls sideways, so a row
+ * of the history is no taller for many photos.
+ * Only pictures that are in view are loaded, down the history as well as along the row: a
+ * picture is a whole photo to download, and a long history has hundreds of them. The history is
+ * part of a page that is not lazy itself, so each row of photos looks for itself whether it is in
+ * view. While it is not, its pictures keep their places and are not loaded.
+ */
+@Composable
+private fun HistoryPhotos(photos: List<AppointmentPhoto>) {
+    var inView by remember { mutableStateOf(false) }
+    // Every tag in one size, in which the longest category takes one line of a picture (see `photoTagWidth`).
+    val tagStyle = fittedTextStyle(
+        PhotoCategory.entries.map { stringResource(it.label) },
+        tagTextStyle,
+        HistoryPhotoSize - (HistoryPhotoTagMargin + TagPadding) * 2 - 2.dp,
+    )
+
+    LazyRow(
+        // What the page has scrolled out of view is clipped away, which leaves nothing of these bounds.
+        Modifier.fillMaxWidth().onGloballyPositioned { inView = !it.boundsInWindow().isEmpty },
+        contentPadding = PaddingValues(horizontal = HistoryInset),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(photos, key = { it.id }) { photo ->
+            val category = stringResource(photo.category.label)
+            val description = stringResource(R.string.appointment_photo_description, category)
+
+            Box(
+                Modifier
+                    .size(HistoryPhotoSize)
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .semantics { contentDescription = description },
+            ) {
+                if (inView) {
+                    AsyncImage(
+                        model = photo.thumbnailUrl.ifBlank { photo.url },
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                // The description names the category already.
+                Tag(
+                    category,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(HistoryPhotoTagMargin).clearAndSetSemantics {},
+                    content = HcmColors.Surface,
+                    container = HcmColors.Ink.copy(alpha = 0.72f),
+                    style = tagStyle,
+                )
             }
         }
     }
