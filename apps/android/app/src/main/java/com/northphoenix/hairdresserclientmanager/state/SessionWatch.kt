@@ -22,23 +22,30 @@ internal class SessionWatch {
         signOutRequested = true
     }
 
-    /** Call with every new auth state. */
-    fun onState(state: AuthState) {
+    /**
+     * Call with every new auth state. True when this state is the sign-out the Stylist asked for:
+     * the moment at which what the device holds of their Clients is deleted. A session that ended
+     * on its own is not: that Stylist is expected back.
+     */
+    fun onState(state: AuthState): Boolean =
         when (state) {
             is AuthState.SignedIn -> {
                 signedIn = true
                 signOutRequested = false
                 _ended.value = false
+                false
             }
             AuthState.SignedOut -> {
+                val asked = signedIn && signOutRequested
+
                 if (signedIn) {
                     _ended.value = !signOutRequested
                 }
                 signedIn = false
                 signOutRequested = false
+                asked
             }
             // Starting up or failing to start says nothing about the session.
-            AuthState.Loading, is AuthState.Failed -> Unit
+            AuthState.Loading, is AuthState.Failed -> false
         }
-    }
 }

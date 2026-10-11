@@ -67,6 +67,7 @@
     <string name="appointment_photos_none_read">Не удалось прочитать ни одно из выбранных фото.</string>
     <string name="appointment_photos_some_unread">Не удалось прочитать %1$d из %2$d выбранных фото. Остальные добавлены.</string>
     <string name="appointment_photos_title">Фото</string>
+    <string name="appointment_photos_unavailable">Добавить фото нельзя: на сервере не настроено хранилище фото.</string>
     <string name="appointment_saved">Запись создана.</string>
     <string name="appointment_service_client_label">Клиент</string>
     <string name="appointment_service_name_label">Услуга</string>
@@ -344,5 +345,11 @@
         <item quantity="few">Скопируются %d услуги</item>
         <item quantity="many">Скопируется %d услуг</item>
         <item quantity="other">Скопируется %d услуги</item>
+    </plurals>
+    <plurals name="sign_out_unsaved_photos">
+        <item quantity="one">%d фото ещё не сохранено. Если вы выйдете, оно будет удалено с этого устройства.</item>
+        <item quantity="few">%d фото ещё не сохранены. Если вы выйдете, они будут удалены с этого устройства.</item>
+        <item quantity="many">%d фото ещё не сохранено. Если вы выйдете, они будут удалены с этого устройства.</item>
+        <item quantity="other">%d фото ещё не сохранено. Если вы выйдете, они будут удалены с этого устройства.</item>
     </plurals>
 </resources>

@@ -67,6 +67,23 @@ class ApiClientTest {
     }
 
     @Test
+    fun `the server says whether it has photo storage, and one that does not say has it`() = runTest {
+        fun settings(more: String) = """{"result":{"data":{"id":"s1","language":"en","timezone":"UTC","salonAddress":""$more}}}"""
+
+        // A11: a server without its storage token says so, in the Stylist's settings and in the reply to a save of them.
+        enqueue(settings(""","photoStorageConfigured":false"""))
+        assertFalse(api.bootstrap(Language.EN, "UTC").photoStorageConfigured)
+        enqueue(settings(""","photoStorageConfigured":false"""))
+        assertFalse(api.saveSettings(Language.EN, "UTC", "", loadedUpdatedAt = null).photoStorageConfigured)
+
+        enqueue(settings(""","photoStorageConfigured":true"""))
+        assertTrue(api.bootstrap(Language.EN, "UTC").photoStorageConfigured)
+        // An older server: photos are offered as before.
+        enqueue(settings(""))
+        assertTrue(api.bootstrap(Language.EN, "UTC").photoStorageConfigured)
+    }
+
+    @Test
     fun `a new account on a device whose timezone the server does not know is created without it`() = runTest {
         // L83, L65: the server creates no Stylist with a timezone it does not know, and answers every first call like this.
         val refused = """{"error":{"message":"[{\"code\":\"custom\",\"path\":[\"deviceTimezone\"],\"message\":\"Timezone is not valid.\"}]","code":-32600,"data":{"code":"BAD_REQUEST","httpStatus":400,"path":"stylist.bootstrap"}}}"""
@@ -842,6 +859,49 @@ class ApiClientTest {
         ).forEach { other ->
             assertEquals("UPLOAD_REJECTED", other.code)
             assertFalse(other.screenOutOfDate)
+            assertEquals(R.string.appointment_photo_upload_failed, other.messageRes())
+        }
+    }
+
+    @Test
+    fun `the route's refusals of a sign-in and of a deleted Appointment are the API's own`() = runTest {
+        val uploads = UploadThingClient(server.url("/api/uploadthing").toString(), http) { "token-1" }
+
+        suspend fun refusal(message: String?, status: Int): ApiException {
+            enqueue(message?.let { """{"message":"$it"}""" } ?: "<html>refused</html>", code = status)
+
+            return try {
+                uploads.upload("appointmentPhoto", buildJsonObject {}, "photo.jpg", "image/jpeg", ByteArray(1))
+                throw AssertionError("expected an ApiException")
+            } catch (error: ApiException) {
+                error
+            }
+        }
+
+        // L89: the session has ended. The route answers 403 for it; a 401 can only come from something in between.
+        listOf(refusal("Authentication required.", status = 403), refusal(null, status = 401)).forEach { ended ->
+            assertTrue(ended.isUnauthorized)
+            assertEquals(R.string.error_sign_in_rejected, ended.messageRes())
+        }
+
+        // L46: the Appointment was deleted on another device. Nothing invites another try.
+        val deleted = refusal("Appointment not found.", status = 404)
+
+        assertTrue(deleted.isNotFound)
+        assertEquals(R.string.error_not_found, deleted.messageRes())
+
+        // Told by the status together with the words. The picture of a deleted Appointment is taken off the device,
+        // so nothing else may pass for that refusal: not a route that is not there, not a server that failed.
+        listOf(
+            refusal(null, status = 404),
+            refusal("Not found.", status = 404),
+            refusal("Appointment not found.", status = 500),
+            refusal("Forbidden.", status = 403),
+            refusal("Authentication required.", status = 500),
+            // A11: a server without photo storage answers so. Its settings say that it has none (photoStorageConfigured).
+            refusal("Missing token. Please set the `UPLOADTHING_TOKEN` environment variable.", status = 500),
+        ).forEach { other ->
+            assertEquals("UPLOAD_REJECTED", other.code)
             assertEquals(R.string.appointment_photo_upload_failed, other.messageRes())
         }
     }

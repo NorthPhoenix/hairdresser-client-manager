@@ -68,6 +68,7 @@
     <string name="appointment_photos_none_read">None of the selected photos could be read.</string>
     <string name="appointment_photos_some_unread">%1$d of %2$d selected photos couldn\'t be read. The others were added.</string>
     <string name="appointment_photos_title">Photos</string>
+    <string name="appointment_photos_unavailable">Photos can\'t be added: photo storage isn\'t set up on the server.</string>
     <string name="appointment_saved">Appointment created.</string>
     <string name="appointment_service_client_label">Client</string>
     <string name="appointment_service_name_label">Service</string>
@@ -341,5 +342,9 @@
     <plurals name="copy_services_count">
         <item quantity="one">Copies %d Service</item>
         <item quantity="other">Copies %d Services</item>
+    </plurals>
+    <plurals name="sign_out_unsaved_photos">
+        <item quantity="one">%d photo isn\'t saved yet. If you sign out, it will be deleted from this device.</item>
+        <item quantity="other">%d photos aren\'t saved yet. If you sign out, they will be deleted from this device.</item>
     </plurals>
 </resources>

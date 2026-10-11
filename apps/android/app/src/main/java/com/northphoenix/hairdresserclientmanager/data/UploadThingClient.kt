@@ -128,6 +128,10 @@ class UploadThingClient(
      */
     private fun refusalCode(status: Int, message: String?): String =
         when {
+            // Not signed in, or the session has ended. The route's own answer is 403: UploadThing has no 401, which only something in between can answer.
+            status == 401 || (status == 403 && message == "Authentication required.") -> "UNAUTHORIZED"
+            // The Appointment was deleted, on another device too: there is nothing to add the photo to, so trying again cannot work.
+            status == 404 && message == "Appointment not found." -> "NOT_FOUND"
             // The Client is no longer one of the Appointment's Clients (ApiException.isClientNotAttached).
             status == 400 && message == "Photo Client must be attached to the Appointment." -> "BAD_REQUEST"
             else -> "UPLOAD_REJECTED"
@@ -185,6 +189,13 @@ class UploadThingClient(
         const val CLIENT_PACKAGE = "hcm-android"
         const val APPOINTMENT_PHOTO_SLUG = "appointmentPhoto"
         const val MAX_PHOTO_BYTES = 8 * 1024 * 1024
+
+        /**
+         * The code of the failure of an upload that was not tried because the server has no photo
+         * storage. Its settings say so (`Stylist.photoStorageConfigured`); the route itself only
+         * answers such an upload with a failure of its own.
+         */
+        const val NO_PHOTO_STORAGE = "NO_PHOTO_STORAGE"
 
         fun decodeUploadedPhoto(serverData: JsonElement?): UploadedPhoto? =
             try {

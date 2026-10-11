@@ -47,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -70,6 +71,7 @@ import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.HcmSnackbarHost
 import com.northphoenix.hairdresserclientmanager.ui.components.Avatar
+import com.northphoenix.hairdresserclientmanager.ui.components.ConfirmDialog
 import com.northphoenix.hairdresserclientmanager.ui.components.Hairline
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmCard
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmTextField
@@ -229,6 +231,30 @@ fun ProfileScreen(viewModel: AppViewModel, onOpenServiceMenu: () -> Unit) {
     val email = (authState as? AuthState.SignedIn)?.email.orEmpty()
     val changed = draft.timezone != current.timezone || draft.salonAddress.trim() != current.salonAddress
     val focus = LocalFocusManager.current
+    // The photos that are not on the server yet. A sign-out deletes them from the device, so it asks first.
+    val unsavedPhotos = viewModel.photoUploads.collectAsStateWithLifecycle().value.size
+    var confirmSignOut by rememberSaveable { mutableStateOf(false) }
+
+    // Saved meanwhile: there is nothing left to ask about.
+    LaunchedEffect(unsavedPhotos) {
+        if (unsavedPhotos == 0) {
+            confirmSignOut = false
+        }
+    }
+
+    if (confirmSignOut && unsavedPhotos > 0) {
+        ConfirmDialog(
+            title = stringResource(R.string.sign_out) + "?",
+            body = pluralStringResource(R.plurals.sign_out_unsaved_photos, unsavedPhotos, unsavedPhotos),
+            confirmText = stringResource(R.string.sign_out),
+            danger = true,
+            onConfirm = {
+                confirmSignOut = false
+                viewModel.signOut()
+            },
+            onDismiss = { confirmSignOut = false },
+        )
+    }
 
     Column(
         Modifier
@@ -251,7 +277,12 @@ fun ProfileScreen(viewModel: AppViewModel, onOpenServiceMenu: () -> Unit) {
                 }
             }
             // On a line of its own, which leaves the email the width of the card at every font size.
-            TextAction(stringResource(R.string.sign_out), onClick = viewModel::signOut, modifier = Modifier.align(Alignment.End), icon = Icons.AutoMirrored.Rounded.Logout)
+            TextAction(
+                stringResource(R.string.sign_out),
+                onClick = { if (unsavedPhotos > 0) confirmSignOut = true else viewModel.signOut() },
+                modifier = Modifier.align(Alignment.End),
+                icon = Icons.AutoMirrored.Rounded.Logout,
+            )
         }
 
         HcmCard(onClick = onOpenServiceMenu, contentPadding = PaddingValues(16.dp)) {

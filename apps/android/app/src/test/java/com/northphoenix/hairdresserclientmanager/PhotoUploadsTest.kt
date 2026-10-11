@@ -8,6 +8,7 @@ import com.northphoenix.hairdresserclientmanager.data.PendingPhotoStore
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
 import com.northphoenix.hairdresserclientmanager.data.PhotoStatus
 import com.northphoenix.hairdresserclientmanager.data.StoredFile
+import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
 import com.northphoenix.hairdresserclientmanager.state.Notice
 import com.northphoenix.hairdresserclientmanager.state.PhotoTarget
@@ -422,6 +423,61 @@ class PhotoUploadsTest {
     }
 
     @Test
+    fun `a picture the upload route refuses because its Appointment is gone is dropped as well`() = runTest {
+        val queue = uploads()
+
+        // L46: the route answers before the picture is stored (UploadThingClient gives its 404 the API's code).
+        send = { throw ApiException("Appointment not found.", code = "NOT_FOUND") }
+        queue.addPictures(1)
+        runCurrent()
+
+        // Nothing is left to upload again: another try could not work.
+        assertTrue(queue.uploads.value.isEmpty())
+        assertTrue(store.all().isEmpty())
+        assertEquals(listOf(R.string.error_not_found), failures.map { it.messageRes() })
+        assertEquals(listOf("appointment-1" to false), reloads)
+    }
+
+    @Test
+    fun `a picture refused because the session has ended stays on the device for when the Stylist is back`() = runTest {
+        val queue = uploads()
+
+        // L89: the route's 403 is the API's refusal of the sign-in, which the view model takes to the sign-in provider.
+        send = { throw ApiException("Authentication required.", code = "UNAUTHORIZED") }
+        queue.addPictures(1)
+        runCurrent()
+
+        assertEquals(listOf("photo-1" to UploadState.FAILED), queue.states())
+        assertTrue(store.all().single().failed)
+        assertTrue(failures.single().isUnauthorized)
+
+        // The session is gone, and they sign in again.
+        queue.close()
+        send = ::file
+        queue.open("stylist-1")
+        runCurrent()
+        assertEquals(listOf("photo-1" to UploadState.FAILED), queue.states())
+        queue.retry("photo-1")
+        runCurrent()
+        assertEquals(listOf("photo-1"), recorded.map { it.first })
+    }
+
+    @Test
+    fun `on a server without photo storage a picture stays on the device and the failure says why`() = runTest {
+        val queue = uploads()
+
+        // A11: the view model sends nothing to such a server (requirePhotoStorage).
+        send = { throw ApiException("The server has no photo storage.", code = UploadThingClient.NO_PHOTO_STORAGE) }
+        queue.addPictures(1)
+        runCurrent()
+
+        assertEquals(listOf("photo-1" to UploadState.FAILED), queue.states())
+        assertEquals(1, store.all().size)
+        // Not "Try again": that cannot work.
+        assertEquals(listOf(R.string.appointment_photos_unavailable), failures.map { it.messageRes() })
+    }
+
+    @Test
     fun `a photo for a Client who is no longer in the Appointment stays on the device and the Appointment is loaded again`() = runTest {
         val queue = uploads()
 
@@ -655,7 +711,7 @@ class PhotoUploadsTest {
     }
 
     @Test
-    fun `a sign-out stops the uploads and keeps the pictures for their Stylist`() = runTest {
+    fun `a session that ends by itself stops the uploads and keeps the pictures for their Stylist`() = runTest {
         val queue = uploads()
         val never = CompletableDeferred<StoredFile>()
 
@@ -687,6 +743,75 @@ class PhotoUploadsTest {
 
         assertEquals(listOf("photo-1", "photo-2"), recorded.map { it.first })
         assertTrue(store.all().isEmpty())
+    }
+
+    @Test
+    fun `a sign-out the Stylist asked for deletes their pictures from the device, and nobody else's`() = runTest {
+        // Someone else's session ended on this device with a picture still on its way: it waits for them.
+        store.add(PendingPhoto("theirs", "stylist-2", "appointment-9", "client-9", PhotoCategory.AFTER), "picture".toByteArray())
+
+        val queue = uploads()
+        val never = CompletableDeferred<StoredFile>()
+
+        send = { if (it.id == "photo-1") throw offline() else never.await() }
+        queue.addPictures(3)
+        runCurrent()
+        assertEquals(
+            listOf("photo-1" to UploadState.FAILED, "photo-2" to UploadState.UPLOADING, "photo-3" to UploadState.WAITING),
+            queue.states(),
+        )
+
+        // A14: failed, being sent or waiting, none of this Stylist's pictures stays.
+        queue.forget()
+        runCurrent()
+        never.complete(file(PendingPhoto("photo-2", "", "", "", PhotoCategory.AFTER)))
+        runCurrent()
+
+        assertTrue(queue.uploads.value.isEmpty())
+        assertTrue(recorded.isEmpty())
+        assertEquals(listOf("theirs"), store.all().map { it.id })
+        assertEquals(listOf("theirs.jpg", "theirs.json"), directory.list().orEmpty().sorted())
+
+        // Back at once: nothing of before the sign-out is shown or sent.
+        send = ::file
+        queue.open("stylist-1")
+        runCurrent()
+        assertTrue(queue.uploads.value.isEmpty())
+        assertTrue(recorded.isEmpty())
+    }
+
+    @Test
+    fun `a picture that was being copied when the Stylist signed out is not kept`() = runTest {
+        val queue = uploads()
+
+        // The sign-out comes while the second picture of the selection is read: it is written after the others were deleted.
+        val unread = queue.add(target, listOf("picture-1", "picture-2", "picture-3")) { source ->
+            if (source == "picture-2") {
+                queue.forget()
+                runCurrent()
+                assertTrue(directory.list().orEmpty().isEmpty())
+            }
+            source.toByteArray()
+        }
+        runCurrent()
+
+        assertTrue(unread.isEmpty())
+        assertTrue(queue.uploads.value.isEmpty())
+        assertTrue(directory.list().orEmpty().isEmpty())
+        assertTrue(sent.isEmpty())
+    }
+
+    @Test
+    fun `a sign-out before anyone's pictures were shown deletes none`() = runTest {
+        store.add(PendingPhoto("kept", "stylist-1", "appointment-1", "client-1", PhotoCategory.AFTER), "picture".toByteArray())
+
+        // The Stylist's data never loaded (the server was down), so the app has not shown whose pictures these are, nor asked.
+        val queue = uploads(stylistId = null)
+
+        queue.forget()
+        runCurrent()
+
+        assertEquals(listOf("kept"), store.all().map { it.id })
     }
 
     // --- the token request ---

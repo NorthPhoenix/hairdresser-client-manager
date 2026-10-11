@@ -279,6 +279,8 @@ private fun AppointmentDetail(
     val copyingInto by viewModel.copyingInto.collectAsStateWithLifecycle()
     // The photos of this Appointment that are not on the server yet.
     val uploads = viewModel.photoUploads.collectAsStateWithLifecycle().value.filter { it.photo.appointmentId == appointment.id }
+    // False on a server without photo storage: no upload can work there, so none is offered. The photos it has are still shown.
+    val canAddPhotos = viewModel.stylist.collectAsStateWithLifecycle().value?.photoStorageConfigured != false
     val today by viewModel.today.collectAsStateWithLifecycle()
     // The other Scheduled Appointments at this one's time, until the Stylist dismisses the warning.
     val overlapping = viewModel.overlapWarnings.collectAsStateWithLifecycle().value[appointment.id].orEmpty()
@@ -505,6 +507,14 @@ private fun AppointmentDetail(
                     if (appointment.photos.isEmpty() && uploads.isEmpty()) {
                         InlineEmpty(stringResource(R.string.appointment_no_photos))
                     }
+                    if (!canAddPhotos) {
+                        // In the place of every 'Add photo': why there is none.
+                        Text(
+                            stringResource(R.string.appointment_photos_unavailable),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
 
                     appointment.participants.forEach { participant ->
                         val photos = appointment.photos.filter { it.clientId == participant.clientId }
@@ -512,7 +522,8 @@ private fun AppointmentDetail(
                         val failed = onTheirWay.count { it.state == UploadState.FAILED }
                         val uploading = onTheirWay.size - failed
 
-                        if (isGroup) {
+                        // Without 'Add photo' a Client who has no photos has nothing under their name.
+                        if (isGroup && (canAddPhotos || photos.isNotEmpty() || onTheirWay.isNotEmpty())) {
                             Kicker(participant.name)
                         }
                         if (photos.isNotEmpty() || onTheirWay.isNotEmpty()) {
@@ -542,19 +553,23 @@ private fun AppointmentDetail(
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.error,
                                 )
-                                TextAction(
-                                    stringResource(R.string.retry_appointment_photo),
-                                    onClick = { viewModel.retryPhotoUploads(appointment.id, participant.clientId) },
-                                )
+                                if (canAddPhotos) {
+                                    TextAction(
+                                        stringResource(R.string.retry_appointment_photo),
+                                        onClick = { viewModel.retryPhotoUploads(appointment.id, participant.clientId) },
+                                    )
+                                }
                             }
                         }
                         // Not held back while photos upload: more pictures wait for their turn.
-                        SecondaryButton(
-                            stringResource(R.string.add_appointment_photo),
-                            onClick = { sheet = DetailSheet.AddPhoto(participant.clientId) },
-                            modifier = Modifier.fillMaxWidth(),
-                            icon = Icons.Rounded.CameraAlt,
-                        )
+                        if (canAddPhotos) {
+                            SecondaryButton(
+                                stringResource(R.string.add_appointment_photo),
+                                onClick = { sheet = DetailSheet.AddPhoto(participant.clientId) },
+                                modifier = Modifier.fillMaxWidth(),
+                                icon = Icons.Rounded.CameraAlt,
+                            )
+                        }
                     }
                 }
             }
@@ -685,7 +700,8 @@ private fun AppointmentDetail(
             val participant = appointment.participants.firstOrNull { it.clientId == current.clientId }
             val replacing = appointment.photos.firstOrNull { it.id == current.replacingPhotoId }
 
-            if (participant == null || (replacing == null && current.replacingPhotoId != null)) {
+            // Also a sheet that was open when the server turned out to have no photo storage.
+            if (participant == null || (replacing == null && current.replacingPhotoId != null) || !canAddPhotos) {
                 sheet = null
             } else {
                 AddPhotoSheet(
@@ -705,6 +721,7 @@ private fun AppointmentDetail(
                 PhotoSheet(
                     photo = photo,
                     clientName = appointment.participants.firstOrNull { it.clientId == photo.clientId }?.name.orEmpty(),
+                    canUpload = canAddPhotos,
                     onDismiss = { sheet = null },
                     onCategory = { viewModel.setPhotoCategory(appointment.id, photo.id, it) },
                     onRemove = {
@@ -727,6 +744,7 @@ private fun AppointmentDetail(
                 UploadSheet(
                     upload = upload,
                     clientName = appointment.participants.firstOrNull { it.clientId == upload.photo.clientId }?.name.orEmpty(),
+                    canUpload = canAddPhotos,
                     onDismiss = { sheet = null },
                     onRetry = { viewModel.retryPhotoUpload(upload.id) },
                     onRemove = {
@@ -1554,6 +1572,7 @@ private fun AddPhotoSheet(
 private fun PhotoSheet(
     photo: AppointmentPhoto,
     clientName: String,
+    canUpload: Boolean,
     onDismiss: () -> Unit,
     onCategory: (PhotoCategory) -> Unit,
     onRemove: () -> Unit,
@@ -1572,12 +1591,7 @@ private fun PhotoSheet(
             )
         } else {
             // Worded here, in the Stylist's language. A text that a record carries as its reason is never shown.
-            Text(
-                stringResource(R.string.appointment_photo_upload_failed),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.error,
-            )
-            SecondaryButton(stringResource(R.string.retry_appointment_photo), onClick = onRetry, modifier = Modifier.fillMaxWidth())
+            NotSavedPhoto(canUpload, onRetry)
         }
         Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Text(stringResource(R.string.appointment_photo_category_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1604,6 +1618,22 @@ private fun PhotoSheet(
     }
 }
 
+/**
+ * What the sheet of a photo that was not saved says and offers: 'Upload again', or, on a server
+ * without photo storage ([canUpload] is false), why another try cannot work.
+ */
+@Composable
+private fun NotSavedPhoto(canUpload: Boolean, onRetry: () -> Unit) {
+    Text(
+        stringResource(if (canUpload) R.string.appointment_photo_upload_failed else R.string.appointment_photos_unavailable),
+        style = MaterialTheme.typography.bodyLarge,
+        color = MaterialTheme.colorScheme.error,
+    )
+    if (canUpload) {
+        SecondaryButton(stringResource(R.string.retry_appointment_photo), onClick = onRetry, modifier = Modifier.fillMaxWidth())
+    }
+}
+
 /** 'Remove photo' asks first, for a stored photo and for one that is not on the server yet: a slip must not cost the photo. */
 @Composable
 private fun ConfirmRemovePhoto(onConfirm: () -> Unit, onDismiss: () -> Unit) {
@@ -1622,6 +1652,7 @@ private fun ConfirmRemovePhoto(onConfirm: () -> Unit, onDismiss: () -> Unit) {
 private fun UploadSheet(
     upload: PhotoUpload,
     clientName: String,
+    canUpload: Boolean,
     onDismiss: () -> Unit,
     onRetry: () -> Unit,
     onRemove: () -> Unit,
@@ -1636,12 +1667,7 @@ private fun UploadSheet(
             modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(MaterialTheme.shapes.large).background(MaterialTheme.colorScheme.surfaceVariant),
         )
         if (upload.state == UploadState.FAILED) {
-            Text(
-                stringResource(R.string.appointment_photo_upload_failed),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.error,
-            )
-            SecondaryButton(stringResource(R.string.retry_appointment_photo), onClick = onRetry, modifier = Modifier.fillMaxWidth())
+            NotSavedPhoto(canUpload, onRetry)
         } else {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)

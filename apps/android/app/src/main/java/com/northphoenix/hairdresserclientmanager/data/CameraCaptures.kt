@@ -35,6 +35,14 @@ class CameraCaptures(private val directory: File, private val now: () -> Long = 
         directory.listFiles()?.filter { it.isFile && it.lastModified() < before }?.forEach { it.delete() }
     }
 
+    /**
+     * Deletes every capture, also one the camera has just written. Only for a sign-out: nobody is
+     * in the camera then, and nothing of the Stylist's Clients stays on the device.
+     */
+    fun deleteAll() {
+        directory.listFiles()?.filter { it.isFile }?.forEach { it.delete() }
+    }
+
     companion object {
         /** A day: far longer than anyone stays in the camera, so a capture that is on its way back is never taken for a leftover. */
         const val STALE_AFTER_MILLIS = 24 * 60 * 60 * 1000L

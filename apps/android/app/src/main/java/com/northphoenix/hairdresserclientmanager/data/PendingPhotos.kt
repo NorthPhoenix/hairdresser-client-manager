@@ -97,6 +97,12 @@ class PendingPhotoStore(private val directory: File) {
         picture(id).delete()
     }
 
+    /** Deletes every photo of this Stylist. Only for their sign-out: the device then keeps no picture of their Clients. */
+    @Synchronized
+    fun removeAllOf(stylistId: String) {
+        all().filter { it.stylistId == stylistId }.forEach { remove(it.id) }
+    }
+
     private fun write(photo: PendingPhoto) = replace(record(photo.id)) { it.writeText(hcmJson.encodeToString(PendingPhoto.serializer(), photo)) }
 
     // Written beside the file and moved over it, so the file is never half of one.

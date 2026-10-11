@@ -254,6 +254,31 @@ class StateTest {
         assertFalse(watch.ended.value)
     }
 
+    @Test
+    fun `only the sign-out the Stylist asked for is the moment to empty the device`() {
+        val watch = SessionWatch()
+
+        // A14: nothing is deleted at start-up, on signing in, or while the provider restarts.
+        assertFalse(watch.onState(AuthState.Loading))
+        assertFalse(watch.onState(AuthState.SignedOut))
+        assertFalse(watch.onState(signedIn))
+
+        watch.signOutRequested()
+        assertFalse(watch.onState(AuthState.Loading))
+        assertTrue(watch.onState(AuthState.SignedOut))
+        // Said once.
+        assertFalse(watch.onState(AuthState.SignedOut))
+
+        // A session that ends on its own: that Stylist is expected back, and their unsent photos wait for them.
+        assertFalse(watch.onState(signedIn))
+        assertFalse(watch.onState(AuthState.SignedOut))
+        assertTrue(watch.ended.value)
+
+        // Asked for while nobody was signed in: not a sign-out of anyone.
+        watch.signOutRequested()
+        assertFalse(watch.onState(AuthState.SignedOut))
+    }
+
     // --- a saved Client in the loaded list ---
 
     private fun client(id: String, name: String, share: ProfileShare? = null) =

@@ -11,6 +11,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
@@ -72,6 +73,8 @@ data class PhotoTarget(
  *   from here like any recorded one, so no photo is shown as stored and as not saved at once.
  * - Of the failures that follow one thing the Stylist did (a selection, 'Upload again', opening
  *   the app), only the first is reported through [onFailure]: the pictures show the rest.
+ * - A session that ends by itself keeps the pictures for when their Stylist is back ([close]). A
+ *   sign-out the Stylist asked for deletes them ([forget]): the device is not where photos live.
  *
  * Not thread-safe: call it from the scope's own (main) thread.
  */
@@ -106,6 +109,12 @@ internal class PhotoUploads(
     private var failureTold = false
     private val wake = Channel<Unit>(Channel.CONFLATED)
 
+    /** How many sign-outs have taken pictures off the device: a picture that was being copied across one is not kept. */
+    private var signOuts = 0
+
+    /** The pictures of the last sign-out being deleted. Reading the device waits for it. */
+    private var deleting: Job? = null
+
     /**
      * Starts for the Stylist who has signed in: their pictures that are still on the device are
      * shown again. Those that had failed stay failed; the others were interrupted and go on.
@@ -118,6 +127,8 @@ internal class PhotoUploads(
         close()
         this.stylistId = stylistId
         worker = scope.launch {
+            // Signed in again at once: what the sign-out deletes is not shown again.
+            deleting?.join()
             val kept = quietly { withContext(io) { store.all() } }.orEmpty().filter { it.stylistId == stylistId }
 
             _uploads.update { added ->
@@ -143,6 +154,22 @@ internal class PhotoUploads(
     }
 
     /**
+     * The Stylist has signed out, as they asked: nothing more is sent, and their pictures are
+     * deleted from the device. Not sent, they are lost, which is why the Stylist is asked first.
+     * Does nothing more than [close] when no Stylist's pictures are shown: none were asked about.
+     */
+    fun forget() {
+        val owner = stylistId
+
+        close()
+        if (owner != null) {
+            signOuts++
+            // Also when the app is going away: the pictures do not stay behind.
+            deleting = scope.launch { quietly { withContext(NonCancellable + io) { store.removeAllOf(owner) } } }
+        }
+    }
+
+    /**
      * Takes a selection. Every picture is first copied to the device as [read] gives it, which is
      * quick: from then on the selection is not lost when the app is closed. Then each is made into
      * the JPEG to upload and takes its turn. A picture that cannot be read is left out and the
@@ -150,17 +177,28 @@ internal class PhotoUploads(
      */
     suspend fun <S> add(target: PhotoTarget, sources: List<S>, read: suspend (S) -> ByteArray): List<ApiException> {
         val owner = stylistId ?: return emptyList()
+        val signOutsBefore = signOuts
         val failures = mutableListOf<ApiException>()
         val copied = mutableListOf<PendingPhoto>()
 
         failureTold = false
         for (source in sources) {
+            // The Stylist has signed out meanwhile: the rest of the selection is not copied to the device.
+            if (signOuts != signOutsBefore) {
+                break
+            }
+
             failures += failureOrNull {
                 val bytes = read(source)
                 val replacing = target.replacingPhotoId.takeIf { copied.isEmpty() }
                 val photo = PendingPhoto(newId(), owner, target.appointmentId, target.clientId, target.category, replacing, now(), raw = true)
 
                 withContext(io) { store.add(photo, bytes) }
+                if (signOuts != signOutsBefore) {
+                    // They signed out while this one was being copied, and it may have been written after their pictures were deleted.
+                    withContext(io) { store.remove(photo.id) }
+                    return@failureOrNull
+                }
                 copied += photo
                 // Not shown to someone else who has signed in meanwhile. It is on the device for its Stylist.
                 if (stylistId == owner) {

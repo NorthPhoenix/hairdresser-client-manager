@@ -71,6 +71,12 @@ data class Stylist(
     val onboardingCompletedAt: String? = null,
     /** When the settings were last saved, as the server states it: the version a save names (see [HcmApi.saveSettings]). */
     val updatedAt: String? = null,
+    /**
+     * Whether the server has photo storage. It is about the server, not the Stylist: without it no
+     * Appointment Photo can be added, and the app says so instead of offering an upload that cannot
+     * work. A server that does not say (an older one) has it.
+     */
+    val photoStorageConfigured: Boolean = true,
 ) {
     val onboardingComplete: Boolean get() = onboardingCompletedAt != null
 }

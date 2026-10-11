@@ -88,6 +88,7 @@ import com.northphoenix.hairdresserclientmanager.data.DeviceContacts
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
 import com.northphoenix.hairdresserclientmanager.data.ShareChoice
+import com.northphoenix.hairdresserclientmanager.data.SharedPictures
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
 import com.northphoenix.hairdresserclientmanager.domain.ContactFields
 import com.northphoenix.hairdresserclientmanager.domain.ContactImport
@@ -799,8 +800,7 @@ private suspend fun shareSvgAsPng(context: Context, svg: String, svgBytes: ByteA
         val bitmap = (SingletonImageLoader.get(context).execute(request) as? SuccessResult)?.image?.toBitmap()
             ?: return false
         val file = withContext(Dispatchers.IO) {
-            val directory = File(context.cacheDir, "shared").apply { mkdirs() }
-            File(directory, "share-image.png").also { target ->
+            SharedPictures(File(context.cacheDir, SharedPictures.DIRECTORY)).shareImage().also { target ->
                 target.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
             }
         }

@@ -9,6 +9,7 @@ import com.northphoenix.hairdresserclientmanager.auth.SessionCheck
 import com.northphoenix.hairdresserclientmanager.auth.SignInError
 import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.data.PhotoPreparer
+import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
 import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 
@@ -54,6 +55,8 @@ fun ApiException.messageRes(): Int =
         message == "Email is not valid." -> R.string.client_email_invalid
         code == PhotoPreparer.UNREADABLE -> R.string.error_image_unreadable
         code == PhotoPreparer.TOO_LARGE -> R.string.appointment_photo_too_large
+        // Trying again cannot work until the server is set up for photos.
+        code == UploadThingClient.NO_PHOTO_STORAGE -> R.string.appointment_photos_unavailable
         code == "UPLOAD_FAILED" || code == "UPLOAD_REJECTED" -> R.string.appointment_photo_upload_failed
         // What a refused sign-in really means is for the sign-in provider to say: see refusedSignInMessage.
         isUnauthorized -> R.string.error_sign_in_rejected

@@ -10,6 +10,7 @@ import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import coil3.SingletonImageLoader
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.auth.AccountName
 import com.northphoenix.hairdresserclientmanager.auth.AuthGateway
@@ -32,6 +33,7 @@ import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
 import com.northphoenix.hairdresserclientmanager.data.PhotoPreparer
 import com.northphoenix.hairdresserclientmanager.data.ProfileShare
 import com.northphoenix.hairdresserclientmanager.data.ServiceMenuItem
+import com.northphoenix.hairdresserclientmanager.data.SharedPictures
 import com.northphoenix.hairdresserclientmanager.data.ShareChoice
 import com.northphoenix.hairdresserclientmanager.data.ShareImage
 import com.northphoenix.hairdresserclientmanager.data.StoredFile
@@ -66,6 +68,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -223,6 +226,9 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     /** Where the camera writes. A capture is only needed until [photos] has its own copy of it. */
     private val captures = CameraCaptures(File(container.appContext.cacheDir, "camera"))
 
+    /** Where a Share Image is written for another app to read. */
+    private val shared = SharedPictures(File(container.appContext.cacheDir, SharedPictures.DIRECTORY))
+
     /** Of the app's file provider, which gives the camera the address of a capture file. */
     private val filesAuthority = container.appContext.packageName + ".files"
 
@@ -233,16 +239,23 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     init {
         viewModelScope.launch(Dispatchers.IO) { captures.deleteStale() }
-        viewModelScope.launch { authState.collect { sessionWatch.onState(it) } }
         // A picture left as failed because the reply was lost is done with once its Appointment is loaded with the photo.
         viewModelScope.launch { loadedAppointments.loaded.collect { photos.dropRecorded() } }
         viewModelScope.launch {
-            authState.distinctUntilChangedBy { (it as? AuthState.SignedIn)?.userId }.collect { state ->
-                clearStylistData()
-                if (state is AuthState.SignedIn) {
-                    loadStylist()
+            authState
+                // In this order: a sign-out empties the upload queue while the queue still knows whose pictures it holds.
+                .onEach { state ->
+                    if (sessionWatch.onState(state)) {
+                        forgetDevice()
+                    }
                 }
-            }
+                .distinctUntilChangedBy { (it as? AuthState.SignedIn)?.userId }
+                .collect { state ->
+                    clearStylistData()
+                    if (state is AuthState.SignedIn) {
+                        loadStylist()
+                    }
+                }
         }
     }
 
@@ -729,9 +742,40 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     fun saveAccountName(first: String, last: String) =
         act(key = "saveAccountName", successNotice = R.string.account_name_saved) { auth.saveAccountName(AccountName.of(first, last)) }
 
+    /**
+     * Signs the Stylist out. Once they are signed out, what the device holds of their Clients is
+     * deleted (see [forgetDevice]), the photos that were not uploaded yet among them: whoever
+     * offers this where such photos are shown asks first.
+     */
     fun signOut() {
         sessionWatch.signOutRequested()
         viewModelScope.launch { reporting { auth.signOut() } }
+    }
+
+    /**
+     * The Stylist has signed out, as they asked: the pictures of their Clients that the app kept on
+     * this device are deleted. Those are the photos still on their way to the server, what the
+     * camera left, the Share Image that was handed to another app, and the image loader's copies of
+     * the photos it has shown. Appointment Photos live in photo storage and nowhere else.
+     * A session that ended on its own deletes nothing: that Stylist is expected back.
+     */
+    private fun forgetDevice() {
+        photos.forget()
+        viewModelScope.launch {
+            // Also when the app is going away.
+            withContext(NonCancellable + Dispatchers.IO) {
+                try {
+                    captures.deleteAll()
+                    shared.deleteAll()
+                    SingletonImageLoader.get(container.appContext).run {
+                        memoryCache?.clear()
+                        diskCache?.clear()
+                    }
+                } catch (_: Exception) {
+                    // The device's storage failed. Nothing here is the Stylist's to act on.
+                }
+            }
+        }
     }
 
     // --- clients ---
@@ -1129,8 +1173,20 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         return bytes
     }
 
+    /**
+     * Nothing is sent to a server that says it has no photo storage (see [Stylist.photoStorageConfigured]):
+     * the failure then says so, instead of inviting another try that cannot work either.
+     */
+    private fun requirePhotoStorage() {
+        if (_stylist.value?.photoStorageConfigured == false) {
+            throw ApiException("The server has no photo storage.", code = UploadThingClient.NO_PHOTO_STORAGE)
+        }
+    }
+
     /** Uploads through UploadThing first, and only what is stored there is recorded: the database never points at a file that failed to store. */
     private suspend fun sendPhoto(photo: PendingPhoto, bytes: ByteArray): StoredFile {
+        requirePhotoStorage()
+
         val uploaded = container.uploads.upload(
             slug = UploadThingClient.APPOINTMENT_PHOTO_SLUG,
             input = buildJsonObject {
@@ -1149,6 +1205,9 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     }
 
     private suspend fun recordPhoto(photo: PendingPhoto, stored: StoredFile) {
+        // Such a server takes no stored file as a photo either.
+        requirePhotoStorage()
+
         // The photo's id is its request key: recorded once, however often this is sent.
         val photosNow =
             api.addStoredPhoto(photo.appointmentId, photo.clientId, photo.category, stored.fileKey, stored.url, stored.thumbnailUrl, requestKey = photo.id)

@@ -5,6 +5,7 @@ import com.northphoenix.hairdresserclientmanager.data.CameraCaptures
 import com.northphoenix.hairdresserclientmanager.data.PendingPhoto
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
 import com.northphoenix.hairdresserclientmanager.data.PhotoStatus
+import com.northphoenix.hairdresserclientmanager.data.SharedPictures
 import com.northphoenix.hairdresserclientmanager.state.PhotoUpload
 import com.northphoenix.hairdresserclientmanager.state.UploadState
 import com.northphoenix.hairdresserclientmanager.ui.screens.hasPicture
@@ -99,6 +100,32 @@ class PhotoDetailsTest {
         assertFalse(leftBehind.exists())
         assertFalse(fromAnEarlierVersion.exists())
         assertEquals(emptyList<String>(), names())
+    }
+
+    @Test
+    fun `a sign-out leaves no capture and no shared picture behind`() {
+        // A14: a capture nothing came back for, and one that would still count as being taken at start-up.
+        captures.newFile().written(at = clock - 20 * 60_000)
+        clock += 1
+        captures.newFile().written()
+
+        val shared = SharedPictures(File(device.root, SharedPictures.DIRECTORY))
+        val shareImage = shared.shareImage().apply { writeText("png") }
+
+        assertEquals("share-image.png", shareImage.name)
+        assertEquals(File(device.root, "shared"), shareImage.parentFile)
+
+        captures.deleteAll()
+        shared.deleteAll()
+
+        assertEquals(emptyList<String>(), names())
+        assertFalse(shareImage.exists())
+        // The next capture and the next share have their directories.
+        assertTrue(captures.newFile().parentFile!!.isDirectory)
+        assertTrue(shared.shareImage().parentFile!!.isDirectory)
+        // Nothing to delete is no failure.
+        SharedPictures(File(device.root, "never-shared")).deleteAll()
+        CameraCaptures(File(device.root, "never-captured")).deleteAll()
     }
 
     @Test
