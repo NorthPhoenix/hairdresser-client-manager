@@ -168,7 +168,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     private val statusChanges = LatestWins<String, AppointmentStatus>()
     private val primaryChanges = LatestWins<String, String>()
     private val noteChanges = LatestWins<String, String>()
-    private val finalTotalChanges = LatestWins<String, Int?>()
+    private val finalTotalChanges = LatestWins<String, Long?>()
     private val photoCategoryChanges = LatestWins<String, PhotoCategory>()
 
     private val _uploadingPhoto = MutableStateFlow(false)
@@ -698,7 +698,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     // --- service menu ---
 
-    fun saveServiceMenuItem(id: String?, name: String, defaultPriceCents: Int, onSuccess: () -> Unit) =
+    fun saveServiceMenuItem(id: String?, name: String, defaultPriceCents: Long, onSuccess: () -> Unit) =
         act(
             key = "saveServiceMenuItem:${id ?: "new"}",
             successNotice = R.string.service_menu_item_saved,
@@ -769,7 +769,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         }
 
     /** [overrideCents] null clears the override, and the final total is the Service total again. */
-    fun setAppointmentFinalTotal(id: String, overrideCents: Int?) =
+    fun setAppointmentFinalTotal(id: String, overrideCents: Long?) =
         saveLatest(finalTotalChanges, id, id, overrideCents, saved = loadedAppointments[id]?.finalTotalCentsOverride) { next ->
             api.updateAppointmentFinalTotal(id, next)
             updateLoaded(id) { it.copy(finalTotalCentsOverride = next, finalTotalCents = next ?: it.serviceTotalCents) }
@@ -792,7 +792,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         clientId: String,
         menuItemId: String?,
         name: String?,
-        priceCents: Int?,
+        priceCents: Long?,
         note: String?,
         onSuccess: () -> Unit,
     ) = actOnAppointment(appointmentId, "addService:$appointmentId", R.string.appointment_service_saved, onSuccess) {

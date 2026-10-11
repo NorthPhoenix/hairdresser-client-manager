@@ -321,7 +321,7 @@ class StateTest {
         assertEquals(listOf("5550100", "5550002"), inGroup.map { it.phone })
         assertEquals("Carol Other", appointments["group"]!!.primaryClientName)
         // What the Appointment itself holds about the Client stays.
-        assertEquals(listOf(4500, 4500), inGroup.map { it.subtotalCents })
+        assertEquals(listOf(4500L, 4500L), inGroup.map { it.subtotalCents })
         assertFalse(inGroup.last().isPrimary)
 
         assertTrue(unrelated === appointments["unrelated"])

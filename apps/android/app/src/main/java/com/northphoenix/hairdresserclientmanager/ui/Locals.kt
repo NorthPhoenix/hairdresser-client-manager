@@ -35,8 +35,8 @@ class NoticeVisuals(override val message: String, @StringRes val messageRes: Int
 
 /** Every screen's Scaffold uses this so notices sit above that screen's own bottom bar. */
 @Composable
-fun HcmSnackbarHost() {
-    SnackbarHost(LocalSnackbarHostState.current) { data ->
+fun HcmSnackbarHost(modifier: Modifier = Modifier) {
+    SnackbarHost(LocalSnackbarHostState.current, modifier) { data ->
         val notice = data.visuals as? NoticeVisuals
         val isError = notice?.isError == true
 

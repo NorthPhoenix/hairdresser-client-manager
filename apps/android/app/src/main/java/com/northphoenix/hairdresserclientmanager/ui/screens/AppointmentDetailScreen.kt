@@ -14,11 +14,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -56,7 +59,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
@@ -74,6 +76,7 @@ import com.northphoenix.hairdresserclientmanager.data.ColorFormula
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
 import com.northphoenix.hairdresserclientmanager.data.PhotoStatus
 import com.northphoenix.hairdresserclientmanager.data.ServiceMenuItem
+import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
@@ -84,6 +87,7 @@ import com.northphoenix.hairdresserclientmanager.i18n.toLocale
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
+import com.northphoenix.hairdresserclientmanager.ui.components.AmountField
 import com.northphoenix.hairdresserclientmanager.ui.components.Avatar
 import com.northphoenix.hairdresserclientmanager.ui.components.ChoiceChip
 import com.northphoenix.hairdresserclientmanager.ui.components.ConfirmDialog
@@ -222,6 +226,8 @@ private fun AppointmentDetail(
     val isGroup = appointment.participants.size > 1
     var sheet by rememberSaveable(stateSaver = DetailSheet.Saver) { mutableStateOf<DetailSheet?>(null) }
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
+    // The Service whose delete is being asked about. By id, like an open sheet: it is looked up again on every composition.
+    var deletingServiceId by rememberSaveable { mutableStateOf<String?>(null) }
 
     // The two inline fields. Back asks before it discards what is typed into them and not saved yet.
     var noteDraft by rememberDraft(appointment.id, saved = appointment.note)
@@ -355,7 +361,7 @@ private fun AppointmentDetail(
                             service = service,
                             clientName = appointment.participants.firstOrNull { it.clientId == service.clientId }?.name.takeIf { isGroup },
                             busy = busy,
-                            onDelete = { viewModel.deleteService(appointment.id, service.id) },
+                            onDelete = { deletingServiceId = service.id },
                             onAddFormula = { sheet = DetailSheet.Formula(service.id) },
                             onEditFormula = { sheet = DetailSheet.Formula(service.id, it.id) },
                         )
@@ -539,6 +545,21 @@ private fun AppointmentDetail(
             onDismiss = { confirmDelete = false },
         )
     }
+
+    // A Service that is gone by now has nothing left to ask about.
+    appointment.services.firstOrNull { it.id == deletingServiceId }?.let { service ->
+        ConfirmDialog(
+            title = stringResource(R.string.delete_appointment_service) + "?",
+            body = stringResource(R.string.delete_appointment_service_confirm_body, service.name),
+            confirmText = stringResource(R.string.delete),
+            danger = true,
+            onConfirm = {
+                deletingServiceId = null
+                viewModel.deleteService(appointment.id, service.id)
+            },
+            onDismiss = { deletingServiceId = null },
+        )
+    }
 }
 
 /**
@@ -690,30 +711,43 @@ private fun ServiceBlock(
 }
 
 @Composable
-private fun TotalsCard(appointment: Appointment, overrideText: String, onOverrideText: (String) -> Unit, onSaveOverride: (Int?) -> Unit) {
+private fun TotalsCard(appointment: Appointment, overrideText: String, onOverrideText: (String) -> Unit, onSaveOverride: (Long?) -> Unit) {
+    // The text a save was refused for. The reason stays under the field for as long as the text is that one.
+    var refusedText by rememberSaveable(appointment.id) { mutableStateOf<String?>(null) }
+
     HcmCard {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.appointment_totals_title), style = MaterialTheme.typography.headlineSmall)
             LabeledValue(stringResource(R.string.appointment_service_total), Money.format(appointment.serviceTotalCents))
             Hairline()
             LabeledValue(stringResource(R.string.appointment_final_total), Money.format(appointment.finalTotalCents), emphasized = true)
-            HcmTextField(
+            AmountField(
                 value = overrideText,
                 onValueChange = onOverrideText,
                 label = stringResource(R.string.appointment_final_total_override),
                 placeholder = Money.centsToPrice(appointment.finalTotalCents),
-                prefix = "$",
-                keyboardType = KeyboardType.Decimal,
+                refusal = Money.parse(overrideText).takeIf { overrideText == refusedText },
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            // As tall as the taller of the two, whichever label takes more lines.
+            Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 SecondaryButton(
                     stringResource(R.string.save_final_total),
-                    onClick = { onSaveOverride(Money.priceToCents(overrideText)) },
-                    modifier = Modifier.weight(1f),
+                    // An empty field is no override, and the button is off for it. Anything else is saved only as the amount it states.
+                    onClick = {
+                        when (val amount = Money.parse(overrideText)) {
+                            is Amount.Valid -> onSaveOverride(amount.cents)
+                            else -> refusedText = overrideText
+                        }
+                    },
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
                     enabled = overrideText.isNotBlank(),
                 )
                 if (appointment.finalTotalCentsOverride != null) {
-                    SecondaryButton(stringResource(R.string.clear_final_total_override), onClick = { onSaveOverride(null) }, modifier = Modifier.weight(1f))
+                    SecondaryButton(
+                        stringResource(R.string.clear_final_total_override),
+                        onClick = { onSaveOverride(null) },
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    )
                 }
             }
         }
@@ -788,13 +822,15 @@ private fun AddServiceSheet(
     busy: Boolean,
     onDismiss: () -> Unit,
     onMissingName: () -> Unit,
-    onAdd: (clientId: String, menuItemId: String?, name: String?, priceCents: Int?, note: String?) -> Unit,
+    onAdd: (clientId: String, menuItemId: String?, name: String?, priceCents: Long?, note: String?) -> Unit,
 ) {
     var clientId by rememberSaveable { mutableStateOf(appointment.primaryClientId) }
     var menuItemId by rememberSaveable { mutableStateOf<String?>(null) }
     var name by rememberSaveable { mutableStateOf("") }
     var price by rememberSaveable { mutableStateOf("") }
     var note by rememberSaveable { mutableStateOf("") }
+    // The price text a save was refused for. The reason stays under the field for as long as the text is that one.
+    var refusedPrice by rememberSaveable { mutableStateOf<String?>(null) }
     val selectedItem = menu.firstOrNull { it.id == menuItemId }
 
     HcmBottomSheet(title = stringResource(R.string.add_appointment_service), onDismiss = onDismiss) {
@@ -815,8 +851,10 @@ private fun AddServiceSheet(
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     menu.forEach { item ->
                         ChoiceChip(
-                            item.name + " · " + Money.format(item.defaultPriceCents),
+                            // The price stays with its dot when a long name takes the chip onto more lines.
+                            item.name + " ·\u00A0" + Money.format(item.defaultPriceCents),
                             selected = menuItemId == item.id,
+                            wraps = true,
                             onClick = {
                                 // Picking a menu item takes its name and default price; the price stays editable.
                                 menuItemId = item.id
@@ -839,15 +877,27 @@ private fun AddServiceSheet(
             label = stringResource(R.string.appointment_service_name_label),
             placeholder = selectedItem?.name ?: stringResource(R.string.placeholder_service_name),
         )
-        HcmTextField(price, { price = it }, label = stringResource(R.string.appointment_service_price_label), placeholder = "85.00", prefix = "$", keyboardType = KeyboardType.Decimal)
+        AmountField(
+            price,
+            { price = it },
+            label = stringResource(R.string.appointment_service_price_label),
+            // Left empty, a Service from the menu takes the price of its Service Menu Item.
+            placeholder = selectedItem?.let { Money.centsToPrice(it.defaultPriceCents) } ?: "85.00",
+            refusal = Money.parse(price).takeIf { price == refusedPrice },
+        )
         HcmTextField(note, { note = it }, label = stringResource(R.string.appointment_service_note_label), placeholder = stringResource(R.string.optional), singleLine = false, minLines = 2)
         PrimaryButton(
             stringResource(if (menuItemId != null) R.string.add_menu_service else R.string.add_ad_hoc_service),
             onClick = {
+                val amount = Money.parse(price)
+                // An ad hoc Service has to state its price. Only one from the menu may leave it out.
+                val priceRefused = amount.isRefused(required = selectedItem == null)
+
+                refusedPrice = price.takeIf { priceRefused }
                 if (name.isBlank() && selectedItem == null) {
                     onMissingName()
-                } else {
-                    onAdd(clientId, selectedItem?.id, name.ifBlank { null }, price.takeIf { it.isNotBlank() }?.let(Money::priceToCents), note.ifBlank { null })
+                } else if (!priceRefused) {
+                    onAdd(clientId, selectedItem?.id, name.ifBlank { null }, (amount as? Amount.Valid)?.cents, note.ifBlank { null })
                 }
             },
             modifier = Modifier.fillMaxWidth(),
@@ -909,6 +959,7 @@ private fun FormulaSheet(
     // Filled from the Color Formula when the sheet opens; what is typed after that is kept as it is.
     var text by rememberSaveable(service.id, formula?.id) { mutableStateOf(formula?.formula.orEmpty()) }
     var placement by rememberSaveable(service.id, formula?.id) { mutableStateOf(formula?.placement.orEmpty()) }
+    var confirmDelete by rememberSaveable(service.id, formula?.id) { mutableStateOf(false) }
 
     HcmBottomSheet(title = stringResource(R.string.color_formula_label), subtitle = service.name, onDismiss = onDismiss) {
         HcmTextField(text, { text = it }, label = stringResource(R.string.color_formula_label), placeholder = "7N + 20 vol", singleLine = false, minLines = 2)
@@ -922,13 +973,27 @@ private fun FormulaSheet(
         formula?.let { existing ->
             TextAction(
                 stringResource(R.string.delete_color_formula),
-                onClick = { onDelete(existing.id) },
+                onClick = { confirmDelete = true },
                 icon = Icons.Rounded.DeleteOutline,
                 danger = true,
                 enabled = !busy,
                 modifier = Modifier.align(Alignment.CenterHorizontally),
             )
         }
+    }
+
+    if (confirmDelete && formula != null) {
+        ConfirmDialog(
+            title = stringResource(R.string.delete_color_formula) + "?",
+            body = stringResource(R.string.delete_color_formula_confirm_body, service.name),
+            confirmText = stringResource(R.string.delete),
+            danger = true,
+            onConfirm = {
+                confirmDelete = false
+                onDelete(formula.id)
+            },
+            onDismiss = { confirmDelete = false },
+        )
     }
 }
 

@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -44,6 +46,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -54,6 +57,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -66,7 +70,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
+import com.northphoenix.hairdresserclientmanager.domain.Amount
+import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.i18n.label
+import com.northphoenix.hairdresserclientmanager.i18n.refusalRes
 import com.northphoenix.hairdresserclientmanager.ui.theme.DisplayFamily
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 import com.northphoenix.hairdresserclientmanager.ui.theme.colors
@@ -208,7 +215,10 @@ fun TextAction(
     }
 }
 
-/** Text field with its label above, the way forms read throughout the app. */
+/**
+ * Text field with its label above, the way forms read throughout the app. [error] is why the
+ * text was refused: it is shown under the field, which scrolls into view when it appears.
+ */
 @Composable
 fun HcmTextField(
     value: String,
@@ -225,16 +235,33 @@ fun HcmTextField(
     trailing: (@Composable () -> Unit)? = null,
     prefix: String? = null,
     enabled: Boolean = true,
+    error: String? = null,
 ) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(7.dp)) {
+    val intoView = remember { BringIntoViewRequester() }
+
+    LaunchedEffect(error) {
+        if (error != null) {
+            intoView.bringIntoView()
+        }
+    }
+
+    Column(modifier.bringIntoViewRequester(intoView), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         if (label.isNotEmpty()) {
             Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
-            modifier = Modifier.fillMaxWidth().semantics { contentDescription = label },
+            modifier = Modifier.fillMaxWidth().semantics {
+                contentDescription = label
+                // The reason itself is what a screen reader says, in place of Material's "Invalid input".
+                if (error != null) {
+                    this.error(error)
+                }
+            },
             enabled = enabled,
+            isError = error != null,
+            supportingText = error?.let { { Text(it) } },
             placeholder = placeholder?.let { { Text(it, color = HcmColors.Faint) } },
             leadingIcon = leadingIcon?.let { { Icon(it, contentDescription = null, modifier = Modifier.size(20.dp)) } },
             trailingIcon = trailing,
@@ -256,6 +283,21 @@ fun HcmTextField(
             ),
         )
     }
+}
+
+/**
+ * A field for an amount of money. [refusal] is what a save made of its text when it refused it,
+ * and null otherwise: see [Money.parse]. Nothing but an [Amount.Valid] is ever saved.
+ */
+@Composable
+fun AmountField(value: String, onValueChange: (String) -> Unit, label: String, placeholder: String, modifier: Modifier = Modifier, refusal: Amount? = null) {
+    val error = when (val reason = refusal?.refusalRes()) {
+        null -> null
+        R.string.amount_too_large -> stringResource(reason, Money.format(Money.MAX_CENTS))
+        else -> stringResource(reason)
+    }
+
+    HcmTextField(value, onValueChange, label, modifier, placeholder = placeholder, prefix = "$", keyboardType = KeyboardType.Decimal, error = error)
 }
 
 /** A read-only field that opens a picker, styled to sit beside [HcmTextField]. */
@@ -338,9 +380,12 @@ fun <T> SegmentedControl(
     }
 }
 
-/** A tappable chip for picking one of a few values inline. */
+/**
+ * A tappable chip for picking one of a few values inline. A chip with [wraps] shows all of its
+ * text on as many lines as that takes; the others cut it at one line.
+ */
 @Composable
-fun ChoiceChip(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, icon: ImageVector? = null) {
+fun ChoiceChip(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, icon: ImageVector? = null, wraps: Boolean = false) {
     val container by animateColorAsState(
         if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLowest,
         label = "chip",
@@ -351,7 +396,8 @@ fun ChoiceChip(text: String, selected: Boolean, onClick: () -> Unit, modifier: M
     Surface(
         onClick = onClick,
         modifier = modifier,
-        shape = CircleShape,
+        // The corners of a one-line chip, kept at that size when the chip grows taller.
+        shape = if (wraps) RoundedCornerShape(20.dp) else CircleShape,
         color = container,
         border = BorderStroke(if (selected) 1.5.dp else 1.dp, border),
     ) {
@@ -363,7 +409,7 @@ fun ChoiceChip(text: String, selected: Boolean, onClick: () -> Unit, modifier: M
             if (icon != null) {
                 Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = content)
             }
-            Text(text, style = MaterialTheme.typography.labelMedium, color = content, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(text, style = MaterialTheme.typography.labelMedium, color = content, maxLines = if (wraps) Int.MAX_VALUE else 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

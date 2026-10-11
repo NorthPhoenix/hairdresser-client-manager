@@ -12,6 +12,10 @@
     <string name="add_photo_from_gallery">Галерея</string>
     <string name="additional_clients_label">Дополнительные клиенты</string>
     <string name="address_label">Адрес салона</string>
+    <string name="amount_negative">Сумма не может быть отрицательной.</string>
+    <string name="amount_required">Введите сумму.</string>
+    <string name="amount_too_large">Сумма не может быть больше %1$s.</string>
+    <string name="amount_unreadable">Введите сумму цифрами, например 1200 или 85,50.</string>
     <string name="appointment_address_label">Адрес записи</string>
     <string name="appointment_at_home">На дому</string>
     <string name="appointment_client_required">Выберите клиента или создайте нового.</string>
@@ -97,10 +101,13 @@
     <string name="delete_appointment">Удалить запись</string>
     <string name="delete_appointment_confirm_body">Запись, её услуги и фото будут удалены.</string>
     <string name="delete_appointment_service">Удалить услугу</string>
+    <string name="delete_appointment_service_confirm_body">Услуга «%1$s» и её формулы окрашивания будут удалены из этой записи.</string>
     <string name="delete_client">Удалить клиента</string>
     <string name="delete_client_confirm_body">Клиент будет убран из всех записей. Записи, в которых не останется клиентов, тоже удалятся.</string>
     <string name="delete_color_formula">Удалить формулу</string>
+    <string name="delete_color_formula_confirm_body">Эта формула окрашивания будет удалена из услуги «%1$s».</string>
     <string name="delete_service_menu_item">Удалить услугу</string>
+    <string name="delete_service_menu_item_confirm_body">Услуга «%1$s» будет удалена из меню услуг. Услуги, уже добавленные в записи, останутся без изменений.</string>
     <string name="discard_changes_body">То, что вы ввели на этом экране, не сохранено.</string>
     <string name="discard_changes_confirm">Выйти</string>
     <string name="discard_changes_keep">Остаться</string>
@@ -110,6 +117,7 @@
     <string name="duplicate_phone_title">Номер уже используется</string>
     <string name="edit_client_title">Профиль клиента</string>
     <string name="error_appointment_needs_client">В записи должен остаться хотя бы один клиент.</string>
+    <string name="error_appointment_total_too_large">Сумма услуг одной записи не может быть такой большой. Ничего не сохранено.</string>
     <string name="error_client_has_services">Сначала удалите услуги этого клиента из записи.</string>
     <string name="error_generic">Что-то пошло не так. Попробуйте ещё раз.</string>
     <string name="error_image_unreadable">Не удалось прочитать выбранное изображение.</string>

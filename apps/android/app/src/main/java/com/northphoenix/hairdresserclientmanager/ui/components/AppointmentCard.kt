@@ -25,8 +25,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.IntrinsicMeasurable
+import androidx.compose.ui.layout.IntrinsicMeasureScope
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.MeasurePolicy
+import androidx.compose.ui.layout.MeasureResult
+import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.LocationType
@@ -80,9 +89,8 @@ fun AppointmentCard(appointment: Appointment, onClick: () -> Unit, modifier: Mod
                     IconLine(Icons.Rounded.ContentCut, appointment.services.joinToString(", ") { it.name }, maxLines = 1)
                 }
                 Spacer(Modifier.height(2.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                StatusAndAmount {
                     StatusChip(appointment.status)
-                    Spacer(Modifier.weight(1f))
                     if (appointment.finalTotalCents > 0 || appointment.services.isNotEmpty()) {
                         Text(Money.format(appointment.finalTotalCents), style = MaterialTheme.typography.titleMedium)
                     }
@@ -90,4 +98,51 @@ fun AppointmentCard(appointment: Appointment, onClick: () -> Unit, modifier: Mod
             }
         }
     }
+}
+
+/**
+ * The last line of a card: the status chip at the start and the amount at the end. When the two
+ * do not fit beside each other, the amount goes on a line of its own under the chip. Each is
+ * measured with the whole width, so the amount is never broken to fit what the chip leaves over;
+ * in a Row it was, in the middle of the number, with a long chip text or a large font.
+ */
+@Composable
+private fun StatusAndAmount(content: @Composable () -> Unit) = Layout(content, measurePolicy = StatusAndAmountPolicy)
+
+private object StatusAndAmountPolicy : MeasurePolicy {
+    private val between = 8.dp
+    private val lineSpacing = 6.dp
+
+    /** Whether items of these widths go on one line of [width]. */
+    private fun Density.onOneLine(widths: List<Int>, width: Int) = widths.sum().toLong() + between.roundToPx() * (widths.size - 1) <= width
+
+    private fun Density.heightOf(heights: List<Int>, onOneLine: Boolean) =
+        if (onOneLine) heights.maxOrNull() ?: 0 else heights.sum() + lineSpacing.roundToPx() * (heights.size - 1)
+
+    override fun MeasureScope.measure(measurables: List<Measurable>, constraints: Constraints): MeasureResult {
+        val placeables = measurables.map { it.measure(constraints.copy(minWidth = 0, minHeight = 0)) }
+        val onOneLine = onOneLine(placeables.map { it.width }, constraints.maxWidth)
+        val width = if (constraints.hasBoundedWidth) constraints.maxWidth else placeables.sumOf { it.width } + between.roundToPx() * (placeables.size - 1).coerceAtLeast(0)
+        val height = heightOf(placeables.map { it.height }, onOneLine)
+
+        return layout(width, height) {
+            var y = 0
+
+            placeables.forEachIndexed { index, placeable ->
+                val x = if (index == 0) 0 else width - placeable.width
+
+                placeable.placeRelative(x, if (onOneLine) (height - placeable.height) / 2 else y)
+                y += placeable.height + lineSpacing.roundToPx()
+            }
+        }
+    }
+
+    // The card takes its height from this (IntrinsicSize.Min), so it has to be the height measure() arrives at.
+    override fun IntrinsicMeasureScope.minIntrinsicHeight(measurables: List<IntrinsicMeasurable>, width: Int): Int {
+        val widths = measurables.map { minOf(it.maxIntrinsicWidth(Constraints.Infinity), width) }
+
+        return heightOf(measurables.map { it.minIntrinsicHeight(width) }, onOneLine(widths, width))
+    }
+
+    override fun IntrinsicMeasureScope.maxIntrinsicHeight(measurables: List<IntrinsicMeasurable>, width: Int): Int = minIntrinsicHeight(measurables, width)
 }

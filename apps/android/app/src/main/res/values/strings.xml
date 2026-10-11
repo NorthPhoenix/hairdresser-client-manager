@@ -13,6 +13,10 @@
     <string name="add_photo_from_gallery">Gallery</string>
     <string name="additional_clients_label">Additional Clients</string>
     <string name="address_label">Salon address</string>
+    <string name="amount_negative">An amount can\'t be negative.</string>
+    <string name="amount_required">Enter an amount.</string>
+    <string name="amount_too_large">An amount can\'t be more than %1$s.</string>
+    <string name="amount_unreadable">Enter the amount in digits, such as 1200 or 85.50.</string>
     <string name="appointment_address_label">Appointment address</string>
     <string name="appointment_at_home">At home</string>
     <string name="appointment_client_required">Choose a Client or create a new one.</string>
@@ -98,10 +102,13 @@
     <string name="delete_appointment">Delete Appointment</string>
     <string name="delete_appointment_confirm_body">The Appointment, its Services, and its photos will be deleted.</string>
     <string name="delete_appointment_service">Delete Service</string>
+    <string name="delete_appointment_service_confirm_body">The Service “%1$s” and its Color Formulas will be deleted from this Appointment.</string>
     <string name="delete_client">Delete Client</string>
     <string name="delete_client_confirm_body">The Client is removed from every Appointment. Appointments left without Clients are deleted too.</string>
     <string name="delete_color_formula">Delete Formula</string>
+    <string name="delete_color_formula_confirm_body">This Color Formula will be deleted from the Service “%1$s”.</string>
     <string name="delete_service_menu_item">Delete Service</string>
+    <string name="delete_service_menu_item_confirm_body">“%1$s” will be deleted from your Service Menu. Services already added to Appointments stay as they are.</string>
     <string name="discard_changes_body">What you entered on this screen hasn\'t been saved.</string>
     <string name="discard_changes_confirm">Discard</string>
     <string name="discard_changes_keep">Keep editing</string>
@@ -111,6 +118,7 @@
     <string name="duplicate_phone_title">Phone already used</string>
     <string name="edit_client_title">Client Profile</string>
     <string name="error_appointment_needs_client">An Appointment must keep at least one Client.</string>
+    <string name="error_appointment_total_too_large">The Services of one Appointment can\'t add up to this much. Nothing was saved.</string>
     <string name="error_client_has_services">Remove this Client\'s Services from the Appointment first.</string>
     <string name="error_generic">Something went wrong. Try again.</string>
     <string name="error_image_unreadable">The selected image couldn\'t be read.</string>

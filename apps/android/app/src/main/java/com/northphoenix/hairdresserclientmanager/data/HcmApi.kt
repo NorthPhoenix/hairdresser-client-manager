@@ -84,7 +84,7 @@ class HcmApi(private val trpc: TrpcClient) {
 
     suspend fun listServiceMenu(): List<ServiceMenuItem> = trpc.query("serviceMenu.list")
 
-    suspend fun saveServiceMenuItem(id: String?, name: String, defaultPriceCents: Int): ServiceMenuItem =
+    suspend fun saveServiceMenuItem(id: String?, name: String, defaultPriceCents: Long): ServiceMenuItem =
         trpc.mutation(
             "serviceMenu.save",
             buildJsonObject {
@@ -143,7 +143,7 @@ class HcmApi(private val trpc: TrpcClient) {
     }
 
     /** A null override clears it, so the final total follows the Services total again. */
-    suspend fun updateAppointmentFinalTotal(id: String, overrideCents: Int?) {
+    suspend fun updateAppointmentFinalTotal(id: String, overrideCents: Long?) {
         updateAppointment(id) {
             if (overrideCents == null) put("finalTotalCentsOverride", JsonNull) else put("finalTotalCentsOverride", overrideCents)
         }
@@ -176,7 +176,7 @@ class HcmApi(private val trpc: TrpcClient) {
         clientId: String,
         menuItemId: String?,
         name: String?,
-        priceCents: Int?,
+        priceCents: Long?,
         note: String?,
     ) {
         trpc.mutation<JsonObject>(

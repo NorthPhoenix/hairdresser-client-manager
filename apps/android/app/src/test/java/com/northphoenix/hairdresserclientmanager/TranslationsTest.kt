@@ -4,7 +4,9 @@ import com.northphoenix.hairdresserclientmanager.auth.AuthState
 import com.northphoenix.hairdresserclientmanager.auth.SessionCheck
 import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.data.isConnectionFailure
+import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
+import com.northphoenix.hairdresserclientmanager.i18n.refusalRes
 import com.northphoenix.hairdresserclientmanager.i18n.refusedSignInMessage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -77,6 +79,18 @@ class TranslationsTest {
         // A change that was sent but never answered is not "can't reach the server".
         assertEquals(R.string.error_outcome_unknown, ApiException("No reply from the server.", code = ApiException.NO_REPLY).messageRes())
         assertEquals(R.string.error_generic, ApiException("boom").messageRes())
+        assertEquals(R.string.error_appointment_total_too_large, ApiException("Appointment total is too large.", code = "BAD_REQUEST").messageRes())
+    }
+
+    @Test
+    fun `every reason an amount is refused for has a message, and only an amount that can be saved has none`() {
+        assertNull(Amount.Valid(8500).refusalRes())
+        assertEquals(R.string.amount_required, Amount.Empty.refusalRes())
+        assertEquals(R.string.amount_unreadable, Amount.Unreadable.refusalRes())
+        assertEquals(R.string.amount_negative, Amount.Negative.refusalRes())
+        assertEquals(R.string.amount_too_large, Amount.TooLarge.refusalRes())
+        // The one message with an argument: the largest amount, as the app writes amounts.
+        assertEquals(listOf("%1\$s"), placeholder.findAll(english.getValue("amount_too_large").text).map { it.value }.toList())
     }
 
     @Test

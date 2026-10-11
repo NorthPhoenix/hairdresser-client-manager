@@ -146,7 +146,11 @@ fun BottomActionBar(content: @Composable ColumnScope.() -> Unit) {
     }
 }
 
-/** Bottom sheet with the app's surface colour, a serif title and scrollable content. */
+/**
+ * Bottom sheet with the app's surface colour, a serif title and scrollable content. A notice
+ * raised while it is open lies over the top of the sheet: it stays in view above the keyboard
+ * wherever the sheet is scrolled to, and the content does not move for it.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HcmBottomSheet(title: String, onDismiss: () -> Unit, subtitle: String? = null, content: @Composable ColumnScope.() -> Unit) {
@@ -159,22 +163,25 @@ fun HcmBottomSheet(title: String, onDismiss: () -> Unit, subtitle: String? = nul
             bottomEnd = androidx.compose.foundation.shape.CornerSize(0.dp),
         ),
     ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(start = ScreenPadding, end = ScreenPadding, bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            // The sheet is its own window, so notices raised while it is open are shown inside it too.
-            HcmSnackbarHost()
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, style = MaterialTheme.typography.headlineMedium)
-                if (subtitle != null) {
-                    Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Box {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(start = ScreenPadding, end = ScreenPadding, top = 16.dp, bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(title, style = MaterialTheme.typography.headlineMedium)
+                    if (subtitle != null) {
+                        Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
+                content()
             }
-            content()
+            // The sheet is its own window, so notices raised while it is open are shown inside it too.
+            // Not a child of the scrolling column: there a notice was added above what is in view.
+            HcmSnackbarHost(Modifier.align(Alignment.TopCenter))
         }
     }
 }

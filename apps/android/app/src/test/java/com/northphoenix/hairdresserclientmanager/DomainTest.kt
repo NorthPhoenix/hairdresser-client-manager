@@ -6,6 +6,7 @@ import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.LocationType
+import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
 import com.northphoenix.hairdresserclientmanager.domain.ContactImport
@@ -32,16 +33,95 @@ class DomainTest {
     private fun client(id: String, name: String, phone: String = "") =
         ClientProfile(id = id, name = name, language = Language.RU, phone = phone)
 
+    private fun assertAmount(cents: Long, text: String) = assertEquals(text, Amount.Valid(cents), Money.parse(text))
+
+    private fun assertRefused(reason: Amount, vararg texts: String) = texts.forEach { assertEquals(it, reason, Money.parse(it)) }
+
     @Test
-    fun `prices round-trip between text and cents`() {
-        assertEquals(8500, Money.priceToCents("85"))
-        assertEquals(8550, Money.priceToCents(" 85,5 "))
-        assertEquals(22050, Money.priceToCents("220.50"))
-        assertEquals(0, Money.priceToCents(""))
-        assertEquals(0, Money.priceToCents("abc"))
-        assertEquals(0, Money.priceToCents("-4"))
+    fun `an amount is read with a decimal point or a decimal comma and at most two decimals`() {
+        assertAmount(8500, "85")
+        assertAmount(8550, " 85,5 ")
+        assertAmount(22050, "220.50")
+        assertAmount(22050, "220,50")
+        assertAmount(0, "0")
+        assertAmount(0, "0.00")
+        assertAmount(8500, "085")
+        // A separator with digits on one side only is still one amount.
+        assertAmount(50, ".5")
+        assertAmount(50, ",50")
+        assertAmount(8500, "85.")
+        assertAmount(120000, "1200")
+    }
+
+    @Test
+    fun `a separator followed by exactly three digits separates thousands`() {
+        // M21: this was saved as 1.20.
+        assertAmount(120000, "1,200")
+        assertAmount(120000, "1.200")
+        assertAmount(120000, "1 200")
+        assertAmount(120000, "1\u00A0200")
+        assertAmount(123456, "1,234.56")
+        assertAmount(123450, "1,234.50")
+        assertAmount(120050, "1.200,50")
+        assertAmount(150050, "1 500,50")
+        assertAmount(150050, "1 500.50")
+        assertAmount(150000, "1 500")
+        assertAmount(123456789, "1,234,567.89")
+        assertAmount(100000000, "1.000.000")
+        // Three digits cannot be cents, so this is not 12.35 rounded.
+        assertAmount(1234500, "12.345")
+        assertAmount(9999900, "99.999")
+    }
+
+    @Test
+    fun `text that is not one amount is refused, never read as zero`() {
+        assertRefused(Amount.Empty, "", "   ")
+        assertRefused(Amount.Unreadable, "abc", "12abc", "1e3", "$85", "+5", "12.50.5", ".", ",", "8 5", "85 .50")
+        // More decimals than cents have, in a shape that cannot be thousands either.
+        assertRefused(Amount.Unreadable, "1,2345", "0.125", "0,500", "1234,567", "12,34,567")
+        // Two separators, each followed by three digits: either could be the decimal one.
+        assertRefused(Amount.Unreadable, "1,000.000", "1.234.56", "1,234,56", "1 234,567", "1,200,")
+        assertRefused(Amount.Negative, "-20", "-4", "-0.5", "\u22125", "-1,200", "-99999999999")
+        assertRefused(Amount.Unreadable, "-", "-abc", "--5")
+    }
+
+    @Test
+    fun `only an amount is saved, and an empty field only where none is required`() {
+        val notAmounts = listOf(Amount.Unreadable, Amount.Negative, Amount.TooLarge)
+
+        assertFalse(Amount.Valid(0).isRefused())
+        assertFalse(Amount.Valid(8500).isRefused(required = false))
+        // A Service Menu Item and an ad hoc Service state their price. A Service from the menu may leave it to the menu.
+        assertTrue(Amount.Empty.isRefused())
+        assertFalse(Amount.Empty.isRefused(required = false))
+        assertTrue(notAmounts.all { it.isRefused() })
+        assertTrue(notAmounts.all { it.isRefused(required = false) })
+    }
+
+    @Test
+    fun `an amount above the maximum is refused, never capped`() {
+        assertAmount(Money.MAX_CENTS, "9999999.99")
+        assertAmount(Money.MAX_CENTS, "9,999,999.99")
+        // H7: these were saved as 21474836.47, the most an Int holds.
+        assertRefused(Amount.TooLarge, "10000000", "10000000.00", "99999999999", "89161234567", "21474836.47", "10,000,000", "9".repeat(40))
+        assertAmount(999999900, "0009999999")
+    }
+
+    @Test
+    fun `amounts are written out exactly, also above what an Int holds`() {
         assertEquals("85.00", Money.centsToPrice(8500))
+        assertEquals("0.05", Money.centsToPrice(5))
         assertEquals("$220.50", Money.format(22050))
+        // The Services total of an Appointment saved before amounts had a maximum.
+        assertEquals("$42949672.94", Money.format(4294967294))
+        assertEquals("$9999999.99", Money.format(Money.MAX_CENTS))
+    }
+
+    @Test
+    fun `what the app writes into an amount field is read back as the same amount`() {
+        listOf(0L, 5L, 50L, 8500L, 22050L, 120000L, Money.MAX_CENTS).forEach { cents ->
+            assertEquals(Amount.Valid(cents), Money.parse(Money.centsToPrice(cents)))
+        }
     }
 
     @Test

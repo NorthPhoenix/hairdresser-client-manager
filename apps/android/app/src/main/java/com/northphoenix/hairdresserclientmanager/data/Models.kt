@@ -93,11 +93,13 @@ data class ClientProfile(
     val activeProfileShare: ProfileShare? = null,
 )
 
+// Every amount is whole cents in a Long: the totals of one Appointment can be more than an Int holds.
+
 @Serializable
 data class ServiceMenuItem(
     val id: String,
     val name: String,
-    val defaultPriceCents: Int,
+    val defaultPriceCents: Long,
 )
 
 @Serializable
@@ -108,7 +110,7 @@ data class AppointmentParticipant(
     val phone: String = "",
     val language: Language = Language.RU,
     val isPrimary: Boolean = false,
-    val subtotalCents: Int = 0,
+    val subtotalCents: Long = 0,
 )
 
 @Serializable
@@ -124,7 +126,7 @@ data class AppointmentService(
     val clientId: String,
     val menuItemId: String? = null,
     val name: String,
-    val priceCents: Int,
+    val priceCents: Long,
     val note: String = "",
     val colorFormulas: List<ColorFormula> = emptyList(),
 )
@@ -148,9 +150,9 @@ data class Appointment(
     val participants: List<AppointmentParticipant> = emptyList(),
     val services: List<AppointmentService> = emptyList(),
     val photos: List<AppointmentPhoto> = emptyList(),
-    val serviceTotalCents: Int = 0,
-    val finalTotalCents: Int = 0,
-    val finalTotalCentsOverride: Int? = null,
+    val serviceTotalCents: Long = 0,
+    val finalTotalCents: Long = 0,
+    val finalTotalCentsOverride: Long? = null,
     val startsAt: String,
     val endsAt: String? = null,
     val status: AppointmentStatus,
@@ -175,7 +177,7 @@ data class ClientHistoryEntry(
     val services: List<HistoryService> = emptyList(),
 ) {
     @Serializable
-    data class HistoryService(val id: String, val clientId: String, val name: String, val priceCents: Int)
+    data class HistoryService(val id: String, val clientId: String, val name: String, val priceCents: Long)
 }
 
 @Serializable

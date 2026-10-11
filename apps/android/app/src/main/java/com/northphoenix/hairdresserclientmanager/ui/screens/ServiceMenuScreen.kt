@@ -24,14 +24,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
+import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
+import com.northphoenix.hairdresserclientmanager.ui.components.AmountField
+import com.northphoenix.hairdresserclientmanager.ui.components.ConfirmDialog
 import com.northphoenix.hairdresserclientmanager.ui.components.EmptyState
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmBottomSheet
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmCard
@@ -126,20 +128,33 @@ fun ServiceMenuScreen(viewModel: AppViewModel, onBack: () -> Unit) {
         var price by rememberSaveable(current) {
             mutableStateOf(items.firstOrNull { it.id == editedId }?.let { Money.centsToPrice(it.defaultPriceCents) }.orEmpty())
         }
+        // The price text a save was refused for. The reason stays under the field for as long as the text is that one.
+        var refusedPrice by rememberSaveable(current) { mutableStateOf<String?>(null) }
+        var confirmDelete by rememberSaveable(current) { mutableStateOf(false) }
 
         HcmBottomSheet(
             title = stringResource(if (editedId == null) R.string.create_service_menu_item else R.string.save_service_menu_item),
             onDismiss = { editor = null },
         ) {
             HcmTextField(name, { name = it }, label = stringResource(R.string.service_menu_name_label), placeholder = stringResource(R.string.placeholder_service_name))
-            HcmTextField(price, { price = it }, label = stringResource(R.string.service_menu_price_label), placeholder = "85.00", prefix = "$", keyboardType = KeyboardType.Decimal)
+            AmountField(
+                price,
+                { price = it },
+                label = stringResource(R.string.service_menu_price_label),
+                placeholder = "85.00",
+                refusal = Money.parse(price).takeIf { price == refusedPrice },
+            )
             PrimaryButton(
                 stringResource(if (editedId == null) R.string.create_service_menu_item else R.string.save_service_menu_item),
                 onClick = {
+                    // A Service Menu Item states its default price: an empty field is refused like any text that is not an amount.
+                    val amount = Money.parse(price)
+
+                    refusedPrice = price.takeIf { amount.isRefused() }
                     if (name.isBlank()) {
                         viewModel.notify(R.string.service_name_required, isError = true)
-                    } else {
-                        viewModel.saveServiceMenuItem(editedId, name, Money.priceToCents(price)) { editor = null }
+                    } else if (amount is Amount.Valid) {
+                        viewModel.saveServiceMenuItem(editedId, name, amount.cents) { editor = null }
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -148,12 +163,27 @@ fun ServiceMenuScreen(viewModel: AppViewModel, onBack: () -> Unit) {
             if (editedId != null) {
                 TextAction(
                     stringResource(R.string.delete_service_menu_item),
-                    onClick = { viewModel.deleteServiceMenuItem(editedId) { editor = null } },
+                    onClick = { confirmDelete = true },
                     icon = Icons.Rounded.DeleteOutline,
                     danger = true,
                     modifier = Modifier.align(Alignment.CenterHorizontally),
                 )
             }
+        }
+
+        if (confirmDelete && editedId != null) {
+            ConfirmDialog(
+                title = stringResource(R.string.delete_service_menu_item) + "?",
+                // Named as it is saved, not as the field has it by now.
+                body = stringResource(R.string.delete_service_menu_item_confirm_body, items.firstOrNull { it.id == editedId }?.name ?: name),
+                confirmText = stringResource(R.string.delete),
+                danger = true,
+                onConfirm = {
+                    confirmDelete = false
+                    viewModel.deleteServiceMenuItem(editedId) { editor = null }
+                },
+                onDismiss = { confirmDelete = false },
+            )
         }
     }
 }

@@ -40,7 +40,14 @@ object UnsavedInput {
 
     fun appointmentNote(draft: String, saved: String): Boolean = draft.trim() != saved.trim()
 
-    /** An empty field is not an override waiting to be saved: there is nothing in it to save. */
-    fun finalTotal(draft: String, savedOverrideCents: Int?): Boolean =
-        draft.isNotBlank() && Money.priceToCents(draft) != savedOverrideCents
+    /**
+     * An empty field is not an override waiting to be saved: there is nothing in it to save.
+     * Neither is the saved override, however it is written. Text that is not an amount is unsaved input all the same.
+     */
+    fun finalTotal(draft: String, savedOverrideCents: Long?): Boolean {
+        val saved = savedOverrideCents ?: return draft.isNotBlank()
+
+        // Compared as text too: an override from before amounts had a maximum is refused as an amount.
+        return draft.isNotBlank() && draft.trim() != Money.centsToPrice(saved) && Money.parse(draft) != Amount.Valid(saved)
+    }
 }

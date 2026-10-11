@@ -2,6 +2,7 @@ package com.northphoenix.hairdresserclientmanager
 
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.LocationType
+import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -113,5 +114,25 @@ class UnsavedInputTest {
         // An empty field has nothing in it to save, with or without a saved override.
         assertFalse(UnsavedInput.finalTotal("", savedOverrideCents = null))
         assertFalse(UnsavedInput.finalTotal(" ", savedOverrideCents = 8500))
+    }
+
+    @Test
+    fun `text in the final total that is not an amount is unsaved input too`() {
+        // It is refused when saved, and it is still something typed that leaving would lose.
+        assertTrue(UnsavedInput.finalTotal("abc", savedOverrideCents = null))
+        assertTrue(UnsavedInput.finalTotal("abc", savedOverrideCents = 0))
+        assertTrue(UnsavedInput.finalTotal("-20", savedOverrideCents = 5000))
+        assertTrue(UnsavedInput.finalTotal("99999999999", savedOverrideCents = 5000))
+        // A thousands separator is read as one: this is the saved 1200.00 and not 1.20.
+        assertFalse(UnsavedInput.finalTotal("1,200", savedOverrideCents = 120000))
+        assertTrue(UnsavedInput.finalTotal("1,200", savedOverrideCents = 120))
+    }
+
+    @Test
+    fun `an untouched override from before amounts had a maximum is not unsaved input`() {
+        val saved = 2147483647L
+
+        assertFalse(UnsavedInput.finalTotal(Money.centsToPrice(saved), savedOverrideCents = saved))
+        assertTrue(UnsavedInput.finalTotal("21474836.48", savedOverrideCents = saved))
     }
 }

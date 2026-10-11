@@ -5,6 +5,7 @@ import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.auth.AuthState
 import com.northphoenix.hairdresserclientmanager.auth.SessionCheck
 import com.northphoenix.hairdresserclientmanager.data.ApiException
+import com.northphoenix.hairdresserclientmanager.domain.Amount
 
 /**
  * The API reports failures in English only. Rather than show that text in a Russian UI,
@@ -20,6 +21,7 @@ fun ApiException.messageRes(): Int =
         message == "Client has Services attached to this Appointment." -> R.string.error_client_has_services
         message == "End time must be after start time." -> R.string.appointment_end_before_start
         message == "Completed source Appointment not found." -> R.string.copy_services_empty
+        message == "Appointment total is too large." -> R.string.error_appointment_total_too_large
         code == "BAD_IMAGE" -> R.string.error_image_unreadable
         code == "UPLOAD_FAILED" || code == "UPLOAD_REJECTED" -> R.string.appointment_photo_upload_failed
         // What a refused sign-in really means is for the sign-in provider to say: see refusedSignInMessage.
@@ -46,3 +48,17 @@ fun SessionCheck.refusedSignInMessage(): Int? =
 /** Why the sign-in provider did not start. Its own text is technical English, so only the kind of failure is shown. */
 @StringRes
 fun AuthState.Failed.messageRes(): Int = if (isNetwork) R.string.network_error else R.string.error_generic
+
+/**
+ * Why an amount field refuses its text, or null for an amount that can be saved. The text of
+ * `amount_too_large` takes the largest amount as its argument.
+ */
+@StringRes
+fun Amount.refusalRes(): Int? =
+    when (this) {
+        is Amount.Valid -> null
+        Amount.Empty -> R.string.amount_required
+        Amount.Unreadable -> R.string.amount_unreadable
+        Amount.Negative -> R.string.amount_negative
+        Amount.TooLarge -> R.string.amount_too_large
+    }

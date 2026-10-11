@@ -21,6 +21,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
+import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 class ApiClientTest {
@@ -67,6 +68,30 @@ class ApiClientTest {
         assertEquals("POST", request.method)
         assertEquals("/api/trpc/appointment.addService", request.url.encodedPath)
         assertEquals("""{"appointmentId":"a1","clientId":"c1","menuItemId":"m1"}""", request.body?.utf8())
+    }
+
+    @Test
+    fun `an Appointment whose totals are more than an Int holds is still read`() = runTest {
+        // H7: two Services at the largest price the old app could save. Read as Int, this reply failed to decode and no list loaded.
+        enqueue(
+            """{"result":{"data":[{"id":"a1","primaryClientId":"c1","primaryClientName":"Typo Client","participants":[{"clientId":"c1","name":"Typo Client","isPrimary":true,"subtotalCents":4294967294}],"services":[{"id":"s1","clientId":"c1","name":"Max One","priceCents":2147483647},{"id":"s2","clientId":"c1","name":"Max Two","priceCents":2147483647}],"serviceTotalCents":4294967294,"finalTotalCents":4294967294,"finalTotalCentsOverride":null,"startsAt":"2026-10-09T15:00:00.000Z","status":"scheduled","locationType":"inSalon"}]}}""",
+        )
+
+        val appointment = api.homeAppointments(Instant.parse("2026-10-09T05:00:00Z"), Instant.parse("2026-10-10T05:00:00Z")).single()
+
+        assertEquals(4294967294, appointment.serviceTotalCents)
+        assertEquals(4294967294, appointment.finalTotalCents)
+        assertEquals(4294967294, appointment.participants.single().subtotalCents)
+        assertEquals(listOf(2147483647L, 2147483647L), appointment.services.map { it.priceCents })
+    }
+
+    @Test
+    fun `an amount is sent as whole cents`() = runTest {
+        enqueue("""{"result":{"data":{}}}""")
+
+        api.updateAppointmentFinalTotal("a1", overrideCents = 999999999)
+
+        assertEquals("""{"id":"a1","finalTotalCentsOverride":999999999}""", server.takeRequest().body?.utf8())
     }
 
     @Test
