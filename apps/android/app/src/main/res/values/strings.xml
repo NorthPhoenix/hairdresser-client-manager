@@ -93,6 +93,7 @@
     <string name="create_client">Create Client</string>
     <string name="create_profile_share">Create Profile Share</string>
     <string name="create_service_menu_item">Add Service</string>
+    <string name="date_picker_today">Today, %1$s</string>
     <string name="delete">Delete</string>
     <string name="delete_appointment">Delete Appointment</string>
     <string name="delete_appointment_confirm_body">The Appointment, its Services, and its photos will be deleted.</string>
@@ -146,6 +147,7 @@
     <string name="new_client_action">New Client</string>
     <string name="new_client_title">New Client</string>
     <string name="next_day">Next day</string>
+    <string name="next_month">Next month</string>
     <string name="no_client_results">No Clients match your search.</string>
     <string name="no_clients_body">Create the first Client with only a name, then add details later.</string>
     <string name="no_clients_title">No Clients yet</string>
@@ -164,6 +166,7 @@
     <string name="placeholder_formula_placement">Roots</string>
     <string name="placeholder_service_name">Haircut</string>
     <string name="previous_day">Previous day</string>
+    <string name="previous_month">Previous month</string>
     <string name="primary_badge">Primary</string>
     <string name="primary_client_label">Primary Client</string>
     <string name="profile_share_description">A public link with the history the Client can see.</string>

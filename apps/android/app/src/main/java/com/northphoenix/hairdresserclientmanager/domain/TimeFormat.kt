@@ -1,17 +1,31 @@
 package com.northphoenix.hairdresserclientmanager.domain
 
 import com.northphoenix.hairdresserclientmanager.data.Appointment
+import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.YearMonth
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.chrono.IsoChronology
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeFormatterBuilder
 import java.time.format.FormatStyle
+import java.time.temporal.WeekFields
 import java.util.Locale
+
+/**
+ * The days of [month] in rows of weeks that start on [firstDayOfWeek]. A cell is null where the
+ * week reaches into another month.
+ */
+fun weeksOf(month: YearMonth, firstDayOfWeek: DayOfWeek): List<List<LocalDate?>> {
+    val before = (month.atDay(1).dayOfWeek.value - firstDayOfWeek.value + 7) % 7
+    val cells = List<LocalDate?>(before) { null } + (1..month.lengthOfMonth()).map(month::atDay)
+
+    return cells.chunked(7) { week -> week + List(7 - week.size) { null } }
+}
 
 fun zoneOrSystem(timezone: String?): ZoneId =
     try {
@@ -26,6 +40,7 @@ class TimeFormat(val locale: Locale, val zone: ZoneId) {
     private val dayFirst = locale.language == "ru"
     private val time = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale)
     private val mediumDate = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale)
+    private val fullDate = DateTimeFormatter.ofLocalizedDate(FormatStyle.FULL).withLocale(locale)
     private val dayAndMonth = DateTimeFormatter.ofPattern(if (dayFirst) "d MMMM" else "MMMM d", locale)
     private val weekday = DateTimeFormatter.ofPattern("EEEE", locale)
     private val shortWeekday = DateTimeFormatter.ofPattern("EEE", locale)
@@ -36,7 +51,8 @@ class TimeFormat(val locale: Locale, val zone: ZoneId) {
     val uses12HourClock: Boolean =
         DateTimeFormatterBuilder.getLocalizedDateTimePattern(null, FormatStyle.SHORT, IsoChronology.INSTANCE, locale).contains('a')
 
-    fun today(): LocalDate = LocalDate.now(zone)
+    /** Monday in Russian, Sunday in US English. */
+    val firstDayOfWeek: DayOfWeek = WeekFields.of(locale).firstDayOfWeek
 
     fun zoned(iso: String): ZonedDateTime = Instant.parse(iso).atZone(zone)
 
@@ -47,6 +63,9 @@ class TimeFormat(val locale: Locale, val zone: ZoneId) {
     fun mediumDate(date: LocalDate): String = mediumDate.format(date)
 
     fun shortDate(date: LocalDate): String = shortDate.format(date)
+
+    /** "Thursday, October 8, 2026" */
+    fun fullDate(date: LocalDate): String = capitalize(fullDate.format(date))
 
     /** "Thursday, October 8" */
     fun longDay(date: LocalDate): String = capitalize(weekday.format(date)) + ", " + dayAndMonth.format(date)

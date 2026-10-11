@@ -92,6 +92,7 @@
     <string name="create_client">Создать клиента</string>
     <string name="create_profile_share">Создать ссылку на профиль</string>
     <string name="create_service_menu_item">Добавить услугу</string>
+    <string name="date_picker_today">Сегодня, %1$s</string>
     <string name="delete">Удалить</string>
     <string name="delete_appointment">Удалить запись</string>
     <string name="delete_appointment_confirm_body">Запись, её услуги и фото будут удалены.</string>
@@ -143,6 +144,7 @@
     <string name="new_client_action">Новый клиент</string>
     <string name="new_client_title">Новый клиент</string>
     <string name="next_day">Следующий день</string>
+    <string name="next_month">Следующий месяц</string>
     <string name="no_client_results">Никого не нашлось.</string>
     <string name="no_clients_body">Чтобы добавить первого клиента, достаточно имени. Остальное можно заполнить позже.</string>
     <string name="no_clients_title">Клиентов пока нет</string>
@@ -160,6 +162,7 @@
     <string name="placeholder_formula_placement">Корни</string>
     <string name="placeholder_service_name">Стрижка</string>
     <string name="previous_day">Предыдущий день</string>
+    <string name="previous_month">Предыдущий месяц</string>
     <string name="primary_badge">Основной</string>
     <string name="primary_client_label">Основной клиент</string>
     <string name="profile_share_description">Публичная ссылка на историю, которую видит клиент.</string>

@@ -15,16 +15,11 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.EventBusy
 import androidx.compose.material.icons.rounded.Today
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDefaults
-import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,9 +45,6 @@ import com.northphoenix.hairdresserclientmanager.ui.components.Kicker
 import com.northphoenix.hairdresserclientmanager.ui.components.LoadFailed
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenPadding
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
-import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneOffset
 import java.time.temporal.WeekFields
 
 /** Calendar View: Appointments for one day, with a week strip for moving between days. */
@@ -65,7 +57,7 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String, String) 
     val appointments by viewModel.calendar.collectAsStateWithLifecycle()
     val load by viewModel.calendarLoad.collectAsStateWithLifecycle()
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
-    val today = format.today()
+    val today by viewModel.today.collectAsStateWithLifecycle()
     val weekStart = remember(selected, locale) { selected.with(WeekFields.of(locale).dayOfWeek(), 1) }
     var showDatePicker by rememberSaveable { mutableStateOf(false) }
 
@@ -144,6 +136,7 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String, String) 
     if (showDatePicker) {
         HcmDatePickerDialog(
             initial = selected,
+            today = today,
             onDismiss = { showDatePicker = false },
             onPick = {
                 showDatePicker = false
@@ -185,44 +178,5 @@ private fun DayCell(
             )
             Text(dayOfMonth, style = MaterialTheme.typography.titleMedium, color = content)
         }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun HcmDatePickerDialog(initial: LocalDate, onDismiss: () -> Unit, onPick: (LocalDate) -> Unit) {
-    // The Material picker works in UTC midnights regardless of the Stylist's timezone.
-    val state = rememberDatePickerState(initialSelectedDateMillis = initial.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
-
-    DatePickerDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    state.selectedDateMillis?.let { onPick(Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate()) } ?: onDismiss()
-                },
-            ) { Text(stringResource(R.string.ok), style = MaterialTheme.typography.labelLarge) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        },
-        colors = DatePickerDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        DatePicker(
-            state = state,
-            // The grid alone says enough; the built-in header only repeats the selected date.
-            title = null,
-            headline = null,
-            showModeToggle = false,
-            colors = DatePickerDefaults.colors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                selectedDayContainerColor = HcmColors.Ink,
-                selectedDayContentColor = HcmColors.Surface,
-                todayDateBorderColor = MaterialTheme.colorScheme.primary,
-                todayContentColor = MaterialTheme.colorScheme.primary,
-            ),
-        )
     }
 }

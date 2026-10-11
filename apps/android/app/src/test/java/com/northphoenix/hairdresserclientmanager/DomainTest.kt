@@ -12,15 +12,18 @@ import com.northphoenix.hairdresserclientmanager.domain.ContactImport
 import com.northphoenix.hairdresserclientmanager.domain.DeviceContact
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
+import com.northphoenix.hairdresserclientmanager.domain.weeksOf
 import com.northphoenix.hairdresserclientmanager.i18n.normalizeLanguage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.YearMonth
 import java.time.ZoneId
 import java.util.Locale
 
@@ -143,5 +146,53 @@ class DomainTest {
         assertTrue(english.uses12HourClock)
         assertFalse(russian.uses12HourClock)
         assertEquals("14:00", russian.time(LocalTime.of(14, 0)))
+    }
+
+    // --- date picker ---
+
+    @Test
+    fun `a day in the date picker is named in full, in the app language`() {
+        val day = LocalDate.of(2026, 10, 8)
+
+        assertEquals("Thursday, October 8, 2026", TimeFormat(Locale.US, ZoneId.of("UTC")).fullDate(day))
+        // Which no-break space keeps the year and its "г." together depends on the platform's locale data.
+        assertEquals(
+            "Четверг, 8 октября 2026 г.",
+            TimeFormat(Locale.forLanguageTag("ru-RU"), ZoneId.of("UTC")).fullDate(day).replace(Regex("\\p{Zs}"), " "),
+        )
+    }
+
+    @Test
+    fun `the week starts on Sunday in US English and on Monday in Russian`() {
+        assertEquals(DayOfWeek.SUNDAY, TimeFormat(Locale.US, ZoneId.of("UTC")).firstDayOfWeek)
+        assertEquals(DayOfWeek.MONDAY, TimeFormat(Locale.forLanguageTag("ru-RU"), ZoneId.of("UTC")).firstDayOfWeek)
+    }
+
+    @Test
+    fun `a month is laid out in whole weeks from the first day of the week`() {
+        // 1 October 2026 is a Thursday.
+        val sundayFirst = weeksOf(YearMonth.of(2026, 10), DayOfWeek.SUNDAY)
+        val mondayFirst = weeksOf(YearMonth.of(2026, 10), DayOfWeek.MONDAY)
+
+        assertEquals(listOf(null, null, null, null, 1, 2, 3), sundayFirst.first().map { it?.dayOfMonth })
+        assertEquals(listOf(25, 26, 27, 28, 29, 30, 31), sundayFirst.last().map { it?.dayOfMonth })
+        assertEquals(listOf(null, null, null, 1, 2, 3, 4), mondayFirst.first().map { it?.dayOfMonth })
+        assertEquals(listOf(26, 27, 28, 29, 30, 31, null), mondayFirst.last().map { it?.dayOfMonth })
+        assertEquals(5, mondayFirst.size)
+        assertEquals((1..31).map { LocalDate.of(2026, 10, it) }, mondayFirst.flatten().filterNotNull())
+    }
+
+    @Test
+    fun `a month takes between four and six weeks`() {
+        // February 2026 starts on a Sunday, August 2026 on a Saturday.
+        val shortest = weeksOf(YearMonth.of(2026, 2), DayOfWeek.SUNDAY)
+        val longest = weeksOf(YearMonth.of(2026, 8), DayOfWeek.MONDAY)
+
+        assertEquals(4, shortest.size)
+        assertTrue(shortest.flatten().none { it == null })
+        assertEquals(6, longest.size)
+        assertEquals(listOf(null, null, null, null, null, 1, 2), longest.first().map { it?.dayOfMonth })
+        assertEquals(listOf(31, null, null, null, null, null, null), longest.last().map { it?.dayOfMonth })
+        assertTrue(longest.all { it.size == 7 })
     }
 }

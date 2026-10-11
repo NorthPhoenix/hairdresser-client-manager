@@ -29,6 +29,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,8 +43,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleStartEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -57,6 +61,7 @@ import com.northphoenix.hairdresserclientmanager.ui.HcmSnackbarHost
 import com.northphoenix.hairdresserclientmanager.ui.components.Hairline
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 import java.time.LocalDate
+import kotlinx.coroutines.delay
 
 private object Routes {
     const val MAIN = "main"
@@ -93,6 +98,19 @@ fun MainNavigation(viewModel: AppViewModel) {
         }
         away = false
         onStopOrDispose { away = true }
+    }
+
+    // In view: the Stylist's day can end, at midnight in the Stylist's timezone. A new timezone has another midnight to wait for.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val zone by viewModel.zone.collectAsStateWithLifecycle()
+
+    LaunchedEffect(viewModel, lifecycleOwner, zone) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                delay(viewModel.millisUntilDayCheck())
+                viewModel.checkDay()
+            }
+        }
     }
 
     NavHost(navController, startDestination = Routes.MAIN, modifier = Modifier.fillMaxSize()) {

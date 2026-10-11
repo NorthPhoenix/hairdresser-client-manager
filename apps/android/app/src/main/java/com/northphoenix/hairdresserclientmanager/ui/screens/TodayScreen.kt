@@ -45,8 +45,9 @@ fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String, String) -> 
     val appointments by viewModel.home.collectAsStateWithLifecycle()
     val load by viewModel.homeLoad.collectAsStateWithLifecycle()
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
-    val today = format.today()
-    val (unresolved, todays) = remember(appointments, today) {
+    // The day the list was loaded for: the view model moves both on together when the day ends.
+    val today by viewModel.today.collectAsStateWithLifecycle()
+    val (unresolved, todays) = remember(appointments, today, format) {
         appointments.partition {
             it.status == AppointmentStatus.SCHEDULED && format.zoned(it.startsAt).toLocalDate().isBefore(today)
         }

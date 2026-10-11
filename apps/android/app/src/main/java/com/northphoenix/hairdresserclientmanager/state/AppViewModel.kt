@@ -95,8 +95,17 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     val zone: StateFlow<ZoneId> =
         _stylist.map { zoneOrSystem(it?.timezone) }.stateIn(viewModelScope, SharingStarted.Eagerly, ZoneId.systemDefault())
 
-    // Locale-independent: only used here for day boundaries.
-    private val clock: TimeFormat get() = TimeFormat(Locale.ROOT, zone.value)
+    // Locale-independent: only used here for day boundaries. Straight from the loaded Stylist:
+    // [zone] follows a moment later, and a day worked out right after a save must be in the new timezone.
+    private val clock: TimeFormat get() = TimeFormat(Locale.ROOT, zoneOrSystem(_stylist.value?.timezone))
+
+    private val day = StylistDay()
+
+    /**
+     * Today in the Stylist's timezone. Today's list is of this day and the Calendar starts on it.
+     * It changes only in [followDay], together with them.
+     */
+    val today: StateFlow<LocalDate> = day.today
 
     // Each list comes with a load state. A screen says that a list is empty only when its state is Loaded.
     private val _clients = MutableStateFlow<List<ClientProfile>>(emptyList())
@@ -114,7 +123,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     private val homeLoading = LoadTracker()
     val homeLoad: StateFlow<LoadState> = homeLoading.state
 
-    private val _calendarDate = MutableStateFlow(LocalDate.now())
+    private val _calendarDate = MutableStateFlow(day.today.value)
     val calendarDate: StateFlow<LocalDate> = _calendarDate.asStateFlow()
 
     /** A day other than today that the Stylist has selected, so that it is still selected after Android has killed the app. */
@@ -252,7 +261,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                     AppLanguage.apply(stylist.language)
                 }
                 // The day that was selected when Android killed the app in the background, today otherwise.
-                _calendarDate.value = savedCalendarDay.take(stylist.id) ?: clock.today()
+                day.follow(clock.zone)
+                _calendarDate.value = savedCalendarDay.take(stylist.id) ?: today.value
                 _bootstrap.value = BootstrapState.Ready
 
                 if (stylist.onboardingComplete) {
@@ -292,8 +302,41 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      */
     fun refreshOnReturn() {
         if (_stylist.value?.onboardingComplete == true) {
+            // The day may have ended meanwhile. Now, so that the screen is on the new day before the reload has its turn.
+            followDay()
             viewModelScope.launch { actions.reloadWithRetry(::loadAll) }
         }
+    }
+
+    /**
+     * Called while the app is in view each time the Stylist's day may have ended (see
+     * [millisUntilDayCheck]). When it has, Today and a Calendar that was on today load the new day.
+     * Nobody asked for this reload: when it fails, the lists say so themselves and nothing else does.
+     */
+    fun checkDay() {
+        if (_stylist.value?.onboardingComplete == true && followDay()) {
+            viewModelScope.launch { actions.reloadWithRetry(::loadAppointmentLists) }
+        }
+    }
+
+    /** How long to wait before the next [checkDay]. */
+    fun millisUntilDayCheck(): Long = day.millisUntilNextLook(clock.zone)
+
+    /**
+     * Looks at the clock. When it is another day for the Stylist than [today] (midnight has
+     * passed, or the timezone is another one), Today starts over for the new day and a Calendar
+     * that was on today moves along with it; a day the Stylist picked stays selected.
+     * True when the day has changed: whoever calls this loads the lists afterwards, because
+     * what was loaded or on its way for the day that ended is dropped here.
+     */
+    private fun followDay(): Boolean {
+        val change = day.follow(clock.zone) ?: return false
+
+        _home.value = emptyList()
+        homeLoading.reset()
+        showCalendarDay(change.calendarDay(_calendarDate.value))
+
+        return true
     }
 
     private suspend fun refreshAll() = reporting {
@@ -308,10 +351,14 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     private suspend fun loadServiceMenu() = serviceMenuLoading.load(api::listServiceMenu) { _serviceMenu.value = it }
 
-    private suspend fun loadAppointmentLists() = together(::loadHome, ::loadCalendarDay, ::loadCompletedSources)
+    /** Every load of the lists looks at the clock first, so that none of them loads a day that has ended. */
+    private suspend fun loadAppointmentLists() {
+        followDay()
+        together(::loadHome, ::loadCalendarDay, ::loadCompletedSources)
+    }
 
     private suspend fun loadHome() {
-        val (start, end) = clock.run { dayRange(today()) }
+        val (start, end) = clock.dayRange(today.value)
 
         homeLoading.load({ api.homeAppointments(start, end) }) { appointments ->
             _home.value = appointments
@@ -388,15 +435,20 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     /** Shows [date] in the Calendar. Choosing the day that is already shown loads it again, which is also the retry after a failed load. */
     fun setCalendarDate(date: LocalDate) {
+        showCalendarDay(date)
+
+        calendarJob?.cancel()
+        calendarJob = viewModelScope.launch { reporting { loadCalendarDay() } }
+    }
+
+    /** Makes [date] the Calendar's day. What is loaded or on its way for another day is dropped; the caller loads [date]. */
+    private fun showCalendarDay(date: LocalDate) {
         if (date != _calendarDate.value) {
             _calendarDate.value = date
             _calendar.value = emptyList()
             calendarLoading.reset()
         }
-        _stylist.value?.let { savedCalendarDay.keep(it.id, date.takeIf { day -> day != clock.today() }) }
-
-        calendarJob?.cancel()
-        calendarJob = viewModelScope.launch { reporting { loadCalendarDay() } }
+        _stylist.value?.let { savedCalendarDay.keep(it.id, date.takeIf { selected -> selected != today.value }) }
     }
 
     // --- mutation plumbing ---
@@ -493,9 +545,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             val saved = api.saveSettings(language, trimmedTimezone, salonAddress.trim())
             _stylist.value = saved
             AppLanguage.apply(saved.language)
-            if (!wasOnboarded) {
-                _calendarDate.value = clock.today()
-            }
+            // In another timezone it can be another day. The reload loads it.
+            followDay()
         }
     }
 

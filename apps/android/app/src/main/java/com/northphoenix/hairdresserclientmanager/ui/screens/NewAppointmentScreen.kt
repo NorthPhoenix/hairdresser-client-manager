@@ -57,6 +57,7 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
     val clients by viewModel.clients.collectAsStateWithLifecycle()
     val clientsLoad by viewModel.clientsLoad.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
+    val today by viewModel.today.collectAsStateWithLifecycle()
     // Default start: the next full hour, in the Stylist's timezone.
     val nextHour = remember { ZonedDateTime.now(format.zone).withMinute(0).withSecond(0).withNano(0).plusHours(1) }
 
@@ -235,6 +236,7 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
         )
         AppointmentPicker.DATE -> HcmDatePickerDialog(
             initial = date,
+            today = today,
             onDismiss = { picker = null },
             onPick = {
                 date = it
