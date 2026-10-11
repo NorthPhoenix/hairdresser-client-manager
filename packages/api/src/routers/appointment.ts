@@ -4,8 +4,17 @@ import { z } from "zod";
 import { inAddedOrder } from "../addedOrder";
 import { getClientAddress, getPrimaryClientChange, getSalonAddress, hasCustomAddress } from "../appointmentLocation";
 import type { Db } from "../context";
-import { amountCents, maxAmountCents, nameText, oneLineText, requestKey, text, textLimits } from "../input";
-import { isPhotoStorageUrl } from "../photoStorage";
+import {
+  amountCents,
+  maxAmountCents,
+  nameText,
+  oneLineText,
+  refuseChangedRepeat,
+  requestKey,
+  text,
+  textLimits
+} from "../input";
+import { isStoredFileUrl } from "../photoStorage";
 import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from "../trpc";
 
 const dateRangeInput = z.object({
@@ -135,7 +144,11 @@ const appointmentPhotoDeleteInput = z.object({
 // for the total, and their request keys to recognise a request that is sent again.
 const existingServices = {
   select: {
+    clientId: true,
+    menuItemId: true,
+    name: true,
     priceCents: true,
+    note: true,
     requestKey: true
   }
 } as const;
@@ -716,16 +729,50 @@ export const appointmentRouter = createTRPCRouter({
       });
     }
 
+    const additionalClientIds = [...new Set(input.additionalClientIds.filter((clientId) => clientId !== input.primaryClientId))];
     const repeatedAppointment = input.requestKey
       ? await ctx.db.appointment.findFirst({
           where: {
             stylistId: ctx.stylist.id,
             requestKey: input.requestKey
+          },
+          include: {
+            primaryClient: {
+              select: {
+                name: true
+              }
+            },
+            participants: {
+              select: {
+                clientId: true
+              }
+            }
           }
         })
       : null;
 
     if (repeatedAppointment) {
+      const atCustomAddress = input.locationType === "atHome" && Boolean(input.customLocationAddress);
+
+      refuseChangedRepeat(
+        {
+          ...repeatedAppointment,
+          inlineClientName: repeatedAppointment.primaryClient.name,
+          clientIds: repeatedAppointment.participants.map((participant) => participant.clientId).sort().join(),
+          customLocationAddress: repeatedAppointment.locationAddressIsCustom ? repeatedAppointment.locationAddress : ""
+        },
+        {
+          startsAt,
+          endsAt,
+          locationType: input.locationType,
+          customLocationAddress: atCustomAddress ? input.customLocationAddress : "",
+          primaryClientId: input.primaryClientId,
+          // The Client the first call created inline is recognised by the name it was given.
+          inlineClientName: input.primaryClientId ? undefined : input.inlineClientName,
+          clientIds: [input.primaryClientId ?? repeatedAppointment.primaryClientId, ...additionalClientIds].sort().join()
+        }
+      );
+
       // The Appointment the first call created, with the overlap warning that call answered with.
       const repeatedConflicts =
         repeatedAppointment.status === "scheduled"
@@ -744,7 +791,6 @@ export const appointmentRouter = createTRPCRouter({
       };
     }
 
-    const additionalClientIds = [...new Set(input.additionalClientIds.filter((clientId) => clientId !== input.primaryClientId))];
     const primaryClient = input.primaryClientId
       ? await ctx.db.client.findFirst({
           where: {
@@ -1034,7 +1080,20 @@ export const appointmentRouter = createTRPCRouter({
       });
     }
 
-    if (input.requestKey && appointment.services.some((service) => service.requestKey === input.requestKey)) {
+    const repeatedService = input.requestKey
+      ? appointment.services.find((service) => service.requestKey === input.requestKey)
+      : undefined;
+
+    if (repeatedService) {
+      // A name or price left out came from the Service Menu Item: there is nothing to compare.
+      refuseChangedRepeat(repeatedService, {
+        clientId: input.clientId,
+        menuItemId: input.menuItemId ?? null,
+        name: input.name,
+        priceCents: input.priceCents,
+        note: input.note ?? ""
+      });
+
       return getAppointmentOutput(ctx.db, appointment.id);
     }
 
@@ -1295,6 +1354,8 @@ export const appointmentRouter = createTRPCRouter({
         participants: true,
         photos: {
           select: {
+            clientId: true,
+            category: true,
             fileKey: true,
             requestKey: true
           }
@@ -1311,13 +1372,19 @@ export const appointmentRouter = createTRPCRouter({
 
     // A request that is sent again, recognised by its key or by the stored file: one file is one
     // Appointment Photo.
-    if (
-      appointment.photos.some(
-        (photo) =>
-          (input.requestKey && photo.requestKey === input.requestKey) ||
-          (input.fileKey && photo.fileKey === input.fileKey)
-      )
-    ) {
+    const repeatedPhoto = appointment.photos.find(
+      (photo) =>
+        (input.requestKey && photo.requestKey === input.requestKey) ||
+        (input.fileKey && photo.fileKey === input.fileKey)
+    );
+
+    if (repeatedPhoto) {
+      // Not the file: a picture that is uploaded again for the same key is a new file each time.
+      refuseChangedRepeat(repeatedPhoto, {
+        clientId: input.clientId,
+        category: input.category
+      });
+
       return getAppointmentOutput(ctx.db, appointment.id);
     }
 
@@ -1335,10 +1402,30 @@ export const appointmentRouter = createTRPCRouter({
       });
     }
 
-    if ([input.url, input.thumbnailUrl].some((url) => url && !isPhotoStorageUrl(url, ctx.photoOrigins))) {
+    // The app loads both URLs as images: each has to be the stored file this photo names.
+    if ([input.url, input.thumbnailUrl].some((url) => url && !isStoredFileUrl(url, input.fileKey ?? "", ctx.photoOrigins))) {
       throw new TRPCError({
         code: "BAD_REQUEST",
         message: "Appointment Photo URLs must point at UploadThing storage."
+      });
+    }
+
+    // One stored file is one Appointment Photo, of any Stylist: deleting a photo may then delete
+    // its file. A photo of this Appointment with the file was answered above.
+    if (
+      input.fileKey &&
+      (await ctx.db.appointmentPhoto.findFirst({
+        where: {
+          fileKey: input.fileKey
+        },
+        select: {
+          id: true
+        }
+      }))
+    ) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "This file already belongs to another Appointment Photo."
       });
     }
 
@@ -1427,6 +1514,8 @@ export const appointmentRouter = createTRPCRouter({
       include: {
         colorFormulas: {
           select: {
+            formula: true,
+            placement: true,
             requestKey: true
           }
         }
@@ -1440,7 +1529,16 @@ export const appointmentRouter = createTRPCRouter({
       });
     }
 
-    if (input.requestKey && service.colorFormulas.some((formula) => formula.requestKey === input.requestKey)) {
+    const repeatedFormula = input.requestKey
+      ? service.colorFormulas.find((formula) => formula.requestKey === input.requestKey)
+      : undefined;
+
+    if (repeatedFormula) {
+      refuseChangedRepeat(repeatedFormula, {
+        formula: input.formula,
+        placement: input.placement ?? ""
+      });
+
       return getAppointmentOutput(ctx.db, service.appointmentId);
     }
 

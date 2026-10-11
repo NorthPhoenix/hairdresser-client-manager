@@ -1,19 +1,31 @@
-// Where UploadThing serves uploaded files: `https://<app id>.ufs.sh/f/<key>`, and `https://utfs.io`
-// for files uploaded through its older URLs.
-const uploadThingOrigin = /^https:\/\/(utfs\.io|[a-z0-9-]+\.ufs\.sh)$/;
+/**
+ * The origins that serve the files of one UploadThing app: `https://<app id>.ufs.sh`. The app id is
+ * read from the app's token (`UPLOADTHING_TOKEN`), which is base64 of
+ * `{ apiKey, appId, regions }`. Without a usable token there is no photo storage and no origin.
+ */
+export function getUploadThingOrigins(token: string | undefined) {
+  try {
+    const { appId } = JSON.parse(atob(token ?? "")) as { appId?: unknown };
+
+    return typeof appId === "string" && /^[a-z0-9-]+$/i.test(appId) ? [new URL(`https://${appId}.ufs.sh`).origin] : [];
+  } catch {
+    return [];
+  }
+}
 
 /**
- * Whether a URL points at the photo storage. The app loads the URL of an Appointment Photo as an
- * image, so nothing else may be stored as one. `otherOrigins` is for a storage emulator.
+ * Whether a URL is the stored file `fileKey` in the photo storage: `<origin>/.../<fileKey>`, which
+ * is what the upload route answers with. The app loads the URL of an Appointment Photo as an image,
+ * so nothing else may be stored as one. `origins` are the storage origins of this server.
  */
-export function isPhotoStorageUrl(value: string, otherOrigins: string[] = []) {
-  let origin: string;
+export function isStoredFileUrl(value: string, fileKey: string, origins: string[]) {
+  let url: URL;
 
   try {
-    origin = new URL(value).origin;
+    url = new URL(value);
   } catch {
     return false;
   }
 
-  return uploadThingOrigin.test(origin) || otherOrigins.includes(origin);
+  return fileKey !== "" && origins.includes(url.origin) && url.pathname.endsWith(`/${encodeURIComponent(fileKey)}`);
 }

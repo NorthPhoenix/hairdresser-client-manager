@@ -1633,8 +1633,8 @@ describe("appointment router", () => {
           status: "stored",
           provider: "uploadthing",
           fileKey: "ut_file_1",
-          url: "https://utfs.io/f/ut_file_1",
-          thumbnailUrl: "https://utfs.io/f/ut_file_1-thumb",
+          url: "https://app-id.ufs.sh/f/ut_file_1",
+          thumbnailUrl: "https://app-id.ufs.sh/f/ut_file_1",
           width: 1200,
           height: 900,
           uploadError: null,
@@ -1666,14 +1666,19 @@ describe("appointment router", () => {
         },
         appointmentPhoto: {
           create: photoCreate,
-          findFirst: vi.fn().mockResolvedValue({
-            id: "photo_1",
-            appointmentId: "appointment_1"
-          }),
+          // By id: the photo to update or delete. By file: no other photo has it.
+          findFirst: vi.fn(async ({ where }: { where: { id?: string } }) =>
+            where.id
+              ? {
+                  id: "photo_1",
+                  appointmentId: "appointment_1"
+                }
+              : null
+          ),
           update: photoUpdate,
           delete: photoDelete
         }
-      } as unknown as TRPCContext["db"])
+      } as unknown as TRPCContext["db"], ["https://app-id.ufs.sh"])
     );
 
     await expect(
@@ -1682,8 +1687,8 @@ describe("appointment router", () => {
         clientId: "client_1",
         category: "after",
         fileKey: "ut_file_1",
-        url: "https://utfs.io/f/ut_file_1",
-        thumbnailUrl: "https://utfs.io/f/ut_file_1-thumb",
+        url: "https://app-id.ufs.sh/f/ut_file_1",
+        thumbnailUrl: "https://app-id.ufs.sh/f/ut_file_1",
         width: 1200,
         height: 900
       })
@@ -1694,7 +1699,7 @@ describe("appointment router", () => {
           clientId: "client_1",
           category: "after",
           status: "stored",
-          url: "https://utfs.io/f/ut_file_1"
+          url: "https://app-id.ufs.sh/f/ut_file_1"
         }
       ]
     });
@@ -1706,8 +1711,8 @@ describe("appointment router", () => {
         status: "stored",
         provider: "uploadthing",
         fileKey: "ut_file_1",
-        url: "https://utfs.io/f/ut_file_1",
-        thumbnailUrl: "https://utfs.io/f/ut_file_1-thumb",
+        url: "https://app-id.ufs.sh/f/ut_file_1",
+        thumbnailUrl: "https://app-id.ufs.sh/f/ut_file_1",
         width: 1200,
         height: 900,
         uploadError: null
@@ -2676,10 +2681,13 @@ describe("appointment router", () => {
   });
 
   // An Appointment Photo is loaded by the app as an image from its URL.
-  function createPhotoCaller(photoOrigins: string[] = []) {
+  const photoStorage = "https://app-id.ufs.sh";
+
+  function createPhotoCaller(photoOrigins: string[] = [photoStorage], photosWithFile: { id: string }[] = []) {
     const photoCreate = vi.fn().mockResolvedValue({
       id: "photo_1"
     });
+    const photoFindFirst = vi.fn().mockResolvedValue(photosWithFile[0] ?? null);
     const caller = appRouter.createCaller(
       createContext(
         {
@@ -2704,7 +2712,8 @@ describe("appointment router", () => {
             })
           },
           appointmentPhoto: {
-            create: photoCreate
+            create: photoCreate,
+            findFirst: photoFindFirst
           }
         } as unknown as TRPCContext["db"],
         photoOrigins
@@ -2712,48 +2721,98 @@ describe("appointment router", () => {
     );
 
     return {
+      caller,
       photoCreate,
-      addPhoto: (url: string, thumbnailUrl?: string) =>
+      photoFindFirst,
+      addPhoto: (url: string, thumbnailUrl?: string, fileKey = "x") =>
         caller.appointment.addPhoto({
           appointmentId: "appointment_1",
           clientId: "client_1",
           category: "other",
-          fileKey: "x",
+          fileKey,
           url,
           thumbnailUrl
         })
     };
   }
 
+  const storageRefusal = {
+    code: "BAD_REQUEST",
+    message: "Appointment Photo URLs must point at UploadThing storage."
+  };
+
   it.each([
     ["another website", "https://example.com/x.jpg"],
     ["this server", "http://10.0.2.2:3000/profile-shares/token/image?probe=1"],
     ["a script", "javascript:alert(1)"],
     ["a local file", "file:///etc/passwd"],
-    ["the photo storage without https", "http://utfs.io/f/x"],
-    ["a host that only ends like the photo storage", "https://evilutfs.io/f/x"],
-    ["a host that only starts like the photo storage", "https://utfs.io.example.com/f/x"],
-    ["the photo storage on another port", "https://app.ufs.sh:8443/f/x"]
+    ["the photo storage without https", "http://app-id.ufs.sh/f/x"],
+    ["the storage of another UploadThing app", "https://other-app.ufs.sh/f/x"],
+    ["UploadThing's address for the files of every app", "https://utfs.io/f/x"],
+    ["a host that only ends like the photo storage", "https://evilapp-id.ufs.sh/f/x"],
+    ["a host that only starts like the photo storage", "https://app-id.ufs.sh.example.com/f/x"],
+    ["the photo storage on another port", "https://app-id.ufs.sh:8443/f/x"],
+    ["another file in the photo storage", "https://app-id.ufs.sh/f/y"],
+    ["a file whose name only ends like this one", "https://app-id.ufs.sh/f/yx"]
   ])("refuses to store %s as an Appointment Photo", async (_label, url) => {
     const { addPhoto, photoCreate } = createPhotoCaller();
-    const refusal = {
-      code: "BAD_REQUEST",
-      message: "Appointment Photo URLs must point at UploadThing storage."
-    };
 
-    await expect(addPhoto(url)).rejects.toMatchObject(refusal);
+    await expect(addPhoto(url)).rejects.toMatchObject(storageRefusal);
     // The thumbnail is loaded by the app as well.
-    await expect(addPhoto("https://utfs.io/f/x", url)).rejects.toMatchObject(refusal);
+    await expect(addPhoto(`${photoStorage}/f/x`, url)).rejects.toMatchObject(storageRefusal);
     expect(photoCreate).not.toHaveBeenCalled();
   });
 
-  it("stores Appointment Photos that are in the photo storage", async () => {
-    const { addPhoto, photoCreate } = createPhotoCaller();
+  it("stores an Appointment Photo whose URLs are its file in the photo storage", async () => {
+    const { addPhoto, photoCreate, photoFindFirst } = createPhotoCaller();
 
-    await addPhoto("https://app-id.ufs.sh/f/x", "https://app-id.ufs.sh/f/x");
-    await addPhoto("https://utfs.io/f/x");
+    await addPhoto(`${photoStorage}/f/x`, `${photoStorage}/f/x`);
+    await addPhoto(`${photoStorage}/f/x`);
+    await addPhoto(`${photoStorage}/f/key%20with%2Fsigns`, undefined, "key with/signs");
 
-    expect(photoCreate).toHaveBeenCalledTimes(2);
+    expect(photoCreate).toHaveBeenCalledTimes(3);
+    expect(photoFindFirst).toHaveBeenCalledWith({
+      where: {
+        fileKey: "x"
+      },
+      select: {
+        id: true
+      }
+    });
+  });
+
+  it("refuses a URL that comes without the file it should name", async () => {
+    const { caller, photoCreate } = createPhotoCaller();
+    const failed = {
+      appointmentId: "appointment_1",
+      clientId: "client_1",
+      category: "other",
+      status: "failed"
+    } as const;
+
+    await expect(caller.appointment.addPhoto({ ...failed, url: `${photoStorage}/f/x` })).rejects.toMatchObject(storageRefusal);
+    await expect(caller.appointment.addPhoto({ ...failed, fileKey: " ", thumbnailUrl: `${photoStorage}/f/` })).rejects.toMatchObject(
+      storageRefusal
+    );
+    expect(photoCreate).not.toHaveBeenCalled();
+  });
+
+  it("refuses a stored file that another Appointment Photo already has", async () => {
+    // A photo of another Appointment, of this Stylist or of another one: the search is by file alone.
+    const { addPhoto, photoCreate } = createPhotoCaller([photoStorage], [{ id: "photo_of_someone" }]);
+
+    await expect(addPhoto(`${photoStorage}/f/x`)).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "This file already belongs to another Appointment Photo."
+    });
+    expect(photoCreate).not.toHaveBeenCalled();
+  });
+
+  it("accepts no stored photo on a server without photo storage", async () => {
+    const { addPhoto, photoCreate } = createPhotoCaller([]);
+
+    await expect(addPhoto(`${photoStorage}/f/x`)).rejects.toMatchObject(storageRefusal);
+    expect(photoCreate).not.toHaveBeenCalled();
   });
 
   it("accepts the storage emulator of the dev backend only when the server names its origin", async () => {
@@ -2762,12 +2821,9 @@ describe("appointment router", () => {
 
     await devBackend.addPhoto(emulatorUrl, emulatorUrl);
     expect(devBackend.photoCreate).toHaveBeenCalledTimes(1);
-    await expect(devBackend.addPhoto("http://127.0.0.1:3001/_ut/f/x")).rejects.toMatchObject({
-      code: "BAD_REQUEST"
-    });
+    await expect(devBackend.addPhoto("http://127.0.0.1:3001/_ut/f/x")).rejects.toMatchObject(storageRefusal);
+    await expect(devBackend.addPhoto(`${photoStorage}/f/x`)).rejects.toMatchObject(storageRefusal);
 
-    await expect(createPhotoCaller().addPhoto(emulatorUrl)).rejects.toMatchObject({
-      code: "BAD_REQUEST"
-    });
+    await expect(createPhotoCaller().addPhoto(emulatorUrl)).rejects.toMatchObject(storageRefusal);
   });
 });

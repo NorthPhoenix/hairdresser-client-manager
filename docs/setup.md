@@ -99,7 +99,7 @@ Run these steps locally when you are ready to wire providers:
    UPLOADTHING_CALLBACK_URL=http://127.0.0.1:3000/api/uploadthing
    ```
 
-   Keep `UPLOADTHING_TOKEN` server-only. `UPLOADTHING_CALLBACK_URL` is not secret; it is needed for local Android emulator testing because the device calls the web app through `10.0.2.2`, while UploadThing's local dev callback must reach the host Next.js server. The Android app uploads through the web app's `/api/uploadthing` endpoint, using the same base URL as `hcm.apiBaseUrl`. UploadThing has no Android SDK, so the app implements the upload protocol itself; keep `UploadThingClient.CLIENT_VERSION` in step with the `uploadthing` package version.
+   Keep `UPLOADTHING_TOKEN` server-only. The API reads the UploadThing app id from the same token and accepts as an Appointment Photo only a file of that app (`https://<app id>.ufs.sh/f/<file key>`), so without the token no photo can be stored. `UPLOADTHING_CALLBACK_URL` is not secret; it is needed for local Android emulator testing because the device calls the web app through `10.0.2.2`, while UploadThing's local dev callback must reach the host Next.js server. The Android app uploads through the web app's `/api/uploadthing` endpoint, using the same base URL as `hcm.apiBaseUrl`. UploadThing has no Android SDK, so the app implements the upload protocol itself; keep `UploadThingClient.CLIENT_VERSION` in step with the `uploadthing` package version.
 
 10. Run the apps:
 

@@ -7,8 +7,9 @@ export type ClerkAuth = {
 export type CreateTRPCContextOptions = {
   auth: () => Promise<ClerkAuth>;
   /**
-   * Origins that hold stored Appointment Photos besides UploadThing's own. Only the dev backend
-   * sets it, for the storage service it emulates.
+   * The origins of this server's photo storage: the only places a stored Appointment Photo may
+   * point at. The web app names its UploadThing app (`getUploadThingOrigins`), the dev backend the
+   * storage service it emulates. Left out: no stored photo is accepted.
    */
   photoOrigins?: string[];
 };

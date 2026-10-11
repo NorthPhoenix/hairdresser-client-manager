@@ -7,6 +7,7 @@ import {
   expectedUpdatedAt,
   nameText,
   oneLineText,
+  refuseChangedRepeat,
   refuseOutdatedSave,
   requestKey,
   text,
@@ -256,6 +257,11 @@ export const clientRouter = createTRPCRouter({
         : null;
 
       if (repeatedClient) {
+        refuseChangedRepeat(repeatedClient, {
+          ...data,
+          language: input.language
+        });
+
         return toClientOutput(repeatedClient);
       }
 

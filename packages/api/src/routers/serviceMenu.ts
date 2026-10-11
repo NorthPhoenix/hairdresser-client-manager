@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { amountCents, nameText, requestKey } from "../input";
+import { amountCents, nameText, refuseChangedRepeat, requestKey } from "../input";
 import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from "../trpc";
 
 const serviceMenuSaveInput = z.object({
@@ -63,6 +63,8 @@ export const serviceMenuRouter = createTRPCRouter({
         : null;
 
       if (repeatedItem) {
+        refuseChangedRepeat(repeatedItem, data);
+
         return toServiceMenuItemOutput(repeatedItem);
       }
 

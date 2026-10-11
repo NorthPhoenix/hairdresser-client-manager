@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { maxAmountCents, textLimits } from "./input";
+import { maxAmountCents, textLimits, toOneLine } from "./input";
 import { appRouter } from "./root";
 import type { TRPCContext } from "./context";
 import { firstIssueOf, withTransaction } from "./testSupport";
@@ -164,6 +164,58 @@ describe("one-line text", () => {
         name: stored
       })
     });
+  });
+
+  it("makes one space of a run of line breaks with the spaces around it", async () => {
+    const { caller, db } = createCaller();
+
+    await caller.clientProfile.save({
+      name: "  Anna \n \r\n\t  Maria\u0085\u0085Petrova  \n",
+      phone: `${" ".repeat(4000)}+1 512\n${" ".repeat(4000)}555  0100\n`
+    });
+
+    expect(db.client.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        name: "Anna Maria Petrova",
+        // Spaces that are not next to a line break stay as they were typed.
+        phone: "+1 512 555  0100"
+      })
+    });
+  });
+
+  it("refuses a one-line text far over its limit, also when it is all spaces", async () => {
+    const { caller, db } = createCaller();
+    const refusedAs = (field: string) => ({
+      code: "BAD_REQUEST",
+      message: "Text is too long.",
+      field
+    });
+
+    // Cleaning these took the server minutes before it was told how long they are.
+    for (const name of [" ".repeat(1_000_000), `x${" ".repeat(200_000)}y`, `Anna${" ".repeat(10_000)}`]) {
+      await expect(firstIssueOf(caller.clientProfile.save({ name }))).resolves.toEqual(refusedAs("name"));
+    }
+
+    await expect(firstIssueOf(caller.clientProfile.save({ name: "Anna", phone: " \n".repeat(100_000) }))).resolves.toEqual(
+      refusedAs("phone")
+    );
+    await expect(firstIssueOf(caller.serviceMenu.save({ name: `x${" ".repeat(200_000)}y` }))).resolves.toEqual(
+      refusedAs("name")
+    );
+    expect(db.client.create).not.toHaveBeenCalled();
+    expect(db.serviceMenuItem.create).not.toHaveBeenCalled();
+  });
+
+  it("cleans a megabyte in the time it takes to read it", () => {
+    const startedAt = performance.now();
+
+    expect(toOneLine(" ".repeat(1_000_000))).toBe("");
+    expect(toOneLine(`x${" ".repeat(1_000_000)}y`)).toHaveLength(1_000_002);
+    expect(toOneLine(" \n".repeat(500_000))).toBe("");
+    expect(toOneLine("a\n".repeat(500_000))).toBe(`${"a ".repeat(499_999)}a`);
+    expect(toOneLine("\u0001".repeat(1_000_000))).toBe("");
+    // Milliseconds. The pattern this replaced needed five seconds for 80,000 spaces.
+    expect(performance.now() - startedAt).toBeLessThan(2000);
   });
 
   it("keeps the characters that join letters and emoji", async () => {

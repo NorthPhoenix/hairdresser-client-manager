@@ -1,6 +1,9 @@
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { auth } from "@clerk/nextjs/server";
-import { appRouter, createTRPCContext } from "@hcm/api";
+import { appRouter, createTRPCContext, getUploadThingOrigins } from "@hcm/api";
+
+// Appointment Photos are stored by /api/uploadthing, in the UploadThing app of the same token.
+const photoOrigins = getUploadThingOrigins(process.env.UPLOADTHING_TOKEN);
 
 function handler(request: Request) {
   return fetchRequestHandler({
@@ -15,7 +18,8 @@ function handler(request: Request) {
           return {
             userId: clerkAuth.userId
           };
-        }
+        },
+        photoOrigins
       }),
     // The reply to an unexpected failure says nothing about it, so the log has to.
     onError: ({ error, path }) => {
