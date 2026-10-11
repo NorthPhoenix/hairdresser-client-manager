@@ -38,6 +38,10 @@ class NoticeVisuals(
     override val duration = if (isError) androidx.compose.material3.SnackbarDuration.Long else androidx.compose.material3.SnackbarDuration.Short
 }
 
+/** A notice's text. Only a text that was given arguments is formatted: any other is shown exactly as it is written. */
+fun Context.noticeText(@StringRes message: Int, args: List<Any>): String =
+    if (args.isEmpty()) getString(message) else getString(message, *args.toTypedArray())
+
 /** Every screen's Scaffold uses this so notices sit above that screen's own bottom bar. */
 @Composable
 fun HcmSnackbarHost(modifier: Modifier = Modifier) {
@@ -51,7 +55,13 @@ fun HcmSnackbarHost(modifier: Modifier = Modifier) {
             containerColor = if (isError) HcmColors.Danger else HcmColors.Ink,
             contentColor = HcmColors.Surface,
         ) {
-            Text(notice?.let { stringResource(it.messageRes, *it.args.toTypedArray()) } ?: data.visuals.message, style = MaterialTheme.typography.bodyMedium)
+            val text = when {
+                notice == null -> data.visuals.message
+                notice.args.isEmpty() -> stringResource(notice.messageRes)
+                else -> stringResource(notice.messageRes, *notice.args.toTypedArray())
+            }
+
+            Text(text, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }

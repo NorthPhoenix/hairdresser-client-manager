@@ -79,7 +79,7 @@ fun HcmApp(container: AppContainer) {
                 viewModel.notices.collect { notice ->
                     // Replace whatever is showing instead of queueing behind it.
                     snackbarHostState.currentSnackbarData?.dismiss()
-                    launch { snackbarHostState.showSnackbar(NoticeVisuals(context.getString(notice.message, *notice.args.toTypedArray()), notice.message, notice.isError, notice.args)) }
+                    launch { snackbarHostState.showSnackbar(NoticeVisuals(context.noticeText(notice.message, notice.args), notice.message, notice.isError, notice.args)) }
                 }
             }
 
