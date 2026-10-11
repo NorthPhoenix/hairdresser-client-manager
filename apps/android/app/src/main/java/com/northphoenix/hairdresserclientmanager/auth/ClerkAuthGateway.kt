@@ -8,19 +8,19 @@ import com.clerk.api.ClerkConfigurationOptions
 import com.clerk.api.network.serialization.ClerkResult
 import com.clerk.api.network.serialization.successOrNull
 import com.clerk.api.session.GetTokenOptions
-import com.clerk.ui.auth.AuthMode
-import com.clerk.ui.auth.AuthView
 import com.northphoenix.hairdresserclientmanager.BuildConfig
 import com.northphoenix.hairdresserclientmanager.data.isConnectionFailure
-import com.northphoenix.hairdresserclientmanager.ui.theme.hcmClerkTheme
+import com.northphoenix.hairdresserclientmanager.ui.screens.SignInScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
-/** Email/password Stylist auth through Clerk's prebuilt native views (ADR 0004). */
+/** Email/password Stylist auth through Clerk (ADR 0004). The sign-in screens are the app's own: see [SignInFlow]. */
 class ClerkAuthGateway(
     private val context: Context,
     private val publishableKey: String,
@@ -54,6 +54,14 @@ class ClerkAuthGateway(
                 else -> AuthState.SignedOut
             }
         }.stateIn(scope, SharingStarted.Eagerly, AuthState.Loading)
+
+    // Lives as long as the app does, so a request that is on its way survives the screen being recreated.
+    private val signIn = SignInFlow(ClerkSignInBackend(), scope)
+
+    init {
+        // Someone has signed in: whoever signs in next starts at the first step, with nothing left of this time.
+        scope.launch { state.filterIsInstance<AuthState.SignedIn>().collect { signIn.reset() } }
+    }
 
     private fun start() {
         try {
@@ -96,11 +104,6 @@ class ClerkAuthGateway(
 
     @Composable
     override fun SignInContent(modifier: Modifier) {
-        AuthView(
-            modifier = modifier,
-            clerkTheme = hcmClerkTheme(),
-            isDismissible = false,
-            mode = AuthMode.SignInOrUp,
-        )
+        SignInScreen(signIn, modifier)
     }
 }

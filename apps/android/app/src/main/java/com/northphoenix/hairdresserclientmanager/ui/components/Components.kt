@@ -29,6 +29,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -67,6 +68,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -225,7 +227,8 @@ fun TextAction(
  * Text field with its label above, the way forms read throughout the app. [error] is why the
  * text was refused: it is shown under the field, which scrolls into view when it appears. Where
  * the Stylist can scroll away and be refused for the same text again, count the refusals in
- * [errorAttempt]: the field then comes back into view on each of them.
+ * [errorAttempt]: the field then comes back into view on each of them. [onImeAction] is what the
+ * keyboard's own action key ([imeAction]) does.
  */
 @Composable
 fun HcmTextField(
@@ -245,6 +248,8 @@ fun HcmTextField(
     enabled: Boolean = true,
     error: String? = null,
     errorAttempt: Int = 0,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    onImeAction: (() -> Unit)? = null,
 ) {
     val intoView = remember { BringIntoViewRequester() }
 
@@ -281,7 +286,9 @@ fun HcmTextField(
             maxLines = if (singleLine) 1 else 8,
             textStyle = MaterialTheme.typography.bodyLarge,
             shape = MaterialTheme.shapes.medium,
+            visualTransformation = visualTransformation,
             keyboardOptions = KeyboardOptions(capitalization = capitalization, keyboardType = keyboardType, imeAction = imeAction),
+            keyboardActions = onImeAction?.let { action -> KeyboardActions { action() } } ?: KeyboardActions.Default,
             colors = OutlinedTextFieldDefaults.colors(
                 focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,

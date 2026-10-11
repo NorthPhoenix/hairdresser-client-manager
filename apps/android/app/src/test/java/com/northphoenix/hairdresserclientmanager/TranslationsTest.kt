@@ -1,7 +1,9 @@
 package com.northphoenix.hairdresserclientmanager
 
 import com.northphoenix.hairdresserclientmanager.auth.AuthState
+import com.northphoenix.hairdresserclientmanager.auth.CodePurpose
 import com.northphoenix.hairdresserclientmanager.auth.SessionCheck
+import com.northphoenix.hairdresserclientmanager.auth.SignInError
 import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
@@ -11,6 +13,7 @@ import com.northphoenix.hairdresserclientmanager.data.isConnectionFailure
 import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
+import com.northphoenix.hairdresserclientmanager.i18n.bodyRes
 import com.northphoenix.hairdresserclientmanager.i18n.clientReminderTemplate
 import com.northphoenix.hairdresserclientmanager.i18n.emptyClientPickerText
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
@@ -132,6 +135,46 @@ class TranslationsTest {
 
         // Only the sign-in banner may say that the session has ended.
         assertFalse(SessionCheck.entries.any { it.refusedSignInMessage() == R.string.error_session_ended })
+    }
+
+    // --- signing in ---
+
+    @Test
+    fun `every reason a step of signing in is refused for has a message of its own`() {
+        assertEquals(SignInError.entries.size, SignInError.entries.map { it.messageRes() }.toSet().size)
+
+        // What the report saw in English: a mistyped email, a wrong password, a wrong code.
+        assertEquals(R.string.sign_in_error_email_invalid, SignInError.EMAIL_INVALID.messageRes())
+        assertEquals(R.string.sign_in_error_wrong_password, SignInError.WRONG_PASSWORD.messageRes())
+        assertEquals(R.string.sign_in_error_wrong_code, SignInError.WRONG_CODE.messageRes())
+        // No answer from the sign-in provider is not the app's own server being away.
+        assertEquals(R.string.error_sign_in_unreachable, SignInError.NETWORK.messageRes())
+        assertEquals(R.string.error_generic, SignInError.GENERIC.messageRes())
+    }
+
+    @Test
+    fun `the code step says what the code is for and where it was sent`() {
+        assertEquals(CodePurpose.entries.size, CodePurpose.entries.map { it.bodyRes() }.toSet().size)
+
+        for (name in listOf("sign_in_code_body_sign_up", "sign_in_code_body_sign_in", "sign_in_code_body_new_device", "sign_in_code_body_password_reset")) {
+            // The email address is the one argument.
+            assertEquals(name, listOf("%1\$s"), placeholder.findAll(russian.getValue(name).text).map { it.value }.toList())
+        }
+    }
+
+    @Test
+    fun `the Russian sign-in screens have no English word on them`() {
+        // The sign-in screens are the first thing a Stylist sees. The example address is the one thing left in Latin letters.
+        val latin = Regex("[A-Za-z]")
+        val signIn = russian.filterKeys { it.startsWith("sign_in_") || it.startsWith("error_sign_in_") || it == "error_generic" || it == "error_session_ended" }
+
+        assertTrue(signIn.size > 40)
+
+        for ((name, translation) in signIn) {
+            val text = translation.text.replace("name@example.com", "").replace(placeholder, "")
+
+            assertFalse("$name: ${translation.text}", latin.containsMatchIn(text))
+        }
     }
 
     // --- Client Reminder ---

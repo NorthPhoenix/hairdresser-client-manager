@@ -3,7 +3,9 @@ package com.northphoenix.hairdresserclientmanager.i18n
 import androidx.annotation.StringRes
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.auth.AuthState
+import com.northphoenix.hairdresserclientmanager.auth.CodePurpose
 import com.northphoenix.hairdresserclientmanager.auth.SessionCheck
+import com.northphoenix.hairdresserclientmanager.auth.SignInError
 import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.domain.Amount
 
@@ -50,6 +52,42 @@ fun SessionCheck.refusedSignInMessage(): Int? =
 /** Why the sign-in provider did not start. Its own text is technical English, so only the kind of failure is shown. */
 @StringRes
 fun AuthState.Failed.messageRes(): Int = if (isNetwork) R.string.network_error else R.string.error_generic
+
+/**
+ * Why a step of signing in was refused, in the app language. The sign-in provider's own text is
+ * English only, so none of it is shown: what it reports is a [SignInError] first.
+ */
+@StringRes
+fun SignInError.messageRes(): Int =
+    when (this) {
+        SignInError.EMAIL_INVALID -> R.string.sign_in_error_email_invalid
+        SignInError.EMAIL_TAKEN -> R.string.sign_in_error_email_taken
+        SignInError.NO_ACCOUNT -> R.string.sign_in_error_no_account
+        SignInError.WRONG_PASSWORD -> R.string.sign_in_error_wrong_password
+        SignInError.PASSWORD_TOO_SHORT -> R.string.sign_in_error_password_too_short
+        SignInError.PASSWORD_COMPROMISED -> R.string.sign_in_error_password_compromised
+        SignInError.PASSWORD_REFUSED -> R.string.sign_in_error_password_refused
+        SignInError.PASSWORDS_DIFFER -> R.string.sign_in_error_passwords_differ
+        SignInError.WRONG_CODE -> R.string.sign_in_error_wrong_code
+        SignInError.CODE_EXPIRED -> R.string.sign_in_error_code_expired
+        SignInError.CODE_ATTEMPTS_USED_UP -> R.string.sign_in_error_code_attempts_used_up
+        SignInError.TOO_MANY_REQUESTS -> R.string.sign_in_error_too_many_requests
+        SignInError.ACCOUNT_LOCKED -> R.string.sign_in_error_account_locked
+        SignInError.UNSUPPORTED -> R.string.sign_in_error_unsupported
+        SignInError.INTERRUPTED -> R.string.sign_in_error_interrupted
+        SignInError.NETWORK -> R.string.error_sign_in_unreachable
+        SignInError.GENERIC -> R.string.error_generic
+    }
+
+/** What the code step says the emailed code is for. The text takes the email address as its argument. */
+@StringRes
+fun CodePurpose.bodyRes(): Int =
+    when (this) {
+        CodePurpose.SIGN_UP -> R.string.sign_in_code_body_sign_up
+        CodePurpose.SIGN_IN -> R.string.sign_in_code_body_sign_in
+        CodePurpose.NEW_DEVICE -> R.string.sign_in_code_body_new_device
+        CodePurpose.PASSWORD_RESET -> R.string.sign_in_code_body_password_reset
+    }
 
 /**
  * Why an amount field refuses its text, or null for an amount that can be saved. The text of

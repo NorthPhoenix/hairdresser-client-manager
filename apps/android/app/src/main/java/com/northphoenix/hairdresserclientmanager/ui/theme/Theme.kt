@@ -15,9 +15,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
-import com.clerk.api.ui.ClerkColors
-import com.clerk.api.ui.ClerkDesign
-import com.clerk.api.ui.ClerkTheme
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 
@@ -155,22 +152,3 @@ fun HcmTheme(content: @Composable () -> Unit) {
     // The product is light-only, matching the previous app's `userInterfaceStyle: light`.
     MaterialTheme(colorScheme = colorScheme, typography = typography, shapes = shapes, content = content)
 }
-
-/** Makes Clerk's prebuilt sign-in views match the app. */
-fun hcmClerkTheme(): ClerkTheme =
-    ClerkTheme(
-        colors = ClerkColors(
-            primary = HcmColors.Accent,
-            primaryForeground = HcmColors.Surface,
-            background = HcmColors.Paper,
-            foreground = HcmColors.Ink,
-            mutedForeground = HcmColors.Muted,
-            input = HcmColors.Surface,
-            inputForeground = HcmColors.Ink,
-            border = HcmColors.Outline,
-            muted = HcmColors.Sand,
-            danger = HcmColors.Danger,
-            success = HcmColors.Success,
-        ),
-        design = ClerkDesign(borderRadius = 14.dp),
-    )
