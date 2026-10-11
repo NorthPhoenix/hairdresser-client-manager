@@ -109,6 +109,18 @@ class HcmApi(private val trpc: TrpcClient) {
 
     suspend fun completedSources(): List<Appointment> = trpc.query("appointment.completedSources")
 
+    /**
+     * One Appointment as the server has it now, by its id, or null when the server has no such
+     * Appointment. Only the API's own answer counts as that: a "not found" of anything else on
+     * the way, such as a server that does not know the procedure, is a failed request.
+     */
+    suspend fun findAppointment(id: String): Appointment? =
+        try {
+            trpc.query<Appointment>("appointment.get", idInput(id))
+        } catch (error: ApiException) {
+            if (error.isNotFound && error.message == APPOINTMENT_NOT_FOUND) null else throw error
+        }
+
     suspend fun createAppointment(
         primaryClientId: String?,
         additionalClientIds: List<String>,
@@ -131,34 +143,56 @@ class HcmApi(private val trpc: TrpcClient) {
             },
         )
 
-    suspend fun updateAppointmentStatus(id: String, status: AppointmentStatus) {
+    /** A status that goes back to Scheduled can land on a time that is taken, and an in-salon Appointment then takes the salon's address of today. */
+    suspend fun updateAppointmentStatus(id: String, status: AppointmentStatus): UpdatedAppointment =
         updateAppointment(id) { put("status", status.wire) }
-    }
+
+    /**
+     * Edit Appointment. The start and the end are sent together or not at all: without [startsAt]
+     * both stay as they are, and with it an [endsAt] of null clears the end time.
+     * [customLocationAddress] counts at home only, where empty means the primary Client's address.
+     */
+    suspend fun updateAppointmentTimeAndPlace(
+        id: String,
+        startsAt: Instant?,
+        endsAt: Instant?,
+        locationType: LocationType,
+        customLocationAddress: String,
+    ): UpdatedAppointment =
+        updateAppointment(id) {
+            if (startsAt != null) {
+                put("startsAt", startsAt.toString())
+                put("endsAt", endsAt?.toString())
+            }
+            put("locationType", locationType.wire)
+            if (locationType == LocationType.AT_HOME) {
+                put("customLocationAddress", customLocationAddress)
+            }
+        }
 
     suspend fun updateAppointmentPrimary(id: String, clientId: String) {
-        updateAppointment(id) { put("primaryClientId", clientId) }
+        updateAppointment<JsonObject>(id) { put("primaryClientId", clientId) }
     }
 
     suspend fun updateAppointmentNote(id: String, note: String) {
-        updateAppointment(id) { put("note", note) }
+        updateAppointment<JsonObject>(id) { put("note", note) }
     }
 
     /** A null override clears it, so the final total follows the Services total again. */
     suspend fun updateAppointmentFinalTotal(id: String, overrideCents: Long?) {
-        updateAppointment(id) {
+        updateAppointment<JsonObject>(id) {
             if (overrideCents == null) put("finalTotalCentsOverride", JsonNull) else put("finalTotalCentsOverride", overrideCents)
         }
     }
 
-    private suspend fun updateAppointment(id: String, fields: JsonObjectBuilder.() -> Unit) {
-        trpc.mutation<JsonObject>(
+    private suspend inline fun <reified T> updateAppointment(id: String, fields: JsonObjectBuilder.() -> Unit): T =
+        trpc.mutation(
             "appointment.update",
             buildJsonObject {
                 put("id", id)
                 fields()
             },
         )
-    }
 
     suspend fun deleteAppointment(id: String) {
         trpc.mutation<JsonObject>("appointment.delete", idInput(id))
@@ -285,6 +319,11 @@ class HcmApi(private val trpc: TrpcClient) {
     }
 
     private fun idInput(id: String) = buildJsonObject { put("id", id) }
+
+    private companion object {
+        /** What `appointment.get` answers for an Appointment that is gone or is another Stylist's. */
+        const val APPOINTMENT_NOT_FOUND = "Appointment not found."
+    }
 
     private fun participantInput(appointmentId: String, clientId: String) =
         buildJsonObject {

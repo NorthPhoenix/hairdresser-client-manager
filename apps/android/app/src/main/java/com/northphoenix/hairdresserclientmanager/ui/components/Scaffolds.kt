@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -117,9 +118,14 @@ fun SubScreen(
     }
 }
 
-/** Scrolling form body for a [SubScreen]. */
+/** Scrolling form body for a [SubScreen]. A screen that has to scroll it itself passes its own [scroll]. */
 @Composable
-fun ScreenColumn(padding: PaddingValues, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+fun ScreenColumn(
+    padding: PaddingValues,
+    modifier: Modifier = Modifier,
+    scroll: ScrollState = rememberScrollState(),
+    content: @Composable ColumnScope.() -> Unit,
+) {
     Column(
         modifier
             .fillMaxSize()
@@ -127,7 +133,7 @@ fun ScreenColumn(padding: PaddingValues, modifier: Modifier = Modifier, content:
             // runs under the gesture bar instead of being cut off above it.
             .padding(top = padding.calculateTopPadding())
             .imePadding()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scroll)
             .padding(start = ScreenPadding, end = ScreenPadding, top = 8.dp, bottom = 32.dp + padding.calculateBottomPadding()),
         verticalArrangement = Arrangement.spacedBy(16.dp),
         content = content,

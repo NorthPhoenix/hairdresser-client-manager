@@ -9,12 +9,14 @@ import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.data.ProfileShare
+import com.northphoenix.hairdresserclientmanager.data.UpdatedAppointment
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.state.LatestWins
 import com.northphoenix.hairdresserclientmanager.state.LoadedAppointments
 import com.northphoenix.hairdresserclientmanager.state.SessionWatch
 import com.northphoenix.hairdresserclientmanager.state.withClient
 import com.northphoenix.hairdresserclientmanager.state.withSaved
+import com.northphoenix.hairdresserclientmanager.state.withTimeAndPlace
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -290,6 +292,40 @@ class StateTest {
             status = AppointmentStatus.SCHEDULED,
             locationType = LocationType.IN_SALON,
         )
+
+    @Test
+    fun `an edited Appointment has its new time and place before it is loaded again, and everything else it had`() {
+        val alice = participant("c1", "Alice Home", "5550001", isPrimary = true)
+        val loaded = appointment("a1", alice).copy(locationAddress = "12 Salon Street", mapUrl = "https://maps.example/salon", note = "Bring swatches")
+        val saved = UpdatedAppointment(
+            startsAt = "2026-10-21T20:00:00.000Z",
+            endsAt = "2026-10-21T21:00:00.000Z",
+            locationType = LocationType.AT_HOME,
+            locationAddress = "9 Lamar Blvd, Austin",
+            customLocationAddress = "9 Lamar Blvd, Austin",
+            mapUrl = "https://maps.example/lamar",
+        )
+
+        val shown = loaded.withTimeAndPlace(saved)
+
+        // The reload looks the Appointment up at its start time: it has to be the new one.
+        assertEquals("2026-10-21T20:00:00.000Z", shown.startsAt)
+        assertEquals("2026-10-21T21:00:00.000Z", shown.endsAt)
+        assertEquals(LocationType.AT_HOME, shown.locationType)
+        assertEquals("9 Lamar Blvd, Austin", shown.locationAddress)
+        assertEquals("9 Lamar Blvd, Austin", shown.customLocationAddress)
+        assertEquals("https://maps.example/lamar", shown.mapUrl)
+        // The reply has no photos and is not the Appointment: the rest stays as loaded.
+        assertEquals(loaded.participants, shown.participants)
+        assertEquals("Bring swatches", shown.note)
+
+        // The end cleared, back in the salon without an address: nothing of the old place is left.
+        val cleared = shown.withTimeAndPlace(UpdatedAppointment(startsAt = "2026-10-21T20:00:00.000Z", locationType = LocationType.IN_SALON))
+        assertNull(cleared.endsAt)
+        assertEquals("", cleared.locationAddress)
+        assertEquals("", cleared.customLocationAddress)
+        assertNull(cleared.mapUrl)
+    }
 
     @Test
     fun `a saved Client's new phone is on every loaded Appointment they are in`() {

@@ -1,6 +1,5 @@
 package com.northphoenix.hairdresserclientmanager.ui.screens
 
-import android.net.Uri
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -72,11 +71,11 @@ import kotlinx.coroutines.delay
 private object Routes {
     const val MAIN = "main"
     const val SERVICES = "services"
-    const val APPOINTMENT = "appointment/{id}?startsAt={startsAt}"
+    const val APPOINTMENT = "appointment/{id}"
     const val NEW_APPOINTMENT = "appointment-new?date={date}"
     const val CLIENT = "client?id={id}"
 
-    fun appointment(id: String, startsAt: String) = "appointment/$id?startsAt=${Uri.encode(startsAt)}"
+    fun appointment(id: String) = "appointment/$id"
 
     fun newAppointment(date: LocalDate?) = "appointment-new" + (date?.let { "?date=$it" } ?: "")
 
@@ -129,15 +128,11 @@ fun MainNavigation(viewModel: AppViewModel) {
         }
         composable(
             Routes.APPOINTMENT,
-            arguments = listOf(
-                navArgument("id") { type = NavType.StringType },
-                navArgument("startsAt") { type = NavType.StringType; defaultValue = "" },
-            ),
+            arguments = listOf(navArgument("id") { type = NavType.StringType }),
         ) { entry ->
             AppointmentDetailScreen(
                 viewModel = viewModel,
                 appointmentId = entry.arguments?.getString("id").orEmpty(),
-                startsAt = entry.arguments?.getString("startsAt").orEmpty(),
                 onBack = { navController.from(entry) { popBackStack() } },
                 onOpenClient = { navController.from(entry) { navigate(Routes.client(it)) } },
             )
@@ -153,7 +148,7 @@ fun MainNavigation(viewModel: AppViewModel) {
                 onCreated = { appointment ->
                     navController.from(entry) {
                         popBackStack()
-                        navigate(Routes.appointment(appointment.id, appointment.startsAt))
+                        navigate(Routes.appointment(appointment.id))
                     }
                 },
             )
@@ -166,7 +161,7 @@ fun MainNavigation(viewModel: AppViewModel) {
                 viewModel = viewModel,
                 clientId = entry.arguments?.getString("id"),
                 onBack = { navController.from(entry) { popBackStack() } },
-                onOpenAppointment = { id, startsAt -> navController.from(entry) { navigate(Routes.appointment(id, startsAt)) } },
+                onOpenAppointment = { id -> navController.from(entry) { navigate(Routes.appointment(id)) } },
             )
         }
     }
@@ -191,7 +186,7 @@ private fun MainScreen(viewModel: AppViewModel, open: (route: String) -> Unit) {
     var tab by rememberSaveable { mutableStateOf(MainTab.TODAY) }
     // What a tab holds (search text, list position, an unsaved Settings draft) is kept while another tab is shown.
     val tabStates = rememberSaveableStateHolder()
-    val openAppointment: (String, String) -> Unit = { id, startsAt -> open(Routes.appointment(id, startsAt)) }
+    val openAppointment: (String) -> Unit = { id -> open(Routes.appointment(id)) }
     val calendarDate by viewModel.calendarDate.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     // The tab labels get smaller together, as far as the longest of them needs to stay whole in its tab.

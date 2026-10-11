@@ -121,6 +121,7 @@ class SavedStateTest {
             DetailSheet.AddClient,
             DetailSheet.AddService,
             DetailSheet.CopyServices,
+            DetailSheet.Edit,
             DetailSheet.Formula(serviceId = "service-1"),
             DetailSheet.Formula(serviceId = "service-1", formulaId = "formula-1"),
             DetailSheet.AddPhoto(clientId = "client-1"),

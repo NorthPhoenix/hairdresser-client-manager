@@ -64,7 +64,7 @@ import java.time.temporal.WeekFields
 /** Calendar View: Appointments for one day, with a week strip for moving between days. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String, String) -> Unit) {
+fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit) {
     val format = LocalTimeFormat.current
     val locale = format.locale
     val selected by viewModel.calendarDate.collectAsStateWithLifecycle()
@@ -150,7 +150,7 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String, String) 
             }
 
             items(appointments, key = { it.id }) { appointment ->
-                AppointmentCard(appointment, onClick = { onOpenAppointment(appointment.id, appointment.startsAt) })
+                AppointmentCard(appointment, onClick = { onOpenAppointment(appointment.id) })
             }
         }
     }

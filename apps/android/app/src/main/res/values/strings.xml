@@ -33,13 +33,16 @@
     <string name="appointment_history_title">Appointment history</string>
     <string name="appointment_in_salon">In salon</string>
     <string name="appointment_location_label">Location</string>
-    <string name="appointment_missing_body">It may have been deleted or moved to another time.</string>
+    <string name="appointment_missing_body">It may have been deleted.</string>
     <string name="appointment_missing_title">Appointment not found</string>
     <string name="appointment_no_photos">No photos yet.</string>
     <string name="appointment_no_services">No Services yet.</string>
     <string name="appointment_note_placeholder">Appointment note</string>
     <string name="appointment_note_saved">Note saved.</string>
     <string name="appointment_note_title">Note</string>
+    <string name="appointment_overlap_dismiss">Got it</string>
+    <string name="appointment_overlap_intro">Also scheduled at this time:</string>
+    <string name="appointment_overlap_title">Time overlap</string>
     <string name="appointment_photo_after">After</string>
     <string name="appointment_photo_before">Before</string>
     <string name="appointment_photo_category_label">Photo category</string>
@@ -69,6 +72,7 @@
     <string name="appointment_status_label">Status</string>
     <string name="appointment_status_no_show">No-show</string>
     <string name="appointment_status_scheduled">Scheduled</string>
+    <string name="appointment_time_and_place_saved">Time and location saved.</string>
     <string name="appointment_totals_title">Total</string>
     <string name="appointments_empty_title">No Appointments</string>
     <string name="back">Back</string>
@@ -128,6 +132,7 @@
     <string name="duplicate_phone_body">Another Client already has this phone number. You can save anyway.</string>
     <string name="duplicate_phone_continue">Save anyway</string>
     <string name="duplicate_phone_title">Phone already used</string>
+    <string name="edit_appointment">Change time or location</string>
     <string name="edit_client_title">Client Profile</string>
     <string name="error_appointment_needs_client">An Appointment must keep at least one Client.</string>
     <string name="error_appointment_total_too_large">The Services of one Appointment can\'t add up to this much. Nothing was saved.</string>
@@ -202,6 +207,7 @@
     <string name="retry_appointment_photo">Upload again</string>
     <string name="revoke_profile_share">Revoke Profile Share</string>
     <string name="save_appointment_note">Save note</string>
+    <string name="save_appointment_time_and_place">Save</string>
     <string name="save_client">Save</string>
     <string name="save_color_formula">Save Formula</string>
     <string name="save_final_total">Save total</string>

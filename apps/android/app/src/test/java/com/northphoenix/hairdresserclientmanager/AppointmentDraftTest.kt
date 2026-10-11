@@ -1,5 +1,8 @@
 package com.northphoenix.hairdresserclientmanager
 
+import com.northphoenix.hairdresserclientmanager.data.Appointment
+import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
+import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft.Times
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
@@ -14,7 +17,10 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.util.Locale
 
-/** What Appointment Creation works out from what the Stylist chose: the default start, the instants it sends, the at-home address. */
+/**
+ * What Appointment Creation works out from what the Stylist chose: the default start, the instants
+ * it sends, the at-home address. And what the edit of an Appointment's time and place opens with and sends.
+ */
 class AppointmentDraftTest {
     private val auckland = ZoneId.of("Pacific/Auckland")
     private val berlin = TimeFormat(Locale.US, ZoneId.of("Europe/Berlin"))
@@ -213,5 +219,120 @@ class AppointmentDraftTest {
         assertNull(AppointmentDraft.ownAddress(typed = " $alice", primaryClientAddress = alice))
         // The address of a former primary Client that the Stylist typed out is their own choice and is kept.
         assertEquals(alice, AppointmentDraft.ownAddress(typed = alice, primaryClientAddress = carol))
+    }
+
+    // --- the edit of an Appointment's time and place ---
+
+    private fun appointment(
+        startsAt: String,
+        endsAt: String? = null,
+        locationType: LocationType = LocationType.IN_SALON,
+        customLocationAddress: String = "",
+    ) = Appointment(
+        id = "a1",
+        primaryClientId = "c1",
+        primaryClientName = "Alice",
+        startsAt = startsAt,
+        endsAt = endsAt,
+        status = AppointmentStatus.SCHEDULED,
+        locationType = locationType,
+        locationAddress = customLocationAddress.ifEmpty { "12 Salon Street" },
+        customLocationAddress = customLocationAddress,
+    )
+
+    @Test
+    fun `the edit form opens with the day and the times of the Appointment in the stylist timezone`() {
+        // 19:30 UTC on October 9 is 08:30 on October 10 in Auckland (UTC+13).
+        val nz = TimeFormat(Locale.US, auckland)
+        val saved = AppointmentDraft.saved(appointment("2026-10-09T19:30:00.000Z", endsAt = "2026-10-09T20:15:00.000Z"), nz)
+
+        assertEquals(LocalDate.parse("2026-10-10"), saved.date)
+        assertEquals(LocalTime.parse("08:30"), saved.startTime)
+        assertEquals(LocalDate.parse("2026-10-10"), saved.endDate)
+        assertEquals(LocalTime.parse("09:15"), saved.endTime)
+
+        // No end time is no end time, not one the form makes up.
+        val open = AppointmentDraft.saved(appointment("2026-10-09T19:30:00.000Z"), nz)
+        assertNull(open.endDate)
+        assertNull(open.endTime)
+    }
+
+    @Test
+    fun `the edit form opens with the Stylist's own at-home address, and with none for the primary Client's or the salon's`() {
+        val start = "2026-10-24T10:00:00.000Z"
+
+        assertEquals(LocationType.IN_SALON, AppointmentDraft.saved(appointment(start), utc).locationType)
+        assertNull(AppointmentDraft.saved(appointment(start), utc).ownAddress)
+        // At the primary Client's address: the field shows that Client's address, whoever it is by now.
+        assertNull(AppointmentDraft.saved(appointment(start, locationType = LocationType.AT_HOME), utc).ownAddress)
+
+        val custom = AppointmentDraft.saved(appointment(start, locationType = LocationType.AT_HOME, customLocationAddress = alice), utc)
+        assertEquals(LocationType.AT_HOME, custom.locationType)
+        assertEquals(alice, custom.ownAddress)
+        // M9: the address of a former primary Client that stayed on the Appointment is in the field, to be changed or emptied.
+        assertEquals(alice, AppointmentDraft.shownAddress(custom.ownAddress, carol))
+        assertNull(AppointmentDraft.ownAddress(typed = "", primaryClientAddress = carol))
+    }
+
+    @Test
+    fun `times the Stylist did not change are not sent`() {
+        val saved = AppointmentDraft.saved(appointment("2026-10-24T10:00:00.000Z", endsAt = "2026-10-24T11:00:00.000Z"), utc)
+
+        // Only the place is edited.
+        assertNull(AppointmentDraft.editedTimes(saved, saved.date, saved.startTime, saved.endTime, utc))
+    }
+
+    @Test
+    fun `a changed day, start or end is sent whole, by the rules of Appointment Creation`() {
+        val saved = AppointmentDraft.saved(appointment("2026-10-24T10:00:00.000Z", endsAt = "2026-10-24T11:00:00.000Z"), utc)
+        val ten = LocalTime.of(10, 0)
+        val eleven = LocalTime.of(11, 0)
+
+        // Another day: both times move with it.
+        assertEquals(
+            Times.Valid(Instant.parse("2026-10-26T10:00:00Z"), Instant.parse("2026-10-26T11:00:00Z")),
+            AppointmentDraft.editedTimes(saved, day.plusDays(2), ten, eleven, utc),
+        )
+        // Another start: the end is sent with it, because the server checks a new start against the end it has.
+        assertEquals(
+            Times.Valid(Instant.parse("2026-10-24T10:30:00Z"), Instant.parse("2026-10-24T11:00:00Z")),
+            AppointmentDraft.editedTimes(saved, day, LocalTime.of(10, 30), eleven, utc),
+        )
+        // The end cleared: sent as no end.
+        assertEquals(Times.Valid(Instant.parse("2026-10-24T10:00:00Z"), endsAt = null), AppointmentDraft.editedTimes(saved, day, ten, end = null, utc))
+        // An end past midnight, and the mistakes Appointment Creation refuses.
+        assertEquals(
+            Times.Valid(Instant.parse("2026-10-24T22:00:00Z"), Instant.parse("2026-10-25T01:00:00Z")),
+            AppointmentDraft.editedTimes(saved, day, LocalTime.of(22, 0), LocalTime.of(1, 0), utc),
+        )
+        assertEquals(Times.EndNotAfterStart, AppointmentDraft.editedTimes(saved, day, LocalTime.of(12, 0), eleven, utc))
+        assertEquals(Times.StartSkipped, AppointmentDraft.editedTimes(saved, springForward, LocalTime.of(2, 30), eleven, berlin))
+    }
+
+    @Test
+    fun `an edit of the place leaves a start in the hour the clocks repeat where it is`() {
+        // Berlin, October 25, 2026: 02:30 comes twice. This Appointment is at the second one (01:30 UTC).
+        val saved = AppointmentDraft.saved(appointment("2026-10-25T01:30:00.000Z"), berlin)
+
+        assertEquals(LocalTime.of(2, 30), saved.startTime)
+        // Worked out from the form it would be the first 02:30, an hour earlier.
+        assertEquals(Times.Valid(Instant.parse("2026-10-25T00:30:00Z"), endsAt = null), AppointmentDraft.times(saved.date, saved.startTime, end = null, berlin))
+        assertNull(AppointmentDraft.editedTimes(saved, saved.date, saved.startTime, saved.endTime, berlin))
+    }
+
+    @Test
+    fun `an end the form does not offer stays, and is named, until the Stylist changes the times`() {
+        // Saved before an end time could be at most twelve hours into the next day: 15:00 to 14:00 the day after.
+        val saved = AppointmentDraft.saved(appointment("2026-10-24T15:00:00.000Z", endsAt = "2026-10-25T14:00:00.000Z"), utc)
+
+        assertNull(AppointmentDraft.editedTimes(saved, saved.date, saved.startTime, saved.endTime, utc))
+        assertEquals(LocalDate.parse("2026-10-25"), AppointmentDraft.editedEndDate(saved, saved.date, saved.startTime, saved.endTime))
+
+        // Once a time is changed the end is read as Appointment Creation reads it.
+        assertEquals(Times.EndNotAfterStart, AppointmentDraft.editedTimes(saved, saved.date, LocalTime.of(15, 30), saved.endTime, utc))
+        assertNull(AppointmentDraft.editedEndDate(saved, saved.date, LocalTime.of(15, 30), saved.endTime))
+        assertEquals(LocalDate.parse("2026-10-24"), AppointmentDraft.editedEndDate(saved, saved.date, saved.startTime, LocalTime.of(16, 0)))
+        assertEquals(LocalDate.parse("2026-10-25"), AppointmentDraft.editedEndDate(saved, saved.date, LocalTime.of(22, 0), LocalTime.of(1, 0)))
+        assertNull(AppointmentDraft.editedEndDate(saved, saved.date, saved.startTime, end = null))
     }
 }

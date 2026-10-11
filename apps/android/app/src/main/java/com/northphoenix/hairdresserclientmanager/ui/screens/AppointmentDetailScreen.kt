@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -37,11 +38,13 @@ import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.EditCalendar
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.Sms
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -51,14 +54,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -66,9 +72,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.TextStyle
@@ -132,6 +140,7 @@ import com.northphoenix.hairdresserclientmanager.ui.components.icon
 import com.northphoenix.hairdresserclientmanager.ui.components.tagTextStyle
 import com.northphoenix.hairdresserclientmanager.ui.openUri
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
+import kotlinx.coroutines.flow.drop
 
 private const val MAX_GALLERY_PHOTOS = 10
 
@@ -146,6 +155,9 @@ internal sealed interface DetailSheet {
     data object AddService : DetailSheet
 
     data object CopyServices : DetailSheet
+
+    /** Edit Appointment: the day, the times and the place. */
+    data object Edit : DetailSheet
 
     /** [formulaId] is null for a Color Formula that is being added. */
     data class Formula(val serviceId: String, val formulaId: String? = null) : DetailSheet
@@ -167,6 +179,7 @@ internal sealed interface DetailSheet {
                     AddClient -> listOf("addClient")
                     AddService -> listOf("addService")
                     CopyServices -> listOf("copyServices")
+                    Edit -> listOf("edit")
                     is Formula -> listOfNotNull("formula", sheet.serviceId, sheet.formulaId)
                     is AddPhoto -> listOfNotNull("addPhoto", sheet.clientId, sheet.replacingPhotoId)
                     is Photo -> listOf("photo", sheet.photoId)
@@ -180,6 +193,7 @@ internal sealed interface DetailSheet {
                     "addClient" -> AddClient
                     "addService" -> AddService
                     "copyServices" -> CopyServices
+                    "edit" -> Edit
                     "formula" -> id?.let { Formula(it, saved.getOrNull(2)) }
                     "addPhoto" -> id?.let { AddPhoto(it, saved.getOrNull(2)) }
                     "photo" -> id?.let(::Photo)
@@ -196,7 +210,6 @@ internal sealed interface DetailSheet {
 fun AppointmentDetailScreen(
     viewModel: AppViewModel,
     appointmentId: String,
-    startsAt: String,
     onBack: () -> Unit,
     onOpenClient: (String) -> Unit,
 ) {
@@ -207,13 +220,13 @@ fun AppointmentDetailScreen(
 
     // Asked for again each time the screen comes into view, from another screen or from the
     // background: the Appointment may have changed or gone since it was loaded.
-    LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.loadAppointment(appointmentId, startsAt) }
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.loadAppointment(appointmentId) }
 
     if (appointment == null) {
         SubScreen(title = "", onBack = onBack, busy = busy) { padding ->
             when (val load = absent[appointmentId]) {
                 is LoadState.Failed ->
-                    LoadFailed(load.message, onRetry = { viewModel.loadAppointment(appointmentId, startsAt) }, Modifier.padding(padding))
+                    LoadFailed(load.message, onRetry = { viewModel.loadAppointment(appointmentId) }, Modifier.padding(padding))
                 LoadState.Missing -> ItemMissing(
                     stringResource(R.string.appointment_missing_title),
                     stringResource(R.string.appointment_missing_body),
@@ -248,6 +261,10 @@ private fun AppointmentDetail(
     val completedSourcesLoad by viewModel.completedSourcesLoad.collectAsStateWithLifecycle()
     // The photos of this Appointment that are not on the server yet.
     val uploads = viewModel.photoUploads.collectAsStateWithLifecycle().value.filter { it.photo.appointmentId == appointment.id }
+    val today by viewModel.today.collectAsStateWithLifecycle()
+    // The other Scheduled Appointments at this one's time, until the Stylist dismisses the warning.
+    val overlapping = viewModel.overlapWarnings.collectAsStateWithLifecycle().value[appointment.id].orEmpty()
+    val scroll = rememberScrollState()
     val isGroup = appointment.participants.size > 1
     var sheet by rememberSaveable(stateSaver = DetailSheet.Saver) { mutableStateOf<DetailSheet?>(null) }
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
@@ -301,13 +318,25 @@ private fun AppointmentDetail(
         }
     }
 
+    // A warning that arrives while the screen is scrolled down is at its top: the screen goes there.
+    // Not for the one the screen opens with, which would move a screen the Stylist comes back to.
+    val latestOverlapping by rememberUpdatedState(overlapping)
+
+    LaunchedEffect(scroll) {
+        snapshotFlow { latestOverlapping }.drop(1).collect { if (it.isNotEmpty()) scroll.animateScrollTo(0) }
+    }
+
     SubScreen(
         title = format.dayTitle(format.zoned(appointment.startsAt).toLocalDate()),
         onBack = onBack,
         busy = busy,
         unsaved = unsaved,
     ) { padding ->
-        ScreenColumn(padding) {
+        ScreenColumn(padding, scroll = scroll) {
+            if (overlapping.isNotEmpty()) {
+                OverlapWarning(appointment, overlapping, onDismiss = { viewModel.dismissOverlapWarning(appointment.id) })
+            }
+
             // --- summary ---
             HcmCard {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -331,6 +360,12 @@ private fun AppointmentDetail(
                             icon = Icons.Rounded.Map,
                         )
                     }
+                    SecondaryButton(
+                        stringResource(R.string.edit_appointment),
+                        onClick = { sheet = DetailSheet.Edit },
+                        modifier = Modifier.fillMaxWidth(),
+                        icon = Icons.Rounded.EditCalendar,
+                    )
                 }
             }
 
@@ -530,6 +565,16 @@ private fun AppointmentDetail(
             onDismiss = { sheet = null },
             onCopy = { sourceId -> viewModel.copyServices(appointment.id, sourceId) { sheet = null } },
         )
+        DetailSheet.Edit -> EditAppointmentSheet(
+            appointment = appointment,
+            today = today,
+            busy = busy,
+            onDismiss = { sheet = null },
+            onRefused = { viewModel.notify(it, isError = true) },
+            onSave = { times, locationType, ownAddress ->
+                viewModel.editAppointment(appointment.id, times, locationType, ownAddress) { sheet = null }
+            },
+        )
         // A sheet about something that is no longer in the Appointment closes.
         is DetailSheet.Formula -> {
             val service = appointment.services.firstOrNull { it.id == current.serviceId }
@@ -636,6 +681,38 @@ private fun AppointmentDetail(
             },
             onDismiss = { deletingServiceId = null },
         )
+    }
+}
+
+/**
+ * The overlap warning of this Appointment: the other Scheduled Appointments at its time, each by
+ * its time and its Clients. It is on screen until the Stylist dismisses it, and a screen reader
+ * reads it out when it appears.
+ */
+@Composable
+private fun OverlapWarning(appointment: Appointment, overlapping: List<Appointment>, onDismiss: () -> Unit) {
+    val format = LocalTimeFormat.current
+    val day = format.zoned(appointment.startsAt).toLocalDate()
+
+    HcmCard(
+        Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        color = HcmColors.WarningSoft,
+        borderColor = HcmColors.Warning,
+        contentPadding = PaddingValues(start = 18.dp, top = 16.dp, end = 8.dp, bottom = 6.dp),
+    ) {
+        Column(Modifier.padding(end = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Rounded.WarningAmber, contentDescription = null, modifier = Modifier.size(20.dp), tint = HcmColors.Warning)
+                Text(stringResource(R.string.appointment_overlap_title), style = MaterialTheme.typography.titleMedium, color = HcmColors.Warning)
+            }
+            Text(stringResource(R.string.appointment_overlap_intro), style = MaterialTheme.typography.bodyMedium, color = HcmColors.Ink)
+            overlapping.forEach { other ->
+                val clients = other.participants.joinToString(", ") { it.name }.ifEmpty { other.primaryClientName }
+
+                Text(format.timeRangeSeenFrom(day, other) + " · " + clients, style = MaterialTheme.typography.titleSmall, color = HcmColors.Ink)
+            }
+        }
+        TextAction(stringResource(R.string.appointment_overlap_dismiss), onClick = onDismiss, modifier = Modifier.align(Alignment.End))
     }
 }
 

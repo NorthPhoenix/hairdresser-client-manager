@@ -577,6 +577,26 @@ class DomainTest {
     }
 
     @Test
+    fun `an overlapping Appointment is named by its times, with its date when it starts on another day`() {
+        val format = TimeFormat(Locale.US, ZoneId.of("UTC"), thisYear = 2026, uses24HourClock = true)
+        fun appointment(startsAt: String, endsAt: String?) = Appointment(
+            id = "a",
+            primaryClientId = "c",
+            primaryClientName = "Carol Other",
+            startsAt = startsAt,
+            endsAt = endsAt,
+            status = AppointmentStatus.SCHEDULED,
+            locationType = LocationType.IN_SALON,
+        )
+        val day = LocalDate.of(2026, 10, 9)
+
+        assertEquals("09:00 – 10:00", format.timeRangeSeenFrom(day, appointment("2026-10-09T09:00:00.000Z", "2026-10-09T10:00:00.000Z")))
+        assertEquals("09:00", format.timeRangeSeenFrom(day, appointment("2026-10-09T09:00:00.000Z", endsAt = null)))
+        // Started the evening before and still running after midnight: without its date it would read as an Appointment of this day.
+        assertEquals("Oct 8, 23:30 – 00:30", format.timeRangeSeenFrom(day, appointment("2026-10-08T23:30:00.000Z", "2026-10-09T00:30:00.000Z")))
+    }
+
+    @Test
     fun `times follow the device's 12 or 24-hour setting, whatever the app language`() {
         val utc = ZoneId.of("UTC")
         val afternoon = LocalTime.of(14, 0)

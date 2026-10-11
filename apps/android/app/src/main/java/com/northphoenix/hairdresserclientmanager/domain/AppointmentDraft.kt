@@ -1,5 +1,7 @@
 package com.northphoenix.hairdresserclientmanager.domain
 
+import com.northphoenix.hairdresserclientmanager.data.Appointment
+import com.northphoenix.hairdresserclientmanager.data.LocationType
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -8,7 +10,10 @@ import java.time.LocalTime
 import java.time.ZonedDateTime
 import java.time.temporal.ChronoUnit
 
-/** What Appointment Creation works out from what the Stylist chose. Tested in `AppointmentDraftTest`. */
+/**
+ * What Appointment Creation, and the edit of an Appointment's time and place, work out from what
+ * the Stylist chose. Tested in `AppointmentDraftTest`.
+ */
 object AppointmentDraft {
     /**
      * The start the form opens with: the next full hour after [now] (the Stylist's clock), which
@@ -86,4 +91,49 @@ object AppointmentDraft {
      */
     fun ownAddress(typed: String?, primaryClientAddress: String?): String? =
         typed?.trim()?.takeUnless { it.isEmpty() || it == primaryClientAddress.orEmpty().trim() }
+
+    /**
+     * The time and place an Appointment has, as the edit form opens with them: its day and times in
+     * the Stylist's timezone. [ownAddress] is the at-home address the Stylist typed, null when the
+     * Appointment is at its primary Client's address or in the salon.
+     */
+    data class Saved(
+        val date: LocalDate,
+        val startTime: LocalTime,
+        val endDate: LocalDate?,
+        val endTime: LocalTime?,
+        val locationType: LocationType,
+        val ownAddress: String?,
+    )
+
+    fun saved(appointment: Appointment, format: TimeFormat): Saved {
+        val start = format.zoned(appointment.startsAt)
+        val end = appointment.endsAt?.let(format::zoned)
+
+        return Saved(
+            date = start.toLocalDate(),
+            startTime = start.toLocalTime(),
+            endDate = end?.toLocalDate(),
+            endTime = end?.toLocalTime(),
+            locationType = appointment.locationType,
+            ownAddress = appointment.customLocationAddress.takeIf { it.isNotEmpty() },
+        )
+    }
+
+    private fun Saved.hasTimes(date: LocalDate, start: LocalTime, end: LocalTime?): Boolean =
+        date == this.date && start == startTime && end == endTime
+
+    /**
+     * What an edit sends for the times, or what is wrong with them. Null while the day and both
+     * times are the [saved] ones: they are then not sent, and the Appointment keeps exactly the
+     * moments it has. Worked out again from the form they could come out as other moments: a start
+     * in the hour the clocks repeat, or an end the form does not offer. Anything the Stylist
+     * changed goes by the rules of Appointment Creation ([times]).
+     */
+    fun editedTimes(saved: Saved, date: LocalDate, start: LocalTime, end: LocalTime?, format: TimeFormat): Times? =
+        if (saved.hasTimes(date, start, end)) null else times(date, start, end, format)
+
+    /** The day the edit form names for the end time: the saved one while the times are the saved ones, else as in [endDate]. */
+    fun editedEndDate(saved: Saved, date: LocalDate, start: LocalTime, end: LocalTime?): LocalDate? =
+        if (saved.hasTimes(date, start, end)) saved.endDate else end?.let { endDate(date, start, it) }
 }

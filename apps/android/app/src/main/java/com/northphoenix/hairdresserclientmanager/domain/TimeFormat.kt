@@ -102,6 +102,16 @@ class TimeFormat(val locale: Locale, val zone: ZoneId, private val thisYear: Int
     fun timeRange(appointment: Appointment): String =
         listOfNotNull(time(appointment.startsAt), appointment.endsAt?.let(::time)).joinToString(" – ")
 
+    /**
+     * The time range of an Appointment named next to another one that is on [day]: with its own
+     * date in front ("Oct 8, 11:30 PM – 12:30 AM") when it starts on another day.
+     */
+    fun timeRangeSeenFrom(day: LocalDate, appointment: Appointment): String {
+        val startDay = zoned(appointment.startsAt).toLocalDate()
+
+        return if (startDay == day) timeRange(appointment) else shortDate(startDay) + ", " + timeRange(appointment)
+    }
+
     /** "Oct 8, 2026, 2:00 PM – 3:30 PM", used where the date is not otherwise visible. */
     fun dateAndTimeRange(appointment: Appointment): String =
         mediumDate(zoned(appointment.startsAt).toLocalDate()) + ", " + timeRange(appointment)

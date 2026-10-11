@@ -123,7 +123,7 @@ fun ClientEditorScreen(
     viewModel: AppViewModel,
     clientId: String?,
     onBack: () -> Unit,
-    onOpenAppointment: (String, String) -> Unit,
+    onOpenAppointment: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -452,7 +452,7 @@ private fun ProfileShareCard(
 }
 
 @Composable
-private fun ClientHistoryCard(viewModel: AppViewModel, clientId: String, onOpenAppointment: (String, String) -> Unit) {
+private fun ClientHistoryCard(viewModel: AppViewModel, clientId: String, onOpenAppointment: (String) -> Unit) {
     val format = LocalTimeFormat.current
     val scope = rememberCoroutineScope()
     var history by remember(clientId) { mutableStateOf<List<ClientHistoryEntry>?>(null) }
@@ -488,7 +488,7 @@ private fun ClientHistoryCard(viewModel: AppViewModel, clientId: String, onOpenA
                 if (index > 0) {
                     Hairline(Modifier.padding(horizontal = 18.dp))
                 }
-                Surface(onClick = { onOpenAppointment(entry.id, entry.startsAt) }, color = Color.Transparent) {
+                Surface(onClick = { onOpenAppointment(entry.id) }, color = Color.Transparent) {
                     Row(
                         Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,

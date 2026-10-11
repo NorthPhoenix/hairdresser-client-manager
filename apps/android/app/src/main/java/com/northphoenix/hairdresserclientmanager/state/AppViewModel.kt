@@ -33,8 +33,10 @@ import com.northphoenix.hairdresserclientmanager.data.ServiceMenuItem
 import com.northphoenix.hairdresserclientmanager.data.ShareImage
 import com.northphoenix.hairdresserclientmanager.data.StoredFile
 import com.northphoenix.hairdresserclientmanager.data.Stylist
+import com.northphoenix.hairdresserclientmanager.data.UpdatedAppointment
 import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
 import com.northphoenix.hairdresserclientmanager.data.toApiException
+import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
 import com.northphoenix.hairdresserclientmanager.domain.OneLine
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
 import com.northphoenix.hairdresserclientmanager.domain.zoneOrSystem
@@ -161,6 +163,14 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     /** Why an Appointment that a screen asked for is not in [appointments]: loading, failed to load or gone. */
     val absentAppointments: StateFlow<Map<String, LoadState>> = loadedAppointments.absent
 
+    private val overlaps = OverlapWarnings()
+
+    /**
+     * By Appointment, the other Scheduled Appointments at its time, as the server named them when
+     * it was created, moved or set back to Scheduled. Shown on that Appointment until dismissed.
+     */
+    val overlapWarnings: StateFlow<Map<String, List<Appointment>>> = overlaps.shown
+
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
 
@@ -275,6 +285,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         // Resetting also drops whatever is still on its way for the previous Stylist.
         listOf(clientsLoading, serviceMenuLoading, homeLoading, calendarLoading, completedSourcesLoading).forEach(LoadTracker::reset)
         loadedAppointments.clear()
+        overlaps.clear()
         actions.forgetOwed()
         photos.close()
     }
@@ -459,17 +470,10 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     }
 
     /**
-     * Fetches one Appointment again. The API has no get-by-id, so this asks for the one-millisecond
-     * range that starts at the Appointment's own start time: the one of the loaded copy, or
-     * [startsAt] for an Appointment that is not loaded. An Appointment that is not found there
-     * counts as gone, so a change of the start time has to reach the loaded copy before a reload.
+     * Fetches one Appointment again, by its id: its start time can be another one by now. An
+     * Appointment the server no longer has counts as gone.
      */
-    private suspend fun reloadAppointment(id: String, startsAt: String = "") =
-        loadedAppointments.reload(id) {
-            val start = (loadedAppointments[id]?.startsAt ?: startsAt).takeIf { it.isNotEmpty() }?.let(Instant::parse)
-
-            start?.let { api.listAppointments(it, it.plusMillis(1)).firstOrNull { appointment -> appointment.id == id } }
-        }
+    private suspend fun reloadAppointment(id: String) = loadedAppointments.reload(id) { api.findAppointment(id) }
 
     private suspend fun reloadAppointmentAndLists(id: String) = together(::loadAppointmentLists, { reloadAppointment(id) })
 
@@ -478,12 +482,17 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      * A loaded copy is shown at once and refreshed behind it; a refresh nobody asked for fails quietly.
      * Without a copy the screen shows how the load went (see [absentAppointments]).
      */
-    fun loadAppointment(id: String, startsAt: String) {
+    fun loadAppointment(id: String) {
         viewModelScope.launch {
+            val shownStart = loadedAppointments[id]?.startsAt
+
             try {
-                reloadAppointment(id, startsAt)
-                if (loadedAppointments[id] == null && isListed(id)) {
-                    // Gone, or moved to another time: the lists that still show it are loaded again, quietly.
+                reloadAppointment(id)
+
+                val reloaded = loadedAppointments[id]
+
+                if ((reloaded == null || (shownStart != null && reloaded.startsAt != shownStart)) && isListed(id)) {
+                    // Gone, or moved to another time elsewhere: the lists that still show it as it was are loaded again, quietly.
                     actions.reloadWithRetry(::loadAppointmentLists)
                 } else {
                     actions.reloadOwed()
@@ -697,7 +706,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             key = "deleteClient:$id",
             successNotice = R.string.client_deleted,
             onSuccess = { onSuccess() },
-            reload = { together(::loadAll, { affected.forEach { reloadAppointment(it.id, it.startsAt) } }) },
+            reload = { together(::loadAll, { affected.forEach { reloadAppointment(it.id) } }) },
         ) {
             api.deleteClient(id)
             _clients.update { clients -> clients.filterNot { it.id == id } }
@@ -806,15 +815,47 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             endsAt = endsAt,
             locationType = locationType,
             customLocationAddress = customLocationAddress?.trim(),
-        ).also { loadedAppointments.remember(listOf(it.appointment)) }
+        ).also {
+            loadedAppointments.remember(listOf(it.appointment))
+            // The notice only says that there is an overlap. The Appointment's own screen names it, until dismissed.
+            overlaps.answered(it.appointment.id, it.conflicts)
+        }
     }
 
-    /** Status taps are saved one at a time in the order they were made, so the last tap is the status that stays. */
+    /**
+     * Status taps are saved one at a time in the order they were made, so the last tap is the status that stays.
+     * A status that goes back to Scheduled can land on a time that is taken: the answer says by which Appointments.
+     */
     fun setAppointmentStatus(id: String, status: AppointmentStatus) =
         saveLatest(statusChanges, id, id, status, saved = loadedAppointments[id]?.status) { next ->
-            api.updateAppointmentStatus(id, next)
-            updateLoaded(id) { it.copy(status = next) }
+            val saved = api.updateAppointmentStatus(id, next)
+
+            updateLoaded(id) { it.copy(status = next).withTimeAndPlace(saved) }
+            overlaps.answered(id, saved.conflicts)
         }
+
+    /**
+     * Edit Appointment: saves the day, the times and the place of an Appointment. [times] is null
+     * when the Stylist left them as they were, and they are then not sent. [ownAddress] is the
+     * at-home address the Stylist typed, null for the primary Client's.
+     */
+    fun editAppointment(
+        id: String,
+        times: AppointmentDraft.Times.Valid?,
+        locationType: LocationType,
+        ownAddress: String?,
+        onSuccess: () -> Unit,
+    ) = actOnAppointment(id, "editAppointment:$id", R.string.appointment_time_and_place_saved, onSuccess) {
+        val saved = api.updateAppointmentTimeAndPlace(id, times?.startsAt, times?.endsAt, locationType, ownAddress?.trim().orEmpty())
+
+        updateLoaded(id) { it.withTimeAndPlace(saved) }
+        // An answer to times that were not sent names no overlap, and says nothing about the one there may be.
+        if (times != null) {
+            overlaps.answered(id, saved.conflicts)
+        }
+    }
+
+    fun dismissOverlapWarning(appointmentId: String) = overlaps.dismiss(appointmentId)
 
     // Not put into the loaded copy: the Appointment's address can change with its primary Client, and only the reload shows to what.
     fun setAppointmentPrimary(id: String, clientId: String) =
@@ -839,6 +880,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         actOnAppointment(id, "deleteAppointment:$id", onSuccess = onSuccess) {
             api.deleteAppointment(id)
             forgetAppointment(id)
+            overlaps.gone(id)
             photos.removeAll { it.appointmentId == id }
         }
 
@@ -1074,6 +1116,17 @@ internal fun List<ClientProfile>.withSaved(saved: ClientProfile): List<ClientPro
 
     return listOf(saved.copy(activeProfileShare = saved.activeProfileShare ?: known?.activeProfileShare)) + filterNot { it.id == saved.id }
 }
+
+/** The time and the place the server has just answered with, on a loaded copy of that Appointment. */
+internal fun Appointment.withTimeAndPlace(saved: UpdatedAppointment): Appointment =
+    copy(
+        startsAt = saved.startsAt,
+        endsAt = saved.endsAt,
+        locationType = saved.locationType,
+        locationAddress = saved.locationAddress,
+        customLocationAddress = saved.customLocationAddress,
+        mapUrl = saved.mapUrl,
+    )
 
 /**
  * The Appointment with what it repeats of a Client replaced by that Client as just saved: the name,

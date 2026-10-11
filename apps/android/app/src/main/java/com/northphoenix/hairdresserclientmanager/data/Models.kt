@@ -161,8 +161,26 @@ data class Appointment(
     val status: AppointmentStatus,
     val locationType: LocationType,
     val locationAddress: String = "",
+    /** The at-home address the Stylist typed. Empty when [locationAddress] is the salon's or the primary Client's. */
+    val customLocationAddress: String = "",
     val note: String = "",
     val mapUrl: String? = null,
+)
+
+/**
+ * What the app reads of the reply of `appointment.update`: the time and the place as they are
+ * saved, and the other Scheduled Appointments the Appointment overlaps now that it was moved or
+ * set back to Scheduled ([conflicts], which name an Appointment and have no Services or photos).
+ */
+@Serializable
+data class UpdatedAppointment(
+    val startsAt: String,
+    val endsAt: String? = null,
+    val locationType: LocationType,
+    val locationAddress: String = "",
+    val customLocationAddress: String = "",
+    val mapUrl: String? = null,
+    val conflicts: List<Appointment> = emptyList(),
 )
 
 @Serializable

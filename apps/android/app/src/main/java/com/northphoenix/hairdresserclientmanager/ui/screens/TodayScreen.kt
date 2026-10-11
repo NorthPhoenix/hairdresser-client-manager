@@ -40,7 +40,7 @@ import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 /** Home View: today's Appointments plus past ones still marked scheduled, which need an outcome. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String, String) -> Unit) {
+fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit) {
     val format = LocalTimeFormat.current
     val appointments by viewModel.home.collectAsStateWithLifecycle()
     val load by viewModel.homeLoad.collectAsStateWithLifecycle()
@@ -80,14 +80,14 @@ fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String, String) -> 
             if (unresolved.isNotEmpty()) {
                 item { ListSectionLabel(stringResource(R.string.home_unresolved_section), unresolved.size, warning = true) }
                 items(unresolved, key = { "unresolved-${it.id}" }) { appointment ->
-                    AppointmentCard(appointment, onClick = { onOpenAppointment(appointment.id, appointment.startsAt) }, showDate = true)
+                    AppointmentCard(appointment, onClick = { onOpenAppointment(appointment.id) }, showDate = true)
                 }
             }
 
             if (todays.isNotEmpty()) {
                 item { ListSectionLabel(stringResource(R.string.home_today_section), todays.size) }
                 items(todays, key = { "today-${it.id}" }) { appointment ->
-                    AppointmentCard(appointment, onClick = { onOpenAppointment(appointment.id, appointment.startsAt) })
+                    AppointmentCard(appointment, onClick = { onOpenAppointment(appointment.id) })
                 }
             }
         }

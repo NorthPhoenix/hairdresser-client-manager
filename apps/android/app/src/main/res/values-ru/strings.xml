@@ -32,13 +32,16 @@
     <string name="appointment_history_title">История записей</string>
     <string name="appointment_in_salon">В салоне</string>
     <string name="appointment_location_label">Место</string>
-    <string name="appointment_missing_body">Возможно, её удалили или перенесли на другое время.</string>
+    <string name="appointment_missing_body">Возможно, её удалили.</string>
     <string name="appointment_missing_title">Запись не найдена</string>
     <string name="appointment_no_photos">Фото пока нет.</string>
     <string name="appointment_no_services">Услуг пока нет.</string>
     <string name="appointment_note_placeholder">Заметка к записи</string>
     <string name="appointment_note_saved">Заметка сохранена.</string>
     <string name="appointment_note_title">Заметка</string>
+    <string name="appointment_overlap_dismiss">Понятно</string>
+    <string name="appointment_overlap_intro">На это время также записаны:</string>
+    <string name="appointment_overlap_title">Пересечение по времени</string>
     <string name="appointment_photo_after">После</string>
     <string name="appointment_photo_before">До</string>
     <string name="appointment_photo_category_label">Категория фото</string>
@@ -68,6 +71,7 @@
     <string name="appointment_status_label">Статус</string>
     <string name="appointment_status_no_show">Неявка</string>
     <string name="appointment_status_scheduled">Запланирована</string>
+    <string name="appointment_time_and_place_saved">Время и место сохранены.</string>
     <string name="appointment_totals_title">Итог</string>
     <string name="appointments_empty_title">Записей нет</string>
     <string name="back">Назад</string>
@@ -127,6 +131,7 @@
     <string name="duplicate_phone_body">Этот номер уже указан у другого клиента. Можно всё равно сохранить.</string>
     <string name="duplicate_phone_continue">Всё равно сохранить</string>
     <string name="duplicate_phone_title">Номер уже используется</string>
+    <string name="edit_appointment">Изменить время или место</string>
     <string name="edit_client_title">Профиль клиента</string>
     <string name="error_appointment_needs_client">В записи должен остаться хотя бы один клиент.</string>
     <string name="error_appointment_total_too_large">Сумма услуг одной записи не может быть такой большой. Ничего не сохранено.</string>
@@ -199,6 +204,7 @@
     <string name="retry_appointment_photo">Загрузить заново</string>
     <string name="revoke_profile_share">Закрыть доступ к профилю</string>
     <string name="save_appointment_note">Сохранить заметку</string>
+    <string name="save_appointment_time_and_place">Сохранить</string>
     <string name="save_client">Сохранить</string>
     <string name="save_color_formula">Сохранить формулу</string>
     <string name="save_final_total">Сохранить сумму</string>

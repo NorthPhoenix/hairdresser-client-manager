@@ -7,12 +7,8 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.Schedule
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -23,7 +19,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
@@ -31,23 +26,20 @@ import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
 import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
-import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.BottomActionBar
 import com.northphoenix.hairdresserclientmanager.ui.components.ActionChip
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmCard
-import com.northphoenix.hairdresserclientmanager.ui.components.HcmTextField
 import com.northphoenix.hairdresserclientmanager.ui.components.PickerField
 import com.northphoenix.hairdresserclientmanager.ui.components.PrimaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenColumn
-import com.northphoenix.hairdresserclientmanager.ui.components.SegmentedControl
 import com.northphoenix.hairdresserclientmanager.ui.components.SubScreen
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZonedDateTime
 
-private enum class AppointmentPicker { PRIMARY, ADDITIONAL, DATE, START, END }
+private enum class AppointmentPicker { PRIMARY, ADDITIONAL }
 
 /** Appointment Creation: primary Client (existing or a minimal inline one), time and location. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -71,6 +63,7 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
     // What the Stylist typed into the at-home address field. Null until they type: the field then shows the primary Client's address.
     var typedAddress by rememberSaveable { mutableStateOf<String?>(null) }
     var picker by rememberSaveable { mutableStateOf<AppointmentPicker?>(null) }
+    var timePicker by rememberSaveable { mutableStateOf<AppointmentTimeField?>(null) }
 
     val primaryClient = clients.firstOrNull { it.id == primaryClientId }
     val additionalClients = clients.filter { it.id in additionalClientIds }
@@ -155,74 +148,27 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
             }
 
             HcmCard {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    // One field to a line, each showing its value whole: side by side the times were cut on narrow screens and at large font sizes.
-                    PickerField(
-                        label = stringResource(R.string.appointment_date_label),
-                        value = format.longDay(date),
-                        icon = Icons.Rounded.CalendarMonth,
-                        onClick = { picker = AppointmentPicker.DATE },
-                        wraps = true,
-                    )
-                    PickerField(
-                        label = stringResource(R.string.appointment_start_label),
-                        value = format.time(startTime),
-                        icon = Icons.Rounded.Schedule,
-                        onClick = { picker = AppointmentPicker.START },
-                        wraps = true,
-                    )
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        PickerField(
-                            label = stringResource(R.string.appointment_end_label),
-                            value = endTime?.let(format::time) ?: stringResource(R.string.optional),
-                            isPlaceholder = endTime == null,
-                            icon = Icons.Rounded.Schedule,
-                            onClick = { picker = AppointmentPicker.END },
-                            trailing = if (endTime != null) {
-                                { IconButton(onClick = { endTime = null }) { Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.clear)) } }
-                            } else {
-                                null
-                            },
-                            wraps = true,
-                        )
-                        if (endDate != null && endDate != date) {
-                            Text(
-                                stringResource(R.string.appointment_ends_next_day) + " · " + format.longDay(endDate),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
+                AppointmentTimeFields(
+                    date = date,
+                    startTime = startTime,
+                    endTime = endTime,
+                    endDate = endDate,
+                    onOpen = { timePicker = it },
+                    onClearEnd = { endTime = null },
+                )
             }
 
             HcmCard {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                        Text(stringResource(R.string.appointment_location_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        SegmentedControl(
-                            options = LocationType.entries,
-                            selected = locationType,
-                            onSelect = {
-                                locationType = it
-                                keepOnlyOwnAddress()
-                            },
-                            label = { stringResource(it.label) },
-                        )
-                    }
-                    if (locationType == LocationType.AT_HOME) {
-                        // An at-home Appointment is at the primary Client's address unless the Stylist types another one.
-                        HcmTextField(
-                            value = AppointmentDraft.shownAddress(typedAddress, primaryClient?.address),
-                            onValueChange = { typedAddress = it },
-                            label = stringResource(R.string.appointment_address_label),
-                            placeholder = stringResource(R.string.client_address_label),
-                            singleLine = false,
-                            minLines = 2,
-                            capitalization = KeyboardCapitalization.Words,
-                        )
-                    }
-                }
+                // An at-home Appointment is at the primary Client's address unless the Stylist types another one.
+                AppointmentLocationFields(
+                    locationType = locationType,
+                    onLocationType = {
+                        locationType = it
+                        keepOnlyOwnAddress()
+                    },
+                    address = AppointmentDraft.shownAddress(typedAddress, primaryClient?.address),
+                    onAddress = { typedAddress = it },
+                )
             }
         }
     }
@@ -261,33 +207,18 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
                 additionalClientIds = if (client.id in additionalClientIds) additionalClientIds - client.id else additionalClientIds + client.id
             },
         )
-        AppointmentPicker.DATE -> HcmDatePickerDialog(
-            initial = date,
-            today = today,
-            onDismiss = { picker = null },
-            onPick = {
-                date = it
-                picker = null
-            },
-        )
-        AppointmentPicker.START -> HcmTimePickerDialog(
-            title = stringResource(R.string.appointment_start_label),
-            initial = startTime,
-            onDismiss = { picker = null },
-            onPick = {
-                startTime = it
-                picker = null
-            },
-        )
-        AppointmentPicker.END -> HcmTimePickerDialog(
-            title = stringResource(R.string.appointment_end_label),
-            initial = endTime ?: startTime.plusHours(1),
-            onDismiss = { picker = null },
-            onPick = {
-                endTime = it
-                picker = null
-            },
-        )
         null -> Unit
     }
+
+    AppointmentTimePicker(
+        open = timePicker,
+        date = date,
+        startTime = startTime,
+        endTime = endTime,
+        today = today,
+        onDismiss = { timePicker = null },
+        onDate = { date = it },
+        onStartTime = { startTime = it },
+        onEndTime = { endTime = it },
+    )
 }

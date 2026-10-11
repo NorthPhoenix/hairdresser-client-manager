@@ -2,7 +2,9 @@ package com.northphoenix.hairdresserclientmanager
 
 import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.data.HcmApi
+import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.Language
+import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
 import com.northphoenix.hairdresserclientmanager.data.TrpcClient
 import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
@@ -101,6 +103,93 @@ class ApiClientTest {
         api.updateAppointmentFinalTotal("a1", overrideCents = null)
 
         assertEquals("""{"id":"a1","finalTotalCentsOverride":null}""", server.takeRequest().body?.utf8())
+    }
+
+    // --- Edit Appointment and the overlap warning ---
+
+    private val updated =
+        """{"id":"a1","primaryClientId":"c1","primaryClientName":"Alice Home","participants":[],"services":[],"photos":[],"startsAt":"2026-10-21T20:00:00.000Z","endsAt":null,"status":"scheduled","locationType":"atHome","locationAddress":"9 Lamar Blvd, Austin","customLocationAddress":"","mapUrl":"https://www.google.com/maps/search/?api=1&query=9%20Lamar%20Blvd%2C%20Austin","conflicts":[{"id":"a2","primaryClientId":"c2","primaryClientName":"Bob Noaddress","participants":[{"clientId":"c2","name":"Bob Noaddress","isPrimary":true}],"startsAt":"2026-10-21T20:00:00.000Z","endsAt":null,"status":"scheduled","locationType":"inSalon"}]}"""
+
+    @Test
+    fun `an edit sends the new start with the end, an end that was cleared as null, and the place`() = runTest {
+        enqueue("""{"result":{"data":$updated}}""")
+        enqueue("""{"result":{"data":$updated}}""")
+
+        api.updateAppointmentTimeAndPlace(
+            "a1",
+            startsAt = Instant.parse("2026-10-21T20:00:00Z"),
+            endsAt = Instant.parse("2026-10-21T21:30:00Z"),
+            locationType = LocationType.AT_HOME,
+            customLocationAddress = "1 Lost Lane",
+        )
+        api.updateAppointmentTimeAndPlace("a1", startsAt = Instant.parse("2026-10-21T20:00:00Z"), endsAt = null, locationType = LocationType.IN_SALON, customLocationAddress = "")
+
+        assertEquals(
+            """{"id":"a1","startsAt":"2026-10-21T20:00:00Z","endsAt":"2026-10-21T21:30:00Z","locationType":"atHome","customLocationAddress":"1 Lost Lane"}""",
+            server.takeRequest().body?.utf8(),
+        )
+        // In the salon there is no address to send: the server takes the salon's.
+        assertEquals("""{"id":"a1","startsAt":"2026-10-21T20:00:00Z","endsAt":null,"locationType":"inSalon"}""", server.takeRequest().body?.utf8())
+    }
+
+    @Test
+    fun `an edit of the place alone sends no times, and at home an empty address for the primary Client's`() = runTest {
+        enqueue("""{"result":{"data":$updated}}""")
+
+        val saved = api.updateAppointmentTimeAndPlace("a1", startsAt = null, endsAt = null, locationType = LocationType.AT_HOME, customLocationAddress = "")
+
+        assertEquals("""{"id":"a1","locationType":"atHome","customLocationAddress":""}""", server.takeRequest().body?.utf8())
+        // The reply states where the Appointment is now: at the address of its primary Client.
+        assertEquals("2026-10-21T20:00:00.000Z", saved.startsAt)
+        assertNull(saved.endsAt)
+        assertEquals(LocationType.AT_HOME, saved.locationType)
+        assertEquals("9 Lamar Blvd, Austin", saved.locationAddress)
+        assertEquals("", saved.customLocationAddress)
+        assertEquals("https://www.google.com/maps/search/?api=1&query=9%20Lamar%20Blvd%2C%20Austin", saved.mapUrl)
+    }
+
+    @Test
+    fun `the reply to a status change names the Appointments the time is taken by`() = runTest {
+        enqueue("""{"result":{"data":$updated}}""")
+        // A server from before the overlap warning of updates: no warning, and no failed save.
+        enqueue("""{"result":{"data":{"id":"a1","startsAt":"2026-10-21T20:00:00.000Z","status":"canceled","locationType":"inSalon"}}}""")
+
+        val scheduled = api.updateAppointmentStatus("a1", AppointmentStatus.SCHEDULED)
+        val canceled = api.updateAppointmentStatus("a1", AppointmentStatus.CANCELED)
+
+        assertEquals("""{"id":"a1","status":"scheduled"}""", server.takeRequest().body?.utf8())
+        assertEquals(listOf("a2"), scheduled.conflicts.map { it.id })
+        assertEquals("Bob Noaddress", scheduled.conflicts.single().participants.single().name)
+        assertEquals("2026-10-21T20:00:00.000Z", scheduled.conflicts.single().startsAt)
+        assertTrue(canceled.conflicts.isEmpty())
+    }
+
+    @Test
+    fun `one Appointment is asked for by its id alone, so it is found wherever it was moved to`() = runTest {
+        enqueue("""{"result":{"data":$updated}}""")
+
+        val found = api.findAppointment("a1")
+        val request = server.takeRequest()
+
+        assertEquals("/api/trpc/appointment.get", request.url.encodedPath)
+        assertEquals("""{"id":"a1"}""", request.url.queryParameter("input"))
+        assertEquals("2026-10-21T20:00:00.000Z", found?.startsAt)
+        assertEquals("9 Lamar Blvd, Austin", found?.locationAddress)
+    }
+
+    @Test
+    fun `an Appointment is gone only when the api says so`() = runTest {
+        enqueue("""{"error":{"message":"Appointment not found.","code":-32004,"data":{"code":"NOT_FOUND","httpStatus":404}}}""", code = 404)
+        // A server from before the procedure existed. Taken for "gone", every Appointment would show as not found.
+        enqueue("""{"error":{"message":"No procedure found on path \"appointment.get\"","code":-32004,"data":{"code":"NOT_FOUND","httpStatus":404}}}""", code = 404)
+
+        assertNull(api.findAppointment("a1"))
+        try {
+            api.findAppointment("a1")
+            fail("expected a failed request")
+        } catch (error: ApiException) {
+            assertTrue(error.isNotFound)
+        }
     }
 
     @Test
