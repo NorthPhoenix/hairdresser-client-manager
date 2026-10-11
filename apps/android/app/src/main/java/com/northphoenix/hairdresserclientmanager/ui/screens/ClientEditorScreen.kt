@@ -38,6 +38,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -72,7 +73,9 @@ import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.DeviceContacts
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
+import com.northphoenix.hairdresserclientmanager.domain.ContactFields
 import com.northphoenix.hairdresserclientmanager.domain.ContactImport
+import com.northphoenix.hairdresserclientmanager.domain.CopiedContact
 import com.northphoenix.hairdresserclientmanager.domain.ImportedContact
 import com.northphoenix.hairdresserclientmanager.domain.OneLine
 import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
@@ -105,6 +108,15 @@ import kotlinx.coroutines.withContext
 
 private enum class ClientDialog { DUPLICATE_PHONE, DELETE, IMPORT_OVERWRITE }
 
+/** A Contact Import is saved as its fields before it followed by its fields after it, and none as nothing. */
+internal val CopiedContactSaver = listSaver<CopiedContact?, String>(
+    save = { copied -> listOfNotNull(copied?.before, copied?.after).flatMap { listOf(it.name, it.phone, it.email, it.address) } },
+    restore = { saved ->
+        saved.takeIf { it.size == 8 }?.chunked(4) { (name, phone, email, address) -> ContactFields(name, phone, email, address) }
+            ?.let { (before, after) -> CopiedContact(before, after) }
+    },
+)
+
 /** Client Profile editor: details, Contact Import, Profile Share and the Client's Appointment history. */
 @Composable
 fun ClientEditorScreen(
@@ -135,6 +147,10 @@ fun ClientEditorScreen(
     var savedContent by rememberSaveable { mutableStateOf(UnsavedInput.clientForm(name, language, phone, email, address, note)) }
     // The email a save was refused for: the reason shows under the field until the text is another one.
     var refusedEmail by rememberSaveable { mutableStateOf<String?>(null) }
+    // How many saves it was refused for: each one brings the field back into view, however far the Stylist scrolled.
+    var emailRefusals by remember { mutableIntStateOf(0) }
+    // The Contact Import made since the last save: the next one takes its place (see ContactImport.copy).
+    var lastImport by rememberSaveable(stateSaver = CopiedContactSaver) { mutableStateOf<CopiedContact?>(null) }
     var dialog by remember { mutableStateOf<ClientDialog?>(null) }
     var pendingImport by remember { mutableStateOf<ImportedContact?>(null) }
     var shareImageSvg by remember { mutableStateOf<String?>(null) }
@@ -159,10 +175,13 @@ fun ClientEditorScreen(
 
     // Only what the contact has is copied: every other field, the Client Note among them, stays as it is.
     fun applyImport(imported: ImportedContact) {
-        imported.name?.let { name = it }
-        imported.phone?.let { phone = it }
-        imported.email?.let { email = it }
-        imported.address?.let { address = it }
+        val copied = ContactImport.copy(ContactFields(name, phone, email, address), imported, lastImport)
+
+        name = copied.after.name
+        phone = copied.after.phone
+        email = copied.after.email
+        address = copied.after.address
+        lastImport = copied
     }
 
     fun save() {
@@ -172,6 +191,8 @@ fun ClientEditorScreen(
             currentId = saved.id
             loadedFor = saved.id
             savedContent = submitted
+            // What a contact put in the form is the Client's own from here on.
+            lastImport = null
         }
     }
 
@@ -185,7 +206,7 @@ fun ClientEditorScreen(
                     // Whether the Client exists is read from the id, not from the list: after Android has
                     // re-created the app the contact arrives before the list does. The question then
                     // waits for the form, which comes back as it was left.
-                    ContactImport.asksFirst(imported, existingClient = currentId != null, name, phone, email, address) -> {
+                    ContactImport.asksFirst(ContactFields(name, phone, email, address), imported, existingClient = currentId != null, lastImport) -> {
                         pendingImport = imported
                         dialog = ClientDialog.IMPORT_OVERWRITE
                     }
@@ -242,7 +263,7 @@ fun ClientEditorScreen(
                         when {
                             !OneLine.hasVisibleCharacter(name) -> viewModel.notify(R.string.client_name_required, isError = true)
                             // The reason is under the field.
-                            refusedEmail != null -> Unit
+                            refusedEmail != null -> emailRefusals++
                             ClientRules.isDuplicatePhone(clients, currentId, phone) -> dialog = ClientDialog.DUPLICATE_PHONE
                             else -> save()
                         }
@@ -277,6 +298,7 @@ fun ClientEditorScreen(
                         keyboardType = KeyboardType.Email,
                         capitalization = KeyboardCapitalization.None,
                         error = stringResource(R.string.client_email_invalid).takeIf { email == refusedEmail },
+                        errorAttempt = emailRefusals,
                     )
                     HcmTextField(
                         address,

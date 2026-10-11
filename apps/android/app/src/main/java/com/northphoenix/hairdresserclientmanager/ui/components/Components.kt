@@ -219,7 +219,9 @@ fun TextAction(
 
 /**
  * Text field with its label above, the way forms read throughout the app. [error] is why the
- * text was refused: it is shown under the field, which scrolls into view when it appears.
+ * text was refused: it is shown under the field, which scrolls into view when it appears. Where
+ * the Stylist can scroll away and be refused for the same text again, count the refusals in
+ * [errorAttempt]: the field then comes back into view on each of them.
  */
 @Composable
 fun HcmTextField(
@@ -238,10 +240,11 @@ fun HcmTextField(
     prefix: String? = null,
     enabled: Boolean = true,
     error: String? = null,
+    errorAttempt: Int = 0,
 ) {
     val intoView = remember { BringIntoViewRequester() }
 
-    LaunchedEffect(error) {
+    LaunchedEffect(error, errorAttempt) {
         if (error != null) {
             intoView.bringIntoView()
         }

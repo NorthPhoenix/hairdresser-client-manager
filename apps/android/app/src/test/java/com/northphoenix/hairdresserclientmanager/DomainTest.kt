@@ -10,6 +10,7 @@ import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
+import com.northphoenix.hairdresserclientmanager.domain.ContactFields
 import com.northphoenix.hairdresserclientmanager.domain.ContactImport
 import com.northphoenix.hairdresserclientmanager.domain.DeviceContact
 import com.northphoenix.hairdresserclientmanager.domain.ImportedContact
@@ -347,7 +348,7 @@ class DomainTest {
         val nameAndPhone = ImportedContact(name = "Paula Phoneonly", phone = "+1 415 555 0123")
 
         fun asks(existingClient: Boolean = false, name: String = "", phone: String = "", email: String = "", address: String = "") =
-            ContactImport.asksFirst(nameAndPhone, existingClient, name, phone, email, address)
+            ContactImport.asksFirst(ContactFields(name, phone, email, address), nameAndPhone, existingClient)
 
         // An existing Client is always asked about, whatever the form holds and whether its Client is loaded yet.
         assertTrue(asks(existingClient = true))
@@ -363,6 +364,70 @@ class DomainTest {
         assertFalse(asks(email = "typed@example.com", address = "77 Typed Ave"))
         // The same value again replaces nothing.
         assertFalse(asks(name = " Paula Phoneonly ", phone = "+1 415 555 0123"))
+        // Text with a space at its end that the contact leaves alone is not replaced either.
+        assertFalse(asks(email = " typed@example.com ", address = "77 Typed Ave\n"))
+    }
+
+    @Test
+    fun `contact import copies only what the contact has`() {
+        val form = ContactFields(name = "Typed Name", phone = "+1 415 555 0199", email = "typed@example.com", address = "77 Typed Ave")
+
+        assertEquals(
+            form.copy(name = "Paula Phoneonly", phone = "+1 415 555 0123"),
+            ContactImport.copy(form, ImportedContact(name = "Paula Phoneonly", phone = "+1 415 555 0123")).after,
+        )
+        assertEquals(form.copy(email = "paula@example.com"), ContactImport.copy(form, ImportedContact(email = "paula@example.com")).after)
+        assertEquals(form, ContactImport.copy(form, ImportedContact()).after)
+    }
+
+    @Test
+    fun `a second contact import takes the place of the first one`() {
+        val wrong = ImportedContact(name = "Anna Wrong", phone = "+1 415 555 0100", email = "wrong@example.com", address = "1 Wrong St")
+        val right = ImportedContact(name = "Anna Right", phone = "+1 415 555 0123")
+
+        // A new Client: the email and the address of the wrong contact do not stay with the right one.
+        val first = ContactImport.copy(ContactFields(), wrong)
+        assertEquals(ContactFields("Anna Wrong", "+1 415 555 0100", "wrong@example.com", "1 Wrong St"), first.after)
+        assertTrue(ContactImport.asksFirst(first.after, right, existingClient = false, last = first))
+        val second = ContactImport.copy(first.after, right, first)
+        assertEquals(ContactFields(name = "Anna Right", phone = "+1 415 555 0123"), second.after)
+
+        // The question is also asked when the contact only takes details out: this one has no name and no phone.
+        val emailOnly = ImportedContact(email = "wrong@example.com")
+        assertTrue(ContactImport.asksFirst(first.after, emailOnly, existingClient = false, last = first))
+        assertEquals(ContactFields(email = "wrong@example.com"), ContactImport.copy(first.after, emailOnly, first).after)
+        // The same contact again changes nothing and asks nothing.
+        assertFalse(ContactImport.asksFirst(first.after, wrong, existingClient = false, last = first))
+        assertEquals(first, ContactImport.copy(first.after, wrong, first))
+
+        // A third import takes back the second, not the first again.
+        val third = ContactImport.copy(second.after, ImportedContact(address = "3 Third Rd"), second)
+        assertEquals(ContactFields(address = "3 Third Rd"), third.after)
+
+        // What the Stylist typed is kept: text from before the first import comes back, text changed after it stays.
+        val typedFirst = ContactImport.copy(ContactFields(email = "typed@example.com"), wrong)
+        assertEquals("wrong@example.com", typedFirst.after.email)
+        val edited = typedFirst.after.copy(address = "77 Typed Ave")
+        assertEquals(
+            ContactFields("Anna Right", "+1 415 555 0123", "typed@example.com", "77 Typed Ave"),
+            ContactImport.copy(edited, right, typedFirst).after,
+        )
+        // A field the Stylist emptied after the import stays empty.
+        assertEquals("", ContactImport.copy(typedFirst.after.copy(email = ""), right, typedFirst).after.email)
+
+        // An existing Client gets the saved email and address back, not those of the wrong contact.
+        val saved = ContactFields("Vera Full", "+7 916 123-45-67", "vera@example.com", "ул. Садовая, 12")
+        val overSaved = ContactImport.copy(saved, wrong)
+        assertEquals(
+            ContactFields("Anna Right", "+1 415 555 0123", "vera@example.com", "ул. Садовая, 12"),
+            ContactImport.copy(overSaved.after, right, overSaved).after,
+        )
+
+        // After a save there is no import to take back: what the first contact gave is the Client's own.
+        assertEquals(
+            ContactFields("Anna Right", "+1 415 555 0123", "wrong@example.com", "1 Wrong St"),
+            ContactImport.copy(first.after, right).after,
+        )
     }
 
     @Test

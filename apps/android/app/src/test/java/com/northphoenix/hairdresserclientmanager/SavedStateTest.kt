@@ -3,7 +3,10 @@ package com.northphoenix.hairdresserclientmanager
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.SaverScope
 import androidx.lifecycle.SavedStateHandle
+import com.northphoenix.hairdresserclientmanager.domain.ContactFields
+import com.northphoenix.hairdresserclientmanager.domain.CopiedContact
 import com.northphoenix.hairdresserclientmanager.state.SavedCalendarDay
+import com.northphoenix.hairdresserclientmanager.ui.screens.CopiedContactSaver
 import com.northphoenix.hairdresserclientmanager.ui.screens.DetailSheet
 import com.northphoenix.hairdresserclientmanager.ui.screens.MenuEditor
 import org.junit.Assert.assertEquals
@@ -138,6 +141,19 @@ class SavedStateTest {
 
         assertNull(MenuEditor.Saver.saved(null))
         assertNull(MenuEditor.Saver.restore(listOf("edit")))
+    }
+
+    @Test
+    fun `the Contact Import a second one takes the place of comes back, empty fields too`() {
+        val copied = CopiedContact(
+            before = ContactFields(email = "typed@example.com"),
+            after = ContactFields("Anna Wrong", "+1 415 555 0100", "wrong@example.com", "1 Wrong St\nApt 2"),
+        )
+
+        assertEquals(copied, CopiedContactSaver.roundTrip(copied))
+        assertEquals(CopiedContact(ContactFields(), ContactFields()), CopiedContactSaver.roundTrip(CopiedContact(ContactFields(), ContactFields())))
+        assertNull(CopiedContactSaver.saved(null))
+        assertNull(CopiedContactSaver.restore(listOf("Anna", "", "", "", "Anna")))
     }
 
     @Test
