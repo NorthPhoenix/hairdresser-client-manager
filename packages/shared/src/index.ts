@@ -82,6 +82,12 @@ const messages = {
     // A link that was revoked or never existed. The title alone answers for its picture and photos.
     profileShareUnavailableTitle: "Ссылка больше не действует",
     profileShareUnavailableBody: "Доступ к этому профилю закрыт, или ссылка скопирована не полностью. Попросите у мастера новую ссылку.",
+    // The home page: what the product is, for whoever opens the site without a link. The title is
+    // the name of the Android app (`app_name` in its string resources).
+    homeTitle: "Менеджер клиентов",
+    homeAbout: "Мобильное приложение для мастера: клиенты, записи, услуги, формулы окрашивания и фото в одном месте.",
+    homeProfileShares:
+      "Мастер может поделиться с клиентом его профилем по ссылке. Если мастер прислал вам ссылку, откройте её целиком: по ней открываются ваши записи и услуги.",
     languageSwitchLabel: "Язык",
     switchToRussian: "Русский",
     switchToEnglish: "English"
@@ -108,6 +114,10 @@ const messages = {
     profileShareDescription: "Your Appointments and Services, shared with you by your Stylist.",
     profileShareUnavailableTitle: "This link is no longer available",
     profileShareUnavailableBody: "This Client Profile is no longer shared, or the link is incomplete. Ask your Stylist for a new link.",
+    homeTitle: "Client Manager",
+    homeAbout: "A mobile app for a Stylist: Clients, Appointments, Services, Color Formulas and photos in one place.",
+    homeProfileShares:
+      "A Stylist can share a Client Profile with the Client through a link. If your Stylist sent you a link, open the whole link: it shows your Appointments and Services.",
     languageSwitchLabel: "Language",
     switchToRussian: "Русский",
     switchToEnglish: "English"

@@ -1,9 +1,10 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse, type NextFetchEvent } from "next/server";
 import { defaultLocale, requestedLocale } from "@hcm/shared";
 import { findShareLink, unavailableLanguageHeader, unknownAddress } from "./server/shareLink";
 
-export default clerkMiddleware(async (_auth, request) => {
+// What is done with a request once Clerk has read who sent it.
+async function passOn(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl;
   // A Profile Share page, not its picture or its photos: those answer for themselves.
   const token = /^\/profile-shares\/([^/]+)$/.exec(pathname)?.[1];
@@ -32,7 +33,50 @@ export default clerkMiddleware(async (_auth, request) => {
       headers
     }
   });
-});
+}
+
+// The request headers in which a sign-in arrives: the app's token, and a browser's session.
+const signInHeaders = ["authorization", "cookie"];
+
+export default async function proxy(request: NextRequest, event: NextFetchEvent) {
+  // Only the API takes anything but reading. Without this the framework draws a page for any
+  // method. (TRACE never gets here: see instrumentation.ts.)
+  if (!request.nextUrl.pathname.startsWith("/api/") && request.method !== "GET" && request.method !== "HEAD") {
+    return new NextResponse(null, {
+      status: 405,
+      headers: {
+        Allow: "GET, HEAD"
+      }
+    });
+  }
+
+  // Made for this request, so that `read` is its own.
+  let read = false;
+  const answer = clerkMiddleware((_auth, request) => {
+    read = true;
+
+    return passOn(request);
+  });
+
+  try {
+    return await answer(request, event);
+  } catch (error) {
+    // Clerk refuses a sign-in token that is wrong, but fails on one it cannot decode at all (three
+    // parts that are not what a token is made of, as in `Bearer a.b.c`), and the request would end
+    // in a server error on every address. Such a request is answered as if it carried no sign-in:
+    // the API then refuses it with 401 like any other token that is not valid, and a public page
+    // is shown. A failure of ours, or of a request that carries no sign-in, is not hidden.
+    if (read || !signInHeaders.some((name) => request.headers.has(name))) {
+      throw error;
+    }
+
+    const headers = new Headers(request.headers);
+
+    signInHeaders.forEach((name) => headers.delete(name));
+
+    return answer(new NextRequest(request.url, { method: request.method, headers }), event);
+  }
+}
 
 export const config = {
   matcher: ["/((?!_next|.*\\..*).*)", "/api/trpc/(.*)"]

@@ -28,7 +28,12 @@ export async function generateMetadata({ params, searchParams }: ProfileSharePag
 
   return {
     title: t(locale, "profileShareTitle"),
-    description: t(locale, "profileShareDescription")
+    description: t(locale, "profileShareDescription"),
+    // For whoever holds the link, never for a search engine (next.config.mjs says so in a header too).
+    robots: {
+      index: false,
+      follow: false
+    }
   };
 }
 
