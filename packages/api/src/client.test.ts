@@ -483,6 +483,197 @@ describe("client router", () => {
     });
   });
 
+  it("gives the Appointment history only this Client's Services, Color Formulas and stored photos", async () => {
+    const startsAt = new Date("2026-06-13T15:00:00.000Z");
+    const group = {
+      id: "appointment_1",
+      primaryClientId: "client_2",
+      startsAt,
+      status: "completed",
+      primaryClient: {
+        id: "client_2",
+        name: "Mila",
+        address: ""
+      },
+      participants: [
+        {
+          clientId: "client_2"
+        },
+        {
+          clientId: "client_1"
+        }
+      ]
+    };
+    const services = [
+      {
+        id: "service_1",
+        clientId: "client_1",
+        menuItemId: "menu_1",
+        name: "Root color",
+        priceCents: 9500,
+        note: "Left side first",
+        colorFormulas: [
+          {
+            id: "formula_1",
+            formula: "7N + 20 vol",
+            placement: "Roots"
+          },
+          {
+            id: "formula_2",
+            formula: "8G gloss",
+            placement: null
+          }
+        ]
+      },
+      {
+        id: "service_2",
+        clientId: "client_2",
+        menuItemId: null,
+        name: "Blowout",
+        priceCents: 3000,
+        note: "Mila only",
+        colorFormulas: [
+          {
+            id: "formula_3",
+            formula: "9A",
+            placement: "Ends"
+          }
+        ]
+      },
+      {
+        id: "service_3",
+        clientId: "client_1",
+        menuItemId: null,
+        name: "Haircut",
+        priceCents: 0,
+        note: null,
+        colorFormulas: []
+      }
+    ];
+    const photo = (id: string, clientId: string, status: string) => ({
+      id,
+      clientId,
+      category: "after",
+      status,
+      url: status === "stored" ? `https://utfs.io/f/${id}` : null,
+      thumbnailUrl: null,
+      width: 1200,
+      height: 900,
+      createdAt: startsAt
+    });
+    const photos = [
+      photo("photo_1", "client_1", "stored"),
+      photo("photo_2", "client_2", "stored"),
+      photo("photo_3", "client_1", "pendingUpload"),
+      photo("photo_4", "client_1", "failed")
+    ];
+    type Filter = { where?: { clientId?: string; status?: string } };
+    // Applies the filters the query asks for, as the database does.
+    const appointmentFindMany = vi.fn(({ include }: { include: { services: Filter; photos: Filter } }) =>
+      Promise.resolve([
+        {
+          ...group,
+          services: services.filter(({ clientId }) => clientId === (include.services.where?.clientId ?? clientId)),
+          photos: photos.filter(
+            ({ clientId, status }) =>
+              clientId === (include.photos.where?.clientId ?? clientId) && status === (include.photos.where?.status ?? status)
+          )
+        }
+      ])
+    );
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: {
+          upsert: vi.fn().mockResolvedValue({
+            id: "stylist_1",
+            clerkId: "clerk_1",
+            language: "ru",
+            timezone: "America/Chicago",
+            salonAddress: null,
+            onboardingCompletedAt: new Date()
+          })
+        },
+        appointment: {
+          findMany: appointmentFindMany
+        }
+      } as unknown as TRPCContext["db"])
+    );
+
+    await expect(
+      caller.clientProfile.appointmentHistory({
+        id: "client_1"
+      })
+    ).resolves.toEqual([
+      {
+        id: "appointment_1",
+        primaryClientId: "client_2",
+        primaryClientName: "Mila",
+        startsAt: startsAt.toISOString(),
+        status: "completed",
+        participantClientIds: ["client_2", "client_1"],
+        // Not Mila's Blowout, its Color Formula or her photo.
+        services: [
+          {
+            id: "service_1",
+            clientId: "client_1",
+            menuItemId: "menu_1",
+            name: "Root color",
+            priceCents: 9500,
+            note: "Left side first",
+            colorFormulas: [
+              {
+                id: "formula_1",
+                formula: "7N + 20 vol",
+                placement: "Roots"
+              },
+              {
+                id: "formula_2",
+                formula: "8G gloss",
+                placement: ""
+              }
+            ]
+          },
+          {
+            id: "service_3",
+            clientId: "client_1",
+            menuItemId: null,
+            name: "Haircut",
+            priceCents: 0,
+            note: "",
+            colorFormulas: []
+          }
+        ],
+        // Nor a photo that is not stored: it has nothing to show.
+        photos: [
+          {
+            id: "photo_1",
+            clientId: "client_1",
+            category: "after",
+            url: "https://utfs.io/f/photo_1",
+            thumbnailUrl: "",
+            width: 1200,
+            height: 900,
+            createdAt: startsAt.toISOString()
+          }
+        ]
+      }
+    ]);
+
+    // Services and Color Formulas in the order they were added, as on the Appointment itself.
+    const addedOrder = [{ createdAt: "asc" }, { id: "asc" }];
+
+    expect(appointmentFindMany.mock.calls[0]?.[0].include).toMatchObject({
+      services: {
+        orderBy: addedOrder,
+        include: {
+          colorFormulas: {
+            orderBy: addedOrder
+          }
+        }
+      }
+    });
+  });
+
   it("promotes another participant when deleting the primary Client from a group Appointment", async () => {
     const appointmentUpdate = vi.fn();
     const participantDeleteMany = vi.fn();

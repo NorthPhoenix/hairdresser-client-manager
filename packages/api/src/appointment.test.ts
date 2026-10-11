@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { maxAmountCents } from "./input";
 import { appRouter } from "./root";
 import type { TRPCContext } from "./context";
-import { withTransaction } from "./testSupport";
+import { firstIssueOf, withTransaction } from "./testSupport";
 
 const stylist = {
   id: "stylist_1",
@@ -996,6 +996,261 @@ describe("appointment router", () => {
       },
       include: expect.any(Object)
     });
+  });
+
+  // An Appointment with two Services, a Color Formula on the first and one stored photo, kept
+  // in memory with just the calls updateService makes.
+  function createEditableServiceDb() {
+    const addedAt = (second: number) => new Date(Date.UTC(2026, 5, 13, 15, 0, second));
+    const services = [
+      {
+        id: "service_1",
+        appointmentId: "appointment_1",
+        clientId: "client_1",
+        menuItemId: "menu_1" as string | null,
+        name: "Fix Me",
+        priceCents: 1000,
+        note: "old note",
+        requestKey: null,
+        createdAt: addedAt(1),
+        colorFormulas: [
+          {
+            id: "formula_1",
+            appointmentServiceId: "service_1",
+            formula: "4N base",
+            placement: "Roots",
+            createdAt: addedAt(2)
+          }
+        ]
+      },
+      {
+        id: "service_2",
+        appointmentId: "appointment_1",
+        clientId: "client_1",
+        menuItemId: null,
+        name: "Trim",
+        priceCents: 3000,
+        note: "",
+        requestKey: null,
+        createdAt: addedAt(3),
+        colorFormulas: []
+      }
+    ];
+    const photo = {
+      id: "photo_1",
+      appointmentId: "appointment_1",
+      clientId: "client_1",
+      category: "after",
+      status: "stored",
+      provider: "uploadthing",
+      fileKey: "photo_1",
+      url: "https://utfs.io/f/photo_1",
+      thumbnailUrl: null,
+      width: 1200,
+      height: 900,
+      uploadError: null,
+      createdAt: addedAt(4)
+    };
+    const findService = vi.fn(({ where }: { where: { id: string } }) => {
+      const service = services.find((candidate) => candidate.id === where.id);
+
+      return Promise.resolve(service ? { ...service, appointment: { services: [...services] } } : null);
+    });
+    const update = vi.fn(({ where, data }: { where: { id: string }; data: object }) => {
+      Object.assign(services.find((service) => service.id === where.id) ?? {}, data);
+
+      return Promise.resolve({});
+    });
+    // Photos come only when they are asked for, as from the database.
+    const readAppointment = vi.fn(({ include }: { include: { photos?: object } }) =>
+      Promise.resolve({
+        ...scheduledAppointment,
+        participants: [
+          {
+            clientId: "client_1",
+            client: {
+              id: "client_1",
+              name: "Anna",
+              address: ""
+            }
+          }
+        ],
+        services: services.map((service) => ({ ...service })),
+        ...(include.photos ? { photos: [photo] } : {})
+      })
+    );
+    const db = {
+      stylist: {
+        upsert: vi.fn().mockResolvedValue(stylist)
+      },
+      appointment: {
+        findUniqueOrThrow: readAppointment
+      },
+      appointmentService: {
+        findFirst: findService,
+        update
+      }
+    };
+
+    return {
+      findService,
+      update,
+      caller: appRouter.createCaller(createContext(db as unknown as TRPCContext["db"]))
+    };
+  }
+
+  it("edits the name, price and note of a Service in place and answers with the whole Appointment", async () => {
+    const { caller, findService, update } = createEditableServiceDb();
+
+    await expect(
+      caller.appointment.updateService({
+        id: "service_1",
+        name: "  Root\ncolor ",
+        priceCents: 1250,
+        note: " new note\nsecond line "
+      })
+    ).resolves.toMatchObject({
+      id: "appointment_1",
+      // The edited Service keeps its place, its Client, its Service Menu Item and its Color Formulas.
+      services: [
+        {
+          id: "service_1",
+          clientId: "client_1",
+          menuItemId: "menu_1",
+          name: "Root color",
+          priceCents: 1250,
+          note: "new note\nsecond line",
+          colorFormulas: [
+            {
+              id: "formula_1",
+              formula: "4N base",
+              placement: "Roots"
+            }
+          ]
+        },
+        {
+          id: "service_2",
+          name: "Trim",
+          priceCents: 3000
+        }
+      ],
+      participants: [
+        {
+          clientId: "client_1",
+          subtotalCents: 4250
+        }
+      ],
+      serviceTotalCents: 4250,
+      finalTotalCents: 4250,
+      // Not left out as in the replies of addService and deleteService: an empty list would
+      // read as an Appointment without photos.
+      photos: [
+        {
+          id: "photo_1",
+          clientId: "client_1",
+          category: "after",
+          status: "stored",
+          url: "https://utfs.io/f/photo_1"
+        }
+      ]
+    });
+    expect(findService).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: "service_1",
+          appointment: {
+            stylistId: "stylist_1"
+          }
+        }
+      })
+    );
+    // Nothing but the three values of the form is written.
+    expect(update).toHaveBeenCalledWith({
+      where: {
+        id: "service_1"
+      },
+      data: {
+        name: "Root color",
+        priceCents: 1250,
+        note: "new note\nsecond line"
+      }
+    });
+  });
+
+  it("clears the note of a Service that is saved without one", async () => {
+    const { caller, update } = createEditableServiceDb();
+
+    await expect(
+      caller.appointment.updateService({
+        id: "service_1",
+        name: "Fix Me",
+        priceCents: 1000
+      })
+    ).resolves.toMatchObject({
+      services: [
+        {
+          id: "service_1",
+          note: ""
+        },
+        {
+          id: "service_2"
+        }
+      ]
+    });
+    expect(update).toHaveBeenCalledWith({
+      where: {
+        id: "service_1"
+      },
+      data: {
+        name: "Fix Me",
+        priceCents: 1000,
+        note: ""
+      }
+    });
+  });
+
+  it("refuses to edit a Service that is gone or belongs to another Stylist", async () => {
+    const { caller, update } = createEditableServiceDb();
+
+    await expect(
+      caller.appointment.updateService({
+        id: "service_of_someone_else",
+        name: "Fix Me",
+        priceCents: 1000
+      })
+    ).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "Appointment Service not found."
+    });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a name with no visible character", { name: "​", priceCents: 1000 }, "name", "Name is required."],
+    ["a name that is too long", { name: "x".repeat(101), priceCents: 1000 }, "name", "Text is too long."],
+    ["a note that is too long", { name: "Fix Me", priceCents: 1000, note: "x".repeat(5001) }, "note", "Text is too long."],
+    ["a price above the maximum", { name: "Fix Me", priceCents: maxAmountCents + 1 }, "priceCents", "Amount is too large."],
+    ["a negative price", { name: "Fix Me", priceCents: -1 }, "priceCents", undefined],
+    ["a price with a fraction of a cent", { name: "Fix Me", priceCents: 10.5 }, "priceCents", undefined]
+  ])("refuses %s for an edited Service as for a new one", async (_label, values, field, message) => {
+    const { caller, findService, update } = createEditableServiceDb();
+    const refusals = [
+      await firstIssueOf(caller.appointment.updateService({ id: "service_1", ...values })),
+      await firstIssueOf(caller.appointment.addService({ appointmentId: "appointment_1", clientId: "client_1", ...values }))
+    ];
+
+    for (const refusal of refusals) {
+      expect(refusal).toMatchObject({
+        code: "BAD_REQUEST",
+        field,
+        ...(message ? { message } : {})
+      });
+    }
+
+    // The same rule with the same words, and nothing was read or written.
+    expect(refusals[0]).toEqual(refusals[1]);
+    expect(findService).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
   });
 
   it("adds, edits, and deletes multiple Color Formulas on a Service", async () => {

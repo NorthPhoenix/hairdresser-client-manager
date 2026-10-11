@@ -181,7 +181,12 @@ export const clientRouter = createTRPCRouter({
             createdAt: "asc"
           }
         },
+        // A Client Profile shows only this Client's part of a group Appointment: the Services
+        // and the stored Appointment Photos attached to this Client.
         services: {
+          where: {
+            clientId: input.id
+          },
           include: {
             colorFormulas: {
               orderBy: addedOrder

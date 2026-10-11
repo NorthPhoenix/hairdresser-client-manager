@@ -1227,52 +1227,8 @@ export const appointmentRouter = createTRPCRouter({
       }
     });
 
-    const updatedAppointment = await ctx.db.appointment.findUniqueOrThrow({
-      where: {
-        id: service.appointmentId
-      },
-      include: {
-        primaryClient: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
-            phone: true,
-            language: true
-          }
-        },
-        participants: {
-          include: {
-            client: {
-              select: {
-                id: true,
-                name: true,
-                address: true,
-                phone: true,
-                language: true
-              }
-            }
-          },
-          orderBy: {
-            createdAt: "asc"
-          }
-        },
-        services: {
-          include: {
-            colorFormulas: {
-              orderBy: {
-                createdAt: "asc"
-              }
-            }
-          },
-          orderBy: {
-            createdAt: "asc"
-          }
-        }
-      }
-    });
-
-    return toAppointmentOutput(updatedAppointment);
+    // The whole Appointment, photos included: the app can show the reply as it is.
+    return getAppointmentOutput(ctx.db, service.appointmentId);
   }),
   deleteService: stylistProcedure.input(appointmentServiceDeleteInput).mutation(async ({ ctx, input }) => {
     const service = await ctx.db.appointmentService.findFirst({

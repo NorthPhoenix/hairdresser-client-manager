@@ -69,7 +69,7 @@ Not a v1 concept. The app does not manage a dedicated client-facing aftercare no
 _Avoid_: Aftercare note, care note, instructions
 
 **Service**:
-A type of work performed for exactly one Client during an Appointment, such as a haircut, root touch-up, toner, balayage, blowout, or extensions. A Service has a one-line name, records the actual price for that Appointment up to 9,999,999.99, can have one service-level note, and color details belong to the Service they describe when applicable.
+A type of work performed for exactly one Client during an Appointment, such as a haircut, root touch-up, toner, balayage, blowout, or extensions. A Service has a one-line name, records the actual price for that Appointment up to 9,999,999.99, can have one service-level note, its name, price, and note stay editable after it is added and an edit keeps its Color Formulas, and color details belong to the Service they describe when applicable.
 _Avoid_: Work item, treatment, procedure
 
 **Service Menu Item**:
