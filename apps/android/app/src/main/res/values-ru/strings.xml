@@ -193,6 +193,7 @@
     <string name="profile_share_title">Ссылка на профиль клиента</string>
     <string name="remove_additional_client">Убрать клиента: %1$s</string>
     <string name="remove_appointment_photo">Удалить фото</string>
+    <string name="remove_appointment_photo_confirm_body">Это фото будет удалено из записи.</string>
     <string name="remove_client_from_appointment">Убрать из записи</string>
     <string name="retry">Повторить</string>
     <string name="retry_appointment_photo">Загрузить заново</string>

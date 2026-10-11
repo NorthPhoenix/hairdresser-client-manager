@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -58,6 +59,7 @@ import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -66,6 +68,7 @@ import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -73,6 +76,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -197,6 +201,57 @@ fun SecondaryButton(
         }
         Text(text, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center)
     }
+}
+
+/**
+ * Actions of equal weight, such as two buttons: side by side in equal widths while each is as
+ * wide there as it asks to be with its label on one line, and one under the other at full width
+ * when it is not. A one-word label has nowhere to break, so at a large font size on a narrow
+ * screen a button of half the width would break it inside the word.
+ */
+@Composable
+fun SideBySideOrStacked(modifier: Modifier = Modifier, spacing: Dp = 10.dp, content: @Composable () -> Unit) {
+    Layout(content, modifier) { measurables, constraints ->
+        val gap = spacing.roundToPx()
+        val gaps = gap * (measurables.size - 1).coerceAtLeast(0)
+        val asked = measurables.map { it.maxIntrinsicWidth(constraints.maxHeight) }
+        // Without a limit to the width they are as wide as they ask to be.
+        val width = if (constraints.hasBoundedWidth) constraints.maxWidth else asked.sum() + gaps
+        val each = sideBySideWidth(asked, width, gap)
+
+        if (each != null) {
+            val placeables = measurables.map { it.measure(Constraints.fixedWidth(each)) }
+
+            layout(width, placeables.maxOf { it.height }) {
+                placeables.forEachIndexed { index, placeable -> placeable.placeRelative(index * (each + gap), 0) }
+            }
+        } else {
+            val placeables = measurables.map { it.measure(Constraints.fixedWidth(width)) }
+
+            layout(width, placeables.sumOf { it.height } + gaps) {
+                var y = 0
+
+                placeables.forEach { placeable ->
+                    placeable.placeRelative(0, y)
+                    y += placeable.height + gap
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The width each of several things has side by side in [available], [gap] apart and all equally
+ * wide, or null when that is less than the widest of them [asked] for: then they do not fit side by side.
+ */
+internal fun sideBySideWidth(asked: List<Int>, available: Int, gap: Int): Int? {
+    if (asked.isEmpty()) {
+        return null
+    }
+
+    val each = (available - gap * (asked.size - 1)) / asked.size
+
+    return each.takeIf { it >= asked.max() }
 }
 
 @Composable
@@ -371,7 +426,11 @@ fun PickerField(
     }
 }
 
-/** Two-or-more option pill selector. A screen reader is told which option is the chosen one. */
+/**
+ * Two-or-more option pill selector. A screen reader is told which option is the chosen one. The
+ * labels are all in one size, in which the longest of them takes one line of its segment: at a
+ * large font size on a narrow screen they get smaller together instead of being cut.
+ */
 @Composable
 fun <T> SegmentedControl(
     options: List<T>,
@@ -380,35 +439,52 @@ fun <T> SegmentedControl(
     label: @Composable (T) -> String,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.medium)
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(4.dp)
-            .selectableGroup(),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        options.forEach { option ->
-            val isSelected = option == selected
-            val container by animateColorAsState(if (isSelected) HcmColors.Ink else Color.Transparent, label = "segment")
-            val content by animateColorAsState(if (isSelected) HcmColors.Surface else MaterialTheme.colorScheme.onSurface, label = "segmentText")
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val labels = options.map { label(it) }
+        val labelStyle = fittedTextStyle(labels, MaterialTheme.typography.labelLarge, segmentLabelWidth(maxWidth, options.size))
 
-            Box(
-                Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(container)
-                    .selectable(selected = isSelected, role = Role.RadioButton) { onSelect(option) }
-                    .defaultMinSize(minHeight = 44.dp)
-                    .padding(horizontal = 10.dp, vertical = 10.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(label(option), style = MaterialTheme.typography.labelLarge, color = content, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.medium)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .padding(SegmentGap)
+                .selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(SegmentGap),
+        ) {
+            options.forEachIndexed { index, option ->
+                val isSelected = option == selected
+                val container by animateColorAsState(if (isSelected) HcmColors.Ink else Color.Transparent, label = "segment")
+                val content by animateColorAsState(if (isSelected) HcmColors.Surface else MaterialTheme.colorScheme.onSurface, label = "segmentText")
+
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(container)
+                        .selectable(selected = isSelected, role = Role.RadioButton) { onSelect(option) }
+                        .defaultMinSize(minHeight = 44.dp)
+                        .padding(horizontal = SegmentPadding, vertical = 10.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(labels[index], style = labelStyle, color = content, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
     }
 }
+
+private val SegmentGap = 4.dp
+private val SegmentPadding = 10.dp
+
+/**
+ * The width the label of one segment has in a [SegmentedControl] [width] wide with [options]
+ * segments: an equal share of the control less its gaps, less the segment's own padding, and 2 dp
+ * more for the rounding to whole pixels. The gaps and the padding are rounded one by one and some
+ * segments get their share rounded down, so the place can be narrower than the division says, and
+ * a label fitted to more than it has is cut.
+ */
+internal fun segmentLabelWidth(width: Dp, options: Int): Dp = (width - SegmentGap * (options + 1)) / options - SegmentPadding * 2 - 2.dp
 
 /**
  * A tappable chip for picking one of a few values inline. A screen reader is told whether it is
@@ -492,18 +568,26 @@ fun Tag(
     content: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     container: Color = MaterialTheme.colorScheme.surfaceVariant,
     dot: Boolean = false,
+    style: TextStyle = tagTextStyle,
 ) {
     Row(
-        modifier.clip(CircleShape).background(container).padding(horizontal = 10.dp, vertical = 5.dp),
+        modifier.clip(CircleShape).background(container).padding(horizontal = TagPadding, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (dot) {
             Box(Modifier.size(6.dp).clip(CircleShape).background(content))
         }
-        Text(text, style = MaterialTheme.typography.labelSmall.copy(letterSpacing = MaterialTheme.typography.labelMedium.letterSpacing), color = content, maxLines = 1)
+        Text(text, style = style, color = content, maxLines = 1)
     }
 }
+
+/** The text of a [Tag]. A tag in a narrow place is given this fitted to the place (`fittedTextStyle`). */
+val tagTextStyle: TextStyle
+    @Composable get() = MaterialTheme.typography.labelSmall.copy(letterSpacing = MaterialTheme.typography.labelMedium.letterSpacing)
+
+/** What a [Tag] keeps clear at both sides of its text. */
+internal val TagPadding = 10.dp
 
 private val avatarPalette = listOf(
     Color(0xFFF3E0D6) to Color(0xFF7D2F1B),

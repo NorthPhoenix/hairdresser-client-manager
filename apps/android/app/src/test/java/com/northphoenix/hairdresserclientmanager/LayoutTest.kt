@@ -2,10 +2,14 @@ package com.northphoenix.hairdresserclientmanager
 
 import androidx.compose.ui.unit.dp
 import com.northphoenix.hairdresserclientmanager.ui.components.oneLineScale
+import com.northphoenix.hairdresserclientmanager.ui.components.segmentLabelWidth
+import com.northphoenix.hairdresserclientmanager.ui.components.sideBySideWidth
 import com.northphoenix.hairdresserclientmanager.ui.screens.dayLabelWidth
+import com.northphoenix.hairdresserclientmanager.ui.screens.photoTagWidth
 import com.northphoenix.hairdresserclientmanager.ui.screens.tabLabelWidth
 import com.northphoenix.hairdresserclientmanager.ui.screens.weekStripExtraWidth
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.floor
@@ -123,5 +127,100 @@ class LayoutTest {
                 assertTrue("$strip px at $dpi dpi: $fitted in $room", fitted >= room - density - 2)
             }
         }
+    }
+
+    // --- the options of a segmented control ---
+
+    /**
+     * The pixels the narrowest segment of a control [control] px wide has for its label: 4 dp clear
+     * at both ends and between the segments, each rounded to pixels, an equal share of the rest
+     * rounded down, and inside it 10 dp at each side.
+     */
+    private fun segmentLabelRoom(control: Int, options: Int, density: Float): Int {
+        val gap = (4 * density).roundToInt()
+
+        return (control - gap * (options + 1)) / options - 2 * (10 * density).roundToInt()
+    }
+
+    private fun widestFittedSegmentLabel(control: Int, options: Int, density: Float): Int =
+        floor(segmentLabelWidth((control / density).dp, options).value * density).toInt()
+
+    @Test
+    fun `a photo category is fitted to the segment it has at the largest font and display size`() {
+        // The QA device at 540 dpi: 3.375 px per dp, a sheet 280 dp (945 px) wide inside its padding.
+        // 'Before' was cut to 'Be…' at twice the font size; it is now fitted to these pixels.
+        assertEquals(228, segmentLabelRoom(control = 945, options = 3, density = 3.375f))
+        assertTrue(widestFittedSegmentLabel(control = 945, options = 3, density = 3.375f) in 218..228)
+    }
+
+    @Test
+    fun `at no density and width is a fitted segment label wider than its segment, or much narrower`() {
+        for (dpi in 160..640) {
+            val density = dpi / 160f
+
+            for (options in 2..4) {
+                // Controls of 200 dp to 900 dp.
+                for (control in (200 * density).toInt()..(900 * density).toInt()) {
+                    val room = segmentLabelRoom(control, options, density)
+                    val fitted = widestFittedSegmentLabel(control, options, density)
+
+                    assertTrue("$options in $control px at $dpi dpi: $fitted in $room", fitted <= room)
+                    assertTrue("$options in $control px at $dpi dpi: $fitted in $room", fitted >= room - 2 * density - 3)
+                }
+            }
+        }
+    }
+
+    // --- the category tag of a photo tile ---
+
+    /**
+     * The pixels the narrowest tile of a grid [grid] px wide has for the text of its tag: three
+     * tiles 8 dp apart, the tag 6 dp from the tile's edge and its text 10 dp inside the tag.
+     */
+    private fun photoTagRoom(grid: Int, density: Float): Int =
+        (grid - 2 * (8 * density).roundToInt()) / 3 - 2 * (6 * density).roundToInt() - 2 * (10 * density).roundToInt()
+
+    private fun widestFittedPhotoTag(grid: Int, density: Float): Int = floor(photoTagWidth((grid / density).dp).value * density).toInt()
+
+    @Test
+    fun `at no density and width is a fitted photo tag wider than its tile leaves it, or much narrower`() {
+        for (dpi in 160..640) {
+            val density = dpi / 160f
+
+            // Grids of 200 dp to 900 dp.
+            for (grid in (200 * density).toInt()..(900 * density).toInt()) {
+                val room = photoTagRoom(grid, density)
+                val fitted = widestFittedPhotoTag(grid, density)
+
+                assertTrue("$grid px at $dpi dpi: $fitted in $room", fitted <= room)
+                assertTrue("$grid px at $dpi dpi: $fitted in $room", fitted >= room - 2 * density - 4)
+            }
+        }
+    }
+
+    // --- two buttons side by side, or one under the other ---
+
+    @Test
+    fun `buttons that have room for their labels stand side by side in equal widths`() {
+        // The QA device at its default display size: a sheet 974 px wide, 10 dp (26 px) between the buttons.
+        assertEquals(474, sideBySideWidth(asked = listOf(430, 448), available = 974, gap = 26))
+        // Exactly as wide as the widest asks to be is room enough.
+        assertEquals(448, sideBySideWidth(asked = listOf(430, 448), available = 922, gap = 26))
+        assertEquals(300, sideBySideWidth(asked = listOf(300), available = 300, gap = 26))
+    }
+
+    @Test
+    fun `buttons too narrow for a label on one line go one under the other`() {
+        // The same sheet at the largest display size and twice the font size: 945 px, 34 px between the
+        // buttons, and 'Gallery' with its icon asks for more than half of that.
+        assertNull(sideBySideWidth(asked = listOf(540, 580), available = 945, gap = 34))
+        // One pixel short for one of them is enough.
+        assertNull(sideBySideWidth(asked = listOf(430, 448), available = 921, gap = 26))
+        assertNull(sideBySideWidth(asked = listOf(448, 100, 100), available = 974, gap = 26))
+    }
+
+    @Test
+    fun `nothing to lay out is not side by side`() {
+        assertNull(sideBySideWidth(asked = emptyList(), available = 974, gap = 26))
     }
 }

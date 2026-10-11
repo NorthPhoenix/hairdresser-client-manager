@@ -2,6 +2,7 @@ package com.northphoenix.hairdresserclientmanager.state
 
 import android.net.Uri
 import androidx.annotation.StringRes
+import androidx.core.content.FileProvider
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -17,6 +18,7 @@ import com.northphoenix.hairdresserclientmanager.core.AppContainer
 import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
+import com.northphoenix.hairdresserclientmanager.data.CameraCaptures
 import com.northphoenix.hairdresserclientmanager.data.ClientHistoryEntry
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.CreateAppointmentResult
@@ -43,7 +45,9 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -56,6 +60,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -190,12 +195,19 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     /** Every Appointment's, so each screen picks its own: an upload is shown on the Appointment and the Client it belongs to. */
     val photoUploads: StateFlow<List<PhotoUpload>> = photos.uploads
 
+    /** Where the camera writes. A capture is only needed until [photos] has its own copy of it. */
+    private val captures = CameraCaptures(File(container.appContext.cacheDir, "camera"))
+
+    /** Of the app's file provider, which gives the camera the address of a capture file. */
+    private val filesAuthority = container.appContext.packageName + ".files"
+
     private val noticeChannel = Channel<Notice>(Channel.BUFFERED)
     val notices = noticeChannel.receiveAsFlow()
 
     private var calendarJob: Job? = null
 
     init {
+        viewModelScope.launch(Dispatchers.IO) { captures.deleteStale() }
         viewModelScope.launch { authState.collect { sessionWatch.onState(it) } }
         viewModelScope.launch {
             authState.distinctUntilChangedBy { (it as? AuthState.SignedIn)?.userId }.collect { state ->
@@ -891,13 +903,35 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         }
 
         viewModelScope.launch {
-            reporting {
-                val unread = photos.add(PhotoTarget(appointmentId, clientId, category, replacingPhotoId), sources) { source ->
-                    PhotoPreparer.copy(container.appContext, source)
-                }
+            try {
+                reporting {
+                    val unread = photos.add(PhotoTarget(appointmentId, clientId, category, replacingPhotoId), sources) { source ->
+                        PhotoPreparer.copy(container.appContext, source)
+                    }
 
-                unreadPhotosNotice(sources.size, unread)?.let(noticeChannel::trySend)
+                    unreadPhotosNotice(sources.size, unread)?.let(noticeChannel::trySend)
+                }
+            } finally {
+                // A camera capture is in the queue by now or could not be read: either way its file has served.
+                deleteCaptures(sources)
             }
+        }
+    }
+
+    /** The address of a new file for the camera to write a capture into. Hand what comes back to [addPhotos] or to [discardCameraCapture]. */
+    fun newCameraCapture(): Uri = FileProvider.getUriForFile(container.appContext, filesAuthority, captures.newFile())
+
+    /** The Stylist came back from the camera without a photo: whatever the camera wrote is deleted. */
+    fun discardCameraCapture(capture: Uri) {
+        viewModelScope.launch { deleteCaptures(listOf(capture)) }
+    }
+
+    /** Deletes the files of those of [sources] that are camera captures. Also done when the coroutine is being cancelled. */
+    private suspend fun deleteCaptures(sources: List<Uri>) {
+        val names = sources.filter { it.authority == filesAuthority }.map { it.lastPathSegment }
+
+        if (names.isNotEmpty()) {
+            withContext(NonCancellable + Dispatchers.IO) { names.forEach(captures::delete) }
         }
     }
 

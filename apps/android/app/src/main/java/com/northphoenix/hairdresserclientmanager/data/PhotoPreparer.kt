@@ -4,6 +4,8 @@ import android.content.ContentResolver
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Matrix
 import android.net.Uri
 import androidx.exifinterface.media.ExifInterface
@@ -73,11 +75,29 @@ object PhotoPreparer {
         val orientation = resolver.openInputStream(uri)?.use {
             ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
         } ?: ExifInterface.ORIENTATION_NORMAL
-        val upright = transform(decoded, orientation)
+        val upright = opaque(transform(decoded, orientation))
         val output = ByteArrayOutputStream()
         upright.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output)
 
         return output.toByteArray()
+    }
+
+    /**
+     * [bitmap] on white. A JPEG has no transparency: of a PNG or WebP that has, the see-through
+     * parts would come out black, where the gallery shows them light.
+     */
+    private fun opaque(bitmap: Bitmap): Bitmap {
+        if (!bitmap.hasAlpha()) {
+            return bitmap
+        }
+
+        val flat = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+
+        Canvas(flat).apply {
+            drawColor(Color.WHITE)
+            drawBitmap(bitmap, 0f, 0f, null)
+        }
+        return flat
     }
 
     private fun transform(bitmap: Bitmap, orientation: Int): Bitmap {

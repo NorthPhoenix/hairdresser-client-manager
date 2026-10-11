@@ -7,11 +7,13 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -69,8 +71,9 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
-import androidx.core.content.FileProvider
+import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -118,14 +121,17 @@ import com.northphoenix.hairdresserclientmanager.ui.components.PrimaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenColumn
 import com.northphoenix.hairdresserclientmanager.ui.components.SecondaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.SegmentedControl
+import com.northphoenix.hairdresserclientmanager.ui.components.SideBySideOrStacked
 import com.northphoenix.hairdresserclientmanager.ui.components.StatusChip
 import com.northphoenix.hairdresserclientmanager.ui.components.SubScreen
 import com.northphoenix.hairdresserclientmanager.ui.components.Tag
+import com.northphoenix.hairdresserclientmanager.ui.components.TagPadding
 import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
+import com.northphoenix.hairdresserclientmanager.ui.components.fittedTextStyle
 import com.northphoenix.hairdresserclientmanager.ui.components.icon
+import com.northphoenix.hairdresserclientmanager.ui.components.tagTextStyle
 import com.northphoenix.hairdresserclientmanager.ui.openUri
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
-import java.io.File
 
 private const val MAX_GALLERY_PHOTOS = 10
 
@@ -269,6 +275,9 @@ private fun AppointmentDetail(
         val uri = cameraUri
         if (saved && uri != null) {
             upload(listOf(uri))
+        } else if (uri != null) {
+            // Back from the camera without a photo: what it may have written is not kept.
+            viewModel.discardCameraCapture(uri)
         }
     }
 
@@ -280,8 +289,7 @@ private fun AppointmentDetail(
 
         try {
             if (fromCamera) {
-                val file = File(File(context.cacheDir, "camera").apply { mkdirs() }, "capture-${System.currentTimeMillis()}.jpg")
-                val uri = FileProvider.getUriForFile(context, context.packageName + ".files", file)
+                val uri = viewModel.newCameraCapture()
                 cameraUri = uri
                 camera.launch(uri)
             } else {
@@ -844,26 +852,61 @@ private fun PhotoGrid(
     onOpen: (AppointmentPhoto) -> Unit,
     onOpenUpload: (PhotoUpload) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        (0 until photos.size + uploads.size).chunked(3).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { index ->
-                    if (index < photos.size) {
-                        StoredPhotoTile(photos[index], onOpen)
-                    } else {
-                        UploadTile(uploads[index - photos.size], onOpenUpload)
+    BoxWithConstraints {
+        // Every tag in one size, in which the longest category takes one line of a tile.
+        val tagStyle = fittedTextStyle(PhotoCategory.entries.map { stringResource(it.label) }, tagTextStyle, photoTagWidth(maxWidth))
+
+        Column(verticalArrangement = Arrangement.spacedBy(PhotoGridGap)) {
+            (0 until photos.size + uploads.size).chunked(PHOTOS_IN_A_ROW).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(PhotoGridGap)) {
+                    row.forEach { index ->
+                        if (index < photos.size) {
+                            StoredPhotoTile(photos[index], tagStyle, onOpen)
+                        } else {
+                            UploadTile(uploads[index - photos.size], tagStyle, onOpenUpload)
+                        }
                     }
+                    // Keep cells square when the last row is short.
+                    repeat(PHOTOS_IN_A_ROW - row.size) { Box(Modifier.weight(1f)) }
                 }
-                // Keep cells square when the last row is short.
-                repeat(3 - row.size) { Box(Modifier.weight(1f)) }
             }
         }
     }
 }
 
-/** One square of the photo grid. [description] is all a screen reader is told: the picture and the tag are not read out as well. */
+private const val PHOTOS_IN_A_ROW = 3
+private val PhotoGridGap = 8.dp
+private val PhotoTagMargin = 6.dp
+
+/**
+ * The width the category has in the tag of a photo tile, in a grid [gridWidth] wide: a tile less
+ * the tag's margin and padding, and 2 dp more for the rounding to whole pixels (see `segmentLabelWidth`).
+ */
+internal fun photoTagWidth(gridWidth: Dp): Dp =
+    (gridWidth - PhotoGridGap * (PHOTOS_IN_A_ROW - 1)) / PHOTOS_IN_A_ROW - (PhotoTagMargin + TagPadding) * 2 - 2.dp
+
+/** Whether there is a stored picture to show. A photo that is recorded as failed has none. */
+internal val AppointmentPhoto.hasPicture: Boolean get() = status == PhotoStatus.STORED && url.isNotBlank()
+
+/**
+ * What a screen reader is told a photo tile is, with the category as its argument: a photo, and
+ * the state it is in unless it is simply stored. A photo that failed must not sound like a stored one.
+ */
+@StringRes
+internal fun photoTileDescription(photo: AppointmentPhoto): Int =
+    if (photo.hasPicture) R.string.appointment_photo_description else R.string.appointment_photo_failed_description
+
+/** The same for a photo that is not on the server yet: it is on its way there or it failed. */
+@StringRes
+internal fun photoTileDescription(upload: PhotoUpload): Int =
+    if (upload.state == UploadState.FAILED) R.string.appointment_photo_failed_description else R.string.appointment_photo_uploading_description
+
+/**
+ * One square of the photo grid: a button. [description] is all a screen reader is told (see
+ * [photoTileDescription]): the picture, the mark over it and the tag are not read out as well.
+ */
 @Composable
-private fun RowScope.PhotoTile(description: String, category: String, onClick: () -> Unit, picture: @Composable BoxScope.() -> Unit) {
+private fun RowScope.PhotoTile(description: String, category: String, tagStyle: TextStyle, onClick: () -> Unit, picture: @Composable BoxScope.() -> Unit) {
     Box(
         Modifier
             .weight(1f)
@@ -876,20 +919,20 @@ private fun RowScope.PhotoTile(description: String, category: String, onClick: (
         picture()
         Tag(
             category,
-            modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).clearAndSetSemantics {},
+            modifier = Modifier.align(Alignment.BottomStart).padding(PhotoTagMargin).clearAndSetSemantics {},
             content = HcmColors.Surface,
             container = HcmColors.Ink.copy(alpha = 0.72f),
+            style = tagStyle,
         )
     }
 }
 
 @Composable
-private fun RowScope.StoredPhotoTile(photo: AppointmentPhoto, onOpen: (AppointmentPhoto) -> Unit) {
+private fun RowScope.StoredPhotoTile(photo: AppointmentPhoto, tagStyle: TextStyle, onOpen: (AppointmentPhoto) -> Unit) {
     val category = stringResource(photo.category.label)
 
-    // Says that it is a photo and names the category once.
-    PhotoTile(stringResource(R.string.appointment_photo_description, category), category, onClick = { onOpen(photo) }) {
-        if (photo.status == PhotoStatus.STORED && photo.url.isNotBlank()) {
+    PhotoTile(stringResource(photoTileDescription(photo), category), category, tagStyle, onClick = { onOpen(photo) }) {
+        if (photo.hasPicture) {
             AsyncImage(
                 model = photo.thumbnailUrl.ifBlank { photo.url },
                 contentDescription = null,
@@ -909,18 +952,17 @@ private fun RowScope.StoredPhotoTile(photo: AppointmentPhoto, onOpen: (Appointme
 
 /** A photo that is not on the server yet: the picture as it is on the device, dimmed, under a spinner or a failure mark. */
 @Composable
-private fun RowScope.UploadTile(upload: PhotoUpload, onOpen: (PhotoUpload) -> Unit) {
+private fun RowScope.UploadTile(upload: PhotoUpload, tagStyle: TextStyle, onOpen: (PhotoUpload) -> Unit) {
     val category = stringResource(upload.photo.category.label)
-    val failed = upload.state == UploadState.FAILED
-    val description = if (failed) R.string.appointment_photo_failed_description else R.string.appointment_photo_uploading_description
 
-    PhotoTile(stringResource(description, category), category, onClick = { onOpen(upload) }) {
+    PhotoTile(stringResource(photoTileDescription(upload), category), category, tagStyle, onClick = { onOpen(upload) }) {
         AsyncImage(model = upload.picture, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         Box(Modifier.fillMaxSize().background(HcmColors.Ink.copy(alpha = 0.5f)))
-        if (failed) {
+        if (upload.state == UploadState.FAILED) {
             Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = HcmColors.Surface, modifier = Modifier.align(Alignment.Center))
         } else {
-            CircularProgressIndicator(Modifier.align(Alignment.Center).size(24.dp), color = HcmColors.Surface, strokeWidth = 2.dp)
+            // The description says that it is uploading: the spinner adds nothing for a screen reader.
+            CircularProgressIndicator(Modifier.align(Alignment.Center).size(24.dp).clearAndSetSemantics {}, color = HcmColors.Surface, strokeWidth = 2.dp)
         }
     }
 }
@@ -1132,9 +1174,10 @@ private fun AddPhotoSheet(
             Text(stringResource(R.string.appointment_photo_category_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             SegmentedControl(PhotoCategory.entries, category, { category = it }, label = { stringResource(it.label) })
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            PrimaryButton(stringResource(R.string.add_photo_from_camera), onClick = { onPick(category, true) }, modifier = Modifier.weight(1f), icon = Icons.Rounded.CameraAlt)
-            PrimaryButton(stringResource(R.string.add_photo_from_gallery), onClick = { onPick(category, false) }, modifier = Modifier.weight(1f), icon = Icons.Rounded.PhotoLibrary)
+        // One under the other where half the sheet is too narrow for 'Camera' or 'Gallery' on one line.
+        SideBySideOrStacked(Modifier.fillMaxWidth()) {
+            PrimaryButton(stringResource(R.string.add_photo_from_camera), onClick = { onPick(category, true) }, icon = Icons.Rounded.CameraAlt)
+            PrimaryButton(stringResource(R.string.add_photo_from_gallery), onClick = { onPick(category, false) }, icon = Icons.Rounded.PhotoLibrary)
         }
     }
 }
@@ -1148,10 +1191,10 @@ private fun PhotoSheet(
     onRemove: () -> Unit,
     onRetry: () -> Unit,
 ) {
-    val stored = photo.status == PhotoStatus.STORED && photo.url.isNotBlank()
+    var confirmRemove by rememberSaveable(photo.id) { mutableStateOf(false) }
 
     HcmBottomSheet(title = stringResource(photo.category.label), subtitle = clientName, onDismiss = onDismiss) {
-        if (stored) {
+        if (photo.hasPicture) {
             AsyncImage(
                 model = photo.url,
                 contentDescription = stringResource(photo.category.label),
@@ -1159,8 +1202,9 @@ private fun PhotoSheet(
                 modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(MaterialTheme.shapes.large).background(MaterialTheme.colorScheme.surfaceVariant),
             )
         } else {
+            // Worded here, in the Stylist's language. A text that a record carries as its reason is never shown.
             Text(
-                photo.uploadError.ifBlank { stringResource(R.string.appointment_photo_upload_failed) },
+                stringResource(R.string.appointment_photo_upload_failed),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -1173,12 +1217,35 @@ private fun PhotoSheet(
         }
         TextAction(
             stringResource(R.string.remove_appointment_photo),
-            onClick = onRemove,
+            onClick = { confirmRemove = true },
             icon = Icons.Rounded.DeleteOutline,
             danger = true,
             modifier = Modifier.align(Alignment.CenterHorizontally),
         )
     }
+
+    if (confirmRemove) {
+        ConfirmRemovePhoto(
+            onConfirm = {
+                confirmRemove = false
+                onRemove()
+            },
+            onDismiss = { confirmRemove = false },
+        )
+    }
+}
+
+/** 'Remove photo' asks first, for a stored photo and for one that is not on the server yet: a slip must not cost the photo. */
+@Composable
+private fun ConfirmRemovePhoto(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    ConfirmDialog(
+        title = stringResource(R.string.remove_appointment_photo) + "?",
+        body = stringResource(R.string.remove_appointment_photo_confirm_body),
+        confirmText = stringResource(R.string.delete),
+        danger = true,
+        onConfirm = onConfirm,
+        onDismiss = onDismiss,
+    )
 }
 
 /** A photo that is not on the server yet. One that failed is uploaded again or removed from here; one on its way can be removed. */
@@ -1190,6 +1257,8 @@ private fun UploadSheet(
     onRetry: () -> Unit,
     onRemove: () -> Unit,
 ) {
+    var confirmRemove by rememberSaveable(upload.id) { mutableStateOf(false) }
+
     HcmBottomSheet(title = stringResource(upload.photo.category.label), subtitle = clientName, onDismiss = onDismiss) {
         AsyncImage(
             model = upload.picture,
@@ -1212,10 +1281,21 @@ private fun UploadSheet(
         }
         TextAction(
             stringResource(R.string.remove_appointment_photo),
-            onClick = onRemove,
+            onClick = { confirmRemove = true },
             icon = Icons.Rounded.DeleteOutline,
             danger = true,
             modifier = Modifier.align(Alignment.CenterHorizontally),
+        )
+    }
+
+    // Gone with the sheet when the photo is stored while the question is open: there is nothing to remove from the device then.
+    if (confirmRemove) {
+        ConfirmRemovePhoto(
+            onConfirm = {
+                confirmRemove = false
+                onRemove()
+            },
+            onDismiss = { confirmRemove = false },
         )
     }
 }

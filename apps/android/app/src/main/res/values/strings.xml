@@ -196,6 +196,7 @@
     <string name="profile_share_title">Profile Share</string>
     <string name="remove_additional_client">Remove Client: %1$s</string>
     <string name="remove_appointment_photo">Remove photo</string>
+    <string name="remove_appointment_photo_confirm_body">This photo will be deleted from the Appointment.</string>
     <string name="remove_client_from_appointment">Remove from Appointment</string>
     <string name="retry">Try again</string>
     <string name="retry_appointment_photo">Upload again</string>

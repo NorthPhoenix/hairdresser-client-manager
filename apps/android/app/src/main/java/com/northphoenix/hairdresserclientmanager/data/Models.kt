@@ -131,6 +131,10 @@ data class AppointmentService(
     val colorFormulas: List<ColorFormula> = emptyList(),
 )
 
+/**
+ * A failed upload is a state without a reason: the app words it itself, in the Stylist's language.
+ * Whatever text a reply may still carry for it is not read.
+ */
 @Serializable
 data class AppointmentPhoto(
     val id: String,
@@ -139,7 +143,6 @@ data class AppointmentPhoto(
     val status: PhotoStatus = PhotoStatus.STORED,
     val url: String = "",
     val thumbnailUrl: String = "",
-    val uploadError: String = "",
 )
 
 @Serializable
