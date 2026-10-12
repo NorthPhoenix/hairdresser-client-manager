@@ -32,6 +32,13 @@ const nextConfig = {
   allowedDevOrigins: ["10.0.2.2"],
   // No "X-Powered-By: Next.js".
   poweredByHeader: false,
+  // Where the Android app is downloaded from. The file is kept on another server, so /download
+  // only sends the browser there. Without the address there is no such page.
+  async redirects() {
+    const appDownload = process.env.APP_DOWNLOAD_URL;
+
+    return appDownload ? [{ source: "/download", destination: appDownload, permanent: false }] : [];
+  },
   // Sent with every answer. Where two rules name the same header, the later rule counts.
   async headers() {
     return [

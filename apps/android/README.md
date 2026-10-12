@@ -32,7 +32,27 @@ Any of these can also be passed as a Gradle property, for example `./gradlew :ap
 
 Without a Clerk key the app shows a setup screen instead of signing in. Clerk also needs the **Native API** enabled for the application in the Clerk dashboard.
 
-Debug builds allow plain HTTP so they can reach a local backend. Release builds do not, so `hcm.apiBaseUrl` must be HTTPS there. Release signing is not configured yet.
+Debug builds allow plain HTTP so they can reach a local backend. Release builds do not, so the release app needs an HTTPS backend.
+
+## Release build
+
+A release build can have its own values, so the same machine builds the debug app against a local backend and the release app against production. Each `hcm.release.<name>` wins over `hcm.<name>` for release builds only:
+
+```properties
+# Production backend and Clerk production instance.
+hcm.release.apiBaseUrl=https://example.com
+hcm.release.clerkPublishableKey=pk_live_...
+
+# The key the release app is signed with. Without these four the release APK is unsigned.
+hcm.release.storeFile=/absolute/path/to/release.jks
+hcm.release.storePassword=...
+hcm.release.keyAlias=...
+hcm.release.keyPassword=...
+```
+
+Keep the keystore outside the repository and back it up together with its password: Android only installs an update over an app that was signed with the same key.
+
+`./gradlew :app:assembleRelease` writes `app/build/outputs/apk/release/app-release.apk`. Raise `versionCode` in `app/build.gradle.kts` for every release that goes to a phone; Android refuses to install a lower one over a higher one.
 
 ## Commands
 
@@ -41,7 +61,7 @@ Run from `apps/android`:
 ```sh
 ./gradlew :app:installDebug          # build and install on the connected emulator or device
 ./gradlew :app:testDebugUnitTest     # unit tests
-./gradlew :app:assembleRelease       # minified release build (unsigned)
+./gradlew :app:assembleRelease       # minified release build, signed when a release key is configured
 ```
 
 ## Running without provider credentials

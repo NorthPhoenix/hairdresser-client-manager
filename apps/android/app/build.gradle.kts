@@ -19,6 +19,14 @@ fun localConfig(name: String, default: String = ""): String =
 
 fun String.quoted(): String = "\"" + replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
+// A release build can have its own values (hcm.release.<name>), so one machine builds the debug
+// app against a local backend and the release app against production. Without one it uses the shared value.
+fun releaseConfig(name: String, default: String = ""): String =
+    localConfig("hcm.release.$name").ifEmpty { localConfig("hcm.$name", default) }
+
+// The key the release app is signed with. See apps/android/README.md, "Release build".
+val releaseStoreFile = localConfig("hcm.release.storeFile")
+
 android {
     namespace = "com.northphoenix.hairdresserclientmanager"
     compileSdk = 37
@@ -36,6 +44,17 @@ android {
         buildConfigField("String", "DEV_AUTH_USER_ID", "\"\"")
     }
 
+    signingConfigs {
+        if (releaseStoreFile.isNotEmpty()) {
+            create("release") {
+                storeFile = rootProject.file(releaseStoreFile)
+                storePassword = localConfig("hcm.release.storePassword")
+                keyAlias = localConfig("hcm.release.keyAlias")
+                keyPassword = localConfig("hcm.release.keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             // Debug-only sign-in bypass for the local dev backend. Never set for release.
@@ -45,6 +64,12 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Unsigned when no release key is configured.
+            signingConfig = signingConfigs.findByName("release")
+
+            buildConfigField("String", "CLERK_PUBLISHABLE_KEY", releaseConfig("clerkPublishableKey").quoted())
+            buildConfigField("String", "API_BASE_URL", releaseConfig("apiBaseUrl", "http://10.0.2.2:3000").quoted())
+            buildConfigField("String", "WEB_BASE_URL", releaseConfig("webBaseUrl").quoted())
         }
     }
 
