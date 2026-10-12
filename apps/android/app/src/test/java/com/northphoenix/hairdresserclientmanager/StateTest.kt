@@ -12,7 +12,6 @@ import com.northphoenix.hairdresserclientmanager.data.ProfileShare
 import com.northphoenix.hairdresserclientmanager.data.UpdatedAppointment
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.state.LatestWins
-import com.northphoenix.hairdresserclientmanager.state.LoadedAppointments
 import com.northphoenix.hairdresserclientmanager.state.SessionWatch
 import com.northphoenix.hairdresserclientmanager.state.withClient
 import com.northphoenix.hairdresserclientmanager.state.withSaved
@@ -376,23 +375,21 @@ class StateTest {
     }
 
     @Test
-    fun `a saved Client's new phone is on every loaded Appointment they are in`() {
-        val appointments = LoadedAppointments()
+    fun `a saved Client's new phone is on every Appointment they are in`() {
         val phoneTest = participant("c1", "Phone Test", "5550001", isPrimary = true)
         val other = participant("c2", "Carol Other", "5550100")
 
         // One opened from the Client's history, one as an additional Client, one without them.
-        appointments.remember(
-            listOf(
-                appointment("next-week", phoneTest),
-                appointment("group", other.copy(isPrimary = true), phoneTest.copy(isPrimary = false)),
-                appointment("unrelated", other.copy(isPrimary = true)),
-            ),
+        val loaded = listOf(
+            appointment("next-week", phoneTest),
+            appointment("group", other.copy(isPrimary = true), phoneTest.copy(isPrimary = false)),
+            appointment("unrelated", other.copy(isPrimary = true)),
         )
-        val unrelated = appointments["unrelated"]
+        val unrelated = loaded.last()
 
+        // What every copy on screen gets when the Client is saved (AppointmentReads.clientSaved, see ReadCacheTest).
         val saved = ClientProfile(id = "c1", name = "Phone Test", language = Language.EN, phone = "5550002", address = "1 New St")
-        appointments.updateAll { it.withClient(saved) }
+        val appointments = loaded.map { it.withClient(saved) }.associateBy { it.id }
 
         // The SMS reminder goes to the primary Client's phone, in their language.
         val recipient = appointments["next-week"]!!.participants.single { it.isPrimary }

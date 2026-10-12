@@ -1,19 +1,19 @@
 package com.northphoenix.hairdresserclientmanager.state
 
 import androidx.annotation.StringRes
-import com.northphoenix.hairdresserclientmanager.data.toApiException
-import com.northphoenix.hairdresserclientmanager.i18n.messageRes
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Where a screen stands with data it asked for. Each state is drawn differently and none of them
  * is "empty": a list says that it has nothing in it only when it is [Loaded].
+ *
+ * Every read has its state from the read cache, next to its data in a [Read] (see [ReadCache]):
+ * [Loaded] from the first answer on, also while it is asked for again and after that has failed;
+ * [Loading] only while a request runs for something that has no answer, so a spinner cannot
+ * outlast its request; [Failed] when that request failed.
  */
 sealed interface LoadState {
     /** On its way, or not asked for yet. */
@@ -26,78 +26,6 @@ sealed interface LoadState {
 
     /** A single item the server does not have (any more). The screen says so and offers a way back. */
     data object Missing : LoadState
-}
-
-/**
- * Follows the loads of one piece of data, so that its screen can always tell the states apart:
- *
- * - [LoadState.Loaded] from the first load that succeeds. Data on screen stays there while it is
- *   loaded again and after a reload that failed.
- * - [LoadState.Loading] only while a load is running, or before the first one: a spinner cannot
- *   outlast its request.
- * - [LoadState.Failed] when the last load failed and nothing has been loaded.
- *
- * [reset] starts over for other data (another Calendar day, another Stylist). A load that was
- * still running for the old data then changes nothing, however it ends.
- *
- * Not thread-safe: use it from one thread.
- */
-internal class LoadTracker {
-    private var generation = 0
-    private var running = 0
-    private var loaded = false
-    private var failure: Int? = null
-    private val _state = MutableStateFlow<LoadState>(LoadState.Loading)
-
-    val state: StateFlow<LoadState> = _state.asStateFlow()
-
-    /**
-     * Fetches the data and hands it to [apply]. A failure is kept for the screen and thrown on
-     * for the caller, who decides whether it is also worth a notice.
-     */
-    suspend fun <T> load(fetch: suspend () -> T, apply: (T) -> Unit) {
-        val asked = generation
-
-        running++
-        publish()
-        try {
-            val result = fetch()
-
-            if (asked == generation) {
-                apply(result)
-                loaded = true
-                failure = null
-            }
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            if (asked == generation) {
-                failure = error.toApiException().messageRes()
-                throw error
-            }
-        } finally {
-            if (asked == generation) {
-                running--
-                publish()
-            }
-        }
-    }
-
-    fun reset() {
-        generation++
-        running = 0
-        loaded = false
-        failure = null
-        publish()
-    }
-
-    private fun publish() {
-        _state.value = when {
-            loaded -> LoadState.Loaded
-            running > 0 -> LoadState.Loading
-            else -> failure?.let(LoadState::Failed) ?: LoadState.Loading
-        }
-    }
 }
 
 /**

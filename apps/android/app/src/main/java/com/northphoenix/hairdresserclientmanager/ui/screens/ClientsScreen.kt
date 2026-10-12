@@ -54,8 +54,10 @@ import com.northphoenix.hairdresserclientmanager.ui.components.ScreenTitle
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClientsScreen(viewModel: AppViewModel, onOpenClient: (String) -> Unit) {
-    val clients by viewModel.clients.collectAsStateWithLifecycle()
-    val load by viewModel.clientsLoad.collectAsStateWithLifecycle()
+    // The list and its load state in one value: "no Clients" is only said of a list that has loaded.
+    val read by viewModel.clients.collectAsStateWithLifecycle()
+    val clients = read.data.orEmpty()
+    val load = read.state
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
     var search by rememberSaveable { mutableStateOf("") }
     val filtered = remember(clients, search) { ClientRules.filter(clients, search) }

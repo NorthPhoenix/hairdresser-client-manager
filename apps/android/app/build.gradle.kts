@@ -96,6 +96,7 @@ dependencies {
     implementation(libs.coil.network.okhttp)
     implementation(libs.coil.svg)
     implementation(libs.clerk.api)
+    implementation(libs.store)
 
     debugImplementation(libs.compose.ui.tooling)
 

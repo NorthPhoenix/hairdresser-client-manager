@@ -67,9 +67,11 @@ import java.time.temporal.WeekFields
 fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit) {
     val format = LocalTimeFormat.current
     val locale = format.locale
-    val selected by viewModel.calendarDate.collectAsStateWithLifecycle()
-    val appointments by viewModel.calendar.collectAsStateWithLifecycle()
-    val load by viewModel.calendarLoad.collectAsStateWithLifecycle()
+    // The day and what is loaded of it come together, so one day's Appointments are never under another day.
+    val shown by viewModel.calendarDay.collectAsStateWithLifecycle()
+    val selected = shown.day
+    val appointments = shown.appointments
+    val load = shown.load
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
     val today by viewModel.today.collectAsStateWithLifecycle()
     val weekStart = remember(selected, locale) { selected.with(WeekFields.of(locale).dayOfWeek(), 1) }

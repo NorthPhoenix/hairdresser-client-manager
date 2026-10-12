@@ -76,15 +76,17 @@ internal sealed interface MenuEditor {
 /** Service Menu Items: the Stylist's standard services with default prices. */
 @Composable
 fun ServiceMenuScreen(viewModel: AppViewModel, onBack: () -> Unit) {
-    val items by viewModel.serviceMenu.collectAsStateWithLifecycle()
-    val load by viewModel.serviceMenuLoad.collectAsStateWithLifecycle()
+    val menu by viewModel.serviceMenu.collectAsStateWithLifecycle()
+    val items = menu.data.orEmpty()
+    val load = menu.state
     val busy by viewModel.busy.collectAsStateWithLifecycle()
+    val saving by viewModel.saving.collectAsStateWithLifecycle()
     var editor by rememberSaveable(stateSaver = MenuEditor.Saver) { mutableStateOf<MenuEditor?>(null) }
 
     SubScreen(
         title = stringResource(R.string.service_menu_title),
         onBack = onBack,
-        busy = busy,
+        saving = saving,
         floatingActionButton = {
             NewFab(stringResource(R.string.create_service_menu_item), Icons.Rounded.Add) { editor = MenuEditor.New }
         },
@@ -183,8 +185,10 @@ fun ServiceMenuScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                 confirmText = stringResource(R.string.delete),
                 danger = true,
                 onConfirm = {
+                    // Not waited for: the sheet closes and the item leaves the menu now. It is back when the delete fails.
                     confirmDelete = false
-                    viewModel.deleteServiceMenuItem(editedId) { editor = null }
+                    editor = null
+                    viewModel.deleteServiceMenuItem(editedId)
                 },
                 onDismiss = { confirmDelete = false },
             )

@@ -35,6 +35,11 @@ import kotlinx.coroutines.sync.withLock
  * - Whatever is thrown is reported through [onFailure]. Nothing escapes to kill the app, and
  *   [busy] always clears.
  *
+ * There are two kinds of change. Most are waited for: [busy] is up while one is in flight, and
+ * the screen disables what must not be tapped meanwhile. A change that is shown ahead of the
+ * server's answer (an optimistic change, see [Ahead]) follows every rule above and is not waited
+ * for: it never raises [busy], only [saving].
+ *
  * Not thread-safe: call it from the scope's own (main) thread.
  */
 internal class ActionRunner(
@@ -47,8 +52,15 @@ internal class ActionRunner(
     private val onStale: () -> Unit = {},
 ) {
     private val running = mutableSetOf<String>()
-    private var pending = 0
+
+    // The changes in flight: the ones the Stylist waits for, and the ones the screen shows ahead of the answer.
+    private var waitedFor = 0
+    private var shownAhead = 0
     private val _busy = MutableStateFlow(false)
+    private val _saving = MutableStateFlow(false)
+
+    // The requests of the changes that are shown ahead go out one at a time, in the order of the taps.
+    private val aheadOrder = Mutex()
 
     // One reload at a time, so the one started last is also the one applied last.
     private val reloadLock = Mutex()
@@ -57,34 +69,56 @@ internal class ActionRunner(
     private val owed = mutableListOf<Owed>()
     private var forgotten = 0
 
-    /** True while any change is in flight. */
+    /**
+     * True while a change the Stylist waits for is in flight: the request, or the reload after it.
+     * What must not be tapped meanwhile is disabled by this. A change that is shown ahead of its
+     * answer does not raise it.
+     */
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
+
+    /**
+     * True while any change is in flight, also one that is shown ahead of its answer. For a quiet
+     * sign that something is being saved. Nothing is disabled by it.
+     */
+    val saving: StateFlow<Boolean> = _saving.asStateFlow()
 
     /**
      * [key] names the action and what it acts on, such as `deleteService:<id>`. Pass null only
      * when repeated calls are meant and the caller orders them itself (see [LatestWins]).
      * [savedInPart] is asked when [change] has failed: true when a request it made before the one
      * that failed was saved.
+     *
+     * With [ahead] the change is not waited for: the screen shows it at once ([Ahead.show], before
+     * anything is sent), and [busy] stays down. Once [change] has returned it is what the server
+     * has ([Ahead.saved]), and whether it was saved or not, what was shown ahead is taken away
+     * when the request has been answered ([Ahead.settle]): after a failure the screen is back on
+     * what the server has. A call that does nothing because of its [key] shows nothing either.
+     *
+     * The requests of such changes go out one at a time, in the order they were made, and a
+     * change that is waited for is sent after the ones made before it: the screen offered it for
+     * what they show, so the server gets them in the order of the taps.
      */
     fun <T> run(
         key: String?,
         change: suspend () -> T,
         reload: suspend () -> Unit = {},
         savedInPart: () -> Boolean = { false },
+        ahead: Ahead? = null,
         onSaved: (T) -> Unit = {},
     ) {
         if (key != null && !running.add(key)) {
             return
         }
 
+        ahead?.show()
+
         // Undispatched, so a second tap in the same frame already finds this one running.
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            pending++
-            _busy.value = true
+            inFlight(ahead, +1)
             try {
                 var saved = false
                 val failure = failureOrNull {
-                    val result = change()
+                    val result = if (ahead == null) sentInTurn(change) else sentAhead(ahead, change)
                     saved = true
                     onSaved(result)
                 }
@@ -104,11 +138,31 @@ internal class ActionRunner(
                 }
             } finally {
                 key?.let(running::remove)
-                pending--
-                _busy.value = pending > 0
+                inFlight(ahead, -1)
             }
         }
     }
+
+    private fun inFlight(ahead: Ahead?, change: Int) {
+        if (ahead == null) waitedFor += change else shownAhead += change
+        _busy.value = waitedFor > 0
+        _saving.value = waitedFor + shownAhead > 0
+    }
+
+    /** The request of a change the Stylist waits for: sent once the changes shown ahead before it have been answered. */
+    private suspend fun <T> sentInTurn(change: suspend () -> T): T {
+        // Free unless such a change is on its way: then this waits its turn behind the ones made before it.
+        aheadOrder.withLock { }
+        return change()
+    }
+
+    /** The request of a change that is on screen already. Whatever comes of it, the screen then shows what the server has. */
+    private suspend fun <T> sentAhead(ahead: Ahead, change: suspend () -> T): T =
+        try {
+            aheadOrder.withLock { change() }.also { ahead.saved() }
+        } finally {
+            ahead.settle()
+        }
 
     /**
      * Reloads what a change touched. A reload that fails is never reported as a failure, and it is

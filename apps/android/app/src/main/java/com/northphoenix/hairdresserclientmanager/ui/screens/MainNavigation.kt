@@ -195,7 +195,7 @@ private fun MainScreen(viewModel: AppViewModel, open: (route: String) -> Unit) {
     val tabStates = rememberSaveableStateHolder()
     val openAppointment: (String) -> Unit = { id -> open(Routes.appointment(id)) }
     val calendarDate by viewModel.calendarDate.collectAsStateWithLifecycle()
-    val busy by viewModel.busy.collectAsStateWithLifecycle()
+    val saving by viewModel.saving.collectAsStateWithLifecycle()
     // The tab labels get smaller together, as far as the longest of them needs to stay whole in its tab.
     val tabLabels = MainTab.entries.map { stringResource(it.label) }
     val barWidth = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
@@ -246,7 +246,7 @@ private fun MainScreen(viewModel: AppViewModel, open: (route: String) -> Unit) {
                     MainTab.PROFILE -> ProfileScreen(viewModel, onOpenServiceMenu = { open(Routes.SERVICES) })
                 }
             }
-            BusyBar(busy, Modifier.align(Alignment.TopCenter))
+            BusyBar(saving, Modifier.align(Alignment.TopCenter))
         }
     }
 }
@@ -274,10 +274,13 @@ fun NewFab(text: String, icon: ImageVector, onClick: () -> Unit) {
     )
 }
 
-/** Thin progress line shown while a change is being saved. */
+/**
+ * Thin progress line shown while a change is being saved, also one the screen shows already
+ * (`viewModel.saving`). It is the only sign of such a change: nothing is disabled by it.
+ */
 @Composable
-fun BusyBar(busy: Boolean, modifier: Modifier = Modifier) {
-    AnimatedVisibility(busy, modifier = modifier.fillMaxWidth(), enter = fadeIn(), exit = fadeOut()) {
+fun BusyBar(saving: Boolean, modifier: Modifier = Modifier) {
+    AnimatedVisibility(saving, modifier = modifier.fillMaxWidth(), enter = fadeIn(), exit = fadeOut()) {
         LinearProgressIndicator(
             Modifier.fillMaxWidth(),
             color = MaterialTheme.colorScheme.primary,
