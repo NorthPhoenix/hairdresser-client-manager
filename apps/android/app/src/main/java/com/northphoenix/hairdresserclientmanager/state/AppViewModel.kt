@@ -1161,8 +1161,14 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         },
         // An inline Client is created on the server as part of this call.
         reload = { together(::loadAppointmentLists, { if (primaryClientId == null) loadClients() }) },
-        // A new Appointment is in the list of its day, whichever that is, and may be in Today's.
-        touched = readChanges::changedAnywhere,
+        // A new Appointment is in the list of the day it starts on and may be in Today's. No other cached day has anything of it.
+        touched = {
+            appointmentReads.startChanged(null, startsAt)
+            // An inline Client is new in the Client list.
+            if (primaryClientId == null) {
+                clientReads.changed(null)
+            }
+        },
     ) {
         api.createAppointment(
             primaryClientId = primaryClientId,
@@ -1222,8 +1228,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         "editAppointment:$id",
         R.string.appointment_time_and_place_saved,
         onSuccess,
-        // At another time the Appointment can be in the list of another day.
-        touched = { if (times != null) readChanges.changedAnywhere() else readChanges.changed(id) },
+        // At another time the Appointment is in the list of the day it starts on now, which does not hold it yet.
+        touched = { if (times != null) appointmentReads.startChanged(id, times.startsAt) else readChanges.changed(id) },
     ) {
         val saved = api.updateAppointmentTimeAndPlace(id, times?.startsAt, times?.endsAt, locationType, ownAddress?.trim().orEmpty())
 
@@ -1480,7 +1486,9 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     /**
      * The Appointment of a photo that has reached the server, or may have, is loaded again. One
      * that is on no screen is left alone: no cached answer from before the photo is served again
-     * (see [recordPhoto]), so it comes with its photos when the Stylist opens it.
+     * (see [recordPhoto]), so it comes with its photos when the Stylist opens it. An Appointment
+     * whose screen is open behind the camera or the photo picker is on screen: that screen goes
+     * on reading (`collectWhileOpen`), so the photo is put into it and it is loaded again here.
      */
     private suspend fun reloadForPhoto(photo: PendingPhoto, saved: Boolean) =
         actions.reloadAfterChange(saved) {

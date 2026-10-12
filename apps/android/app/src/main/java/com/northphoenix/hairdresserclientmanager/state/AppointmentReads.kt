@@ -2,6 +2,7 @@ package com.northphoenix.hairdresserclientmanager.state
 
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.CoroutineScope
@@ -33,6 +34,8 @@ internal data class CopyTargetKey(val appointmentId: String, val clientIds: Set<
  * reload after the change fails. And the change is marked in [changes], so that no cached answer
  * that holds the changed Appointment or Client is served again: a day that is not on screen is
  * loaded anew the next time it is shown, and never shows, say, a Client's old phone number.
+ * An Appointment that is new, or at another time, is in no answer of its day yet: the day is
+ * marked by its name ([startChanged]), and every other cached day is still shown at once.
  *
  * A change the Stylist does not wait for is shown before the server has answered it ([ahead]):
  * every copy of the Appointment on screen has it at once, and a refresh that arrives while it is
@@ -49,10 +52,25 @@ internal class AppointmentReads(
     find: suspend (id: String) -> Appointment?,
     fetchSources: suspend (CopyTargetKey) -> List<Appointment>,
 ) {
-    /** Today's list holds every Scheduled Appointment that is overdue as well, so a change of any status is a change to it (see [statusChanged]). */
-    val today = ReadCache(scope, changes, TODAY_LIMITS, about = { _, list -> list.flatMap { idsIn(it) } + ANY_STATUS }, fetch = fetchToday)
+    /**
+     * Today's list holds every Scheduled Appointment that is overdue as well, of whatever day. So
+     * an Appointment that is in no answer yet can join it with another status ([statusChanged])
+     * and with another time, or as a new one ([startChanged]): each is a change to the list.
+     */
+    val today = ReadCache(scope, changes, TODAY_LIMITS, about = { _, list -> list.flatMap { idsIn(it) } + TODAYS_LIST }, fetch = fetchToday)
 
-    val days = ReadCache(scope, changes, DAY_LIMITS, about = { _, list -> list.flatMap { idsIn(it) } }, fetch = fetchDay)
+    // The timezones a day was read in. One moment is on another day in another timezone, and each of them is another key.
+    private val zones = mutableSetOf<ZoneId>()
+
+    /**
+     * A day's list is of the Appointments that start on that day (`appointment.list` selects by
+     * the start alone). One that is new, or at another time, joins the list of the day it starts
+     * on, which does not hold it yet: an answer is about its day as well ([startsOn]).
+     */
+    val days = ReadCache<DayKey, List<Appointment>>(scope, changes, DAY_LIMITS, about = { key, list -> list.flatMap { idsIn(it) } + startsOn(key) }) { key ->
+        zones += key.zone
+        fetchDay(key)
+    }
 
     /** The answer is null for an Appointment the server no longer has. */
     val one = ReadCache<AppointmentKey, Appointment?>(
@@ -170,7 +188,22 @@ internal class AppointmentReads(
      * Marks that the server has accepted another status for this Appointment, or may have. Put the
      * status into the copies on screen with [update].
      */
-    fun statusChanged(id: String) = changes.changed(id, ANY_STATUS)
+    fun statusChanged(id: String) = changes.changed(id, TODAYS_LIST)
+
+    /**
+     * Marks that the server has put an Appointment at [startsAt], or may have: a new one ([id]
+     * null), or one it had, at another time. What that can make wrong is the day it starts on
+     * now, Today's list, and for an Appointment the server had, its own read and the day it has
+     * left, which are about it by its id. Every other cached day is served as it was.
+     *
+     * The day is marked in every timezone a day was read in, so that no cached answer is missed
+     * after the Stylist's timezone has changed.
+     */
+    fun startChanged(id: String?, startsAt: Instant) {
+        val itsDays = zones.map { startsOn(DayKey(startsAt.atZone(it).toLocalDate(), it)) }
+
+        changes.changed(*(listOfNotNull(id, TODAYS_LIST) + itsDays).toTypedArray())
+    }
 
     /** The server has just deleted this Appointment: it leaves the lists on screen, an open copy sheet's too, and its own screen says that it is gone. */
     fun forget(id: String) {
@@ -185,6 +218,7 @@ internal class AppointmentReads(
     suspend fun clear() {
         newest.value = null
         expected.value = emptyMap()
+        zones.clear()
         today.clear()
         days.clear()
         one.clear()
@@ -220,8 +254,11 @@ internal class AppointmentReads(
         /** The copy sheets opened of late. A list is kept only until the next change (see [sources]). */
         val SOURCES_LIMITS = CacheLimits(answers = 20)
 
-        /** Names the status of every Appointment, in what an answer is about. */
-        const val ANY_STATUS = "appointment-status"
+        /** Names Today's list as a whole, in what an answer is about: for an Appointment that is in no answer yet and can join the list. */
+        const val TODAYS_LIST = "todays-list"
+
+        /** Names the list of a day, in what an answer is about: for an Appointment that is in no answer yet and starts on that day. */
+        fun startsOn(key: DayKey): String = "starts-on:${key.day}@${key.zone.id}"
 
         /** What an Appointment repeats of others: a change to one of these is a change to it. */
         fun idsIn(appointment: Appointment): List<String> =

@@ -81,7 +81,11 @@ internal class Changes {
         ids.forEach { byId[it] = count }
     }
 
-    /** As [changed], for a change that can show in any answer: a new Appointment, another day or time for one, the salon's address. */
+    /**
+     * As [changed], for a change that can show in any answer, such as the salon's address or the
+     * Stylist's timezone, and for a refusal that says the screen is out of date. Not for a change
+     * that a name covers: every cached answer is loaded anew after this.
+     */
     fun changedAnywhere() {
         count++
         anywhere = count

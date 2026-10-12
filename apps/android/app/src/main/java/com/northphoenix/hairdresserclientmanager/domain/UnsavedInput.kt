@@ -50,4 +50,28 @@ object UnsavedInput {
         // Compared as text too: an override from before amounts had a maximum is refused as an amount.
         return draft.isNotBlank() && draft.trim() != Money.centsToPrice(saved) && Money.parse(draft) != Amount.Valid(saved)
     }
+
+    /**
+     * What the note field of an Appointment holds once the server has another note than before:
+     * the save of the field was answered, or a reload brought what was saved elsewhere.
+     * [shownBefore] is the note the Appointment showed until then, which is the text that was
+     * sent while a save was on its way, and [shown] the note it shows now.
+     *
+     * A field that still holds [shownBefore] was not touched since, and follows the Appointment.
+     * Anything else was typed since: it stays in the field, and is unsaved input from then on.
+     * So what the Stylist types on while a save is on its way is not taken away by its answer.
+     */
+    fun noteDraft(draft: String, shownBefore: String, shown: String): String = if (appointmentNote(draft, shownBefore)) draft else shown
+
+    /**
+     * As [noteDraft], for the field of the final total override, whose text is compared as an
+     * amount. A field that was emptied counts as typed in too, unless there was no override:
+     * the amount that was just saved does not come back into a field the Stylist has cleared to
+     * type another.
+     */
+    fun finalTotalDraft(draft: String, shownBeforeCents: Long?, shownCents: Long?): String {
+        val untouched = !finalTotal(draft, shownBeforeCents) && (shownBeforeCents == null || draft.isNotBlank())
+
+        return if (untouched) shownCents?.let(Money::centsToPrice).orEmpty() else draft
+    }
 }

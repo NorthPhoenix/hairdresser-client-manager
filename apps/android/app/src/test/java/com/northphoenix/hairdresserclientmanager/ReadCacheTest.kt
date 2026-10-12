@@ -10,12 +10,15 @@ import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.state.Answer
 import com.northphoenix.hairdresserclientmanager.state.AppointmentKey
 import com.northphoenix.hairdresserclientmanager.state.AppointmentReads
+import com.northphoenix.hairdresserclientmanager.state.CacheLimits
 import com.northphoenix.hairdresserclientmanager.state.Changes
 import com.northphoenix.hairdresserclientmanager.state.DayKey
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.state.Read
+import com.northphoenix.hairdresserclientmanager.state.ReadCache
 import com.northphoenix.hairdresserclientmanager.state.after
 import com.northphoenix.hairdresserclientmanager.state.showLatest
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.CancellationException
@@ -38,6 +41,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.milliseconds
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -507,32 +511,148 @@ class ReadCacheTest {
         assertEquals(listOf("a0", "a1"), today.last().data?.map { it.id })
     }
 
+    /** Shows each of [keys] once and leaves it: the day is cached, and not on screen. */
+    private fun TestScope.seen(reads: AppointmentReads, vararg keys: DayKey) {
+        for (key in keys) {
+            val (_, seen) = shownBy(reads.days.watch(key))
+            runCurrent()
+            seen.cancel()
+            runCurrent()
+        }
+    }
+
     @Test
-    fun `a new Appointment can be on any day, so no cached day is served as it was`() = runTest {
-        val changes = Changes()
-        val server = Server().apply { days[tuesday.day] = listOf(appointment("a2")) }
-        val reads = reads(server, changes)
-        val (_, seen) = shownBy(reads.days.watch(tuesday))
+    fun `a new Appointment is in the list of the day it starts on, so that cached day is not served as it was, and every other day is`() = runTest {
+        val server = Server().apply {
+            days[monday.day] = listOf(appointment("a1"))
+            days[tuesday.day] = listOf(appointment("a2"))
+            days[wednesday.day] = emptyList()
+            todays = listOf(appointment("a1"))
+        }
+        val reads = reads(server)
+        seen(reads, monday, tuesday, wednesday)
+        val (_, todaySeen) = shownBy(reads.today.watch(monday))
         runCurrent()
-        seen.cancel()
+        todaySeen.cancel()
         runCurrent()
 
-        // Created on Tuesday from another screen. Its own screen opens with the reply, before any read of it has answered.
-        val created = appointment("a3", clientId = "c3")
+        // Created for Tuesday at 10:00 from another screen. Its own screen opens with the reply, before any read of it has answered.
+        val created = appointment("a3", clientId = "c3").copy(startsAt = "2026-10-13T15:00:00.000Z")
         server.days[tuesday.day] = listOf(appointment("a2"), created)
-        changes.changedAnywhere()
+        reads.startChanged(null, Instant.parse(created.startsAt))
         reads.created(created)
         server.hold()
         val (onItsScreen) = shownBy(reads.watch("a3"))
         runCurrent()
         assertEquals(listOf(Read<Appointment?>(LoadState.Loaded, created)), onItsScreen)
 
+        // Tuesday as it was cached does not have it: the day is loaded anew.
         val (onTuesday) = shownBy(reads.days.watch(tuesday))
         assertEquals(listOf(Read<List<Appointment>>(LoadState.Loading)), onTuesday)
+
+        // The days it is not on are there at once, as they were: also a day that was empty.
+        val (onMonday) = shownBy(reads.days.watch(monday))
+        val (onWednesday) = shownBy(reads.days.watch(wednesday))
+        assertEquals(listOf(Read(LoadState.Loaded, listOf(appointment("a1")))), onMonday)
+        assertEquals(listOf(Read(LoadState.Loaded, emptyList<Appointment>())), onWednesday)
+
+        // Today's list has every overdue Appointment, of whatever day: it is not served as it was.
+        val (today) = shownBy(reads.today.watch(monday))
+        assertEquals(listOf(Read<List<Appointment>>(LoadState.Loading)), today)
 
         server.release()
         runCurrent()
         assertEquals(listOf("a2", "a3"), onTuesday.last().data?.map { it.id })
+        assertEquals(1, onMonday.size)
+        assertEquals(1, onWednesday.size)
+    }
+
+    @Test
+    fun `an Appointment at another time leaves the cached day it was on and joins the one it starts on now, and no other day is loaded anew`() = runTest {
+        val moved = appointment("a1")
+        val server = Server().apply {
+            days[monday.day] = listOf(moved, appointment("a2", clientId = "c2"))
+            days[tuesday.day] = listOf(appointment("a3", clientId = "c3"))
+            days[wednesday.day] = listOf(appointment("a4", clientId = "c4"))
+        }
+        val reads = reads(server)
+        seen(reads, monday, tuesday, wednesday)
+        // Its own screen was open too, and is not now.
+        val (_, itsScreen) = shownBy(reads.watch("a1"))
+        runCurrent()
+        itsScreen.cancel()
+        runCurrent()
+
+        // Edit Appointment moves it from Monday to Wednesday at 9:00.
+        val later = moved.copy(startsAt = "2026-10-14T14:00:00.000Z")
+        server.days[monday.day] = listOf(appointment("a2", clientId = "c2"))
+        server.days[wednesday.day] = listOf(later, appointment("a4", clientId = "c4"))
+        reads.startChanged("a1", Instant.parse(later.startsAt))
+        server.hold()
+
+        // Monday as it was cached still has it, and Wednesday does not have it yet: both are loaded anew.
+        val (onMonday) = shownBy(reads.days.watch(monday))
+        val (onWednesday) = shownBy(reads.days.watch(wednesday))
+        assertEquals(listOf(Read<List<Appointment>>(LoadState.Loading)), onMonday)
+        assertEquals(listOf(Read<List<Appointment>>(LoadState.Loading)), onWednesday)
+
+        // Tuesday has nothing to do with it and is there at once.
+        val (onTuesday) = shownBy(reads.days.watch(tuesday))
+        assertEquals(listOf(Read(LoadState.Loaded, listOf(appointment("a3", clientId = "c3")))), onTuesday)
+
+        // The Appointment itself is loaded anew as well: what the cache has of it shows the time from before.
+        val (again) = shownBy(reads.watch("a1"))
+        runCurrent()
+        assertEquals(listOf(Read<Appointment?>(LoadState.Loading)), again)
+
+        server.release()
+        runCurrent()
+        assertEquals(listOf("a2"), onMonday.last().data?.map { it.id })
+        assertEquals(listOf("a1", "a4"), onWednesday.last().data?.map { it.id })
+        assertEquals(later.startsAt, again.last().data?.startsAt)
+        assertEquals(1, onTuesday.size)
+    }
+
+    @Test
+    fun `the day an Appointment starts on is the day in the timezone of the list`() = runTest {
+        val server = Server()
+        val reads = reads(server)
+        val honolulu = ZoneId.of("Pacific/Honolulu")
+        seen(reads, monday, tuesday, DayKey(monday.day, honolulu), DayKey(tuesday.day, honolulu))
+
+        // 2:00 on Tuesday in Chicago is 21:00 on Monday in Honolulu. Both timezones were read: the Stylist's was changed on another device.
+        reads.startChanged(null, Instant.parse("2026-10-13T07:00:00.000Z"))
+        server.hold()
+
+        val loading = listOf(Read<List<Appointment>>(LoadState.Loading))
+        val asItWas = listOf(Read(LoadState.Loaded, emptyList<Appointment>()))
+
+        assertEquals(asItWas, shownBy(reads.days.watch(monday)).first)
+        assertEquals(loading, shownBy(reads.days.watch(tuesday)).first)
+        assertEquals(loading, shownBy(reads.days.watch(DayKey(monday.day, honolulu))).first)
+        assertEquals(asItWas, shownBy(reads.days.watch(DayKey(tuesday.day, honolulu))).first)
+    }
+
+    @Test
+    fun `a day that is on its way when an Appointment is created on it is asked for again`() = runTest {
+        val server = Server().apply { days[tuesday.day] = listOf(appointment("a2")) }
+        val reads = reads(server)
+
+        // Tuesday is being loaded for the first time...
+        server.hold()
+        val (onTuesday) = shownBy(reads.days.watch(tuesday))
+        runCurrent()
+
+        // ...when an Appointment is created on it: the answer on its way was written before.
+        val created = appointment("a3", clientId = "c3").copy(startsAt = "2026-10-13T15:00:00.000Z")
+        server.days[tuesday.day] = listOf(appointment("a2"), created)
+        reads.startChanged(null, Instant.parse(created.startsAt))
+        server.release()
+        runCurrent()
+
+        assertEquals(listOf("day 2026-10-13", "day 2026-10-13"), server.requests)
+        assertEquals(listOf("a2", "a3"), onTuesday.last().data?.map { it.id })
+        assertTrue(onTuesday.none { it.data?.map(Appointment::id) == listOf("a2") })
     }
 
     @Test
@@ -734,6 +854,67 @@ class ReadCacheTest {
 
         assertTrue(failure is ApiException)
         assertEquals(Read<Appointment?>(LoadState.Loaded, appointment("a1")), shown.last())
+    }
+
+    @Test
+    fun `an Appointment that no list has stays on its open screen when a change overtakes the cache and the reload fails`() = runTest {
+        val server = Server().apply { days[monday.day] = listOf(appointment("a1")) }
+        val reads = reads(server)
+
+        // Opened from a Client's history: no list on screen has it. Its screen goes on reading while the Stylist is in the camera.
+        val (shown, screen) = shownBy(reads.watch("a1"))
+        runCurrent()
+        assertEquals(Read<Appointment?>(LoadState.Loaded, appointment("a1")), shown.last())
+        val shownBefore = shown.size
+
+        // The photo before finishes uploading meanwhile, and the phone has no connection for the reload after it.
+        server.online = false
+        reads.update("a1") { it.copy(note = "One photo") }
+        // The Appointment is on a screen, so the reload after a photo does not pass it by.
+        assertEquals("One photo", reads["a1"]?.note)
+        val failure = failureOf { reads.one.refresh(AppointmentKey("a1")) }
+        runCurrent()
+
+        // The screen got the change and nothing else: neither a loading state nor the failure.
+        assertTrue(failure is ApiException)
+        assertEquals(listOf(Read<Appointment?>(LoadState.Loaded, appointment("a1").copy(note = "One photo"))), shown.drop(shownBefore))
+
+        // Why its screen reads for as long as it is open: a read that starts anew has only what the cache has, and that is out of date.
+        screen.cancel()
+        runCurrent()
+        val (anew) = shownBy(reads.watch("a1"))
+        runCurrent()
+        assertEquals(Read<Appointment?>(failedOffline), anew.last())
+        assertTrue(anew.none { it.state == LoadState.Loaded })
+    }
+
+    @Test
+    fun `what an open screen shows outlives its place in the cache, also when asking again fails`() = runTest {
+        var online = true
+        val cache = ReadCache<String, String>(backgroundScope, Changes(), CacheLimits(answers = 10, age = 1.milliseconds)) { key ->
+            if (online) "history of $key" else throw ApiException("Network request failed.", code = "NETWORK", isNetwork = true)
+        }
+        val (shown, screen) = shownBy(cache.watch("c1"))
+        runCurrent()
+
+        // The phone sleeps for longer than the cache keeps an answer, and wakes up without a connection.
+        // The cache goes by the real clock: the answer is kept for a millisecond here.
+        Thread.sleep(50)
+        online = false
+        val failure = failureOf { cache.refresh("c1") }
+        runCurrent()
+
+        assertTrue(failure is ApiException)
+        assertEquals(listOf(Read<String>(LoadState.Loading), Read(LoadState.Loaded, "history of c1")), shown)
+        assertEquals(Read(LoadState.Loaded, "history of c1"), cache.now("c1"))
+
+        // A read that starts anew has nothing to show: the cache no longer has the answer.
+        screen.cancel()
+        runCurrent()
+        assertEquals(Read<String>(LoadState.Loading), cache.now("c1"))
+        val (anew) = shownBy(cache.watch("c1"))
+        runCurrent()
+        assertEquals(listOf(Read<String>(LoadState.Loading), Read<String>(failedOffline)), anew)
     }
 
     @Test

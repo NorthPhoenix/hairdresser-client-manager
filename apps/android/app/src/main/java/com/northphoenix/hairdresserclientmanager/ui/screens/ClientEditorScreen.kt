@@ -124,6 +124,7 @@ import com.northphoenix.hairdresserclientmanager.ui.components.SwitchRow
 import com.northphoenix.hairdresserclientmanager.ui.components.Tag
 import com.northphoenix.hairdresserclientmanager.ui.components.TagPadding
 import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
+import com.northphoenix.hairdresserclientmanager.ui.components.collectWhileOpen
 import com.northphoenix.hairdresserclientmanager.ui.components.fittedTextStyle
 import com.northphoenix.hairdresserclientmanager.ui.components.tagTextStyle
 import com.northphoenix.hairdresserclientmanager.ui.openUri
@@ -604,9 +605,10 @@ private fun ShareChoices(included: Set<ShareChoice>, enabled: Boolean, onChange:
  */
 @Composable
 private fun ClientHistoryCard(viewModel: AppViewModel, clientId: String, onOpenAppointment: (String) -> Unit) {
-    // Read through the cache for as long as the profile is in view. A history that was shown before is there from the
-    // first frame and refreshed behind it; one that is on screen stays there when loading it again fails.
-    val history by remember(viewModel, clientId) { viewModel.clientHistory(clientId) }.collectAsStateWithLifecycle(
+    // Read through the cache for as long as the profile is open, also while the app is not in front (see
+    // `collectWhileOpen`). A history that was shown before is there from the first frame and refreshed behind it;
+    // one that is on screen stays there when loading it again fails.
+    val history by remember(viewModel, clientId) { viewModel.clientHistory(clientId) }.collectWhileOpen(
         initialValue = remember(viewModel, clientId) { viewModel.shownClientHistory(clientId) },
     )
 

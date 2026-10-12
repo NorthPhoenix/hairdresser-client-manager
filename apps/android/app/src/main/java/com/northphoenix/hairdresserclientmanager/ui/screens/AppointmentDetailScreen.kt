@@ -57,6 +57,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -138,6 +139,7 @@ import com.northphoenix.hairdresserclientmanager.ui.components.Kicker
 import com.northphoenix.hairdresserclientmanager.ui.components.LabeledValue
 import com.northphoenix.hairdresserclientmanager.ui.components.LoadFailed
 import com.northphoenix.hairdresserclientmanager.ui.components.PrimaryButton
+import com.northphoenix.hairdresserclientmanager.ui.components.collectWhileOpen
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenColumn
 import com.northphoenix.hairdresserclientmanager.ui.components.SecondaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.SegmentedControl
@@ -231,10 +233,11 @@ fun AppointmentDetailScreen(
     onBack: () -> Unit,
     onOpenClient: (String) -> Unit,
 ) {
-    // Read through the cache for as long as the screen is in view. A copy that a list on screen has is there in the
-    // first frame. What the cache has follows a moment later: until then (null) nothing is drawn in the Appointment's
-    // place, so that one that is cached never flashes a loading state.
-    val shown by remember(viewModel, appointmentId) { viewModel.appointment(appointmentId) }.collectAsStateWithLifecycle(
+    // Read through the cache for as long as the screen is open, also behind the camera or a locked phone (see
+    // `collectWhileOpen`). A copy that a list on screen has is there in the first frame. What the cache has follows
+    // a moment later: until then (null) nothing is drawn in the Appointment's place, so that one that is cached
+    // never flashes a loading state.
+    val shown by remember(viewModel, appointmentId) { viewModel.appointment(appointmentId) }.collectWhileOpen(
         initialValue = remember(viewModel, appointmentId) {
             viewModel.shownAppointment(appointmentId)?.let { Read<Appointment?>(LoadState.Loaded, it) }
         },
@@ -313,11 +316,14 @@ private fun AppointmentDetail(
     // The two inline fields. Back asks before it discards what is typed into them and not saved yet.
     // A text that is being saved is the Appointment's already, so it is not unsaved. When the save
     // fails the Appointment goes back, the text stays in its field, and it is unsaved again.
-    var noteDraft by rememberDraft(appointment.id, saved = saved.note, shown = appointment.note)
+    // What is typed into a field while its save is on its way stays there when the save is answered, and is unsaved then.
+    var noteDraft by rememberDraft(appointment.id, saved = saved.note, shown = appointment.note, text = { it }, after = UnsavedInput::noteDraft)
     var finalTotalDraft by rememberDraft(
         appointment.id,
-        saved = saved.finalTotalCentsOverride?.let(Money::centsToPrice).orEmpty(),
-        shown = appointment.finalTotalCentsOverride?.let(Money::centsToPrice).orEmpty(),
+        saved = saved.finalTotalCentsOverride,
+        shown = appointment.finalTotalCentsOverride,
+        text = { it?.let(Money::centsToPrice).orEmpty() },
+        after = UnsavedInput::finalTotalDraft,
     )
     val unsaved = UnsavedInput.appointmentNote(noteDraft, appointment.note) ||
         UnsavedInput.finalTotal(finalTotalDraft, appointment.finalTotalCentsOverride)
@@ -658,7 +664,7 @@ private fun AppointmentDetail(
             // Under `key`, so that with other Clients nothing of the list from before is drawn, not for one frame.
             val sources by key(viewModel, appointment.id, clientIds) {
                 remember { viewModel.copySources(appointment.id, clientIds) }
-                    .collectAsStateWithLifecycle(initialValue = remember { viewModel.shownCopySources(appointment.id, clientIds) })
+                    .collectWhileOpen(initialValue = remember { viewModel.shownCopySources(appointment.id, clientIds) })
             }
 
             // Asked for when the sheet opens: a list that cannot be loaded says so as a notice too.
@@ -919,22 +925,46 @@ private fun WarningCard(
 }
 
 /**
- * The text of an inline field of the Appointment. It starts from what the Appointment shows
- * ([shown]), and again whenever what the server has ([saved]) changes. Text that differs from
- * [shown] is kept in saved state, so it survives Android recreating the screen; an untouched field
- * is not kept and shows what is saved by then.
+ * The text of an inline field of the Appointment, whose value is a [T] and is written as [text].
+ * It starts from what the Appointment shows ([shown]). Text that differs from that is kept in
+ * saved state, so it survives Android recreating the screen; an untouched field is not kept and
+ * shows what is saved by then.
  *
- * The two differ while a text is being saved without the Stylist waiting: [shown] is that text
- * already. It does not start the field again, and neither does going back to [saved] when the
- * save fails: what was typed stays in the field, for another try.
+ * [saved] is what the server has. The two differ while a text is being saved without the Stylist
+ * waiting: [shown] is that text already. That does not start the field again, and neither does
+ * going back to [saved] when the save fails: what was typed stays in the field, for another try.
+ *
+ * When [saved] changes, the save was answered or a reload brought another value. [after] decides
+ * what the field holds then (see [UnsavedInput.noteDraft]): a field that still holds what the
+ * Appointment showed until then follows it, and text typed since stays, as unsaved input.
  */
 @Composable
-private fun rememberDraft(appointmentId: String, saved: String, shown: String): MutableState<String> =
-    rememberSaveable(
+private fun <T> rememberDraft(
+    appointmentId: String,
+    saved: T,
+    shown: T,
+    text: (T) -> String,
+    after: (draft: String, shownBefore: T, shown: T) -> String,
+): MutableState<String> {
+    // The field, and what the Appointment showed, when this last ran: what `after` goes by once `saved` is another value.
+    // The field as a state, not its text: a letter typed since then is in it.
+    val before = remember(appointmentId) { DraftBefore<T>() }
+    val shownText = text(shown)
+    val draft = rememberSaveable(
         appointmentId,
         saved,
-        saver = Saver<MutableState<String>, String>(save = { draft -> draft.value.takeIf { it != shown } }, restore = { mutableStateOf(it) }),
-    ) { mutableStateOf(shown) }
+        saver = Saver<MutableState<String>, String>(save = { draft -> draft.value.takeIf { it != shownText } }, restore = { mutableStateOf(it) }),
+    ) {
+        mutableStateOf(before.last?.let { (field, shownBefore) -> after(field.value, shownBefore, shown) } ?: shownText)
+    }
+
+    SideEffect { before.last = draft to shown }
+
+    return draft
+}
+
+/** What [rememberDraft] had the last time it ran: the field, and what the Appointment showed then. Null before the first time. */
+private class DraftBefore<T>(var last: Pair<MutableState<String>, T>? = null)
 
 /** Opens the SMS app with a reminder in the primary Client's language. Nothing is sent automatically. */
 private fun composeReminder(context: Context, viewModel: AppViewModel, appointment: Appointment, stylistFormat: TimeFormat) {
