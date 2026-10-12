@@ -1067,7 +1067,6 @@ private fun ParticipantRow(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ServiceBlock(
     service: AppointmentService,
@@ -1087,6 +1086,9 @@ private fun ServiceBlock(
                 }
             }
             Text(Money.format(service.priceCents), style = MaterialTheme.typography.titleMedium)
+            IconButton(onClick = onEdit) {
+                Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.edit_appointment_service), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             IconButton(onClick = onDelete, enabled = !busy) {
                 Icon(Icons.Rounded.DeleteOutline, contentDescription = stringResource(R.string.delete_appointment_service), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -1097,12 +1099,8 @@ private fun ServiceBlock(
         service.colorFormulas.forEach { formula ->
             ColorFormulaCard(formula, onClick = { onEditFormula(formula) })
         }
-        // Pull the text buttons' own padding back so the first label lines up with the Service name.
-        // Side by side while both fit, and one under the other when they do not.
-        FlowRow(Modifier.offset(x = (-10).dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            TextAction(stringResource(R.string.add_color_formula), onClick = onAddFormula, icon = Icons.Rounded.Add)
-            TextAction(stringResource(R.string.edit_appointment_service), onClick = onEdit, icon = Icons.Rounded.Edit)
-        }
+        // Pull the text button's own padding back so its label lines up with the Service name.
+        TextAction(stringResource(R.string.add_color_formula), onClick = onAddFormula, icon = Icons.Rounded.Add, modifier = Modifier.offset(x = (-10).dp))
     }
 }
 
