@@ -18,6 +18,8 @@ Run these steps locally when you are ready to wire providers:
 
    The project targets the latest stable Node release for local development. On June 5, 2026, the official Node download page lists Node `26.3.0` as the latest release.
 
+   Production runs on Vercel, which offers Node 24 as its newest version, so the code has to run there too. That is why `package.json` asks for Node `>=24` while `.mise.toml` pins the newer one for local work.
+
    ```sh
    mise install
    node -v
