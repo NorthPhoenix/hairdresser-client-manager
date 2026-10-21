@@ -13,6 +13,7 @@
     <string name="add_appointment_service">Добавить услугу</string>
     <string name="add_client_to_appointment">Добавить клиента</string>
     <string name="add_color_formula">Добавить формулу</string>
+    <string name="add_color_formula_quiet">+ формула</string>
     <string name="add_services_pick">Выберите услуги</string>
     <string name="add_services_title">Добавить услуги</string>
     <string name="add_photo_from_camera">Камера</string>

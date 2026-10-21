@@ -14,6 +14,7 @@
     <string name="add_appointment_service">Add Service</string>
     <string name="add_client_to_appointment">Add Client</string>
     <string name="add_color_formula">Add Formula</string>
+    <string name="add_color_formula_quiet">+ formula</string>
     <string name="add_services_pick">Pick Services</string>
     <string name="add_services_title">Add Services</string>
     <string name="add_photo_from_camera">Camera</string>

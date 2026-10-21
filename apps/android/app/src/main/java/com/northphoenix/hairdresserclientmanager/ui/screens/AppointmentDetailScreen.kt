@@ -105,6 +105,7 @@ import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentCopying
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
+import com.northphoenix.hairdresserclientmanager.domain.ColorFormulaOffer
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.ServiceEdit
 import com.northphoenix.hairdresserclientmanager.domain.TextLimits
@@ -147,6 +148,7 @@ import com.northphoenix.hairdresserclientmanager.ui.components.StatusChip
 import com.northphoenix.hairdresserclientmanager.ui.components.SubScreen
 import com.northphoenix.hairdresserclientmanager.ui.components.Tag
 import com.northphoenix.hairdresserclientmanager.ui.components.TagPadding
+import com.northphoenix.hairdresserclientmanager.ui.components.QuietTextAction
 import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
 import com.northphoenix.hairdresserclientmanager.ui.components.fittedTextStyle
 import com.northphoenix.hairdresserclientmanager.ui.components.icon
@@ -1104,7 +1106,11 @@ private fun ServiceBlock(
             ColorFormulaCard(formula, onClick = { onEditFormula(formula) })
         }
         // Pull the text button's own padding back so its label lines up with the Service name.
-        TextAction(stringResource(R.string.add_color_formula), onClick = onAddFormula, icon = Icons.Rounded.Add, modifier = Modifier.offset(x = (-10).dp))
+        if (ColorFormulaOffer.isProminent(service)) {
+            TextAction(stringResource(R.string.add_color_formula), onClick = onAddFormula, icon = Icons.Rounded.Add, modifier = Modifier.offset(x = (-10).dp))
+        } else {
+            QuietTextAction(stringResource(R.string.add_color_formula_quiet), onClick = onAddFormula, modifier = Modifier.offset(x = (-8).dp))
+        }
     }
 }
 

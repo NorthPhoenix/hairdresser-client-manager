@@ -318,6 +318,23 @@ fun TextAction(
 }
 
 /**
+ * A [TextAction] that keeps out of the way: small grey text for something that is seldom wanted
+ * where it is offered, but must still be there.
+ */
+@Composable
+fun QuietTextAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    TextButton(
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+    ) {
+        Text(text, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+/**
  * Something that is on or off, with its name beside the switch. The whole row is the switch, for
  * a finger and for a screen reader, which is told the name and the state together. Only the
  * switch is drawn as off while the row is not [enabled]: that is for the moment a change takes,
