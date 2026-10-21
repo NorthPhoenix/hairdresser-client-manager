@@ -11,7 +11,7 @@ import com.northphoenix.hairdresserclientmanager.data.AppointmentService
 object ColorFormulaOffer {
     /** Parts of words that name colour work, in Russian and English, compared without letter case. */
     private val colorWords = listOf(
-        "краск", "окраш", "мелир", "обесцвеч", "тонир", "балаяж", "шатуш", "омбре",
+        "краск", "окраш", "мелир", "обесцвеч", "тонир", "балаяж", "шатуш", "омбре", "колор",
         "colo", "highlight", "bleach", "toner", "balayage", "ombre", "dye",
     )
 
