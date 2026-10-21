@@ -509,4 +509,41 @@
     <string name="appointment_tip_included">incl. %1$s tip</string>
     <string name="history_tip">Tip</string>
     <string name="history_tip_whole_visit">Tip for the whole visit</string>
+
+    <!-- Family (CONTEXT.md: Family). Roles are the Stylist's own words. -->
+    <string name="family_title">Family</string>
+    <string name="family_add">Add to family</string>
+    <string name="family_add_title">Add to the family</string>
+    <string name="family_role_title">Role in the family</string>
+    <string name="family_role_label">Role, optional</string>
+    <string name="family_role_placeholder">For example: son</string>
+    <string name="family_role_save">Save role</string>
+    <string name="family_add_confirm">Add to family</string>
+    <string name="family_moves_note">%s is in another family now and moves to this one.</string>
+    <string name="family_edit_role">Change role</string>
+    <string name="family_remove">Remove from family</string>
+    <string name="family_remove_title">Remove from the family: %s?</string>
+    <string name="family_remove_body">The Client and their visits stay.</string>
+    <string name="family_remove_body_last">Only one person would be left, so the family is removed. The Clients and their visits stay.</string>
+    <string name="family_member_added">Added to the family</string>
+    <string name="family_member_removed">Removed from the family</string>
+    <string name="family_no_visits">no visits yet</string>
+    <string name="family_member_actions">Actions for %s</string>
+    <string name="family_suggestion_description">Add %s to the Appointment</string>
+    <plurals name="family_visits">
+        <item quantity="one">%d visit</item>
+        <item quantity="other">%d visits</item>
+    </plurals>
+    <string-array name="family_role_suggestions">
+        <item>son</item>
+        <item>daughter</item>
+        <item>mom</item>
+        <item>dad</item>
+        <item>wife</item>
+        <item>husband</item>
+        <item>grandma</item>
+        <item>grandpa</item>
+        <item>sister</item>
+        <item>brother</item>
+    </string-array>
 </resources>
