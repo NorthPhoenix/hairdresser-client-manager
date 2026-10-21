@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
@@ -129,6 +130,9 @@ fun ContactImportScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     var search by rememberSaveable { mutableStateOf("") }
     val shown = remember(rows, search) { ContactImportList.filter(rows, search) }
     val items = remember(shown) { ContactImportList.items(shown) }
+    // A new search starts at the top: the list is keyed, so it would otherwise stay on the contact that was in view.
+    val listState = rememberLazyListState()
+    LaunchedEffect(search) { listState.scrollToItem(0) }
 
     var picked by rememberSaveable(stateSaver = listSaver(save = { it.toList() }, restore = { it.toSet() })) { mutableStateOf(emptySet<Long>()) }
     // A contact who became a Client meanwhile cannot be picked any more.
@@ -248,7 +252,7 @@ fun ContactImportScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                     if (shown.isEmpty()) {
                         EmptyState(Icons.Rounded.SearchOff, stringResource(R.string.no_client_results))
                     } else {
-                        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
+                        LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 16.dp)) {
                             items(
                                 items,
                                 key = { item ->
