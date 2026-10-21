@@ -48,6 +48,7 @@ model Stylist {
   clients Client[]
   appointments Appointment[]
   serviceMenuItems ServiceMenuItem[]
+  families Family[]
 }
 
 model Client {
@@ -65,10 +66,16 @@ model Client {
   // The Client who recommended this one ("Посоветовала"), of the same Stylist. When that Client is
   // deleted the link is cleared; a Client merge moves it to the kept Client.
   referredById String?
+  // The Family the Client is in, of the same Stylist (null: none), and a short role in it as the
+  // Stylist typed it, such as "сын" or "мама" (null or empty: none). A Family always has at least
+  // two Clients: the one who would be left alone in it leaves it, and it is deleted.
+  familyId     String?
+  familyRole   String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   stylist       Stylist        @relation(fields: [stylistId], references: [id], onDelete: Cascade)
+  family        Family?        @relation(fields: [familyId], references: [id], onDelete: SetNull)
   referredBy    Client?        @relation("ClientReferral", fields: [referredById], references: [id], onDelete: SetNull)
   referrals     Client[]       @relation("ClientReferral")
   primaryAppointments Appointment[] @relation("AppointmentPrimaryClient")
@@ -82,6 +89,19 @@ model Client {
   mergesKept            ClientMerge[]
 
   @@index([referredById])
+  @@index([familyId])
+}
+
+// Clients of one Stylist who are one family, such as a parent and their children: they are
+// offered together when an Appointment is for several people. A Client is in at most one.
+model Family {
+  id        String   @id @default(cuid())
+  stylistId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stylist Stylist  @relation(fields: [stylistId], references: [id], onDelete: Cascade)
+  members Client[]
 }
 
 // Two Clients of one Stylist whom the Stylist said are different people ("Это разные люди"), so
