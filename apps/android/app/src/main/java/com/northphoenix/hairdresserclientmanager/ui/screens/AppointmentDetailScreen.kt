@@ -52,6 +52,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -106,6 +107,7 @@ import com.northphoenix.hairdresserclientmanager.domain.PhoneFormat
 import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentCopying
+import com.northphoenix.hairdresserclientmanager.domain.AppointmentTotals
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.ColorFormulaOffer
 import com.northphoenix.hairdresserclientmanager.domain.Money
@@ -330,8 +332,18 @@ private fun AppointmentDetail(
         text = { it?.let(Money::centsToPrice).orEmpty() },
         after = UnsavedInput::finalTotalDraft,
     )
+    // The field of a Tip that is not one of the chips ("Other…"): whether it is open, and what is typed into it.
+    var tipFieldOpen by rememberSaveable(appointment.id) { mutableStateOf(false) }
+    var tipDraft by rememberSaveable(appointment.id) { mutableStateOf("") }
     val unsaved = UnsavedInput.appointmentNote(noteDraft, appointment.note) ||
-        UnsavedInput.finalTotal(finalTotalDraft, appointment.finalTotalCentsOverride)
+        UnsavedInput.finalTotal(finalTotalDraft, appointment.finalTotalCentsOverride) ||
+        tipFieldOpen && UnsavedInput.tip(tipDraft, appointment.tipCents)
+
+    // The Appointments whose Tip suggestion the Stylist said no to. Kept on this device, so the
+    // question is not asked again at every visit of the Appointment.
+    val appContext = LocalContext.current.applicationContext
+    val tipRefusals = remember { appContext.getSharedPreferences("tip_suggestions_refused", Context.MODE_PRIVATE) }
+    var tipRefused by remember { mutableStateOf(tipRefusals.getStringSet("appointments", emptySet()).orEmpty()) }
 
     // The photo target has to survive the trip to the camera or gallery and back.
     var photoClientId by rememberSaveable { mutableStateOf("") }
@@ -550,6 +562,21 @@ private fun AppointmentDetail(
                 overrideText = finalTotalDraft,
                 onOverrideText = { finalTotalDraft = it },
                 onSaveOverride = { viewModel.setAppointmentFinalTotal(appointment.id, it) },
+                tipText = tipDraft,
+                onTipText = { tipDraft = it },
+                tipFieldOpen = tipFieldOpen,
+                onTipFieldOpen = { open ->
+                    // Opened with the Tip it has when that is one of its own, to correct it.
+                    tipDraft = appointment.tipCents?.takeIf { open && !AppointmentTotals.isTipChoice(it) }?.let(Money::centsToPrice).orEmpty()
+                    tipFieldOpen = open
+                },
+                onSaveTip = { viewModel.setAppointmentTip(appointment.id, it) },
+                tipSuggestionCents = AppointmentTotals.tipSuggestionCents(appointment)?.takeIf { appointment.id !in tipRefused },
+                onTakeTipSuggestion = { viewModel.takeSuggestedTip(appointment.id, it) },
+                onRefuseTipSuggestion = {
+                    tipRefused = tipRefused + appointment.id
+                    tipRefusals.edit().putStringSet("appointments", tipRefused).apply()
+                },
             )
 
             // --- photos ---
@@ -1143,22 +1170,49 @@ private fun ServiceBlock(
     }
 }
 
+/**
+ * The price of the Services and the Tip, and what the two come to. The custom total is the price
+ * of the Services, not a Tip: it takes the place of their sum. The Tip is one of the chips, or an
+ * amount typed in the field "Other…" opens. Both show at once and are saved behind the scenes.
+ * [tipSuggestionCents] is the difference of a custom total above the Services, offered as the Tip
+ * it most likely is, and null when there is none or the Stylist said no to it.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TotalsCard(appointment: Appointment, overrideText: String, onOverrideText: (String) -> Unit, onSaveOverride: (Long?) -> Unit) {
+private fun TotalsCard(
+    appointment: Appointment,
+    overrideText: String,
+    onOverrideText: (String) -> Unit,
+    onSaveOverride: (Long?) -> Unit,
+    tipText: String,
+    onTipText: (String) -> Unit,
+    tipFieldOpen: Boolean,
+    onTipFieldOpen: (Boolean) -> Unit,
+    onSaveTip: (Long?) -> Unit,
+    tipSuggestionCents: Long?,
+    onTakeTipSuggestion: (Long) -> Unit,
+    onRefuseTipSuggestion: () -> Unit,
+) {
     // The text a save was refused for. The reason stays under the field for as long as the text is that one.
     var refusedText by rememberSaveable(appointment.id) { mutableStateOf<String?>(null) }
+    var refusedTipText by rememberSaveable(appointment.id) { mutableStateOf<String?>(null) }
+    val tip = appointment.tipCents
 
     HcmCard {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.appointment_totals_title), style = MaterialTheme.typography.headlineSmall)
             LabeledValue(stringResource(R.string.appointment_service_total), Money.format(appointment.serviceTotalCents))
-            Hairline()
-            LabeledValue(stringResource(R.string.appointment_final_total), Money.format(appointment.finalTotalCents), emphasized = true)
+            appointment.finalTotalCentsOverride?.let { override ->
+                LabeledValue(stringResource(R.string.appointment_final_total_override), Money.format(override))
+            }
+            tipSuggestionCents?.let { difference ->
+                TipSuggestion(difference, onYes = { onTakeTipSuggestion(difference) }, onNo = onRefuseTipSuggestion)
+            }
             AmountField(
                 value = overrideText,
                 onValueChange = onOverrideText,
                 label = stringResource(R.string.appointment_final_total_override),
-                placeholder = Money.centsToPrice(appointment.finalTotalCents),
+                placeholder = Money.centsToPrice(AppointmentTotals.servicesPriceCents(appointment)),
                 refusal = Money.parse(overrideText).takeIf { overrideText == refusedText },
             )
             // As tall as the taller of the two, whichever label takes more lines.
@@ -1186,6 +1240,86 @@ private fun TotalsCard(appointment: Appointment, overrideText: String, onOverrid
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                 }
+            }
+            Hairline()
+            LabeledValue(stringResource(R.string.appointment_tip), tip?.let(Money::format) ?: "—")
+            FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ChoiceChip(
+                    stringResource(R.string.appointment_tip_none),
+                    selected = tip == null && !tipFieldOpen,
+                    onClick = {
+                        onTipFieldOpen(false)
+                        onSaveTip(null)
+                    },
+                )
+                AppointmentTotals.TIP_CHOICES.forEach { choice ->
+                    ChoiceChip(
+                        Money.formatShort(choice),
+                        selected = tip == choice && !tipFieldOpen,
+                        onClick = {
+                            onTipFieldOpen(false)
+                            onSaveTip(choice)
+                        },
+                    )
+                }
+                // A Tip of her own shows on this chip, which opens the field to change it.
+                val ownTip = tip?.takeUnless(AppointmentTotals::isTipChoice)
+                ChoiceChip(
+                    ownTip?.let(Money::formatShort) ?: stringResource(R.string.appointment_tip_other),
+                    selected = ownTip != null || tipFieldOpen,
+                    onClick = { onTipFieldOpen(!tipFieldOpen) },
+                )
+            }
+            if (tipFieldOpen) {
+                AmountField(
+                    value = tipText,
+                    onValueChange = onTipText,
+                    label = stringResource(R.string.appointment_tip_amount),
+                    placeholder = "0.00",
+                    refusal = Money.parse(tipText).takeIf { tipText == refusedTipText },
+                )
+                Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SecondaryButton(
+                        stringResource(R.string.save_tip),
+                        onClick = {
+                            when (val amount = Money.parse(tipText)) {
+                                is Amount.Valid -> {
+                                    onSaveTip(amount.cents)
+                                    onTipFieldOpen(false)
+                                }
+                                else -> refusedTipText = tipText
+                            }
+                        },
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        enabled = tipText.isNotBlank(),
+                    )
+                    SecondaryButton(
+                        stringResource(R.string.cancel),
+                        onClick = { onTipFieldOpen(false) },
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    )
+                }
+            }
+            Hairline()
+            LabeledValue(stringResource(R.string.appointment_final_total), Money.format(AppointmentTotals.totalCents(appointment)), emphasized = true)
+        }
+    }
+}
+
+/** "Is the $15 difference a tip? · No · Yes". Only "Yes" changes anything, and only when she taps it. */
+@Composable
+private fun TipSuggestion(differenceCents: Long, onYes: () -> Unit, onNo: () -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.medium) {
+        Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 4.dp)) {
+            Text(
+                stringResource(R.string.appointment_tip_suggestion, Money.formatShort(differenceCents)),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.padding(end = 10.dp),
+            )
+            Row(Modifier.align(Alignment.End)) {
+                TextAction(stringResource(R.string.appointment_tip_suggestion_no), onClick = onNo)
+                TextAction(stringResource(R.string.appointment_tip_suggestion_yes), onClick = onYes)
             }
         }
     }

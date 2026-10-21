@@ -761,6 +761,18 @@ private fun ClientHistoryRow(entry: ClientHistoryEntry, onOpen: () -> Unit) {
                     service.colorFormulas.forEach { formula -> ColorFormulaCard(formula) }
                 }
             }
+            // The Tip is for the whole visit: of a group Appointment, it says so.
+            entry.tipCents?.let { tip ->
+                Row(Modifier.padding(horizontal = HistoryInset), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        stringResource(if (entry.participantClientIds.size > 1) R.string.history_tip_whole_visit else R.string.history_tip),
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(Money.format(tip), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             if (entry.photos.isNotEmpty()) {
                 HistoryPhotos(entry.photos)
             }
