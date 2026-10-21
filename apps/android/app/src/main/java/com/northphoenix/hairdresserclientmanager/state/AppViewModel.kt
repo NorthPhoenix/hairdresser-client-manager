@@ -26,6 +26,7 @@ import com.northphoenix.hairdresserclientmanager.data.CameraCaptures
 import com.northphoenix.hairdresserclientmanager.data.ClientHistoryEntry
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.CreateAppointmentResult
+import com.northphoenix.hairdresserclientmanager.data.JpegSize
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.data.PendingPhoto
@@ -1654,7 +1655,16 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         val serverData = UploadThingClient.decodeUploadedPhoto(uploaded.serverData)
         val url = serverData?.url ?: uploaded.ufsUrl
 
-        return StoredFile(fileKey = serverData?.fileKey ?: uploaded.key, url = url, thumbnailUrl = serverData?.thumbnailUrl ?: url)
+        // The size of what was uploaded, so that the photo is recorded with it.
+        val size = JpegSize.of(bytes)
+
+        return StoredFile(
+            fileKey = serverData?.fileKey ?: uploaded.key,
+            url = url,
+            thumbnailUrl = serverData?.thumbnailUrl ?: url,
+            width = size?.width,
+            height = size?.height,
+        )
     }
 
     private suspend fun recordPhoto(photo: PendingPhoto, stored: StoredFile) {
@@ -1664,7 +1674,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         // The photo's id is its request key: recorded once, however often this is sent.
         val touched = { readChanges.changed(photo.appointmentId) }
         val photosNow = marking(touched) {
-            api.addStoredPhoto(photo.appointmentId, photo.clientId, photo.category, stored.fileKey, stored.url, stored.thumbnailUrl, requestKey = photo.id)
+            api.addStoredPhoto(photo.appointmentId, photo.clientId, photo.category, stored, requestKey = photo.id)
         }
 
         if (photosNow?.hasStored(stored) == true) {
