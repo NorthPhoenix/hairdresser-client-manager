@@ -75,6 +75,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -1039,9 +1040,10 @@ private fun ParticipantRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Avatar(participant.name, size = 40.dp)
+        val fontScale = LocalDensity.current.fontScale
+        Avatar(participant.name, size = (40 * fontScale.coerceIn(1f, 1.5f)).dp)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(participant.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(participant.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
             // Wraps, so a long badge never squeezes the phone number out.
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                 if (participant.isPrimary) {
@@ -1052,7 +1054,8 @@ private fun ParticipantRow(
                 }
             }
         }
-        if (showSubtotal) {
+        // Each Client's subtotal is also over their Services below; at a large font size the name needs the room more.
+        if (showSubtotal && fontScale < 1.5f) {
             Text(Money.format(participant.subtotalCents), style = MaterialTheme.typography.titleSmall)
         }
         Box {
@@ -1104,7 +1107,8 @@ private fun ParticipantRow(
 private fun ClientServicesHeader(name: String, subtotalCents: Long) {
     Column(Modifier.fillMaxWidth().padding(top = 6.dp).semantics(mergeDescendants = true) { heading() }, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Avatar(name, size = 28.dp)
+            // The initials grow with the font size, so the circle does too.
+            Avatar(name, size = (28 * LocalDensity.current.fontScale.coerceIn(1f, 2f)).dp)
             Text(name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
             Text(Money.format(subtotalCents), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
         }
@@ -1122,16 +1126,25 @@ private fun ServiceBlock(
     onEditFormula: (ColorFormula) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(service.name, style = MaterialTheme.typography.titleLarge)
-            }
+        // At a large font size the price and the two buttons would leave the name a sliver and break it mid-word: they go under it.
+        val priceAndActions: @Composable () -> Unit = {
             Text(Money.format(service.priceCents), style = MaterialTheme.typography.titleMedium)
             IconButton(onClick = onEdit) {
                 Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.edit_appointment_service), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             IconButton(onClick = onDelete, enabled = !busy) {
                 Icon(Icons.Rounded.DeleteOutline, contentDescription = stringResource(R.string.delete_appointment_service), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        if (LocalDensity.current.fontScale >= 1.5f) {
+            Text(service.name, style = MaterialTheme.typography.titleLarge)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) { priceAndActions() }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(service.name, style = MaterialTheme.typography.titleLarge)
+                }
+                priceAndActions()
             }
         }
         if (service.note.isNotBlank()) {
