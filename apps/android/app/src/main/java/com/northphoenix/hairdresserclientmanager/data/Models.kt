@@ -216,6 +216,11 @@ data class Appointment(
     val serviceTotalCents: Long = 0,
     val finalTotalCents: Long = 0,
     val finalTotalCentsOverride: Long? = null,
+    /**
+     * The tip for the whole visit, apart from the price of the Services: [finalTotalCents] does not
+     * include it. Null when no tip is recorded, and from a server that does not know tips.
+     */
+    val tipCents: Long? = null,
     val startsAt: String,
     val endsAt: String? = null,
     val status: AppointmentStatus,
@@ -289,6 +294,10 @@ data class ClientHistoryEntry(
     val locationType: LocationType? = null,
     val locationAddress: String = "",
     val customLocationAddress: String = "",
+    /** Every Client of it, the primary one first. Empty from a server that does not say (an older one). */
+    val participantClientIds: List<String> = emptyList(),
+    /** The tip for the whole visit, also of a group Appointment. Null when none is recorded. */
+    val tipCents: Long? = null,
     val services: List<AppointmentService> = emptyList(),
     val photos: List<AppointmentPhoto> = emptyList(),
 )
