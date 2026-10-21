@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { addedOrder } from "../addedOrder";
 import { amountCents, nameText, oneLineText, refuseChangedRepeat, requestKey, textLimits } from "../input";
+import { unmarkOtherTravelFees } from "../travelFee";
 import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from "../trpc";
 
 const serviceMenuSaveInput = z.object({
@@ -11,6 +12,9 @@ const serviceMenuSaveInput = z.object({
   // One line; empty or null: no group. Left out: an edit keeps the group the item has, so an app
   // from before groups does not clear it.
   group: oneLineText(textLimits.name).nullable().optional(),
+  // Whether this item is the Travel Fee; marking one unmarks any other. Left out: a new item is
+  // not, and an edit keeps what the item is, so an app from before the Travel Fee does not clear it.
+  travelFee: z.boolean().optional(),
   // Without an id: see requestKey.
   requestKey: requestKey.optional()
 });
@@ -25,6 +29,7 @@ function toServiceMenuItemOutput(item: {
   name: string;
   defaultPriceCents: number;
   group?: string | null;
+  travelFee?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }) {
@@ -34,6 +39,7 @@ function toServiceMenuItemOutput(item: {
     name: item.name,
     defaultPriceCents: item.defaultPriceCents,
     group: item.group ?? null,
+    travelFee: item.travelFee ?? false,
     createdAt: item.createdAt.toISOString(),
     updatedAt: item.updatedAt.toISOString()
   };
@@ -81,7 +87,8 @@ export const serviceMenuRouter = createTRPCRouter({
     const data = {
       name: input.name,
       defaultPriceCents: input.defaultPriceCents,
-      group: toStoredGroup(input.group)
+      group: toStoredGroup(input.group),
+      travelFee: input.travelFee
     };
 
     if (!input.id) {
@@ -108,6 +115,10 @@ export const serviceMenuRouter = createTRPCRouter({
         }
       });
 
+      if (item.travelFee) {
+        await unmarkOtherTravelFees(ctx.db, ctx.stylist.id, item.id);
+      }
+
       return toServiceMenuItemOutput(item);
     }
 
@@ -131,6 +142,10 @@ export const serviceMenuRouter = createTRPCRouter({
       },
       data
     });
+
+    if (item.travelFee) {
+      await unmarkOtherTravelFees(ctx.db, ctx.stylist.id, item.id);
+    }
 
     return toServiceMenuItemOutput(item);
   }),

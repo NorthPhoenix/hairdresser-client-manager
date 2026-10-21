@@ -36,6 +36,10 @@ function createDb(appointment: Record<string, unknown>, client: Record<string, u
     client,
     appointmentPhoto: {
       findMany: vi.fn().mockResolvedValue([])
+    },
+    // No Travel Fee item: travelFee.test.ts is about it.
+    serviceMenuItem: {
+      findFirst: vi.fn().mockResolvedValue(null)
     }
   } as unknown as TRPCContext["db"];
 }

@@ -117,6 +117,9 @@ model ServiceMenuItem {
   defaultPriceCents Int      @default(0)
   // One line such as "Покраска в один цвет"; the items of a group are its variants. Null: no group.
   group             String?
+  // The Travel Fee: added by itself to a Scheduled Appointment at home. At most one item of a
+  // Stylist is, which the save keeps under the Stylist lock (ADR 0014).
+  travelFee         Boolean  @default(false)
   requestKey        String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
