@@ -636,6 +636,7 @@ describe("client router", () => {
         locationAddress: "100 Salon St",
         customLocationAddress: "",
         participantClientIds: ["client_2", "client_1"],
+        tipCents: null,
         // Not Mila's Blowout, its Color Formula or her photo.
         services: [
           {

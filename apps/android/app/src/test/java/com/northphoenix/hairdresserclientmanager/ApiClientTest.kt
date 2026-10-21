@@ -317,6 +317,37 @@ class ApiClientTest {
         assertEquals("""{"id":"a1","finalTotalCentsOverride":null}""", server.takeRequest().body?.utf8())
     }
 
+    @Test
+    fun `a tip is sent alone, and no tip as an explicit null`() = runTest {
+        enqueue("""{"result":{"data":{}}}""")
+        enqueue("""{"result":{"data":{}}}""")
+
+        api.updateAppointmentTip("a1", tipCents = 1500)
+        api.updateAppointmentTip("a1", tipCents = null)
+
+        assertEquals("""{"id":"a1","tipCents":1500}""", server.takeRequest().body?.utf8())
+        assertEquals("""{"id":"a1","tipCents":null}""", server.takeRequest().body?.utf8())
+    }
+
+    @Test
+    fun `a custom total moved into the tip is one save of both`() = runTest {
+        enqueue("""{"result":{"data":{}}}""")
+
+        api.updateAppointmentTotalAndTip("a1", overrideCents = null, tipCents = 1500)
+
+        assertEquals("""{"id":"a1","finalTotalCentsOverride":null,"tipCents":1500}""", server.takeRequest().body?.utf8())
+    }
+
+    @Test
+    fun `the tip is read, and is none from a server that does not know tips`() = runTest {
+        val appointment = """{"id":"a1","primaryClientId":"c1","primaryClientName":"Света","serviceTotalCents":8500,"finalTotalCents":8500,"startsAt":"2026-10-16T23:00:00.000Z","status":"completed","locationType":"inSalon""""
+        enqueue("""{"result":{"data":[$appointment,"tipCents":1500},$appointment,"tipCents":null},$appointment}]}}""")
+
+        val tips = api.homeAppointments(Instant.parse("2026-10-16T05:00:00Z"), Instant.parse("2026-10-17T05:00:00Z")).map { it.tipCents }
+
+        assertEquals(listOf(1500L, null, null), tips)
+    }
+
     // --- Edit Appointment and the overlap warning ---
 
     private val updated =

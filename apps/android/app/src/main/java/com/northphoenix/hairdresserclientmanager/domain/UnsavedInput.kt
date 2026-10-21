@@ -60,6 +60,9 @@ object UnsavedInput {
         return draft.isNotBlank() && draft.trim() != Money.centsToPrice(saved) && Money.parse(draft) != Amount.Valid(saved)
     }
 
+    /** Whether the field of a Tip of her own holds an amount other than the Tip saved: as [finalTotal]. */
+    fun tip(draft: String, savedTipCents: Long?): Boolean = finalTotal(draft, savedTipCents)
+
     /**
      * What the note field of an Appointment holds once the server has another note than before:
      * the save of the field was answered, or a reload brought what was saved elsewhere.

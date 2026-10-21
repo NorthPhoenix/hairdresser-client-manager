@@ -35,8 +35,8 @@
     <string name="appointment_end_label">End time</string>
     <string name="appointment_end_time_skipped">The clocks go forward on that day, so this end time does not exist. Choose another end time.</string>
     <string name="appointment_ends_next_day">Ends the next day</string>
-    <string name="appointment_final_total">Final total</string>
-    <string name="appointment_final_total_override">Override final total</string>
+    <string name="appointment_final_total">Total</string>
+    <string name="appointment_final_total_override">Custom services price</string>
     <string name="appointment_history_empty">This Client has no Appointments yet.</string>
     <string name="appointment_history_title">Appointment history</string>
     <string name="appointment_in_salon">In salon</string>
@@ -88,7 +88,7 @@
     <string name="appointment_status_no_show">No-show</string>
     <string name="appointment_status_scheduled">Scheduled</string>
     <string name="appointment_time_and_place_saved">Time and location saved.</string>
-    <string name="appointment_totals_title">Total</string>
+    <string name="appointment_totals_title">Price and tip</string>
     <string name="appointments_empty_title">No Appointments</string>
     <string name="back">Back</string>
     <string name="calendar_empty_body">No Appointments on this day.</string>
@@ -276,7 +276,7 @@
     <string name="save_appointment_time_and_place">Save</string>
     <string name="save_client">Save</string>
     <string name="save_color_formula">Save Formula</string>
-    <string name="save_final_total">Save total</string>
+    <string name="save_final_total">Save price</string>
     <string name="save_onboarding">Save and continue</string>
     <string name="save_service_menu_item">Save Service</string>
     <string name="save_settings">Save</string>
@@ -498,4 +498,15 @@
         <item quantity="one">%d appointment → goes to “%s”</item>
         <item quantity="other">Appointments: %d → go to “%s”</item>
     </plurals>
+    <string name="appointment_tip">Tip</string>
+    <string name="appointment_tip_none">None</string>
+    <string name="appointment_tip_other">Other…</string>
+    <string name="appointment_tip_amount">Tip amount</string>
+    <string name="save_tip">Save tip</string>
+    <string name="appointment_tip_suggestion">Is the %1$s difference a tip?</string>
+    <string name="appointment_tip_suggestion_yes">Yes</string>
+    <string name="appointment_tip_suggestion_no">No</string>
+    <string name="appointment_tip_included">incl. %1$s tip</string>
+    <string name="history_tip">Tip</string>
+    <string name="history_tip_whole_visit">Tip for the whole visit</string>
 </resources>

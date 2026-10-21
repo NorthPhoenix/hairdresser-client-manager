@@ -43,6 +43,9 @@ const appointmentUpdateInput = z.object({
   status: z.enum(["scheduled", "completed", "canceled", "noShow"]).optional(),
   note: text(textLimits.note).optional(),
   finalTotalCentsOverride: amountCents.nullable().optional(),
+  // The tip for the whole visit, apart from the price of its Services; null clears it. Like every
+  // other field here, a save that does not send it leaves it as it is.
+  tipCents: amountCents.nullable().optional(),
   startsAt: z.string().datetime().optional(),
   // null clears the end time.
   endsAt: z.string().datetime().nullable().optional(),
@@ -314,6 +317,7 @@ function toAppointmentOutput(appointment: {
   locationAddressIsCustom?: boolean | null;
   note: string | null;
   finalTotalCentsOverride: number | null;
+  tipCents: number | null;
   primaryClient: {
     id: string;
     name: string;
@@ -442,6 +446,9 @@ function toAppointmentOutput(appointment: {
     serviceTotalCents,
     finalTotalCents: appointment.finalTotalCentsOverride ?? serviceTotalCents,
     finalTotalCentsOverride: appointment.finalTotalCentsOverride,
+    // Apart from the totals above, which stay the price of the Services: an app that does not know
+    // tips shows the price it always showed.
+    tipCents: appointment.tipCents ?? null,
     mapUrl: appointment.locationAddress
       ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(appointment.locationAddress)}`
       : null
@@ -1098,6 +1105,7 @@ export const appointmentRouter = createTRPCRouter({
         ...(input.status ? { status: input.status } : {}),
         ...(input.note !== undefined ? { note: input.note } : {}),
         ...(input.finalTotalCentsOverride !== undefined ? { finalTotalCentsOverride: input.finalTotalCentsOverride } : {}),
+        ...(input.tipCents !== undefined ? { tipCents: input.tipCents } : {}),
         ...(input.startsAt ? { startsAt } : {}),
         ...(input.endsAt !== undefined ? { endsAt } : {}),
         ...(input.locationType ? { locationType: input.locationType } : {}),

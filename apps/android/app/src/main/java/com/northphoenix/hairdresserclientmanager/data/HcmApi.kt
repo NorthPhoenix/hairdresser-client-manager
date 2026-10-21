@@ -293,6 +293,26 @@ class HcmApi(private val trpc: TrpcClient) {
         }
     }
 
+    /** A null tip clears it: no tip is recorded then. The price of the Services stays as it is. */
+    suspend fun updateAppointmentTip(id: String, tipCents: Long?) {
+        updateAppointment<JsonObject>(id) { putAmount("tipCents", tipCents) }
+    }
+
+    /**
+     * The custom total and the tip in one save, such as the difference of a custom total above the
+     * Services moved into the tip: both are the Appointment's together, or neither is.
+     */
+    suspend fun updateAppointmentTotalAndTip(id: String, overrideCents: Long?, tipCents: Long?) {
+        updateAppointment<JsonObject>(id) {
+            putAmount("finalTotalCentsOverride", overrideCents)
+            putAmount("tipCents", tipCents)
+        }
+    }
+
+    private fun JsonObjectBuilder.putAmount(key: String, cents: Long?) {
+        if (cents == null) put(key, JsonNull) else put(key, cents)
+    }
+
     private suspend inline fun <reified T> updateAppointment(id: String, fields: JsonObjectBuilder.() -> Unit): T =
         trpc.mutation(
             "appointment.update",

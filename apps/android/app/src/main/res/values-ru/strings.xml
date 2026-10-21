@@ -34,8 +34,8 @@
     <string name="appointment_end_label">Окончание</string>
     <string name="appointment_end_time_skipped">В этот день часы переводят вперёд, и такого времени окончания нет. Выберите другое время.</string>
     <string name="appointment_ends_next_day">Закончится на следующий день</string>
-    <string name="appointment_final_total">Итоговая сумма</string>
-    <string name="appointment_final_total_override">Своя итоговая сумма</string>
+    <string name="appointment_final_total">Итого</string>
+    <string name="appointment_final_total_override">Своя цена услуг</string>
     <string name="appointment_history_empty">У этого клиента пока нет записей.</string>
     <string name="appointment_history_title">История записей</string>
     <string name="appointment_in_salon">В салоне</string>
@@ -87,7 +87,7 @@
     <string name="appointment_status_no_show">Неявка</string>
     <string name="appointment_status_scheduled">Запланирована</string>
     <string name="appointment_time_and_place_saved">Время и место сохранены.</string>
-    <string name="appointment_totals_title">Итог</string>
+    <string name="appointment_totals_title">Цена и чаевые</string>
     <string name="appointments_empty_title">Записей нет</string>
     <string name="back">Назад</string>
     <string name="calendar_empty_body">На этот день записей нет.</string>
@@ -273,7 +273,7 @@
     <string name="save_appointment_time_and_place">Сохранить</string>
     <string name="save_client">Сохранить</string>
     <string name="save_color_formula">Сохранить формулу</string>
-    <string name="save_final_total">Сохранить сумму</string>
+    <string name="save_final_total">Сохранить цену</string>
     <string name="save_onboarding">Сохранить и продолжить</string>
     <string name="save_service_menu_item">Сохранить услугу</string>
     <string name="save_settings">Сохранить</string>
@@ -531,4 +531,15 @@
         <item quantity="many">Записи: %d → будут у «%s»</item>
         <item quantity="other">Записи: %d → будут у «%s»</item>
     </plurals>
+    <string name="appointment_tip">Чаевые</string>
+    <string name="appointment_tip_none">Нет</string>
+    <string name="appointment_tip_other">Другая…</string>
+    <string name="appointment_tip_amount">Сумма чаевых</string>
+    <string name="save_tip">Сохранить чаевые</string>
+    <string name="appointment_tip_suggestion">Разница %1$s — это чаевые?</string>
+    <string name="appointment_tip_suggestion_yes">Да</string>
+    <string name="appointment_tip_suggestion_no">Нет</string>
+    <string name="appointment_tip_included">вкл. чаевые %1$s</string>
+    <string name="history_tip">Чаевые</string>
+    <string name="history_tip_whole_visit">Чаевые за всю запись</string>
 </resources>
