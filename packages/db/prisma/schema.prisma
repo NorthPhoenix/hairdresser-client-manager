@@ -115,6 +115,8 @@ model ServiceMenuItem {
   stylistId         String
   name              String
   defaultPriceCents Int      @default(0)
+  // One line such as "Покраска в один цвет"; the items of a group are its variants. Null: no group.
+  group             String?
   requestKey        String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
