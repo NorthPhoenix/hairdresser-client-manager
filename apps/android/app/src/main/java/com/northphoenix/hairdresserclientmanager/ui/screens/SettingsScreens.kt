@@ -24,6 +24,7 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ContentCut
+import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
@@ -242,7 +243,7 @@ fun OnboardingScreen(viewModel: AppViewModel, stylist: Stylist) {
 
 /** Profile tab: account, Stylist settings and the Service Menu entry point. */
 @Composable
-fun ProfileScreen(viewModel: AppViewModel, onOpenServiceMenu: () -> Unit) {
+fun ProfileScreen(viewModel: AppViewModel, onOpenServiceMenu: () -> Unit, onOpenEarnings: () -> Unit) {
     val stylist by viewModel.stylist.collectAsStateWithLifecycle()
     val authState by viewModel.authState.collectAsStateWithLifecycle()
     val menu by viewModel.serviceMenu.collectAsStateWithLifecycle()
@@ -307,6 +308,21 @@ fun ProfileScreen(viewModel: AppViewModel, onOpenServiceMenu: () -> Unit) {
                 modifier = Modifier.align(Alignment.End),
                 icon = Icons.AutoMirrored.Rounded.Logout,
             )
+        }
+
+        HcmCard(onClick = onOpenEarnings, contentPadding = PaddingValues(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Surface(shape = androidx.compose.foundation.shape.CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(44.dp)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.Insights, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                    }
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(stringResource(R.string.earnings_title), style = MaterialTheme.typography.titleLarge)
+                    Text(stringResource(R.string.earnings_entry_subtitle), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
+            }
         }
 
         HcmCard(onClick = onOpenServiceMenu, contentPadding = PaddingValues(16.dp)) {

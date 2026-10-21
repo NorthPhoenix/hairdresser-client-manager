@@ -343,3 +343,34 @@ data class UploadedPhoto(
     val url: String? = null,
     val thumbnailUrl: String? = null,
 )
+
+/** What `stats.summary` answers for one period (Итоги). The days are the Stylist's, "2026-10-21". */
+@Serializable
+data class EarningsSummary(
+    val firstDay: String,
+    val lastDay: String,
+    /** Whether now is in the period. */
+    val isCurrent: Boolean = false,
+    /** Completed Appointments: the price of their Services (a custom total replaces the sum) and their tips. */
+    val earned: Earned = Earned(),
+    /** How many Appointments were completed. */
+    val visits: Int = 0,
+    val averageCents: Long = 0,
+    /** How many of those visits were at the Client's home. */
+    val atHomeVisits: Int = 0,
+    val canceled: Int = 0,
+    val noShow: Int = 0,
+    /** Scheduled from now to the end of the period. Null once the period is over. */
+    val upcoming: Upcoming? = null,
+    val topServices: List<TopService> = emptyList(),
+) {
+    @Serializable
+    data class Earned(val totalCents: Long = 0, val servicesCents: Long = 0, val tipsCents: Long = 0)
+
+    @Serializable
+    data class Upcoming(val count: Int = 0, val totalCents: Long = 0)
+
+    /** A Service, or the group of Service Menu Items it was started from, with what it brought in. */
+    @Serializable
+    data class TopService(val name: String, val revenueCents: Long = 0, val count: Int = 0)
+}

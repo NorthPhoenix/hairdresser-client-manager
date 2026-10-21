@@ -25,6 +25,7 @@ import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.CameraCaptures
 import com.northphoenix.hairdresserclientmanager.data.ClientFamily
 import com.northphoenix.hairdresserclientmanager.data.ClientHistoryEntry
+import com.northphoenix.hairdresserclientmanager.data.EarningsSummary
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.CreateAppointmentResult
 import com.northphoenix.hairdresserclientmanager.data.JpegSize
@@ -49,6 +50,8 @@ import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentTotals
 import com.northphoenix.hairdresserclientmanager.domain.CalendarWeek
+import com.northphoenix.hairdresserclientmanager.domain.Earnings
+import com.northphoenix.hairdresserclientmanager.domain.EarningsPeriod
 import com.northphoenix.hairdresserclientmanager.domain.ChangedElsewhere
 import com.northphoenix.hairdresserclientmanager.domain.HomeOutcomes
 import com.northphoenix.hairdresserclientmanager.domain.ImportCandidate
@@ -206,6 +209,12 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         readChanges,
         fetch = { api.listServiceMenu() },
         fetchFormulaNames = { api.listFormulaNames() },
+    )
+
+    private val earningsReads = EarningsReads(
+        viewModelScope,
+        readChanges,
+        fetch = { api.earningsSummary(it.period, it.date) },
     )
 
     // Each list comes with its load state, in one value. A screen says that a list is empty only when its state is Loaded.
@@ -441,6 +450,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         appointmentReads.clear()
         clientReads.clear()
         serviceMenuReads.clear()
+        earningsReads.clear()
         overlaps.clear()
         actions.forgetOwed()
         photos.close()
@@ -1404,6 +1414,20 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         ) {
             clientReads.familyChanged(api.leaveFamily(clientId))
         }
+    /**
+     * Итоги of the period that holds [date] (the Stylist's calendar), for as long as the screen
+     * collects this. A summary shown before is there at once and refreshed behind it, unless
+     * something was changed since: then it is loaded anew.
+     */
+    fun earnings(period: EarningsPeriod, date: LocalDate): Flow<Read<EarningsSummary>> = earningsReads.summary.watch(earningsKey(period, date))
+
+    /** That summary as it is without asking, for the first frame of the screen. */
+    fun shownEarnings(period: EarningsPeriod, date: LocalDate): Read<EarningsSummary> = earningsReads.summary.now(earningsKey(period, date))
+
+    /** Called each time Итоги comes into view, and by 'Try again' (see [loadShown]). */
+    fun loadEarnings(period: EarningsPeriod, date: LocalDate) = loadShown(earningsReads.summary, earningsKey(period, date))
+
+    private fun earningsKey(period: EarningsPeriod, date: LocalDate) = EarningsKey(period.wire, Earnings.span(period, date).first.toString())
 
     // --- service menu ---
 
