@@ -121,8 +121,8 @@ Not a v1 concept. Client Profiles can be deleted rather than archived.
 _Avoid_: Hide client, inactive client
 
 **Contact Import**:
-A one-time action that copies details from a selected device contact into a new or existing Client Profile with Stylist confirmation. In v1, Contact Import does not continuously sync with device contacts.
-_Avoid_: Contact sync, address book sync, bulk import
+A one-time action that copies details from a selected device contact into a new or existing Client Profile with Stylist confirmation. In v1, Contact Import does not continuously sync with device contacts. The Clients View also imports several contacts at once: a list of the device contacts that have a phone number, to tick, each of which becomes a new Client with its name (its number when it has none), first number, postal address and note (as the Client Note), in the Stylist's language. A contact one of whose numbers a Client already has, compared by the last ten digits, is shown as already a Client and cannot be picked. Each Client is created by its own save with its own request key, so a try sent again creates no second one; the contacts that could not be added stay picked to try again.
+_Avoid_: Contact sync, address book sync
 
 **Client Relationship**:
 Not a v1 concept. Children, dependents, family members, and group members are separate Clients without modeled relationships to each other.

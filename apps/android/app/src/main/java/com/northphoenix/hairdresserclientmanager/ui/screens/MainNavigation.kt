@@ -74,6 +74,7 @@ private object Routes {
     const val APPOINTMENT = "appointment/{id}"
     const val NEW_APPOINTMENT = "appointment-new?date={date}"
     const val CLIENT = "client?id={id}"
+    const val CONTACT_IMPORT = "clients-import"
 
     fun appointment(id: String) = "appointment/$id"
 
@@ -160,6 +161,9 @@ fun MainNavigation(viewModel: AppViewModel) {
                 },
             )
         }
+        composable(Routes.CONTACT_IMPORT) { entry ->
+            ContactImportScreen(viewModel, onBack = { navController.from(entry) { popBackStack() } })
+        }
         composable(
             Routes.CLIENT,
             arguments = listOf(navArgument("id") { type = NavType.StringType; nullable = true; defaultValue = null }),
@@ -242,7 +246,7 @@ private fun MainScreen(viewModel: AppViewModel, open: (route: String) -> Unit) {
                 when (tab) {
                     MainTab.TODAY -> TodayScreen(viewModel, openAppointment)
                     MainTab.CALENDAR -> CalendarScreen(viewModel, openAppointment)
-                    MainTab.CLIENTS -> ClientsScreen(viewModel, onOpenClient = { open(Routes.client(it)) })
+                    MainTab.CLIENTS -> ClientsScreen(viewModel, onOpenClient = { open(Routes.client(it)) }, onImport = { open(Routes.CONTACT_IMPORT) })
                     MainTab.PROFILE -> ProfileScreen(viewModel, onOpenServiceMenu = { open(Routes.SERVICES) })
                 }
             }
