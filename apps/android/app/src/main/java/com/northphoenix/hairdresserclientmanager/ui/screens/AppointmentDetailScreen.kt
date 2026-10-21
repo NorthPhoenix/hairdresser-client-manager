@@ -301,6 +301,9 @@ private fun AppointmentDetail(
     val menu by viewModel.serviceMenu.collectAsStateWithLifecycle()
     val serviceMenu = menu.data.orEmpty()
     val serviceMenuLoad = menu.state
+    val formulaNames by viewModel.formulaNames.collectAsStateWithLifecycle()
+    // What her own formulas say about which Services offer a formula with the full button.
+    val learnedFormulas = remember(serviceMenu, formulaNames.data) { ColorFormulaOffer.Learned.of(serviceMenu, formulaNames.data.orEmpty()) }
     val copyingInto by viewModel.copyingInto.collectAsStateWithLifecycle()
     // The photos of this Appointment that are not on the server yet.
     val uploads = viewModel.photoUploads.collectAsStateWithLifecycle().value.filter { it.photo.appointmentId == appointment.id }
@@ -511,6 +514,7 @@ private fun AppointmentDetail(
                         }
                         ServiceBlock(
                             service = service,
+                            learnedFormulas = learnedFormulas,
                             busy = busy,
                             onEdit = { sheet = DetailSheet.Service(service.id) },
                             onDelete = { deletingServiceId = service.id },
@@ -1127,6 +1131,7 @@ private fun ClientServicesHeader(name: String, subtotalCents: Long) {
 @Composable
 private fun ServiceBlock(
     service: AppointmentService,
+    learnedFormulas: ColorFormulaOffer.Learned,
     busy: Boolean,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -1162,7 +1167,7 @@ private fun ServiceBlock(
             ColorFormulaCard(formula, onClick = { onEditFormula(formula) })
         }
         // Pull the text button's own padding back so its label lines up with the Service name.
-        if (ColorFormulaOffer.isProminent(service)) {
+        if (ColorFormulaOffer.isProminent(service, learnedFormulas)) {
             TextAction(stringResource(R.string.add_color_formula), onClick = onAddFormula, icon = Icons.Rounded.Add, modifier = Modifier.offset(x = (-10).dp))
         } else {
             QuietTextAction(stringResource(R.string.add_color_formula_quiet), onClick = onAddFormula, modifier = Modifier.offset(x = (-8).dp))

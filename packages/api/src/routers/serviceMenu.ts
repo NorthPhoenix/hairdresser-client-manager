@@ -19,6 +19,9 @@ const serviceMenuSaveInput = z.object({
   requestKey: requestKey.optional()
 });
 
+/** How many Services the names of formulaNames are read from. A Stylist has a handful of formulas, not thousands. */
+const formulaNamesLimit = 1000;
+
 const serviceMenuDeleteInput = z.object({
   id: z.string()
 });
@@ -76,12 +79,60 @@ export const serviceMenuRouter = createTRPCRouter({
         })
       : [];
     const useCounts = new Map(uses.map((use) => [use.menuItemId, use._count._all]));
+    // The same count, of the Services that have a Color Formula: the app offers the full formula
+    // button on a Service started from an item that has had one.
+    const formulaUses = items.length
+      ? await ctx.db.appointmentService.groupBy({
+          by: ["menuItemId"],
+          where: {
+            menuItemId: {
+              in: items.map((item) => item.id)
+            },
+            appointment: {
+              stylistId: ctx.stylist.id
+            },
+            colorFormulas: {
+              some: {}
+            }
+          },
+          _count: {
+            _all: true
+          }
+        })
+      : [];
+    const formulaCounts = new Map(formulaUses.map((use) => [use.menuItemId, use._count._all]));
 
     return items.map((item) => ({
       ...toServiceMenuItemOutput(item),
       // How many Services were started from this item, in all Appointments of the Stylist.
-      useCount: useCounts.get(item.id) ?? 0
+      useCount: useCounts.get(item.id) ?? 0,
+      // How many of those Services have at least one Color Formula.
+      formulaCount: formulaCounts.get(item.id) ?? 0
     }));
+  }),
+  // The names of the Stylist's Services that have a Color Formula, each once, as they were typed:
+  // the app compares them with the name of a Service that has no menu item (see ColorFormulaOffer).
+  // The most recently added first, at most formulaNamesLimit.
+  formulaNames: stylistProcedure.query(async ({ ctx }) => {
+    const services = await ctx.db.appointmentService.findMany({
+      where: {
+        appointment: {
+          stylistId: ctx.stylist.id
+        },
+        colorFormulas: {
+          some: {}
+        }
+      },
+      select: {
+        name: true
+      },
+      orderBy: {
+        createdAt: "desc"
+      },
+      take: formulaNamesLimit
+    });
+
+    return [...new Set(services.map((service) => service.name))];
   }),
   save: stylistTransactionProcedure.input(serviceMenuSaveInput).mutation(async ({ ctx, input }) => {
     const data = {

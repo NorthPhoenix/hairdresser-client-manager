@@ -196,7 +196,12 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         fetchHistory = { api.clientAppointmentHistory(it.id) },
     )
 
-    private val serviceMenuReads = ServiceMenuReads(viewModelScope, readChanges) { api.listServiceMenu() }
+    private val serviceMenuReads = ServiceMenuReads(
+        viewModelScope,
+        readChanges,
+        fetch = { api.listServiceMenu() },
+        fetchFormulaNames = { api.listFormulaNames() },
+    )
 
     // Each list comes with its load state, in one value. A screen says that a list is empty only when its state is Loaded.
     private val _clients = MutableStateFlow(Read<List<ClientProfile>>())
@@ -208,6 +213,11 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     /** The Service Menu, as the cache shows it. */
     val serviceMenu: StateFlow<Read<List<ServiceMenuItem>>> = _serviceMenu.asStateFlow()
+
+    private val _formulaNames = MutableStateFlow(Read<List<String>>())
+
+    /** The names of the Services that have a Color Formula, as the cache shows them: what a Service without a menu item learns from. */
+    val formulaNames: StateFlow<Read<List<String>>> = _formulaNames.asStateFlow()
 
     /** Every read of Appointments goes through this, and so through the read cache (see [ReadCache]). */
     private val appointmentReads = AppointmentReads(
@@ -351,6 +361,11 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         viewModelScope.launch {
             showLatest(keys = listsOwner, watch = { key -> key?.let(serviceMenuReads.menu::watch) ?: flowOf(Read()) }) { _, read ->
                 _serviceMenu.value = read
+            }
+        }
+        viewModelScope.launch {
+            showLatest(keys = listsOwner, watch = { key -> key?.let(serviceMenuReads.formulaNames::watch) ?: flowOf(Read()) }) { _, read ->
+                _formulaNames.value = read
             }
         }
         viewModelScope.launch {
@@ -566,7 +581,9 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     private suspend fun loadClients(): Read<List<ClientProfile>> = ownerKey()?.let { clientReads.list.refresh(it) } ?: Read()
 
     private suspend fun loadServiceMenu() {
-        ownerKey()?.let { serviceMenuReads.menu.refresh(it) }
+        ownerKey()?.let { key ->
+            together({ serviceMenuReads.menu.refresh(key) }, { serviceMenuReads.formulaNames.refresh(key) })
+        }
     }
 
     /**
@@ -820,12 +837,13 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         onSuccess: () -> Unit = {},
         touched: () -> Unit = { readChanges.changed(id) },
         ahead: ((Appointment) -> Appointment)? = null,
+        reload: suspend () -> Unit = { reloadAppointmentAndLists(id) },
         change: suspend () -> Unit,
     ) = act(
         key,
         successNotice,
         onSuccess = { onSuccess() },
-        reload = { reloadAppointmentAndLists(id) },
+        reload = reload,
         touched = touched,
         ahead = ahead?.let { appointmentReads.ahead(key, id, it) },
         change = change,
@@ -1774,7 +1792,13 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         placement: String,
         requestKey: String,
         onSuccess: () -> Unit,
-    ) = actOnAppointment(appointmentId, "saveColorFormula:${formulaId ?: serviceId}", onSuccess = onSuccess) {
+    ) = actOnAppointment(
+        appointmentId,
+        "saveColorFormula:${formulaId ?: serviceId}",
+        onSuccess = onSuccess,
+        touched = { formulaChanged(appointmentId) },
+        reload = { formulaReloaded(appointmentId) },
+    ) {
         if (formulaId == null) {
             api.addColorFormula(serviceId, formula.trim(), placement.trim(), requestKey)
         } else {
@@ -1783,9 +1807,27 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     }
 
     fun deleteColorFormula(appointmentId: String, formulaId: String) =
-        actOnAppointment(appointmentId, "deleteColorFormula:$formulaId", ahead = { it.withoutColorFormula(formulaId) }) {
+        actOnAppointment(
+            appointmentId,
+            "deleteColorFormula:$formulaId",
+            touched = { formulaChanged(appointmentId) },
+            ahead = { it.withoutColorFormula(formulaId) },
+            reload = { formulaReloaded(appointmentId) },
+        ) {
             api.deleteColorFormula(formulaId)
         }
+
+    /**
+     * A Color Formula was added, edited or deleted: besides the Appointment, the menu's count of
+     * Services with a formula and the names of such Services are out of date, and the next
+     * Service the Stylist adds learns from them (see [ColorFormulaOffer]).
+     */
+    private fun formulaChanged(appointmentId: String) {
+        readChanges.changed(appointmentId)
+        serviceMenuReads.changed()
+    }
+
+    private suspend fun formulaReloaded(appointmentId: String) = together({ reloadAppointmentAndLists(appointmentId) }, ::loadServiceMenu)
 
     // --- photos ---
 

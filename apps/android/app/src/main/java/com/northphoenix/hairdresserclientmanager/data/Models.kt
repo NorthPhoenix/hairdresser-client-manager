@@ -127,7 +127,7 @@ data class ClientProfile(
     val address: String = "",
     val note: String = "",
     val activeProfileShare: ProfileShare? = null,
-    /** The Client who recommended this one ("Посоветовала"), and their name as the server last stated it. Null: nobody. */
+    /** The Client who recommended this one ("По рекомендации"), and their name as the server last stated it. Null: nobody. */
     val referredById: String? = null,
     val referredByName: String? = null,
     /** When the Client Profile was last saved, as the server states it: the version a save names (see [HcmApi.saveClient]). */
@@ -158,6 +158,8 @@ data class ServiceMenuItem(
     val group: String? = null,
     /** How many Services were started from this item. Only the menu's list says; a saved item does not. */
     val useCount: Int = 0,
+    /** How many of those Services have a Color Formula. Only the menu's list says; a saved item does not. */
+    val formulaCount: Int = 0,
     /** Whether this is the Travel Fee: added by itself to a Scheduled Appointment at home. At most one item is. */
     val travelFee: Boolean = false,
 )

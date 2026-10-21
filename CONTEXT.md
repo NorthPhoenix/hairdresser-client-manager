@@ -85,7 +85,7 @@ The one Service Menu Item a Stylist may mark as the fee for going to a Client, s
 _Avoid_: Travel charge, house-call fee, mileage
 
 **Color Formula**:
-The formula text and optional placement used for a Service. A Service can have multiple Color Formulas. The formula text can have several lines; Profile Share pages and Share Images keep its line breaks.
+The formula text and optional placement used for a Service. A Service can have multiple Color Formulas. The formula text can have several lines; Profile Share pages and Share Images keep its line breaks. Any Service can get one, but the Appointment offers it loudest where it is likely wanted: on a Service that has one, whose name names colour work, whose Service Menu Item has had a Color Formula on any Service started from it, or, for a Service without a menu item, whose name equals (without the difference of letter case, ё and е, and repeated spaces) the name of a Service that had one; every other Service keeps a small quiet button. So the offer learns from the Stylist's own formulas, and adding one formula to a Service makes its menu item prominent from then on.
 _Avoid_: Dye, recipe, mix
 
 **Color Formula Library**:
@@ -108,7 +108,7 @@ _Avoid_: General note, profile note, memo
 The complete record for one Client, including contact details, address, Client Notes, Appointments, Services, Color Formulas, Appointment Photos, and shareable history. A Client Profile belongs to exactly one Stylist, is searchable by Client name and phone number in v1, warns on duplicate phone numbers without blocking them, shows another Client with the same number as a possible duplicate until the Stylist merges the two (Client Merge) or says they are different people, which holds for that pair for good, shows only that Client's Services and relevant Appointment Photos from group Appointments, and deletion removes that Client's data from group Appointments while keeping the Appointment when other Clients remain and promoting another remaining Client to primary when needed. A Client Profile opens for reading, with its editing one step away; it says how many visits the Client has had, when the last one was, how often the Client usually comes once there are two visit days, and the next Scheduled Appointment, where a visit is a completed Appointment and canceled, no-show and Scheduled Appointments are not visits. From it the Stylist can call, text, or open the Client's address in a map app, and book the Client again.
 _Avoid_: Client file, customer profile, record
 
-**Referrer** ("Посоветовала"):
+**Referrer** ("По рекомендации"):
 The other Client of the same Stylist who recommended a Client to the Stylist, such as "Надя, от Лены". A Client has at most one Referrer, never themselves. The Referrer is chosen in the Client form and shown on the Client Profile as a tag that opens the Referrer, which in turn lists the Clients they recommended. When the Referrer is deleted the link is cleared; a Client Merge moves it to the kept Client. A name that says "от <Name>" and matches exactly one Client by first word is offered as the Referrer on the profile and is only set when the Stylist taps Yes; the name itself is never changed.
 
 **Client Merge**:
@@ -204,7 +204,7 @@ Not a v1 concept. The app does not include a dedicated internal admin or support
 _Avoid_: Admin dashboard, support console, back office
 
 **Language Support**:
-The app supports Russian as the primary language and English as the secondary language in v1. Stylist language defaults from the device language and can be changed by the Stylist; Client language drives Client Reminders and Profile Shares.
+The app supports Russian as the primary language and English as the secondary language in v1. Stylist language defaults from the device language and can be changed by the Stylist; Client language drives Client Reminders and Profile Shares. The app records no gender for a Client, and Clients include men and children, so Russian text about a Client is gender-neutral: a noun or a label with a colon ("По рекомендации: Лена", "Последний визит"), never a verb or pronoun in one gender ("Посоветовала", "Её", "Была").
 _Avoid_: English-only, localization later
 
 **Inventory Tracking**:
