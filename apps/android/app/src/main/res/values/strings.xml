@@ -192,7 +192,9 @@
     <string name="home_outcome_chip_description">%1$s, %2$s</string>
     <string name="home_outcome_completed">%1$s — completed</string>
     <string name="home_outcome_no_show">%1$s — no-show</string>
+    <string name="home_remind">Remind</string>
     <string name="home_today_section">Today</string>
+    <string name="home_tomorrow_section">Tomorrow</string>
     <string name="home_undo_changed_elsewhere">The Appointment was changed in the meantime, so its status stays as it is now.</string>
     <string name="home_undo_overlap">Scheduled again, but it overlaps another Appointment.</string>
     <string name="home_unresolved_section">Needs an outcome</string>

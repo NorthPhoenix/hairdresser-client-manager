@@ -227,6 +227,14 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     /** Today's list, of the day in [today]. It says that it is empty only when its state is Loaded. */
     val home: StateFlow<Read<List<Appointment>>> = _home.asStateFlow()
 
+    private val _tomorrow = MutableStateFlow(Read<List<Appointment>>())
+
+    /**
+     * The list of the day after [today] (the Calendar's cache of that day), for the Home View's
+     * 'Tomorrow'. It is every Appointment of the day: the screen picks the Scheduled ones.
+     */
+    val tomorrow: StateFlow<Read<List<Appointment>>> = _tomorrow.asStateFlow()
+
     private val _calendarDate = MutableStateFlow(day.today.value)
     val calendarDate: StateFlow<LocalDate> = _calendarDate.asStateFlow()
 
@@ -321,6 +329,12 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                 keys = combine(listsZone, today) { zone, day -> zone?.let { DayKey(day, it) } }.distinctUntilChanged(),
                 watch = { key -> key?.let(appointmentReads.today::watch) ?: flowOf(Read()) },
             ) { _, read -> _home.value = read }
+        }
+        viewModelScope.launch {
+            showLatest(
+                keys = combine(listsZone, today) { zone, day -> zone?.let { DayKey(day.plusDays(1), it) } }.distinctUntilChanged(),
+                watch = { key -> key?.let(appointmentReads.days::watch) ?: flowOf(Read()) },
+            ) { _, read -> _tomorrow.value = read }
         }
         viewModelScope.launch {
             showLatest(
@@ -560,7 +574,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      */
     private suspend fun loadAppointmentLists() {
         followDay()
-        together(::loadHome, ::loadCalendarDay, appointmentReads.weeks::refreshShown, appointmentReads.sources::refreshShown)
+        together(::loadHome, ::loadTomorrow, ::loadCalendarDay, appointmentReads.weeks::refreshShown, appointmentReads.sources::refreshShown)
     }
 
     /** The key of Today's list: today in the Stylist's timezone. Null while there is no Stylist to show it to. */
@@ -576,6 +590,11 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     /** Asks for Today's list again. The answer goes into the cache and onto the screen; what was on screen stays when it fails. */
     private suspend fun loadHome() {
         todayKey()?.let { appointmentReads.today.refresh(it) }
+    }
+
+    /** Asks for the day after today again, for the Home View's 'Tomorrow'. A failure leaves what was shown. */
+    private suspend fun loadTomorrow() {
+        listsDay(today.value.plusDays(1))?.let { appointmentReads.days.refresh(it) }
     }
 
     /** Asks for the day in [calendarDate] again. What arrives after the Stylist has moved on is of another key: cached, and not shown. */
