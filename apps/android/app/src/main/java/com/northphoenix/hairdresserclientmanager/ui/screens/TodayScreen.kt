@@ -33,11 +33,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -172,15 +174,11 @@ private fun rememberNow(): State<Instant> {
     return now
 }
 
-/** "Fri, Oct 16 — 3 appointments not closed" with a button that completes all of them. [day] is the day as the row names it. */
+/** "Fri, Oct 16 — 3 Appointments need an outcome" with a button that completes all of them. [day] is the day as the row names it. */
 @Composable
 private fun CloseDayRow(day: String, count: Int, onCompleteAll: () -> Unit, modifier: Modifier = Modifier) {
     Surface(modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, color = HcmColors.WarningSoft) {
-        Row(
-            Modifier.padding(start = 18.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
+        TextBesideOrAbove(Modifier.padding(start = 18.dp, end = 12.dp, top = 12.dp, bottom = 12.dp)) {
             val text = stringResource(R.string.home_day_not_closed, day, pluralStringResource(R.plurals.home_day_not_closed_count, count, count))
             val dayAt = text.indexOf(day)
 
@@ -192,7 +190,6 @@ private fun CloseDayRow(day: String, count: Int, onCompleteAll: () -> Unit, modi
                         addStyle(SpanStyle(fontWeight = FontWeight.Bold), dayAt, dayAt + day.length)
                     }
                 },
-                modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyMedium,
                 color = HcmColors.Warning,
             )
@@ -205,6 +202,39 @@ private fun CloseDayRow(day: String, count: Int, onCompleteAll: () -> Unit, modi
                 Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(stringResource(R.string.home_complete_all), style = MaterialTheme.typography.labelLarge)
+            }
+        }
+    }
+}
+
+/**
+ * A text and a button: side by side while what the button leaves of the width holds each word of
+ * the text whole, and the button under the text when it does not, as with a large font. Side by
+ * side the text was broken inside its words to fit.
+ */
+@Composable
+private fun TextBesideOrAbove(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Layout(content, modifier) { measurables, constraints ->
+        val (text, button) = measurables
+        val gap = 12.dp.roundToPx()
+        val width = constraints.maxWidth
+        val buttonPlaceable = button.measure(constraints.copy(minWidth = 0, minHeight = 0))
+        val besideWidth = width - buttonPlaceable.width - gap
+
+        if (besideWidth >= text.minIntrinsicWidth(Constraints.Infinity) && besideWidth >= 96.dp.roundToPx()) {
+            val textPlaceable = text.measure(Constraints(maxWidth = besideWidth))
+            val height = maxOf(textPlaceable.height, buttonPlaceable.height)
+
+            layout(width, height) {
+                textPlaceable.placeRelative(0, (height - textPlaceable.height) / 2)
+                buttonPlaceable.placeRelative(width - buttonPlaceable.width, (height - buttonPlaceable.height) / 2)
+            }
+        } else {
+            val textPlaceable = text.measure(Constraints(maxWidth = width))
+
+            layout(width, textPlaceable.height + gap + buttonPlaceable.height) {
+                textPlaceable.placeRelative(0, 0)
+                buttonPlaceable.placeRelative(0, textPlaceable.height + gap)
             }
         }
     }
