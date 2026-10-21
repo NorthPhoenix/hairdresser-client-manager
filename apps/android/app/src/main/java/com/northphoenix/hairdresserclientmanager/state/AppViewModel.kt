@@ -1077,9 +1077,10 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      * address and note, in the Stylist's language, by the same save as the Client form. It goes on after a Client
      * the server refuses, and stops at the first failure to reach the server: the contacts not reached are failed too.
      * It runs on until it is done also when the Stylist leaves the screen; [onFinished] is told then and
-     * shows one notice, of what was added.
+     * shows one notice, of what was added. A retry of the contacts an earlier try left undone counts
+     * the [addedBefore] Clients that try added into that notice: it is of the whole import.
      */
-    fun importContacts(contacts: List<ImportCandidate>, onFinished: (ContactImportResult) -> Unit) {
+    fun importContacts(contacts: List<ImportCandidate>, addedBefore: Int = 0, onFinished: (ContactImportResult) -> Unit) {
         if (contacts.isEmpty() || _contactImportProgress.value != null) {
             return
         }
@@ -1131,11 +1132,12 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             }
 
             val result = ContactImportResult(added, failed, reason)
+            val addedInAll = addedBefore + added.size
 
             when {
-                failed.isEmpty() -> noticeChannel.trySend(Notice(R.plurals.contact_import_added, quantity = added.size, args = listOf(added.size)))
+                failed.isEmpty() -> noticeChannel.trySend(Notice(R.plurals.contact_import_added, quantity = addedInAll, args = listOf(addedInAll)))
                 added.isEmpty() -> notify(reason ?: R.string.contact_import_failed, isError = true)
-                else -> notify(R.string.contact_import_partial, isError = true, added.size, contacts.size)
+                else -> notify(R.string.contact_import_partial, isError = true, addedInAll, addedBefore + contacts.size)
             }
             result
         }
