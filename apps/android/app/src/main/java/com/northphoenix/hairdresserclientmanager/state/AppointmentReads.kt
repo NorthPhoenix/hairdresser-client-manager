@@ -2,6 +2,7 @@ package com.northphoenix.hairdresserclientmanager.state
 
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
+import com.northphoenix.hairdresserclientmanager.domain.HomeOutcomes
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -169,6 +170,19 @@ internal class AppointmentReads(
             one.settled(change)
             expected.value -= change
         },
+    )
+
+    /**
+     * An Appointment that left Today's list with an outcome and is being set back to Scheduled
+     * ('Undo' on the Home View): [card] is how the list showed it. It is on the list again at once,
+     * and once the server has it Scheduled it is what the list has of the server until the reload,
+     * which answers the same: an overdue Scheduled Appointment is always on Today's list.
+     * [change] names it apart from the status change itself.
+     */
+    fun backOnToday(change: String, card: Appointment) = Ahead(
+        show = { today.expect(change) { _, list -> HomeOutcomes.withCardBack(list, card) } },
+        saved = { today.update { _, list -> HomeOutcomes.withCardBack(list, card) } },
+        settle = { today.settled(change) },
     )
 
     /**
