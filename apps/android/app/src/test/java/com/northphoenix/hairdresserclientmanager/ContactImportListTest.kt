@@ -4,10 +4,8 @@ import com.northphoenix.hairdresserclientmanager.domain.ContactImportList
 import com.northphoenix.hairdresserclientmanager.domain.DeviceContact
 import com.northphoenix.hairdresserclientmanager.domain.ImportCandidate
 import com.northphoenix.hairdresserclientmanager.domain.ImportItem
-import com.northphoenix.hairdresserclientmanager.domain.PhoneDigits
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -24,24 +22,6 @@ class ContactImportListTest {
 
     private fun candidate(id: Long, name: String, vararg phones: String) =
         ImportCandidate(id, name, phones.first(), phones.toList())
-
-    // --- phone digits ---
-
-    @Test
-    fun `a US number is the same number however it is written`() {
-        assertTrue(PhoneDigits.same("(512) 917-4528", "+1 512-917-4528"))
-        assertTrue(PhoneDigits.same("5129174528", "1(512)9174528"))
-        assertFalse(PhoneDigits.same("(512) 917-4528", "(512) 917-4529"))
-    }
-
-    @Test
-    fun `a short number or none compares with nothing`() {
-        assertNull(PhoneDigits.key("911"))
-        assertNull(PhoneDigits.key(""))
-        assertNull(PhoneDigits.key(null))
-        assertFalse(PhoneDigits.same("911", "911"))
-        assertFalse(PhoneDigits.same("", ""))
-    }
 
     // --- which contacts are listed ---
 
@@ -148,6 +128,28 @@ class ContactImportListTest {
 
         assertEquals(listOf(true, false, true), rows.map { it.alreadyClient })
         assertEquals(setOf(2L), ContactImportList.selectable(rows))
+    }
+
+    @Test
+    fun `a Russian mobile is the same with or without its country code, a number of another country is not`() {
+        val rows = ContactImportList.rows(
+            listOf(candidate(1, "Ольга", "8 916 123 45 67"), candidate(2, "Юки", "+81 3 1234 5678")),
+            clientPhones = listOf("+7 916 123-45-67", "+7 131 234 56 78"),
+            cyrillicFirst = true,
+        )
+
+        assertEquals(listOf(true, false), rows.map { it.alreadyClient })
+    }
+
+    @Test
+    fun `a contact's second number that a Client has makes it already a Client, and a number without digits is no number`() {
+        val rows = ContactImportList.rows(
+            listOf(candidate(1, "Анна", "5125550000", "+1 (512) 917-4528"), candidate(2, "Борис", "n/a")),
+            clientPhones = listOf("(512) 917-4528", "-"),
+            cyrillicFirst = true,
+        )
+
+        assertEquals(listOf(true, false), rows.map { it.alreadyClient })
     }
 
     // --- search ---

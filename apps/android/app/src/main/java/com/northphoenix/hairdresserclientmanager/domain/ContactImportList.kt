@@ -17,7 +17,7 @@ data class ImportCandidate(
     val nameless: Boolean = false,
 )
 
-/** A candidate in the list: [alreadyClient] when a Client already has one of its numbers, and then it cannot be picked. */
+/** A candidate in the list: [alreadyClient] when a Client already has one of its numbers (the same number by [ClientRules.comparablePhone], as for a possible duplicate), and then it cannot be picked. */
 data class ImportRow(val candidate: ImportCandidate, val alreadyClient: Boolean)
 
 /** What the list shows, in order: a letter, then the contacts under it. */
@@ -37,7 +37,7 @@ object ContactImportList {
             val id = contact.id ?: return@mapNotNull null
             val phones = contact.phones
                 .mapNotNull { phone -> phone?.let(OneLine::clean)?.takeIf { it.any(Char::isDigit) } }
-                .distinctBy { PhoneDigits.key(it) ?: PhoneDigits.digits(it) }
+                .distinctBy(ClientRules::comparablePhone)
                 .map { cut(it, TextLimits.PHONE) }
 
             if (phones.isEmpty()) {
@@ -63,10 +63,10 @@ object ContactImportList {
      * a name that starts with no letter last. A contact is [ImportRow.alreadyClient] when any of its numbers is one of [clientPhones].
      */
     fun rows(candidates: List<ImportCandidate>, clientPhones: Collection<String>, cyrillicFirst: Boolean): List<ImportRow> {
-        val taken = clientPhones.mapNotNull(PhoneDigits::key).toSet()
+        val taken = clientPhones.map(ClientRules::comparablePhone).filter(String::isNotEmpty).toSet()
 
         return candidates
-            .map { candidate -> ImportRow(candidate, candidate.phones.any { PhoneDigits.key(it) in taken }) }
+            .map { candidate -> ImportRow(candidate, candidate.phones.any { ClientRules.comparablePhone(it) in taken }) }
             .sortedWith(compareBy<ImportRow>({ bucket(it.candidate.name, cyrillicFirst) }, { fold(it.candidate.name) }, { it.candidate.id }))
     }
 
@@ -78,11 +78,11 @@ object ContactImportList {
             return rows
         }
 
-        val digits = if (isPhoneLike(query)) PhoneDigits.digits(query) else ""
+        val digits = if (isPhoneLike(query)) ClientRules.searchablePhone(query) else ""
 
         return rows.filter { row ->
             fold(row.candidate.name).contains(query) ||
-                (digits.isNotEmpty() && row.candidate.phones.any { PhoneDigits.digits(it).contains(digits) }) ||
+                (digits.isNotEmpty() && row.candidate.phones.any { ClientRules.searchablePhone(it).contains(digits) }) ||
                 row.candidate.phones.any { fold(it).contains(query) }
         }
     }
