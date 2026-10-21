@@ -137,6 +137,9 @@ sealed interface BootstrapState {
 class AppViewModel(private val container: AppContainer, val auth: AuthGateway, savedState: SavedStateHandle) : ViewModel() {
     private val api = container.api
 
+    /** Client Reminders sent from the phone, and which Appointments were reminded (kept on this device only). */
+    val reminders: ReminderOutbox get() = container.reminders
+
     val authState: StateFlow<AuthState> = auth.state
 
     /** The Stylist's name on the sign-in account, which Clients see on Profile Shares and Share Images. Null when the account cannot have one. */
