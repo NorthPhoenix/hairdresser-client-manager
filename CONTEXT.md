@@ -203,6 +203,14 @@ _Avoid_: Metrics, dashboard, analytics
 What a week, month or year of the Stylist's Appointments came to, in the Stylist's timezone (a week starts on Monday), stepped back and forward with arrows. An Appointment belongs to the period its start time is in. Earned is the sum over completed Appointments of the price of their Services (the custom total when set) plus their Tip, shown split into Services and Tips, with the number of completed visits, the average per visit, how many visits were at home, and the small counts of canceled and no-show Appointments. For a period that is current or still to come it also shows what is already booked: scheduled Appointments from now to the end of the period, with their count and amount; a period that is over shows none. Top services are the Service lines of completed Appointments by revenue, five at most, grouped by the group of the Service Menu Item they were started from, else by the Service's name (case, ё/е and repeated spaces do not tell two names apart). A period with nothing in it says so. It is read-only and records nothing; it does not track what was paid, only what Appointments came to (see Payment Tracking).
 _Avoid_: Dashboard, Revenue report, Statistics
 
+**App Update**:
+A newer version of the Android app than the one the Stylist runs. The app knows its own version and the server knows the latest release; when that is newer, the Home View shows one quiet card at its top, "Version 1.5.0 is out" with what changed since her version, to update (the download opens in the browser, and she installs it as she installed the app) or to put off until a version newer than that one. Never a blocking dialog, and nothing when the server cannot be reached. The app tells the server its version with every request, and the server keeps the last one per Stylist; apps before 1.4.0 tell nothing. Updating stays the Stylist's own step: the app does not install anything itself.
+_Avoid_: Forced update, auto-update, upgrade prompt
+
+**Release Notes** ("Что нового"):
+What a release of the app changed, one plain line per thing the Stylist can see, in Russian and English, kept with the server. After an update the Home View shows the notes of the releases the app was updated past, once, until the Stylist taps "Got it"; on the first start of 1.4.0 over an earlier version, the notes of 1.4.0, and after a fresh install nothing. That card comes before an App Update card, which follows once it is put away. The Profile tab shows the app's version and lists every release with its notes.
+_Avoid_: Changelog, patch notes, version history
+
 **Admin Tooling**:
 Not a v1 concept. The app does not include a dedicated internal admin or support UI.
 _Avoid_: Admin dashboard, support console, back office
