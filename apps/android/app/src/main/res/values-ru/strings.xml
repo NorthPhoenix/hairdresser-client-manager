@@ -568,4 +568,35 @@
     <string name="appointment_tip_included">вкл. чаевые %1$s</string>
     <string name="history_tip">Чаевые</string>
     <string name="history_tip_whole_visit">Чаевые за всю запись</string>
+
+    <string name="earnings_title">Итоги</string>
+    <string name="earnings_entry_subtitle">Заработок, визиты и услуги за неделю, месяц, год</string>
+    <string name="earnings_period_week">Неделя</string>
+    <string name="earnings_period_month">Месяц</string>
+    <string name="earnings_period_year">Год</string>
+    <string name="earnings_previous">Предыдущий период</string>
+    <string name="earnings_next">Следующий период</string>
+    <string name="earnings_earned">Заработано (завершённые записи)</string>
+    <string name="earnings_split">услуги %1$s · чаевые %2$s</string>
+    <string name="earnings_no_visits">Завершённых записей пока нет</string>
+    <string name="earnings_visits">Визитов</string>
+    <string name="earnings_average">Средний чек</string>
+    <string name="earnings_at_home">На дому</string>
+    <string name="earnings_at_home_value">%1$d из %2$d</string>
+    <string name="earnings_booked">Уже записано</string>
+    <string name="earnings_booked_week">Уже записано до конца недели</string>
+    <string name="earnings_booked_month">Уже записано до конца месяца</string>
+    <string name="earnings_booked_year">Уже записано до конца года</string>
+    <string name="earnings_booked_none">Пока ничего не записано</string>
+    <string name="earnings_canceled">Отменены: %d</string>
+    <string name="earnings_no_show">Неявки: %d</string>
+    <string name="earnings_top_services">Выручка по услугам</string>
+    <string name="earnings_empty_title">Здесь пока пусто</string>
+    <string name="earnings_empty_body">В этом периоде нет записей. Заработок появится, когда записи будут завершены.</string>
+    <plurals name="earnings_booked_count">
+        <item quantity="one">%d запись</item>
+        <item quantity="few">%d записи</item>
+        <item quantity="many">%d записей</item>
+        <item quantity="other">%d записи</item>
+    </plurals>
 </resources>

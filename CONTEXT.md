@@ -196,8 +196,12 @@ Not a v1 concept. The app does not provide user-facing backup or restore flows.
 _Avoid_: Backup, restore, data recovery
 
 **Reporting**:
-Not a v1 concept. The app does not provide dashboards, revenue summaries, service trends, or analytics reports.
+The app has one report, the Earnings Summary (Итоги), opened from the Profile tab. It is a summary of one week, month or year, never a dashboard, a service trend over time, or an export. The server adds it up from the Appointments of the period only (`stats.summary`).
 _Avoid_: Metrics, dashboard, analytics
+
+**Earnings Summary**:
+What a week, month or year of the Stylist's Appointments came to, in the Stylist's timezone (a week starts on Monday), stepped back and forward with arrows. An Appointment belongs to the period its start time is in. Earned is the sum over completed Appointments of the price of their Services (the custom total when set) plus their Tip, shown split into Services and Tips, with the number of completed visits, the average per visit, how many visits were at home, and the small counts of canceled and no-show Appointments. For a period that is current or still to come it also shows what is already booked: scheduled Appointments from now to the end of the period, with their count and amount; a period that is over shows none. Top services are the Service lines of completed Appointments by revenue, five at most, grouped by the group of the Service Menu Item they were started from, else by the Service's name (case, ё/е and repeated spaces do not tell two names apart). A period with nothing in it says so. It is read-only and records nothing; it does not track what was paid, only what Appointments came to (see Payment Tracking).
+_Avoid_: Dashboard, Revenue report, Statistics
 
 **Admin Tooling**:
 Not a v1 concept. The app does not include a dedicated internal admin or support UI.

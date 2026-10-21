@@ -166,6 +166,16 @@ class HcmApi(private val trpc: TrpcClient) {
 
     suspend fun listServiceMenu(): List<ServiceMenuItem> = trpc.query("serviceMenu.list")
 
+    /** What one week, month or year came to: [period] is `week`, `month` or `year`, [date] any day of it ("2026-10-21"). */
+    suspend fun earningsSummary(period: String, date: String): EarningsSummary =
+        trpc.query(
+            "stats.summary",
+            buildJsonObject {
+                put("period", period)
+                put("date", date)
+            },
+        )
+
     /** The names, as typed, of the Services that have a Color Formula, each once. */
     suspend fun listFormulaNames(): List<String> = trpc.query("serviceMenu.formulaNames")
 
