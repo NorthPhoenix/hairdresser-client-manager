@@ -201,7 +201,11 @@ private fun MenuChoices(menu: List<ServiceMenuItem>, menuLoad: LoadState, onRetr
     val searching = query.isNotBlank()
     val whole = remember(menu) { MenuPicker.layout(menu) }
     val found = remember(menu, query) { MenuPicker.search(menu, query) }
-    val frequent = remember(menu) { MenuPicker.frequent(menu) }
+    // Which items are the most used is taken once, from the menu the sheet opens with. The menu is
+    // read again after each add, and a reply that came in while the sheet is open would otherwise
+    // move these chips under the Stylist's finger.
+    val frequentIds = rememberSaveable(menu.isNotEmpty()) { MenuPicker.frequent(menu).map { it.id } }
+    val frequent = MenuPicker.picked(menu, frequentIds)
 
     if (menu.isEmpty()) {
         if (menuLoad is LoadState.Failed) {
