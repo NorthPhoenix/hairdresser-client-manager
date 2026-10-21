@@ -13,7 +13,8 @@
     <string name="add_appointment_service">Добавить услугу</string>
     <string name="add_client_to_appointment">Добавить клиента</string>
     <string name="add_color_formula">Добавить формулу</string>
-    <string name="add_menu_service">Добавить из меню</string>
+    <string name="add_services_pick">Выберите услуги</string>
+    <string name="add_services_title">Добавить услуги</string>
     <string name="add_photo_from_camera">Камера</string>
     <string name="add_photo_from_gallery">Галерея</string>
     <string name="additional_clients_label">Дополнительные клиенты</string>
@@ -76,6 +77,7 @@
     <string name="appointment_service_saved">Услуга добавлена.</string>
     <string name="appointment_service_total">Сумма услуг</string>
     <string name="appointment_service_updated">Услуга сохранена.</string>
+    <string name="appointment_services_added">Добавлено услуг: %1$d.</string>
     <string name="appointment_services_title">Услуги</string>
     <string name="appointment_start_label">Начало</string>
     <string name="appointment_start_time_skipped">В этот день часы переводят вперёд, и такого времени начала нет. Выберите другое время.</string>
@@ -111,6 +113,7 @@
     <string name="client_reminder_missing_phone">У основного клиента нет номера телефона для SMS.</string>
     <string name="client_reminder_no_primary_client">SMS-напоминание отправляется основному клиенту, а среди клиентов этой записи его нет.</string>
     <string name="client_saved">Клиент сохранён.</string>
+    <string name="clear_search">Очистить поиск</string>
     <string name="client_search_label">Поиск по имени или телефону</string>
     <string name="clients_title">Клиенты</string>
     <string name="close">Закрыть</string>
@@ -135,6 +138,8 @@
     <string name="delete">Удалить</string>
     <string name="delete_appointment">Удалить запись</string>
     <string name="delete_appointment_confirm_body">Запись, её услуги и фото будут удалены.</string>
+    <string name="custom_service">Своя услуга</string>
+    <string name="custom_service_back">Назад к меню</string>
     <string name="delete_appointment_service">Удалить услугу</string>
     <string name="delete_appointment_service_confirm_body">Услуга «%1$s» и её формулы окрашивания будут удалены из этой записи.</string>
     <string name="delete_client">Удалить клиента</string>
@@ -267,14 +272,23 @@
     <string name="save_onboarding">Сохранить и продолжить</string>
     <string name="save_service_menu_item">Сохранить услугу</string>
     <string name="save_settings">Сохранить</string>
+    <string name="service_group_collapsed">Свёрнуто</string>
+    <string name="service_group_expanded">Развёрнуто</string>
+    <string name="service_group_frequent">Часто у вас</string>
+    <string name="service_group_other">Другое</string>
     <string name="service_menu_empty_body">Добавьте услуги, которые оказываете чаще всего, чтобы быстрее заполнять записи.</string>
     <string name="service_menu_empty_title">Меню услуг пустое</string>
+    <string name="service_menu_group_hint">Услуги одной группы показываются вместе, когда вы добавляете услуги в запись.</string>
+    <string name="service_menu_group_label">Группа</string>
+    <string name="service_menu_group_placeholder">Необязательно, например «Покраска в один цвет»</string>
     <string name="service_menu_item_deleted">Услуга удалена.</string>
     <string name="service_menu_item_saved">Услуга сохранена.</string>
     <string name="service_menu_name_label">Название услуги</string>
     <string name="service_menu_price_label">Цена по умолчанию</string>
     <string name="service_menu_subtitle">Ваши обычные услуги с ценами по умолчанию.</string>
     <string name="service_menu_title">Меню услуг</string>
+    <string name="service_search_empty">В меню нет ничего по запросу «%1$s».</string>
+    <string name="service_search_placeholder">Услуга или группа</string>
     <string name="service_name_required">Укажите название услуги.</string>
     <string name="settings_saved">Настройки сохранены.</string>
     <string name="settings_title">Настройки</string>
@@ -339,6 +353,12 @@
     <string name="timezone_search_placeholder">Поиск часового пояса</string>
     <string name="timezone_unusable">Устройство не знает этот часовой пояс, поэтому время показано по часовому поясу устройства. Выберите свой часовой пояс и сохраните.</string>
 
+    <plurals name="add_services_count">
+        <item quantity="one">Добавить %d услугу</item>
+        <item quantity="few">Добавить %d услуги</item>
+        <item quantity="many">Добавить %d услуг</item>
+        <item quantity="other">Добавить %d услуги</item>
+    </plurals>
     <plurals name="appointment_photos_not_saved">
         <item quantity="one">%d фото не сохранилось.</item>
         <item quantity="few">%d фото не сохранились.</item>

@@ -14,7 +14,8 @@
     <string name="add_appointment_service">Add Service</string>
     <string name="add_client_to_appointment">Add Client</string>
     <string name="add_color_formula">Add Formula</string>
-    <string name="add_menu_service">Add from menu</string>
+    <string name="add_services_pick">Pick Services</string>
+    <string name="add_services_title">Add Services</string>
     <string name="add_photo_from_camera">Camera</string>
     <string name="add_photo_from_gallery">Gallery</string>
     <string name="additional_clients_label">Additional Clients</string>
@@ -77,6 +78,7 @@
     <string name="appointment_service_saved">Service added.</string>
     <string name="appointment_service_total">Services total</string>
     <string name="appointment_service_updated">Service saved.</string>
+    <string name="appointment_services_added">Services added: %1$d.</string>
     <string name="appointment_services_title">Services</string>
     <string name="appointment_start_label">Start time</string>
     <string name="appointment_start_time_skipped">The clocks go forward on that day, so this start time does not exist. Choose another start time.</string>
@@ -112,6 +114,7 @@
     <string name="client_reminder_missing_phone">The primary Client has no phone number for SMS.</string>
     <string name="client_reminder_no_primary_client">The SMS reminder goes to the primary Client, and this Appointment has none among its Clients.</string>
     <string name="client_saved">Client saved.</string>
+    <string name="clear_search">Clear search</string>
     <string name="client_search_label">Search by name or phone</string>
     <string name="clients_title">Clients</string>
     <string name="close">Close</string>
@@ -136,6 +139,8 @@
     <string name="delete">Delete</string>
     <string name="delete_appointment">Delete Appointment</string>
     <string name="delete_appointment_confirm_body">The Appointment, its Services, and its photos will be deleted.</string>
+    <string name="custom_service">Custom service</string>
+    <string name="custom_service_back">Back to the menu</string>
     <string name="delete_appointment_service">Delete Service</string>
     <string name="delete_appointment_service_confirm_body">The Service “%1$s” and its Color Formulas will be deleted from this Appointment.</string>
     <string name="delete_client">Delete Client</string>
@@ -270,14 +275,23 @@
     <string name="save_onboarding">Save and continue</string>
     <string name="save_service_menu_item">Save Service</string>
     <string name="save_settings">Save</string>
+    <string name="service_group_collapsed">Collapsed</string>
+    <string name="service_group_expanded">Expanded</string>
+    <string name="service_group_frequent">Often used</string>
+    <string name="service_group_other">Other</string>
     <string name="service_menu_empty_body">Add a common service to fill Appointments faster.</string>
     <string name="service_menu_empty_title">No Service Menu Items</string>
+    <string name="service_menu_group_hint">Services of one group are shown together when you add Services to an Appointment.</string>
+    <string name="service_menu_group_label">Group</string>
+    <string name="service_menu_group_placeholder">Optional, e.g. Single-color dye</string>
     <string name="service_menu_item_deleted">Service deleted.</string>
     <string name="service_menu_item_saved">Service saved.</string>
     <string name="service_menu_name_label">Service name</string>
     <string name="service_menu_price_label">Default price</string>
     <string name="service_menu_subtitle">Create standard services with default prices.</string>
     <string name="service_menu_title">Service Menu</string>
+    <string name="service_search_empty">Nothing in your menu matches “%1$s”.</string>
+    <string name="service_search_placeholder">Service or group</string>
     <string name="service_name_required">Add a service name.</string>
     <string name="settings_saved">Settings saved.</string>
     <string name="settings_title">Settings</string>
@@ -342,6 +356,10 @@
     <string name="timezone_search_placeholder">Search timezones</string>
     <string name="timezone_unusable">This device doesn\'t know this timezone, so times are shown in the device\'s own timezone. Choose your timezone and save.</string>
 
+    <plurals name="add_services_count">
+        <item quantity="one">Add %d Service</item>
+        <item quantity="other">Add %d Services</item>
+    </plurals>
     <plurals name="appointment_photos_not_saved">
         <item quantity="one">The photo wasn\'t saved.</item>
         <item quantity="other">%d photos weren\'t saved.</item>

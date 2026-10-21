@@ -73,8 +73,8 @@ A type of work performed for exactly one Client during an Appointment, such as a
 _Avoid_: Work item, treatment, procedure
 
 **Service Menu Item**:
-A reusable service option configured by a Stylist with a default one-line name and a default price up to 9,999,999.99. A Service can start from a Service Menu Item or be added ad hoc, appointment history stores the Service as it actually happened, and deleting a Service Menu Item does not change existing Services.
-_Avoid_: Template service, catalog item
+A reusable service option configured by a Stylist with a default one-line name, a default price up to 9,999,999.99, and an optional one-line group, such as "Покраска в один цвет", whose items are its variants (by hair length or volume). Two groups are the same group when their names differ only in letter case, "ё" and "е", or repeated spaces. The Service Menu lists its items in the order they were created, oldest first, in their groups, each group where its oldest item is, and the items without a group after the groups; editing an item does not move it. Inside its group an item goes by its name without the group's name at its start. A Service can start from a Service Menu Item or be added ad hoc, several Services can be started from Service Menu Items at once for one Client, each at its default price and in the order picked, appointment history stores the Service as it actually happened, and deleting a Service Menu Item does not change existing Services. The items a Stylist uses most are the ones the most Services were started from.
+_Avoid_: Template service, catalog item, category
 
 **Color Formula**:
 The formula text and optional placement used for a Service. A Service can have multiple Color Formulas. The formula text can have several lines; Profile Share pages and Share Images keep its line breaks.

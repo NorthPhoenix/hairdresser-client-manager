@@ -1,5 +1,6 @@
 package com.northphoenix.hairdresserclientmanager.data
 
+import com.northphoenix.hairdresserclientmanager.domain.MenuItemValues
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -137,14 +138,18 @@ class HcmApi(private val trpc: TrpcClient) {
 
     suspend fun listServiceMenu(): List<ServiceMenuItem> = trpc.query("serviceMenu.list")
 
-    /** [requestKey] names the creation of a new Service Menu Item (see [REQUEST_KEY]); an edit ([id]) does not send it. */
-    suspend fun saveServiceMenuItem(id: String?, name: String, defaultPriceCents: Long, requestKey: String): ServiceMenuItem =
+    /**
+     * Saves the whole editor of a Service Menu Item: an empty group clears it. [requestKey] names
+     * the creation of a new one (see [REQUEST_KEY]); an edit ([id]) does not send it.
+     */
+    suspend fun saveServiceMenuItem(id: String?, values: MenuItemValues, requestKey: String): ServiceMenuItem =
         trpc.mutation(
             "serviceMenu.save",
             buildJsonObject {
                 id?.let { put("id", it) }
-                put("name", name)
-                put("defaultPriceCents", defaultPriceCents)
+                put("name", values.name)
+                put("defaultPriceCents", values.defaultPriceCents)
+                put("group", values.group)
                 if (id == null) put(REQUEST_KEY, requestKey)
             },
         )
@@ -294,6 +299,23 @@ class HcmApi(private val trpc: TrpcClient) {
                 putIfNotBlank("name", name)
                 priceCents?.let { put("priceCents", it) }
                 putIfNotBlank("note", note)
+                put(REQUEST_KEY, requestKey)
+            },
+        )
+    }
+
+    /**
+     * Adds a Service from each of [menuItemIds] for [clientId], at the items' default prices and
+     * in this order, all in one request: all are added or none. [requestKey] names this addition
+     * (see [REQUEST_KEY]).
+     */
+    suspend fun addMenuServices(appointmentId: String, clientId: String, menuItemIds: List<String>, requestKey: String) {
+        trpc.mutation<JsonObject>(
+            "appointment.addMenuServices",
+            buildJsonObject {
+                put("appointmentId", appointmentId)
+                put("clientId", clientId)
+                put("menuItemIds", buildJsonArray { menuItemIds.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } })
                 put(REQUEST_KEY, requestKey)
             },
         )

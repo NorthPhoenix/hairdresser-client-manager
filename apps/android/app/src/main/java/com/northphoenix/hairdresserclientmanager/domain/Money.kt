@@ -39,6 +39,15 @@ object Money {
     /** "$85.00" for display. */
     fun format(cents: Long): String = "$" + centsToPrice(cents)
 
+    /** "$85", or "$85.50" when there are cents: for a price among many, such as a chip of the Service Menu. */
+    fun formatShort(cents: Long): String = "$" + shortAmount(cents)
+
+    /** "$50–85", or "$50" when both ends are the same. */
+    fun formatRange(lowestCents: Long, highestCents: Long): String =
+        if (lowestCents == highestCents) formatShort(lowestCents) else formatShort(lowestCents) + "–" + shortAmount(highestCents)
+
+    private fun shortAmount(cents: Long): String = if (cents % 100 == 0L) (cents / 100).toString() else centsToPrice(cents)
+
     /**
      * Reads the text of an amount field, and only text that can be read in one way. Nothing is
      * rounded, capped or taken for zero: what is not [Amount.Valid] must be refused, not saved.

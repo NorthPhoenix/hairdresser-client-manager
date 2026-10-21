@@ -8,6 +8,7 @@ import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
 import com.northphoenix.hairdresserclientmanager.data.TrpcClient
 import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
+import com.northphoenix.hairdresserclientmanager.domain.MenuItemValues
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
@@ -155,8 +156,8 @@ class ApiClientTest {
             )
         }
         assertEquals(
-            """{"name":"Lost Svc","defaultPriceCents":1200,"requestKey":"$KEY"}""",
-            sent("""{"result":{"data":{"id":"m1","name":"Lost Svc","defaultPriceCents":1200}}}""") { api.saveServiceMenuItem(null, "Lost Svc", 1200, KEY) },
+            """{"name":"Lost Svc","defaultPriceCents":1200,"group":"","requestKey":"$KEY"}""",
+            sent("""{"result":{"data":{"id":"m1","name":"Lost Svc","defaultPriceCents":1200}}}""") { api.saveServiceMenuItem(null, MenuItemValues("Lost Svc", 1200, ""), KEY) },
         )
         assertEquals(
             """{"additionalClientIds":[],"inlineClientName":"Lost Dana","startsAt":"2026-10-10T18:31:00Z","locationType":"inSalon","requestKey":"$KEY"}""",
@@ -168,6 +169,11 @@ class ApiClientTest {
             """{"appointmentId":"a1","clientId":"c1","name":"Lost Svc","priceCents":1200,"requestKey":"$KEY"}""",
             sent("""{"result":{"data":{}}}""") { api.addService("a1", "c1", null, "Lost Svc", 1200, null, KEY) },
         )
+        // Several picks from the menu are one creation, in the order they were picked.
+        assertEquals(
+            """{"appointmentId":"a1","clientId":"c1","menuItemIds":["m2","m1","m2"],"requestKey":"$KEY"}""",
+            sent("""{"result":{"data":{}}}""") { api.addMenuServices("a1", "c1", listOf("m2", "m1", "m2"), KEY) },
+        )
         assertEquals(
             """{"appointmentServiceId":"sv1","formula":"7N lost","requestKey":"$KEY"}""",
             sent("""{"result":{"data":{}}}""") { api.addColorFormula("sv1", "7N lost", "", KEY) },
@@ -175,8 +181,8 @@ class ApiClientTest {
 
         // An edit creates nothing: the key of the form it is sent from is not a part of it.
         assertEquals(
-            """{"id":"m1","name":"Cut","defaultPriceCents":1200}""",
-            sent("""{"result":{"data":{"id":"m1","name":"Cut","defaultPriceCents":1200}}}""") { api.saveServiceMenuItem("m1", "Cut", 1200, KEY) },
+            """{"id":"m1","name":"Cut","defaultPriceCents":1200,"group":"Cuts"}""",
+            sent("""{"result":{"data":{"id":"m1","name":"Cut","defaultPriceCents":1200}}}""") { api.saveServiceMenuItem("m1", MenuItemValues("Cut", 1200, "Cuts"), KEY) },
         )
     }
 
@@ -584,7 +590,7 @@ class ApiClientTest {
         enqueue("""{"error":{"message":"$issues","code":-32600,"data":{"code":"BAD_REQUEST","httpStatus":400}}}""", code = 400)
 
         try {
-            api.saveServiceMenuItem(null, "", 0, KEY)
+            api.saveServiceMenuItem(null, MenuItemValues("", 0, ""), KEY)
             fail("expected an ApiException")
         } catch (error: ApiException) {
             assertEquals("Too small: expected string to have >=1 characters", error.message)

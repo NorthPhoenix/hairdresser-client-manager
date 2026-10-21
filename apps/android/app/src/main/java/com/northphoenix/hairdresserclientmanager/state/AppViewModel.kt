@@ -45,6 +45,7 @@ import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
 import com.northphoenix.hairdresserclientmanager.domain.ChangedElsewhere
 import com.northphoenix.hairdresserclientmanager.domain.HomeOutcomes
+import com.northphoenix.hairdresserclientmanager.domain.MenuItemValues
 import com.northphoenix.hairdresserclientmanager.domain.OneLine
 import com.northphoenix.hairdresserclientmanager.domain.ServiceEdit
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
@@ -1121,7 +1122,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     // --- service menu ---
 
     /** [requestKey] is the editor sheet's own (see `rememberRequestKey`): it counts for a new Service Menu Item. */
-    fun saveServiceMenuItem(id: String?, name: String, defaultPriceCents: Long, requestKey: String, onSuccess: () -> Unit) =
+    fun saveServiceMenuItem(id: String?, values: MenuItemValues, requestKey: String, onSuccess: () -> Unit) =
         act(
             key = "saveServiceMenuItem:${id ?: "new"}",
             successNotice = R.string.service_menu_item_saved,
@@ -1129,7 +1130,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             reload = ::loadServiceMenu,
             touched = serviceMenuReads::changed,
         ) {
-            serviceMenuReads.saved(api.saveServiceMenuItem(id, name.trim(), defaultPriceCents, requestKey))
+            serviceMenuReads.saved(api.saveServiceMenuItem(id, values, requestKey))
         }
 
     /** Not waited for: the item leaves the menu at once, and comes back in its place when the delete fails. */
@@ -1405,6 +1406,27 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     ) = actOnAppointment(appointmentId, "addService:$appointmentId", R.string.appointment_service_saved, onSuccess) {
         api.addService(appointmentId, clientId, menuItemId, name?.trim(), priceCents, note?.trim(), requestKey)
     }
+
+    /**
+     * Adds a Service from each of [menuItemIds] for [clientId], at their default prices and in this
+     * order, in one request. [requestKey] is the sheet's own for its picks from the menu. The menu
+     * is read again too: how often its items were used has changed.
+     */
+    fun addMenuServices(appointmentId: String, clientId: String, menuItemIds: List<String>, requestKey: String, onSuccess: () -> Unit) =
+        act(
+            key = "addService:$appointmentId",
+            onSuccess = { _: Unit ->
+                notify(R.string.appointment_services_added, isError = false, menuItemIds.size)
+                onSuccess()
+            },
+            reload = { together({ reloadAppointmentAndLists(appointmentId) }, ::loadServiceMenu) },
+            touched = {
+                readChanges.changed(appointmentId)
+                serviceMenuReads.changed()
+            },
+        ) {
+            api.addMenuServices(appointmentId, clientId, menuItemIds, requestKey)
+        }
 
     /**
      * Saves an edit of a Service: its name, its price and its note, all three as the form has
