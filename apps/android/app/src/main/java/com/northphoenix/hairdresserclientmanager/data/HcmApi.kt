@@ -122,6 +122,38 @@ class HcmApi(private val trpc: TrpcClient) {
         )
     }
 
+    /** The Client's Family, with each Client's role and number of visits. */
+    suspend fun clientFamily(clientId: String): ClientFamily =
+        trpc.query("clientProfile.family", buildJsonObject { put("clientId", clientId) })
+
+    /**
+     * Puts [memberId] in one Family with [clientId] (see CONTEXT.md, Family) with [role]; a null [role]
+     * is not sent, so a member who is in the Family already keeps theirs. The same call sent again changes nothing.
+     */
+    suspend fun addFamilyMember(clientId: String, memberId: String, role: String?): FamilyChange =
+        trpc.mutation(
+            "clientProfile.addFamilyMember",
+            buildJsonObject {
+                put("clientId", clientId)
+                put("memberId", memberId)
+                role?.let { put("role", it) }
+            },
+        )
+
+    /** The Client's role in their Family; empty for none. */
+    suspend fun setFamilyRole(clientId: String, role: String): FamilyChange =
+        trpc.mutation(
+            "clientProfile.setFamilyRole",
+            buildJsonObject {
+                put("clientId", clientId)
+                put("role", role)
+            },
+        )
+
+    /** Takes the Client out of their Family, which is gone when one Client would be left in it. */
+    suspend fun leaveFamily(clientId: String): FamilyChange =
+        trpc.mutation("clientProfile.leaveFamily", buildJsonObject { put("clientId", clientId) })
+
     suspend fun clientAppointmentHistory(clientId: String): List<ClientHistoryEntry> =
         trpc.query("clientProfile.appointmentHistory", idInput(clientId))
 

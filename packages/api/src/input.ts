@@ -24,6 +24,8 @@ export const textLimits = {
   note: 5000,
   formula: 2000,
   placement: 200,
+  // A Client's role in their Family, such as "сын" or "бабушка".
+  familyRole: 40,
   // No IANA timezone name comes near this.
   timezone: 64
 } as const;

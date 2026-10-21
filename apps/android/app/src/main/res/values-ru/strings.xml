@@ -569,6 +569,44 @@
     <string name="history_tip">Чаевые</string>
     <string name="history_tip_whole_visit">Чаевые за всю запись</string>
 
+    <!-- Семья (CONTEXT.md: Family). Роли пишет сам мастер. -->
+    <string name="family_title">Семья</string>
+    <string name="family_add">Добавить в семью</string>
+    <string name="family_add_title">Добавить в семью</string>
+    <string name="family_role_title">Роль в семье</string>
+    <string name="family_role_label">Роль, необязательно</string>
+    <string name="family_role_placeholder">Например: сын</string>
+    <string name="family_role_save">Сохранить роль</string>
+    <string name="family_add_confirm">Добавить в семью</string>
+    <string name="family_moves_note">%s сейчас в другой семье и перейдёт в эту.</string>
+    <string name="family_edit_role">Изменить роль</string>
+    <string name="family_remove">Убрать из семьи</string>
+    <string name="family_remove_title">Убрать из семьи: %s?</string>
+    <string name="family_remove_body">Клиент и все визиты остаются.</string>
+    <string name="family_remove_body_last">В семье останется один человек, поэтому семьи больше не будет. Клиенты и все визиты остаются.</string>
+    <string name="family_member_added">Добавлено в семью</string>
+    <string name="family_member_removed">Убрано из семьи</string>
+    <string name="family_no_visits">визитов пока нет</string>
+    <string name="family_member_actions">Действия: %s</string>
+    <string name="family_suggestion_description">Добавить в запись: %s</string>
+    <plurals name="family_visits">
+        <item quantity="one">%d визит</item>
+        <item quantity="few">%d визита</item>
+        <item quantity="many">%d визитов</item>
+        <item quantity="other">%d визита</item>
+    </plurals>
+    <string-array name="family_role_suggestions">
+        <item>сын</item>
+        <item>дочь</item>
+        <item>мама</item>
+        <item>папа</item>
+        <item>жена</item>
+        <item>муж</item>
+        <item>бабушка</item>
+        <item>дедушка</item>
+        <item>сестра</item>
+        <item>брат</item>
+    </string-array>
     <string name="earnings_title">Итоги</string>
     <string name="earnings_entry_subtitle">Заработок, визиты и услуги за неделю, месяц, год</string>
     <string name="earnings_period_week">Неделя</string>

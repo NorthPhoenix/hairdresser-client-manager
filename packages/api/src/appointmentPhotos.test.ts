@@ -122,6 +122,7 @@ function createPhotoCaller(photos: PhotoRow[], deleteStoredFiles = vi.fn().mockR
       })
     },
     client: {
+      findFirst: vi.fn().mockResolvedValue({ familyId: null }),
       deleteMany: clientDeleteMany
     }
   });

@@ -130,6 +130,9 @@ data class ClientProfile(
     /** The Client who recommended this one ("По рекомендации"), and their name as the server last stated it. Null: nobody. */
     val referredById: String? = null,
     val referredByName: String? = null,
+    /** The Family the Client is in (null: none), and their role in it as the Stylist typed it, such as "сын" (empty: none). */
+    val familyId: String? = null,
+    val familyRole: String = "",
     /** When the Client Profile was last saved, as the server states it: the version a save names (see [HcmApi.saveClient]). */
     val updatedAt: String? = null,
     /**
@@ -137,6 +140,29 @@ data class ClientProfile(
      * list says: null in the reply to a save, which does not change it.
      */
     val distinctFromIds: List<String>? = null,
+)
+
+/** A Client of a Family as `clientProfile.family` states them: with their role and how many visits (Completed Appointments) they have had. */
+@Serializable
+data class FamilyMember(
+    val id: String,
+    val name: String,
+    val role: String = "",
+    val visits: Int = 0,
+)
+
+/** A Client's Family: every Client in it, the Client too, oldest first. No Family: no one. */
+@Serializable
+data class ClientFamily(
+    val familyId: String? = null,
+    val members: List<FamilyMember> = emptyList(),
+)
+
+/** What a change of a Family has left: the Family the Client is in now, and every Client it touched, as they are now. */
+@Serializable
+data class FamilyChange(
+    val familyId: String? = null,
+    val clients: List<ClientProfile> = emptyList(),
 )
 
 /** What a merge of two Clients has left: the kept Client as they are now, and the Appointments it changed. */

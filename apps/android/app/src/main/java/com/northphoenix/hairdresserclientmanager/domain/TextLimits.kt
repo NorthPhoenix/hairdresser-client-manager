@@ -20,6 +20,9 @@ object TextLimits {
     const val FORMULA = 2000
     const val PLACEMENT = 200
 
+    /** A Client's role in their Family, such as "сын". */
+    const val FAMILY_ROLE = 40
+
     /**
      * What a field of at most [limit] characters holds after its text was changed from [before]
      * to [text]. Of what was typed or pasted, only as much is taken as there is room for; the
