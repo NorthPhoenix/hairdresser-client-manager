@@ -1,5 +1,6 @@
 package com.northphoenix.hairdresserclientmanager.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,25 +14,25 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ContentCut
-import androidx.compose.material.icons.rounded.EventBusy
 import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.PersonOff
-import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Storefront
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.IntrinsicMeasurable
 import androidx.compose.ui.layout.IntrinsicMeasureScope
 import androidx.compose.ui.layout.Layout
@@ -40,6 +41,10 @@ import androidx.compose.ui.layout.MeasurePolicy
 import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
@@ -126,7 +131,11 @@ fun AppointmentCard(
     }
 }
 
-/** The outcomes a card offers, under a hairline. Each chip is read out with the Client the card is of, as the chips of several cards sound alike. */
+/**
+ * The outcomes a card offers, under a hairline. Each chip is read out with the Client the card is
+ * of, as the chips of several cards sound alike. Only 'Completed', the usual one, has an icon: so
+ * the three fit on one line of a phone at the usual font size, and go on to the next one beyond it.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun OutcomeChips(name: String, onOutcome: (AppointmentStatus) -> Unit, modifier: Modifier = Modifier) {
@@ -135,25 +144,33 @@ private fun OutcomeChips(name: String, onOutcome: (AppointmentStatus) -> Unit, m
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             HomeOutcomes.choices.forEach { outcome ->
                 val label = stringResource(outcome.label)
+                val description = stringResource(R.string.home_outcome_chip_description, label, name)
 
-                ActionChip(
-                    label,
-                    icon = outcome.outcomeIcon,
+                Surface(
                     onClick = { onOutcome(outcome) },
-                    description = stringResource(R.string.home_outcome_chip_description, label, name),
-                )
+                    modifier = Modifier.semantics {
+                        role = Role.Button
+                        contentDescription = description
+                    },
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                ) {
+                    Row(
+                        Modifier.heightIn(min = 40.dp).padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        if (outcome == AppointmentStatus.COMPLETED) {
+                            Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                        }
+                        Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                    }
+                }
             }
         }
     }
 }
-
-private val AppointmentStatus.outcomeIcon: ImageVector
-    get() = when (this) {
-        AppointmentStatus.COMPLETED -> Icons.Rounded.Check
-        AppointmentStatus.CANCELED -> Icons.Rounded.EventBusy
-        AppointmentStatus.NO_SHOW -> Icons.Rounded.PersonOff
-        AppointmentStatus.SCHEDULED -> Icons.Rounded.Schedule
-    }
 
 /**
  * The last line of a card: the status chip at the start and the amount at the end. When the two
