@@ -28,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -35,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
@@ -132,20 +134,34 @@ private fun UpdateCard(
     }
 }
 
+/** How many lines of a note the collapsed card shows. */
+private const val CollapsedNoteLines = 2
+
 /** Notes as a list, one line per thing. [collapsible]: the first lines only, with "more…" that shows the rest. */
 @Composable
 private fun ReleaseNoteLines(lines: List<String>, collapsible: Boolean, modifier: Modifier = Modifier) {
     var expanded by rememberSaveable(lines) { mutableStateOf(false) }
     val (shown, hidden) = if (collapsible) AppUpdates.collapsed(lines, expanded) else lines to 0
+    // A long note, or a big font, would make the collapsed card as tall as the screen: a collapsed note
+    // keeps two lines and "more…" shows the rest.
+    val shortened = collapsible && !expanded
+    var cutOff by remember(lines) { mutableStateOf(false) }
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         shown.forEach { line ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("•", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
-                Text(line, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                Text(
+                    line,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = if (shortened) CollapsedNoteLines else Int.MAX_VALUE,
+                    overflow = TextOverflow.Ellipsis,
+                    onTextLayout = { if (shortened && it.hasVisualOverflow) cutOff = true },
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
-        if (hidden > 0) {
+        if (hidden > 0 || (shortened && cutOff)) {
             TextAction(stringResource(R.string.release_notes_more), onClick = { expanded = true }, modifier = Modifier.padding(start = 6.dp))
         } else if (collapsible && expanded) {
             TextAction(stringResource(R.string.release_notes_less), onClick = { expanded = false }, modifier = Modifier.padding(start = 6.dp))
