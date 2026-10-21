@@ -4,11 +4,14 @@ import android.content.Context
 import com.northphoenix.hairdresserclientmanager.auth.AuthGateway
 import com.northphoenix.hairdresserclientmanager.auth.ClerkAuthGateway
 import com.northphoenix.hairdresserclientmanager.auth.createDevAuthGateway
+import com.northphoenix.hairdresserclientmanager.data.AndroidSmsGateway
 import com.northphoenix.hairdresserclientmanager.data.HcmApi
+import com.northphoenix.hairdresserclientmanager.data.SharedPreferencesReminderStore
 import com.northphoenix.hairdresserclientmanager.data.TrpcClient
 import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
 import com.northphoenix.hairdresserclientmanager.i18n.AndroidAppLocales
 import com.northphoenix.hairdresserclientmanager.i18n.AppLanguageSetting
+import com.northphoenix.hairdresserclientmanager.state.ReminderOutbox
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -40,4 +43,7 @@ class AppContainer(context: Context) {
 
     val api = HcmApi(TrpcClient(config.trpcUrl, http, tokenProvider))
     val uploads = UploadThingClient(config.uploadThingUrl, http, tokenProvider)
+
+    /** Client Reminders sent from this phone, and the device-local log of which Appointments were reminded. */
+    val reminders by lazy { ReminderOutbox(AndroidSmsGateway(appContext), SharedPreferencesReminderStore(appContext), scope) }
 }
