@@ -576,7 +576,11 @@ private fun AppointmentDetail(
                 },
                 onSaveTip = { viewModel.setAppointmentTip(appointment.id, it) },
                 tipSuggestionCents = AppointmentTotals.tipSuggestionCents(appointment)?.takeIf { appointment.id !in tipRefused },
-                onTakeTipSuggestion = { viewModel.takeSuggestedTip(appointment.id, it) },
+                onTakeTipSuggestion = {
+                    // The custom total is gone, and its text with it, as with "Return the sum of services".
+                    finalTotalDraft = ""
+                    viewModel.takeSuggestedTip(appointment.id, it)
+                },
                 onRefuseTipSuggestion = {
                     tipRefused = tipRefused + appointment.id
                     tipRefusals.edit().putStringSet("appointments", tipRefused).apply()
@@ -1220,8 +1224,7 @@ private fun TotalsCard(
                 placeholder = Money.centsToPrice(AppointmentTotals.servicesPriceCents(appointment)),
                 refusal = Money.parse(overrideText).takeIf { overrideText == refusedText },
             )
-            // As tall as the taller of the two, whichever label takes more lines.
-            Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            val saveOverrideButton: @Composable (Modifier) -> Unit = { modifier ->
                 SecondaryButton(
                     stringResource(R.string.save_final_total),
                     // An empty field is no override, and the button is off for it. Anything else is saved only as the amount it states.
@@ -1231,19 +1234,32 @@ private fun TotalsCard(
                             else -> refusedText = overrideText
                         }
                     },
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    modifier = modifier,
                     enabled = overrideText.isNotBlank(),
                 )
-                if (appointment.finalTotalCentsOverride != null) {
-                    SecondaryButton(
-                        stringResource(R.string.clear_final_total_override),
-                        // The override is gone at once, and its text with it.
-                        onClick = {
-                            onOverrideText("")
-                            onSaveOverride(null)
-                        },
-                        modifier = Modifier.weight(1f).fillMaxHeight(),
-                    )
+            }
+            val clearOverrideButton: @Composable (Modifier) -> Unit = { modifier ->
+                SecondaryButton(
+                    stringResource(R.string.clear_final_total_override),
+                    // The override is gone at once, and its text with it.
+                    onClick = {
+                        onOverrideText("")
+                        onSaveOverride(null)
+                    },
+                    modifier = modifier,
+                )
+            }
+            if (LocalDensity.current.fontScale > 1.5f) {
+                // Two buttons side by side leave a word no room at a very large text size: one under the other.
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    saveOverrideButton(Modifier.fillMaxWidth())
+                    if (appointment.finalTotalCentsOverride != null) clearOverrideButton(Modifier.fillMaxWidth())
+                }
+            } else {
+                // As tall as the taller of the two, whichever label takes more lines.
+                Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    saveOverrideButton(Modifier.weight(1f).fillMaxHeight())
+                    if (appointment.finalTotalCentsOverride != null) clearOverrideButton(Modifier.weight(1f).fillMaxHeight())
                 }
             }
             Hairline()
@@ -1283,7 +1299,7 @@ private fun TotalsCard(
                     placeholder = "0.00",
                     refusal = Money.parse(tipText).takeIf { tipText == refusedTipText },
                 )
-                Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                val saveTipButton: @Composable (Modifier) -> Unit = { modifier ->
                     SecondaryButton(
                         stringResource(R.string.save_tip),
                         onClick = {
@@ -1295,14 +1311,23 @@ private fun TotalsCard(
                                 else -> refusedTipText = tipText
                             }
                         },
-                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        modifier = modifier,
                         enabled = tipText.isNotBlank(),
                     )
-                    SecondaryButton(
-                        stringResource(R.string.cancel),
-                        onClick = { onTipFieldOpen(false) },
-                        modifier = Modifier.weight(1f).fillMaxHeight(),
-                    )
+                }
+                val cancelTipButton: @Composable (Modifier) -> Unit = { modifier ->
+                    SecondaryButton(stringResource(R.string.cancel), onClick = { onTipFieldOpen(false) }, modifier = modifier)
+                }
+                if (LocalDensity.current.fontScale > 1.5f) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        saveTipButton(Modifier.fillMaxWidth())
+                        cancelTipButton(Modifier.fillMaxWidth())
+                    }
+                } else {
+                    Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        saveTipButton(Modifier.weight(1f).fillMaxHeight())
+                        cancelTipButton(Modifier.weight(1f).fillMaxHeight())
+                    }
                 }
             }
             Hairline()
