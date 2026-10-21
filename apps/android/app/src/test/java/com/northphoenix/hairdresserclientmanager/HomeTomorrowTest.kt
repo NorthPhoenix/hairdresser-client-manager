@@ -10,9 +10,23 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Instant
 
 /** The Home View's 'Tomorrow': which Appointments it lists, and when a card offers the one-tap reminder. */
 class HomeTomorrowTest {
+    /** The day before the Appointments of these tests, which start at 2026-10-22T15:00:00Z by default. */
+    private val dayBefore = Instant.parse("2026-10-21T15:00:00Z")
+
+    private fun canRemind(appointment: Appointment, now: Instant = dayBefore) = ClientReminder.canRemindInOneTap(appointment, now)
+
+    @Test
+    fun noOneTapReminderOnceTheAppointmentHasStarted() {
+        val appointment = appointment("a", participants = listOf(primary("5125550100")))
+
+        assertTrue(canRemind(appointment, Instant.parse("2026-10-22T14:59:00Z")))
+        assertFalse(canRemind(appointment, Instant.parse("2026-10-22T15:00:00Z")))
+    }
+
     private fun appointment(
         id: String,
         startsAt: String = "2026-10-22T15:00:00Z",
@@ -55,28 +69,28 @@ class HomeTomorrowTest {
 
     @Test
     fun `the one-tap reminder is offered when the primary Client has a phone`() {
-        assertTrue(ClientReminder.canRemindInOneTap(appointment("a", participants = listOf(primary("(512) 555-0100")))))
+        assertTrue(canRemind(appointment("a", participants = listOf(primary("(512) 555-0100")))))
     }
 
     @Test
     fun `the one-tap reminder is hidden without a phone, with a phone that is no number, and without a primary Client`() {
-        assertFalse(ClientReminder.canRemindInOneTap(appointment("a", participants = listOf(primary("")))))
-        assertFalse(ClientReminder.canRemindInOneTap(appointment("a", participants = listOf(primary("n/a")))))
-        assertFalse(ClientReminder.canRemindInOneTap(appointment("a")))
+        assertFalse(canRemind(appointment("a", participants = listOf(primary("")))))
+        assertFalse(canRemind(appointment("a", participants = listOf(primary("n/a")))))
+        assertFalse(canRemind(appointment("a")))
     }
 
     @Test
     fun `in a group Appointment the phone of the primary Client decides, not of the others`() {
         val other = AppointmentParticipant(clientId = "o", name = "Bea", phone = "5125550101")
 
-        assertFalse(ClientReminder.canRemindInOneTap(appointment("a", participants = listOf(primary(""), other))))
-        assertTrue(ClientReminder.canRemindInOneTap(appointment("a", participants = listOf(primary("5125550100"), other.copy(phone = "")))))
+        assertFalse(canRemind(appointment("a", participants = listOf(primary(""), other))))
+        assertTrue(canRemind(appointment("a", participants = listOf(primary("5125550100"), other.copy(phone = "")))))
     }
 
     @Test
     fun `no reminder is offered for an Appointment that is not Scheduled`() {
         assertFalse(
-            ClientReminder.canRemindInOneTap(appointment("a", status = AppointmentStatus.CANCELED, participants = listOf(primary("5125550100")))),
+            canRemind(appointment("a", status = AppointmentStatus.CANCELED, participants = listOf(primary("5125550100")))),
         )
     }
 }

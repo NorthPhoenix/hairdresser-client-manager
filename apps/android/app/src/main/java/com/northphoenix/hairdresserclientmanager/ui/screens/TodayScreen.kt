@@ -159,7 +159,7 @@ fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit) {
                         appointment,
                         onClick = { onOpenAppointment(appointment.id) },
                         // The reminder is the same one as the Appointment screen's, to the primary Client.
-                        onRemind = if (ClientReminder.canRemindInOneTap(appointment)) {
+                        onRemind = if (ClientReminder.canRemindInOneTap(appointment, now)) {
                             { composeClientReminder(context, viewModel, appointment, format.zone) }
                         } else {
                             null
