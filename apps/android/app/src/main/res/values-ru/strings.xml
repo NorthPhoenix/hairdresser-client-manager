@@ -366,6 +366,23 @@
     <string name="timezone_search_placeholder">Поиск часового пояса</string>
     <string name="timezone_unusable">Устройство не знает этот часовой пояс, поэтому время показано по часовому поясу устройства. Выберите свой часовой пояс и сохраните.</string>
 
+    <string name="contact_import_allow">Разрешить доступ</string>
+    <string name="contact_import_already_client">Уже клиент</string>
+    <string name="contact_import_denied_body">Разрешите приложению доступ к контактам, чтобы выбрать сразу нескольких клиентов.</string>
+    <string name="contact_import_denied_title">Нет доступа к контактам</string>
+    <string name="contact_import_empty_body">Здесь появятся контакты, у которых есть номер телефона.</string>
+    <string name="contact_import_empty_title">В контактах нет номеров</string>
+    <string name="contact_import_failed">Не удалось добавить клиентов.</string>
+    <string name="contact_import_failed_banner">Не удалось добавить: %1$d. Они остались выбранными, нажмите кнопку, чтобы повторить.</string>
+    <string name="contact_import_open_settings">Открыть настройки</string>
+    <string name="contact_import_partial">Добавлено %1$d из %2$d. Остальные не добавлены.</string>
+    <string name="contact_import_pick">Выберите контакты</string>
+    <string name="contact_import_progress">Добавлено %1$d из %2$d</string>
+    <string name="contact_import_search">Имя или номер</string>
+    <string name="contact_import_select_all">Выбрать все</string>
+    <string name="contact_import_selected">Выбрано %d</string>
+    <string name="contact_import_unselect_all">Снять выбор</string>
+
     <plurals name="add_services_count">
         <item quantity="one">Добавить %d услугу</item>
         <item quantity="few">Добавить %d услуги</item>
@@ -383,6 +400,18 @@
         <item quantity="few">Загружаются %d фото…</item>
         <item quantity="many">Загружается %d фото…</item>
         <item quantity="other">Загружается %d фото…</item>
+    </plurals>
+    <plurals name="contact_import_add">
+        <item quantity="one">Добавить %d клиента</item>
+        <item quantity="few">Добавить %d клиентов</item>
+        <item quantity="many">Добавить %d клиентов</item>
+        <item quantity="other">Добавить %d клиентов</item>
+    </plurals>
+    <plurals name="contact_import_added">
+        <item quantity="one">Добавлен %d клиент</item>
+        <item quantity="few">Добавлено %d клиента</item>
+        <item quantity="many">Добавлено %d клиентов</item>
+        <item quantity="other">Добавлено %d клиента</item>
     </plurals>
     <plurals name="copy_services_count">
         <item quantity="one">Скопируется %d услуга</item>
@@ -475,5 +504,31 @@
         <item quantity="few">раз в %d года</item>
         <item quantity="many">раз в %d лет</item>
         <item quantity="other">раз в %d года</item>
+    </plurals>
+    <string name="client_duplicate_banner">Возможно, дубликат: «%1$s» — тот же номер</string>
+    <string name="client_duplicate_merge">Объединить</string>
+    <string name="client_duplicate_distinct">Это разные люди</string>
+    <string name="client_duplicate_tag">Дубликат?</string>
+    <string name="client_referred_by_label">Посоветовал(а)</string>
+    <string name="client_referred_by_none">Выбрать клиента</string>
+    <string name="client_referred_by_clear">Убрать</string>
+    <string name="client_referred_by_tag">Посоветовала: %s</string>
+    <string name="client_referrals_title">Её рекомендации · %d</string>
+    <string name="client_referral_suggestion">Посоветовала %s?</string>
+    <string name="client_referral_suggestion_yes">Да</string>
+    <string name="client_referral_suggestion_no">Нет</string>
+    <string name="client_merge_title">Объединить клиентов</string>
+    <string name="client_merge_keep_name">Какое имя оставить?</string>
+    <string name="client_merge_no_appointments">Записей нет ни у одного</string>
+    <string name="client_merge_counting">Считаем записи…</string>
+    <string name="client_merge_details">Пустые поля «%1$s» заполнятся из «%2$s», заметки сложатся, фото сохранятся. Карточка «%2$s» будет удалена.</string>
+    <string name="client_merge_confirm">Объединить</string>
+    <string name="client_merged">Клиенты объединены.</string>
+    <string name="client_merge_photo_uploads">У клиента есть фото, которые ещё не загружены. Загрузите или удалите их, затем объединяйте.</string>
+    <plurals name="client_merge_appointments">
+        <item quantity="one">%d запись → будет у «%s»</item>
+        <item quantity="few">Записи: %d → будут у «%s»</item>
+        <item quantity="many">Записи: %d → будут у «%s»</item>
+        <item quantity="other">Записи: %d → будут у «%s»</item>
     </plurals>
 </resources>

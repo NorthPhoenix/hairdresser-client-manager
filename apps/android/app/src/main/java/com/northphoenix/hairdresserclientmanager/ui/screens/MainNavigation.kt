@@ -78,6 +78,7 @@ private object Routes {
 
     /** The Client editor: a new Client without an id, an existing one with it. */
     const val CLIENT = "client?id={id}"
+    const val CONTACT_IMPORT = "clients-import"
 
     /** The Client Profile, read-only, with the way to the editor. */
     const val CLIENT_PROFILE = "client-profile/{id}"
@@ -184,6 +185,9 @@ fun MainNavigation(viewModel: AppViewModel) {
                 },
             )
         }
+        composable(Routes.CONTACT_IMPORT) { entry ->
+            ContactImportScreen(viewModel, onBack = { navController.from(entry) { popBackStack() } })
+        }
         composable(
             Routes.CLIENT,
             arguments = listOf(navArgument("id") { type = NavType.StringType; nullable = true; defaultValue = null }),
@@ -221,6 +225,16 @@ fun MainNavigation(viewModel: AppViewModel) {
                     }
                 },
                 onOpenAppointment = { id -> navController.from(entry) { navigate(Routes.appointment(id)) } },
+                onOpenClient = { id -> navController.from(entry) { navigate(Routes.clientProfile(id)) } },
+                // This Client was merged into the other one: their profile takes this one's place.
+                onMerged = { keptId ->
+                    if (keptId != clientId) {
+                        navController.from(entry) {
+                            popBackStack()
+                            navigate(Routes.clientProfile(keptId))
+                        }
+                    }
+                },
             )
         }
     }
@@ -294,7 +308,7 @@ private fun MainScreen(viewModel: AppViewModel, open: (route: String) -> Unit) {
                 when (tab) {
                     MainTab.TODAY -> TodayScreen(viewModel, openAppointment)
                     MainTab.CALENDAR -> CalendarScreen(viewModel, openAppointment)
-                    MainTab.CLIENTS -> ClientsScreen(viewModel, onOpenClient = { open(Routes.clientProfile(it)) })
+                    MainTab.CLIENTS -> ClientsScreen(viewModel, onOpenClient = { open(Routes.clientProfile(it)) }, onImport = { open(Routes.CONTACT_IMPORT) })
                     MainTab.PROFILE -> ProfileScreen(viewModel, onOpenServiceMenu = { open(Routes.SERVICES) })
                 }
             }

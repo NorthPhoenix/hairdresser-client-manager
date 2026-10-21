@@ -369,6 +369,23 @@
     <string name="timezone_search_placeholder">Search timezones</string>
     <string name="timezone_unusable">This device doesn\'t know this timezone, so times are shown in the device\'s own timezone. Choose your timezone and save.</string>
 
+    <string name="contact_import_allow">Allow access</string>
+    <string name="contact_import_already_client">Already a Client</string>
+    <string name="contact_import_denied_body">Allow the app to read your contacts to pick several Clients at once.</string>
+    <string name="contact_import_denied_title">No access to contacts</string>
+    <string name="contact_import_empty_body">Contacts that have a phone number will show up here.</string>
+    <string name="contact_import_empty_title">No numbers in your contacts</string>
+    <string name="contact_import_failed">Couldn\'t add the Clients.</string>
+    <string name="contact_import_failed_banner">Couldn\'t add %1$d. They are still selected: tap the button to try again.</string>
+    <string name="contact_import_open_settings">Open settings</string>
+    <string name="contact_import_partial">Added %1$d of %2$d. The rest were not added.</string>
+    <string name="contact_import_pick">Pick contacts</string>
+    <string name="contact_import_progress">Added %1$d of %2$d</string>
+    <string name="contact_import_search">Name or number</string>
+    <string name="contact_import_select_all">Select all</string>
+    <string name="contact_import_selected">%d selected</string>
+    <string name="contact_import_unselect_all">Clear selection</string>
+
     <plurals name="add_services_count">
         <item quantity="one">Add %d Service</item>
         <item quantity="other">Add %d Services</item>
@@ -380,6 +397,14 @@
     <plurals name="appointment_photos_uploading">
         <item quantity="one">Uploading photo…</item>
         <item quantity="other">Uploading %d photos…</item>
+    </plurals>
+    <plurals name="contact_import_add">
+        <item quantity="one">Add %d Client</item>
+        <item quantity="other">Add %d Clients</item>
+    </plurals>
+    <plurals name="contact_import_added">
+        <item quantity="one">Added %d Client</item>
+        <item quantity="other">Added %d Clients</item>
     </plurals>
     <plurals name="copy_services_count">
         <item quantity="one">Copies %d Service</item>
@@ -448,5 +473,29 @@
     <plurals name="client_every_years">
         <item quantity="one">every year</item>
         <item quantity="other">every %d years</item>
+    </plurals>
+    <string name="client_duplicate_banner">Possible duplicate: “%1$s” has the same number</string>
+    <string name="client_duplicate_merge">Merge</string>
+    <string name="client_duplicate_distinct">Different people</string>
+    <string name="client_duplicate_tag">Duplicate?</string>
+    <string name="client_referred_by_label">Referred by</string>
+    <string name="client_referred_by_none">Choose a Client</string>
+    <string name="client_referred_by_clear">Clear</string>
+    <string name="client_referred_by_tag">Referred by: %s</string>
+    <string name="client_referrals_title">Referrals · %d</string>
+    <string name="client_referral_suggestion">Referred by %s?</string>
+    <string name="client_referral_suggestion_yes">Yes</string>
+    <string name="client_referral_suggestion_no">No</string>
+    <string name="client_merge_title">Merge Clients</string>
+    <string name="client_merge_keep_name">Which name to keep?</string>
+    <string name="client_merge_no_appointments">Neither has any appointments</string>
+    <string name="client_merge_counting">Counting appointments…</string>
+    <string name="client_merge_details">Empty details of “%1$s” are filled in from “%2$s”, the notes are joined, and photos are kept. “%2$s” is deleted.</string>
+    <string name="client_merge_confirm">Merge</string>
+    <string name="client_merged">Clients merged.</string>
+    <string name="client_merge_photo_uploads">This Client has photos that aren\'t uploaded yet. Upload or remove them, then merge.</string>
+    <plurals name="client_merge_appointments">
+        <item quantity="one">%d appointment → goes to “%s”</item>
+        <item quantity="other">Appointments: %d → go to “%s”</item>
     </plurals>
 </resources>
