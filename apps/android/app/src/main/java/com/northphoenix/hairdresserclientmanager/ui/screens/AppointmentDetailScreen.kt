@@ -101,7 +101,6 @@ import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.ColorFormula
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
 import com.northphoenix.hairdresserclientmanager.data.PhotoStatus
-import com.northphoenix.hairdresserclientmanager.data.ServiceMenuItem
 import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentCopying
@@ -638,8 +637,10 @@ private fun AppointmentDetail(
             },
         )
         DetailSheet.AddService -> {
-            // One key for the Service this sheet is opened to add, so that a second try of it adds no second one.
-            val requestKey = rememberRequestKey(appointment.id)
+            // One key for the Services this sheet is opened to add from the menu, and one for the
+            // custom Service it can add instead, so that a second try of either adds nothing more.
+            val menuRequestKey = rememberRequestKey(appointment.id, "menu")
+            val customRequestKey = rememberRequestKey(appointment.id, "custom")
 
             AddServiceSheet(
                 appointment = appointment,
@@ -649,8 +650,11 @@ private fun AppointmentDetail(
                 busy = busy,
                 onDismiss = { sheet = null },
                 onMissingName = { viewModel.notify(R.string.service_name_required, isError = true) },
-                onAdd = { clientId, menuItemId, name, priceCents, note ->
-                    viewModel.addService(appointment.id, clientId, menuItemId, name, priceCents, note, requestKey) { sheet = null }
+                onAddFromMenu = { clientId, menuItemIds ->
+                    viewModel.addMenuServices(appointment.id, clientId, menuItemIds, menuRequestKey) { sheet = null }
+                },
+                onAddCustom = { clientId, name, priceCents, note ->
+                    viewModel.addService(appointment.id, clientId, null, name, priceCents, note, customRequestKey) { sheet = null }
                 },
             )
         }
@@ -1327,111 +1331,6 @@ private fun RowScope.UploadTile(upload: PhotoUpload, tagStyle: TextStyle, onOpen
             // The description says that it is uploading: the spinner adds nothing for a screen reader.
             CircularProgressIndicator(Modifier.align(Alignment.Center).size(24.dp).clearAndSetSemantics {}, color = HcmColors.Surface, strokeWidth = 2.dp)
         }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun AddServiceSheet(
-    appointment: Appointment,
-    menu: List<ServiceMenuItem>,
-    menuLoad: LoadState,
-    onRetry: () -> Unit,
-    busy: Boolean,
-    onDismiss: () -> Unit,
-    onMissingName: () -> Unit,
-    onAdd: (clientId: String, menuItemId: String?, name: String?, priceCents: Long?, note: String?) -> Unit,
-) {
-    // The Client picked here, if any. They can have been removed from the Appointment while the sheet is open.
-    var pickedClientId by rememberSaveable { mutableStateOf<String?>(null) }
-    val clientId = AppointmentClients.serviceClientId(appointment, pickedClientId)
-    var menuItemId by rememberSaveable { mutableStateOf<String?>(null) }
-    var name by rememberSaveable { mutableStateOf("") }
-    var price by rememberSaveable { mutableStateOf("") }
-    var note by rememberSaveable { mutableStateOf("") }
-    // The price text a save was refused for. The reason stays under the field for as long as the text is that one.
-    var refusedPrice by rememberSaveable { mutableStateOf<String?>(null) }
-    val selectedItem = menu.firstOrNull { it.id == menuItemId }
-
-    HcmBottomSheet(title = stringResource(R.string.add_appointment_service), onDismiss = onDismiss) {
-        if (appointment.participants.size > 1) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(stringResource(R.string.appointment_service_client_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    appointment.participants.forEach { participant ->
-                        ChoiceChip(participant.name, selected = clientId == participant.clientId, onClick = { pickedClientId = participant.clientId })
-                    }
-                }
-            }
-        }
-
-        // A Service Menu that has loaded empty has nothing to offer here. One that is not loaded says so in the chips' place.
-        if (menu.isNotEmpty() || menuLoad != LoadState.Loaded) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(stringResource(R.string.add_menu_service), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (menu.isEmpty() && menuLoad is LoadState.Failed) {
-                    InlineLoadFailed(menuLoad.message, onRetry)
-                } else if (menu.isEmpty()) {
-                    LoadingRow(Modifier.heightIn(max = 96.dp))
-                } else {
-                    FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        menu.forEach { item ->
-                            ChoiceChip(
-                                // The price stays with its dot when a long name takes the chip onto more lines.
-                                item.name + " ·\u00A0" + Money.format(item.defaultPriceCents),
-                                selected = menuItemId == item.id,
-                                wraps = true,
-                                onClick = {
-                                    // Picking a menu item takes its name and default price; the price stays editable.
-                                    menuItemId = item.id
-                                    name = ""
-                                    price = Money.centsToPrice(item.defaultPriceCents)
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        HcmTextField(
-            value = name,
-            onValueChange = {
-                name = it
-                // Typing a name makes this an ad hoc Service rather than a menu one.
-                menuItemId = null
-            },
-            label = stringResource(R.string.appointment_service_name_label),
-            placeholder = selectedItem?.name ?: stringResource(R.string.placeholder_service_name),
-            maxLength = TextLimits.NAME,
-        )
-        AmountField(
-            price,
-            { price = it },
-            label = stringResource(R.string.appointment_service_price_label),
-            // Left empty, a Service from the menu takes the price of its Service Menu Item.
-            placeholder = selectedItem?.let { Money.centsToPrice(it.defaultPriceCents) } ?: "85.00",
-            // An empty price is refused only for an ad hoc Service: the reason goes once a Service from the menu is chosen.
-            refusal = Money.parse(price).takeIf { price == refusedPrice && it.isRefused(required = selectedItem == null) },
-        )
-        HcmTextField(note, { note = it }, label = stringResource(R.string.appointment_service_note_label), placeholder = stringResource(R.string.optional), singleLine = false, minLines = 2, maxLength = TextLimits.NOTE)
-        PrimaryButton(
-            stringResource(if (menuItemId != null) R.string.add_menu_service else R.string.add_ad_hoc_service),
-            onClick = {
-                val amount = Money.parse(price)
-                // An ad hoc Service has to state its price. Only one from the menu may leave it out.
-                val priceRefused = amount.isRefused(required = selectedItem == null)
-
-                refusedPrice = price.takeIf { priceRefused }
-                if (name.isBlank() && selectedItem == null) {
-                    onMissingName()
-                } else if (!priceRefused) {
-                    onAdd(clientId, selectedItem?.id, name.ifBlank { null }, (amount as? Amount.Valid)?.cents, note.ifBlank { null })
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-            loading = busy,
-        )
     }
 }
 

@@ -375,6 +375,8 @@ fun HcmTextField(
     onImeAction: (() -> Unit)? = null,
     contentType: ContentType? = null,
     maxLength: Int? = null,
+    /** False for a field whose purpose shows without it, such as a search: [label] is then only read out. */
+    labelVisible: Boolean = true,
 ) {
     val intoView = remember { BringIntoViewRequester() }
     val limit = maxLength?.takeIf { value.length >= it }?.let { stringResource(R.string.text_limit, it) }
@@ -389,7 +391,7 @@ fun HcmTextField(
     }
 
     Column(modifier.bringIntoViewRequester(intoView), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-        if (label.isNotEmpty()) {
+        if (label.isNotEmpty() && labelVisible) {
             Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         OutlinedTextField(

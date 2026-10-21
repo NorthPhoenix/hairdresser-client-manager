@@ -1,6 +1,9 @@
 package com.northphoenix.hairdresserclientmanager.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,15 +27,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
+import com.northphoenix.hairdresserclientmanager.data.ServiceMenuItem
 import com.northphoenix.hairdresserclientmanager.domain.Amount
+import com.northphoenix.hairdresserclientmanager.domain.MenuItemValues
+import com.northphoenix.hairdresserclientmanager.domain.MenuPicker
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
+import com.northphoenix.hairdresserclientmanager.ui.components.ActionChip
 import com.northphoenix.hairdresserclientmanager.ui.components.AmountField
 import com.northphoenix.hairdresserclientmanager.ui.components.ConfirmDialog
 import com.northphoenix.hairdresserclientmanager.ui.components.EmptyState
@@ -113,14 +121,17 @@ fun ServiceMenuScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                 else -> item { LoadingRow() }
             }
 
-            items(items, key = { it.id }) { item ->
-                HcmCard(Modifier.fillMaxWidth(), onClick = { editor = MenuEditor.Edit(item.id) }, contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(item.name, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(Money.format(item.defaultPriceCents), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                    }
-                }
+            // In the order the Stylist made them, in their groups as the add-service sheet shows them (see MenuPicker).
+            val layout = MenuPicker.layout(items)
+
+            layout.groups.forEach { group ->
+                item(key = "group:" + group.key) { MenuGroupHeading(group.name) }
+                items(group.items, key = { it.id }) { item -> MenuItemCard(item) { editor = MenuEditor.Edit(item.id) } }
             }
+            if (layout.hasGroups && layout.ungrouped.isNotEmpty()) {
+                item(key = "group:") { MenuGroupHeading(stringResource(R.string.service_group_other)) }
+            }
+            items(layout.ungrouped, key = { it.id }) { item -> MenuItemCard(item) { editor = MenuEditor.Edit(item.id) } }
         }
     }
 
@@ -129,6 +140,7 @@ fun ServiceMenuScreen(viewModel: AppViewModel, onBack: () -> Unit) {
         // Filled from the item when the sheet opens. What is typed after that is saved state of its
         // own, so it comes back after Android has recreated the screen, also before the menu has loaded.
         var name by rememberSaveable(current) { mutableStateOf(items.firstOrNull { it.id == editedId }?.name.orEmpty()) }
+        var group by rememberSaveable(current) { mutableStateOf(items.firstOrNull { it.id == editedId }?.group.orEmpty()) }
         var price by rememberSaveable(current) {
             mutableStateOf(items.firstOrNull { it.id == editedId }?.let { Money.centsToPrice(it.defaultPriceCents) }.orEmpty())
         }
@@ -143,6 +155,7 @@ fun ServiceMenuScreen(viewModel: AppViewModel, onBack: () -> Unit) {
             onDismiss = { editor = null },
         ) {
             HcmTextField(name, { name = it }, label = stringResource(R.string.service_menu_name_label), placeholder = stringResource(R.string.placeholder_service_name), maxLength = TextLimits.NAME)
+            GroupField(group, { group = it }, suggestions = MenuPicker.groupSuggestions(items, group))
             AmountField(
                 price,
                 { price = it },
@@ -160,7 +173,9 @@ fun ServiceMenuScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                     if (name.isBlank()) {
                         viewModel.notify(R.string.service_name_required, isError = true)
                     } else if (amount is Amount.Valid) {
-                        viewModel.saveServiceMenuItem(editedId, name, amount.cents, requestKey) { editor = null }
+                        MenuItemValues.of(name, amount.cents, group)?.let { values ->
+                            viewModel.saveServiceMenuItem(editedId, values, requestKey) { editor = null }
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -193,5 +208,51 @@ fun ServiceMenuScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                 onDismiss = { confirmDelete = false },
             )
         }
+    }
+}
+
+/** The name of a group above its items. */
+@Composable
+private fun MenuGroupHeading(name: String) {
+    Text(
+        name,
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 10.dp, bottom = 2.dp).semantics { heading() },
+    )
+}
+
+/** A Service Menu Item with its whole name, however long, and its default price. */
+@Composable
+private fun MenuItemCard(item: ServiceMenuItem, onClick: () -> Unit) {
+    HcmCard(Modifier.fillMaxWidth(), onClick = onClick, contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(item.name, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            Text(Money.format(item.defaultPriceCents), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+/**
+ * The group of a Service Menu Item, with the Stylist's other groups to take with a tap: the same
+ * group typed twice in two ways would be two groups.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun GroupField(value: String, onValueChange: (String) -> Unit, suggestions: List<String>) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        HcmTextField(
+            value,
+            onValueChange,
+            label = stringResource(R.string.service_menu_group_label),
+            placeholder = stringResource(R.string.service_menu_group_placeholder),
+            maxLength = TextLimits.NAME,
+        )
+        if (suggestions.isNotEmpty()) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                suggestions.forEach { suggestion -> ActionChip(suggestion, Icons.Rounded.Add, onClick = { onValueChange(suggestion) }) }
+            }
+        }
+        Text(stringResource(R.string.service_menu_group_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

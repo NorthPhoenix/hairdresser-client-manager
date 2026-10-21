@@ -138,6 +138,10 @@ data class ServiceMenuItem(
     val id: String,
     val name: String,
     val defaultPriceCents: Long,
+    /** One line, such as "Покраска в один цвет": the items of a group are its variants. Null: no group. */
+    val group: String? = null,
+    /** How many Services were started from this item. Only the menu's list says; a saved item does not. */
+    val useCount: Int = 0,
 )
 
 @Serializable

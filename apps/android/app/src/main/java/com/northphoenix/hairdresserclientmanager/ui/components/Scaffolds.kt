@@ -34,8 +34,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.dropUnlessStarted
 import com.northphoenix.hairdresserclientmanager.R
@@ -190,6 +195,56 @@ fun HcmListBottomSheet(title: String, onDismiss: () -> Unit, content: @Composabl
             rows()
         }
     }
+}
+
+/**
+ * [HcmBottomSheet] for picking from a list that may be long, with [bottomBar] (the action that
+ * takes what was picked) fixed under the content. With [fillHeight] it is as tall as the screen
+ * allows, so it keeps its size while the list grows and shrinks; without, it is as tall as its
+ * content. Scrolling the content never moves the sheet: scrolled back past its top it stops
+ * there, and the sheet closes only by the scrim, Back, or a drag of its handle.
+ */
+@Composable
+fun HcmTallBottomSheet(
+    title: String,
+    onDismiss: () -> Unit,
+    bottomBar: @Composable ColumnScope.() -> Unit,
+    fillHeight: Boolean = true,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    SheetFrame(onDismiss) {
+        Column(if (fillHeight) Modifier.fillMaxSize() else Modifier.fillMaxWidth()) {
+            Column(
+                Modifier
+                    .weight(1f, fill = fillHeight)
+                    .fillMaxWidth()
+                    .nestedScroll(KeepScrollInside)
+                    .verticalScroll(rememberScrollState())
+                    .padding(start = ScreenPadding, end = ScreenPadding, top = 16.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                SheetTitle(title, subtitle = null)
+                content()
+            }
+            Hairline()
+            Column(
+                Modifier.fillMaxWidth().padding(start = ScreenPadding, end = ScreenPadding, top = 12.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                content = bottomBar,
+            )
+        }
+    }
+}
+
+/**
+ * Keeps what a scroll or a fling has left over after the content inside it has scrolled to its
+ * end. A modal sheet takes that rest to drag itself down, so without this a list scrolled back
+ * past its top closes the sheet it is in.
+ */
+private object KeepScrollInside : NestedScrollConnection {
+    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset = available
+
+    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity = available
 }
 
 private val SheetPadding = PaddingValues(start = ScreenPadding, end = ScreenPadding, top = 16.dp, bottom = 28.dp)
