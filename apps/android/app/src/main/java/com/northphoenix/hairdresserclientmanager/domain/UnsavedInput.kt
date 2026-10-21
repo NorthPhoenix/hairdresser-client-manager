@@ -14,8 +14,17 @@ import java.time.LocalTime
  * when it was opened, filled or last saved.
  */
 object UnsavedInput {
-    fun clientForm(name: String, language: Language, phone: String, email: String, address: String, note: String): List<String> =
-        listOf(name, language.name, phone, email, address, note).map(String::trim)
+    /** [referredById] is who recommended the Client: the last of the content, empty for nobody. */
+    fun clientForm(
+        name: String,
+        language: Language,
+        phone: String,
+        email: String,
+        address: String,
+        note: String,
+        referredById: String? = null,
+    ): List<String> =
+        listOf(name, language.name, phone, email, address, note, referredById.orEmpty()).map(String::trim)
 
     /** [address] counts only at home, the one place where the form shows and sends it. */
     fun newAppointment(

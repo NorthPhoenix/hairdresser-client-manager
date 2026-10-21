@@ -51,6 +51,7 @@ import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
 import com.northphoenix.hairdresserclientmanager.domain.PhoneFormat
+import com.northphoenix.hairdresserclientmanager.domain.Referrals
 import com.northphoenix.hairdresserclientmanager.domain.ClientVisits
 import com.northphoenix.hairdresserclientmanager.domain.ClientVisits.SpanUnit
 import com.northphoenix.hairdresserclientmanager.i18n.label
@@ -65,6 +66,7 @@ import com.northphoenix.hairdresserclientmanager.ui.components.LoadFailed
 import com.northphoenix.hairdresserclientmanager.ui.components.PrimaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenColumn
 import com.northphoenix.hairdresserclientmanager.ui.components.SubScreen
+import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
 import com.northphoenix.hairdresserclientmanager.ui.components.sideBySideWidth
 import com.northphoenix.hairdresserclientmanager.ui.openUri
 import java.time.Instant
@@ -86,6 +88,7 @@ fun ClientProfileScreen(
     onBookAgain: (ClientVisits.Rebooking?) -> Unit,
     onOpenAppointment: (String) -> Unit,
     onMerged: (keptId: String) -> Unit = {},
+    onOpenClient: (String) -> Unit = {},
 ) {
     val clients = viewModel.clients.collectAsStateWithLifecycle().value.data.orEmpty()
     val saving by viewModel.saving.collectAsStateWithLifecycle()
@@ -93,6 +96,8 @@ fun ClientProfileScreen(
     val client = clients.firstOrNull { it.id == clientId }
     // The Client the merge sheet is open for.
     var mergingWith by rememberSaveable(clientId) { mutableStateOf<String?>(null) }
+    // The suggested referrer the Stylist said no to, until she leaves this profile.
+    var suggestionRefused by rememberSaveable(clientId) { mutableStateOf(false) }
 
     if (client == null) {
         MissingClient(viewModel, clientId, onBack, saving)
@@ -122,6 +127,21 @@ fun ClientProfileScreen(
                 // A long name wraps: it is the one place on the profile where the whole of it is shown.
                 Text(client.name, style = MaterialTheme.typography.headlineLarge, modifier = Modifier.weight(1f))
             }
+
+            Referrer(
+                client,
+                clients,
+                suggestionRefused = suggestionRefused,
+                busy = busy,
+                onOpenClient = onOpenClient,
+                onAccept = { suggested ->
+                    viewModel.saveClient(
+                        client.id, client.name, client.language, client.phone, client.email, client.address, client.note,
+                        client.updatedAt, "", suggested.id,
+                    ) {}
+                },
+                onRefuse = { suggestionRefused = true },
+            )
 
             // Another Client with the same number, until the Stylist merges them or says they are different people.
             ClientRules.possibleDuplicates(client, clients).forEach { other ->
@@ -161,6 +181,8 @@ fun ClientProfileScreen(
                 }
             }
 
+            Referred(client, clients, onOpenClient)
+
             ClientHistoryCard(history, onRetry = { viewModel.loadClientHistory(client.id) }, onOpenAppointment)
         }
     }
@@ -176,6 +198,79 @@ fun ClientProfileScreen(
                 onMerged(kept.id)
             },
         )
+    }
+}
+
+/**
+ * Who recommended the Client, as a tag that opens that Client. Without one, the Client the name says
+ * recommended them, as a question with a Yes that sets it (see [Referrals.suggestion]); nothing is
+ * saved until she taps it.
+ */
+@Composable
+private fun Referrer(
+    client: ClientProfile,
+    clients: List<ClientProfile>,
+    suggestionRefused: Boolean,
+    busy: Boolean,
+    onOpenClient: (String) -> Unit,
+    onAccept: (ClientProfile) -> Unit,
+    onRefuse: () -> Unit,
+) {
+    val referrer = Referrals.referrer(client, clients)
+
+    if (referrer != null) {
+        Surface(
+            onClick = { onOpenClient(referrer.id) },
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.secondaryContainer,
+        ) {
+            Row(
+                Modifier.padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                // A long name wraps: the tag is as wide as the screen at most.
+                Text(
+                    stringResource(R.string.client_referred_by_tag, referrer.name),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+            }
+        }
+        return
+    }
+
+    val suggested = if (suggestionRefused) null else Referrals.suggestion(client, clients)
+
+    if (suggested != null) {
+        HcmCard(color = MaterialTheme.colorScheme.secondaryContainer, contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    stringResource(R.string.client_referral_suggestion, suggested.name),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                TextAction(stringResource(R.string.client_referral_suggestion_no), onClick = onRefuse, enabled = !busy)
+                TextAction(stringResource(R.string.client_referral_suggestion_yes), onClick = { onAccept(suggested) }, enabled = !busy)
+            }
+        }
+    }
+}
+
+/** "Her referrals · 2": the Clients this Client recommended, each of them opens. Nothing when there are none. */
+@Composable
+private fun Referred(client: ClientProfile, clients: List<ClientProfile>, onOpenClient: (String) -> Unit) {
+    val referred = Referrals.referred(client, clients)
+
+    if (referred.isEmpty()) {
+        return
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        FieldLabel(stringResource(R.string.client_referrals_title, referred.size))
+        referred.forEach { other -> ClientRow(other, onClick = { onOpenClient(other.id) }) }
     }
 }
 

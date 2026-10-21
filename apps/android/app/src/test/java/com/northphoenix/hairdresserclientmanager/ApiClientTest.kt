@@ -153,7 +153,7 @@ class ApiClientTest {
         // Twice, as after a lost reply: both name the same creation.
         repeat(2) {
             assertEquals(
-                """{"name":"Lost Carl","language":"en","phone":"5550123","email":"","address":"","note":"","requestKey":"$KEY"}""",
+                """{"name":"Lost Carl","language":"en","phone":"5550123","email":"","address":"","note":"","referredById":null,"requestKey":"$KEY"}""",
                 sent(client) { api.saveClient(null, "Lost Carl", Language.EN, "5550123", "", "", "", loadedUpdatedAt = null, requestKey = KEY) },
             )
         }
@@ -198,13 +198,13 @@ class ApiClientTest {
         enqueue(stylist)
         enqueue(stylist)
 
-        val savedClient = api.saveClient("c1", "Two Tina", Language.EN, "5550999", "", "", "old note app-note", loadedUpdatedAt = loaded, requestKey = KEY)
+        val savedClient = api.saveClient("c1", "Two Tina", Language.EN, "5550999", "", "", "old note app-note", loadedUpdatedAt = loaded, requestKey = KEY, referredById = "c9")
         val savedSettings = api.saveSettings(Language.RU, "Asia/Tokyo", "9 Other Road", loadedUpdatedAt = loaded)
         api.saveSettings(Language.RU, "Asia/Tokyo", "9 Other Road", loadedUpdatedAt = null)
 
         // The version, and not the key: the Client exists.
         assertEquals(
-            """{"id":"c1","name":"Two Tina","language":"en","phone":"5550999","email":"","address":"","note":"old note app-note","expectedUpdatedAt":"$loaded"}""",
+            """{"id":"c1","name":"Two Tina","language":"en","phone":"5550999","email":"","address":"","note":"old note app-note","referredById":"c9","expectedUpdatedAt":"$loaded"}""",
             server.takeRequest().body?.utf8(),
         )
         assertEquals(

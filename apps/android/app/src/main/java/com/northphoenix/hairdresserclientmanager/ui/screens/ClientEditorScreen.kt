@@ -26,6 +26,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Image
@@ -33,6 +34,8 @@ import androidx.compose.material.icons.rounded.ImportContacts
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.LinkOff
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -196,8 +199,11 @@ fun ClientEditorScreen(
     var email by rememberSaveable { mutableStateOf("") }
     var address by rememberSaveable { mutableStateOf("") }
     var note by rememberSaveable { mutableStateOf("") }
+    // Who recommended the Client ("Посоветовала"), by id; null for nobody.
+    var referredId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pickingReferrer by rememberSaveable { mutableStateOf(false) }
     // The form as it was when it was opened, filled or last saved. Back asks before it discards what was changed since.
-    var savedContent by rememberSaveable { mutableStateOf(UnsavedInput.clientForm(name, language, phone, email, address, note)) }
+    var savedContent by rememberSaveable { mutableStateOf(UnsavedInput.clientForm(name, language, phone, email, address, note, referredId)) }
     // What the last save sent, until its reply has come or the Client was taken in again: a Client who comes back as this was saved from here.
     var sentContent by rememberSaveable { mutableStateOf<List<String>?>(null) }
     // The email a save was refused for: the reason shows under the field until the text is another one.
@@ -227,9 +233,9 @@ fun ClientEditorScreen(
             var collided = false
 
             fun taken(field: Int, typed: String, now: String): String {
-                val filledWith = loaded?.get(field) ?: return now
+                val filledWith = loaded?.getOrNull(field) ?: return now
 
-                collided = collided || ChangedElsewhere.collides(filledWith, typed, now, sentContent?.get(field))
+                collided = collided || ChangedElsewhere.collides(filledWith, typed, now, sentContent?.getOrNull(field))
                 return ChangedElsewhere.field(filledWith, typed, now)
             }
 
@@ -243,9 +249,10 @@ fun ClientEditorScreen(
             email = taken(3, email, existing.email)
             address = taken(4, address, existing.address)
             note = taken(5, note, existing.note)
+            referredId = taken(6, referredId.orEmpty(), existing.referredById.orEmpty()).ifEmpty { null }
             loadedFor = existing.id
             loadedVersion = existing.updatedAt
-            savedContent = UnsavedInput.clientForm(savedName, existing.language, savedPhone, existing.email, existing.address, existing.note)
+            savedContent = UnsavedInput.clientForm(savedName, existing.language, savedPhone, existing.email, existing.address, existing.note, existing.referredById)
             sentContent = null
 
             // The save names the version taken in here and is not refused, so this is the one moment to say it.
@@ -270,11 +277,13 @@ fun ClientEditorScreen(
         // A US number is saved as it is shown, "(512) 917-4528", however it was typed; any other as typed.
         phone = PhoneFormat.display(OneLine.clean(phone))
 
-        val submitted = UnsavedInput.clientForm(name, language, phone, email, address, note)
+        // A Client who has been deleted since is no referrer: the link is gone on the server too.
+        val referrerId = referredId?.takeIf { id -> clients.any { it.id == id } }
+        val submitted = UnsavedInput.clientForm(name, language, phone, email, address, note, referrerId)
 
         // One line each, as the save sends them and as the form takes them in.
-        sentContent = UnsavedInput.clientForm(OneLine.clean(name), language, OneLine.clean(phone), email, address, note)
-        viewModel.saveClient(currentId, name, language, phone, email, address, note, loadedVersion, requestKey) { saved ->
+        sentContent = UnsavedInput.clientForm(OneLine.clean(name), language, OneLine.clean(phone), email, address, note, referrerId)
+        viewModel.saveClient(currentId, name, language, phone, email, address, note, loadedVersion, requestKey, referrerId) { saved ->
             currentId = saved.id
             loadedFor = saved.id
             loadedVersion = saved.updatedAt
@@ -341,7 +350,7 @@ fun ClientEditorScreen(
         title = stringResource(if (existing != null) R.string.client_edit_title else R.string.new_client_title),
         onBack = onBack,
         saving = saving,
-        unsaved = UnsavedInput.clientForm(name, language, phone, email, address, note) != savedContent,
+        unsaved = UnsavedInput.clientForm(name, language, phone, email, address, note, referredId) != savedContent,
         bottomBar = {
             BottomActionBar {
                 PrimaryButton(
@@ -404,6 +413,12 @@ fun ClientEditorScreen(
                 }
             }
 
+            ReferrerField(
+                referrer = clients.firstOrNull { it.id == referredId },
+                onPick = { pickingReferrer = true },
+                onClear = { referredId = null },
+            )
+
             if (existing != null) {
                 ProfileShareCard(
                     client = existing,
@@ -430,6 +445,25 @@ fun ClientEditorScreen(
                 )
             }
         }
+    }
+
+    if (pickingReferrer) {
+        val clientList by viewModel.clients.collectAsStateWithLifecycle()
+
+        // Anyone but the Client themselves.
+        ClientPickerSheet(
+            title = stringResource(R.string.client_referred_by_label),
+            clients = clients,
+            load = clientList.state,
+            onRetry = viewModel::retryLoad,
+            selectedIds = setOfNotNull(referredId),
+            takenIds = setOfNotNull(currentId),
+            onDismiss = { pickingReferrer = false },
+            onPick = { picked ->
+                referredId = picked.id
+                pickingReferrer = false
+            },
+        )
     }
 
     when (dialog) {
@@ -488,6 +522,28 @@ fun ClientEditorScreen(
 
     shareImageSvg?.let { svg ->
         ShareImageDialog(svg = svg, onDismiss = { shareImageSvg = null })
+    }
+}
+
+/** Who recommended the Client: the field shows their name, opens the Client list to choose, and clears. */
+@Composable
+private fun ReferrerField(referrer: ClientProfile?, onPick: () -> Unit, onClear: () -> Unit) {
+    HcmCard(onClick = onPick, contentPadding = PaddingValues(start = 18.dp, end = 6.dp, top = 12.dp, bottom = 12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(stringResource(R.string.client_referred_by_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (referrer != null) {
+                    Text(referrer.name, style = MaterialTheme.typography.bodyLarge)
+                } else {
+                    Text(stringResource(R.string.client_referred_by_none), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if (referrer != null) {
+                IconButton(onClick = onClear) {
+                    Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.client_referred_by_clear))
+                }
+            }
+        }
     }
 }
 
