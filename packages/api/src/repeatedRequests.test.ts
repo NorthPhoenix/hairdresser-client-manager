@@ -147,6 +147,20 @@ function createMemoryDb() {
         return created;
       })
     },
+    appointmentParticipant: {
+      // Adds the Client to the Appointment unless they are in it already.
+      upsert: yieldFirst(({ create }: { create: { appointmentId: string; clientId: string } }) => {
+        const appointment = rows.appointments.find((row) => row.id === create.appointmentId);
+
+        if (appointment) {
+          const clientIds = (appointment.clientIds as string[] | undefined) ?? [appointment.primaryClientId as string];
+
+          appointment.clientIds = clientIds.includes(create.clientId) ? clientIds : [...clientIds, create.clientId];
+        }
+
+        return create;
+      })
+    },
     colorFormula: {
       create: yieldFirst(({ data }: { data: Record<string, unknown> }) => add(rows.formulas, "formula", data))
     },
@@ -279,6 +293,30 @@ describe("a creating request that is sent again", () => {
     expect(rows.appointments).toHaveLength(1);
     expect(rows.clients).toHaveLength(1);
     expect(second.appointment.id).toBe(first.appointment.id);
+  });
+
+  it("adds one new person to an Appointment when both steps of adding them are sent again", async () => {
+    // The app adds a person by a name only: it creates the Client under a key, then adds them.
+    const { caller, rows } = withAppointment(createMemoryDb());
+
+    rows.clients.push({ id: "client_1", name: "Anna" });
+
+    const input = {
+      name: "Daniel",
+      requestKey
+    };
+    const first = await caller.clientProfile.save(input);
+
+    await caller.appointment.addParticipant({ appointmentId: "appointment_1", clientId: first.id });
+
+    // The reply was lost: the app tries both again with the same key.
+    const second = await caller.clientProfile.save(input);
+
+    await caller.appointment.addParticipant({ appointmentId: "appointment_1", clientId: second.id });
+
+    expect(second.id).toBe(first.id);
+    expect(rows.clients.map((client) => client.name)).toEqual(["Anna", "Daniel"]);
+    expect(rows.appointments[0]?.clientIds).toEqual(["client_1", first.id]);
   });
 
   it("adds one Service", async () => {

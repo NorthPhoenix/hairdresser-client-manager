@@ -1,6 +1,7 @@
 package com.northphoenix.hairdresserclientmanager.domain
 
 import com.northphoenix.hairdresserclientmanager.data.Appointment
+import com.northphoenix.hairdresserclientmanager.data.AppointmentService
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 
 /**
@@ -58,6 +59,42 @@ object AppointmentClients {
         return (clients.firstOrNull { it.clientId == picked } ?: clients.firstOrNull { it.isPrimary } ?: clients.firstOrNull())?.clientId
             ?: appointment.primaryClientId
     }
+
+    /**
+     * The Services of one Client of an Appointment, as the Appointment screen lists them when it
+     * has several Clients. [name] is empty only for Services of a Client who is no longer one of
+     * the Appointment's Clients and was not its primary Client either (see [Fault]).
+     */
+    data class ClientServices(val clientId: String, val name: String, val subtotalCents: Long, val services: List<AppointmentService>)
+
+    /**
+     * The Services of [appointment] by Client: one entry per Client, with the primary Client first
+     * and the others in the order they were added, each with their Services in the order they were
+     * added, also a Client without any. Services of someone who is not among the Clients any more
+     * come last, by whom they are for, so that none of them is left out.
+     */
+    fun servicesByClient(appointment: Appointment): List<ClientServices> {
+        val clients = appointment.participants.sortedByDescending { it.isPrimary }
+        val listed = clients.mapTo(HashSet()) { it.clientId }
+        val ofClients = clients.map { client ->
+            val services = appointment.services.filter { it.clientId == client.clientId }
+
+            ClientServices(client.clientId, client.name, services.sumOf { it.priceCents }, services)
+        }
+        val ofOthers = appointment.services
+            .filter { it.clientId !in listed }
+            .groupBy { it.clientId }
+            .map { (clientId, services) ->
+                val name = if (clientId == appointment.primaryClientId) appointment.primaryClientName else ""
+
+                ClientServices(clientId, name, services.sumOf { it.priceCents }, services)
+            }
+
+        return ofClients + ofOthers
+    }
+
+    /** Whether [clientId] is one of the Clients of [appointment] already: picking them adds nobody. */
+    fun isIn(appointment: Appointment, clientId: String): Boolean = appointment.participants.any { it.clientId == clientId }
 
     /**
      * The name an Appointment goes by where there is room for one: its primary Client's. An
