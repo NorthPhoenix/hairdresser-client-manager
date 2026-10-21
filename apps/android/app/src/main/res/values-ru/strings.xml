@@ -402,4 +402,68 @@
     <string name="travel_fee_put_back">Вернуть</string>
     <string name="travel_fee_remove">Убрать</string>
     <string name="travel_fee_removed">Убран «%1$s»</string>
+    <string name="calls_unavailable">На устройстве нет приложения для звонков.</string>
+    <string name="client_book_again">Записать снова</string>
+    <string name="client_call">Позвонить</string>
+    <string name="client_edit_action">Изменить</string>
+    <string name="client_edit_title">Изменить клиента</string>
+    <string name="client_map">Карта</string>
+    <string name="client_next_appointment">Следующая запись</string>
+    <string name="client_not_given">Не указан</string>
+    <string name="client_sms">SMS</string>
+    <string name="client_stat_last_visit">Последний визит</string>
+    <string name="client_stat_no_visits">Ещё не было</string>
+    <string name="client_stat_today">Сегодня</string>
+    <string name="client_stat_usually">Обычно</string>
+    <string name="client_stat_visits">Визитов</string>
+    <string name="client_stat_yesterday">Вчера</string>
+    <string name="map_unavailable">На устройстве нет приложения с картами.</string>
+    <plurals name="client_ago_days">
+        <item quantity="one">%d день назад</item>
+        <item quantity="few">%d дня назад</item>
+        <item quantity="many">%d дней назад</item>
+        <item quantity="other">%d дня назад</item>
+    </plurals>
+    <plurals name="client_ago_weeks">
+        <item quantity="one">%d неделю назад</item>
+        <item quantity="few">%d недели назад</item>
+        <item quantity="many">%d недель назад</item>
+        <item quantity="other">%d недели назад</item>
+    </plurals>
+    <plurals name="client_ago_months">
+        <item quantity="one">%d месяц назад</item>
+        <item quantity="few">%d месяца назад</item>
+        <item quantity="many">%d месяцев назад</item>
+        <item quantity="other">%d месяца назад</item>
+    </plurals>
+    <plurals name="client_ago_years">
+        <item quantity="one">%d год назад</item>
+        <item quantity="few">%d года назад</item>
+        <item quantity="many">%d лет назад</item>
+        <item quantity="other">%d года назад</item>
+    </plurals>
+    <plurals name="client_every_days">
+        <item quantity="one">раз в %d день</item>
+        <item quantity="few">раз в %d дня</item>
+        <item quantity="many">раз в %d дней</item>
+        <item quantity="other">раз в %d дня</item>
+    </plurals>
+    <plurals name="client_every_weeks">
+        <item quantity="one">раз в %d неделю</item>
+        <item quantity="few">раз в %d недели</item>
+        <item quantity="many">раз в %d недель</item>
+        <item quantity="other">раз в %d недели</item>
+    </plurals>
+    <plurals name="client_every_months">
+        <item quantity="one">раз в %d месяц</item>
+        <item quantity="few">раз в %d месяца</item>
+        <item quantity="many">раз в %d месяцев</item>
+        <item quantity="other">раз в %d месяца</item>
+    </plurals>
+    <plurals name="client_every_years">
+        <item quantity="one">раз в %d год</item>
+        <item quantity="few">раз в %d года</item>
+        <item quantity="many">раз в %d лет</item>
+        <item quantity="other">раз в %d года</item>
+    </plurals>
 </resources>
