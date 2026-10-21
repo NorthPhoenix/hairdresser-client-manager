@@ -45,7 +45,7 @@ A lightweight action that opens an Appointment address in Google Maps. Full rout
 _Avoid_: Navigation integration, route planning, map view
 
 **Appointment Creation**:
-The flow for creating a new Appointment. In v1, Appointment Creation supports creating a minimal Client inline and adding group Clients before saving.
+The flow for creating a new Appointment. In v1, Appointment Creation supports creating a minimal Client inline and adding group Clients before saving. Booking a Client again from their Client Profile starts it with that Client as the primary Client, at the place of their last visit: in the salon, at the address the Stylist typed for it, at the address the Client has now when it was at their own, or at the address of the other Client it was at. It copies no Services: Appointment Copying does that from the new Appointment.
 _Avoid_: Booking flow, scheduling flow
 
 **Recurring Appointment**:
@@ -101,7 +101,7 @@ A single persistent note about a Client that remains useful beyond a single Appo
 _Avoid_: General note, profile note, memo
 
 **Client Profile**:
-The complete record for one Client, including contact details, address, Client Notes, Appointments, Services, Color Formulas, Appointment Photos, and shareable history. A Client Profile belongs to exactly one Stylist, is searchable by Client name and phone number in v1, warns on duplicate phone numbers without blocking them, shows only that Client's Services and relevant Appointment Photos from group Appointments, and deletion removes that Client's data from group Appointments while keeping the Appointment when other Clients remain and promoting another remaining Client to primary when needed.
+The complete record for one Client, including contact details, address, Client Notes, Appointments, Services, Color Formulas, Appointment Photos, and shareable history. A Client Profile belongs to exactly one Stylist, is searchable by Client name and phone number in v1, warns on duplicate phone numbers without blocking them, shows only that Client's Services and relevant Appointment Photos from group Appointments, and deletion removes that Client's data from group Appointments while keeping the Appointment when other Clients remain and promoting another remaining Client to primary when needed. A Client Profile opens for reading, with its editing one step away; it says how many visits the Client has had, when the last one was, how often the Client usually comes once there are two visit days, and the next Scheduled Appointment, where a visit is a completed Appointment and canceled, no-show and Scheduled Appointments are not visits. From it the Stylist can call, text, or open the Client's address in a map app, and book the Client again.
 _Avoid_: Client file, customer profile, record
 
 **Client Account**:
@@ -133,7 +133,7 @@ An optional connection that lets a Stylist mirror Appointments from the app to a
 _Avoid_: Calendar source, imported calendar, external schedule
 
 **Calendar View**:
-An in-app way for the Stylist to browse Appointments by date using simple calendar navigation and agenda lists. Drag-and-drop calendar editing is not a v1 concept.
+An in-app way for the Stylist to browse Appointments by date using simple calendar navigation and agenda lists. Its week strip marks each day that has an Appointment that is not canceled. Drag-and-drop calendar editing is not a v1 concept.
 _Avoid_: Scheduler, calendar editor, booking calendar
 
 **Stylist Reminder**:
@@ -141,7 +141,7 @@ A notification automatically shown to the Stylist before a scheduled Appointment
 _Avoid_: Push reminder, internal reminder, alert
 
 **Client Reminder**:
-A Stylist-initiated SMS reminder message before an Appointment. In v1, the app composes a fixed default message in the recipient Client's language with Appointment time and location details, sends group Appointment reminders to the primary Client, requires the reminder recipient to have a phone number, and does not track reminder status.
+A Stylist-initiated SMS reminder message before an Appointment, offered for a scheduled Appointment until its start time. In v1, the app composes a fixed default message in the recipient Client's language with Appointment time and location details, sends group Appointment reminders to the primary Client, requires the reminder recipient to have a phone number, and does not track reminder status.
 _Avoid_: Client notification, appointment text, confirmation message
 
 **Profile Share**:
