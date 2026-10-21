@@ -85,6 +85,13 @@ class TimeFormat(val locale: Locale, val zone: ZoneId, private val thisYear: Int
 
     fun time(value: LocalTime): String = time.format(value)
 
+    /** When a reminder went: "19:30" on [now]'s day, "Oct 20, 19:30" on another day. */
+    fun stamp(at: Instant, now: Instant): String {
+        val moment = at.atZone(zone)
+
+        return if (moment.toLocalDate() == now.atZone(zone).toLocalDate()) time.format(moment) else shortDate(moment.toLocalDate()) + ", " + time.format(moment)
+    }
+
     fun mediumDate(date: LocalDate): String = mediumDate.format(date)
 
     /** "Oct 8", and "Oct 8, 2025" for a day of another year. */
