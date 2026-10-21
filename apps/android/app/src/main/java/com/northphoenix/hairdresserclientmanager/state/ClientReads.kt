@@ -5,6 +5,7 @@ import com.northphoenix.hairdresserclientmanager.data.ClientHistoryEntry
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.ProfileShare
 import com.northphoenix.hairdresserclientmanager.data.ShareChoice
+import com.northphoenix.hairdresserclientmanager.domain.Referrals
 import kotlinx.coroutines.CoroutineScope
 
 /**
@@ -53,8 +54,18 @@ internal class ClientReads(
 
     /** The server has just deleted this Client: they leave the list on screen, and with it every picker. */
     fun deleted(id: String) {
-        list.update { _, clients -> clients.filterNot { it.id == id } }
+        // Whoever they recommended is recommended by nobody now, as on the server.
+        list.update { _, clients -> Referrals.withoutClient(clients, id) }
         changes.changed(id, CLIENTS)
+    }
+
+    /**
+     * The server has just merged [removedId] into [kept]: whoever the removed Client recommended is
+     * recommended by the kept Client now, who is never recommended by themselves, as on the server.
+     * Call it before [deleted] and [saved], which then put the rest in.
+     */
+    fun referralsMoved(removedId: String, kept: ClientProfile) {
+        list.update { _, clients -> Referrals.afterMerge(clients, removedId, kept) }
     }
 
     /** The server has just recorded that these two Clients are different people: neither is the other's duplicate now. */

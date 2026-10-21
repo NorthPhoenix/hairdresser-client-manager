@@ -31,6 +31,9 @@ const clientSaveInput = z.object({
   email: emailText.optional(),
   address: text(textLimits.address).optional(),
   note: text(textLimits.note).optional(),
+  // Who recommended this Client. Not stated: a Client who exists keeps theirs, a new one has none.
+  // Null: none (clears it).
+  referredById: z.string().nullable().optional(),
   // With an id: the updatedAt of the Client the form was loaded from.
   expectedUpdatedAt: expectedUpdatedAt.optional(),
   // Without an id: see requestKey.
@@ -148,6 +151,8 @@ function toClientOutput(client: {
   email: string | null;
   address: string | null;
   note: string | null;
+  referredById?: string | null;
+  referredBy?: { name: string } | null;
   createdAt: Date;
   updatedAt: Date;
   profileShares?: ProfileShareRow[];
@@ -169,6 +174,9 @@ function toClientOutput(client: {
     email: client.email ?? "",
     address: client.address ?? "",
     note: client.note ?? "",
+    // Who recommended the Client, by id and by name (null: nobody).
+    referredById: client.referredById ?? null,
+    referredByName: client.referredById ? client.referredBy?.name ?? null : null,
     createdAt: client.createdAt.toISOString(),
     updatedAt: client.updatedAt.toISOString(),
     activeProfileShare: activeShare ? toProfileShareOutput(activeShare) : null,
@@ -176,6 +184,61 @@ function toClientOutput(client: {
     // their phone numbers match. Absent from a saved Client, whose pairs a save does not change.
     ...(client.distinctPairsAsFirst || client.distinctPairsAsSecond ? { distinctFromIds: distinctFrom } : {})
   };
+}
+
+/** The Client with the name of whoever recommended them, for the reply to a save. */
+async function withReferrer<Row extends { referredById?: string | null }>(db: Db, client: Row) {
+  if (!client.referredById) {
+    return client;
+  }
+
+  const referrer = await db.client.findFirst({
+    where: {
+      id: client.referredById
+    },
+    select: {
+      name: true
+    }
+  });
+
+  return {
+    ...client,
+    referredBy: referrer
+  };
+}
+
+/**
+ * Who a Client may be recommended by: another Client of the same Stylist, never the Client
+ * themselves. Null for nobody.
+ */
+async function checkReferrer(db: Db, stylistId: string, clientId: string | undefined, referredById: string | null) {
+  if (!referredById) {
+    return;
+  }
+
+  if (referredById === clientId) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "A Client cannot be recommended by themselves."
+    });
+  }
+
+  const referrer = await db.client.findFirst({
+    where: {
+      id: referredById,
+      stylistId
+    },
+    select: {
+      id: true
+    }
+  });
+
+  if (!referrer) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Client not found."
+    });
+  }
 }
 
 /** A detail of the kept Client, or the removed Client's when the kept one has none. */
@@ -193,6 +256,20 @@ function mergedNote(kept: string | null, removed: string | null) {
   }
 
   return first ? `${first}\n\n${second}` : removed ?? "";
+}
+
+/**
+ * Who recommended the kept Client after a merge: their own referrer, or the removed Client's
+ * when they have none. Never one of the two, as nobody recommends themselves.
+ */
+function mergedReferrer(
+  kept: { id: string; referredById?: string | null },
+  removed: { id: string; referredById?: string | null }
+) {
+  const own = kept.referredById && kept.referredById !== removed.id ? kept.referredById : null;
+  const taken = removed.referredById && removed.referredById !== kept.id ? removed.referredById : null;
+
+  return own ?? taken;
 }
 
 /**
@@ -250,6 +327,11 @@ async function loadMergedClient(db: Db, id: string) {
     },
     include: {
       profileShares: activeProfileShare,
+      referredBy: {
+        select: {
+          name: true
+        }
+      },
       ...distinctPairs
     }
   });
@@ -286,6 +368,11 @@ export const clientRouter = createTRPCRouter({
       },
       include: {
         profileShares: activeProfileShare,
+        referredBy: {
+          select: {
+            name: true
+          }
+        },
         ...distinctPairs
       }
     });
@@ -398,6 +485,9 @@ export const clientRouter = createTRPCRouter({
       note: input.note ?? ""
     };
 
+    // Not stated is not the same as none: a save that does not mention it leaves it as it is.
+    const referredById = input.referredById === undefined ? undefined : input.referredById || null;
+
     if (!input.id) {
       const repeatedClient = input.requestKey
         ? await ctx.db.client.findFirst({
@@ -414,18 +504,21 @@ export const clientRouter = createTRPCRouter({
           language: input.language
         });
 
-        return toClientOutput(repeatedClient);
+        return toClientOutput(await withReferrer(ctx.db, repeatedClient));
       }
+
+      await checkReferrer(ctx.db, ctx.stylist.id, undefined, referredById ?? null);
 
       const client = await ctx.db.client.create({
         data: {
           ...data,
+          ...(referredById ? { referredById } : {}),
           stylistId: ctx.stylist.id,
           requestKey: input.requestKey
         }
       });
 
-      return toClientOutput(client);
+      return toClientOutput(await withReferrer(ctx.db, client));
     }
 
     const existingClient = await ctx.db.client.findFirst({
@@ -442,20 +535,30 @@ export const clientRouter = createTRPCRouter({
       });
     }
 
+    const referrerChanges = referredById !== undefined && (existingClient.referredById ?? null) !== referredById;
+
     refuseOutdatedSave(
       existingClient,
       input.expectedUpdatedAt,
-      (Object.keys(data) as (keyof typeof data)[]).some((field) => (existingClient[field] ?? "") !== data[field])
+      (Object.keys(data) as (keyof typeof data)[]).some((field) => (existingClient[field] ?? "") !== data[field]) || referrerChanges
     );
+
+    // A referrer that is already set stays valid without a look; a new one is checked.
+    if (referrerChanges) {
+      await checkReferrer(ctx.db, ctx.stylist.id, existingClient.id, referredById ?? null);
+    }
 
     const client = await ctx.db.client.update({
       where: {
         id: existingClient.id
       },
-      data
+      data: {
+        ...data,
+        ...(referredById !== undefined ? { referredById } : {})
+      }
     });
 
-    return toClientOutput(client);
+    return toClientOutput(await withReferrer(ctx.db, client));
   }),
   // Under the Stylist lock, so two requests at once cannot both find no active Profile Share and
   // each create one. A request sent again gets the Profile Share the first one created, as it is
@@ -710,7 +813,23 @@ export const clientRouter = createTRPCRouter({
         phone: filled(kept.phone, removed.phone),
         email: filled(kept.email, removed.email),
         address: filled(kept.address, removed.address),
-        note
+        note,
+        referredById: mergedReferrer(kept, removed)
+      }
+    });
+
+    // Everyone the removed Client recommended is now recommended by the kept Client, who
+    // is never recommended by themselves. Before the delete, which would clear these links.
+    await ctx.db.client.updateMany({
+      where: {
+        stylistId: ctx.stylist.id,
+        referredById: removed.id,
+        id: {
+          not: kept.id
+        }
+      },
+      data: {
+        referredById: kept.id
       }
     });
 

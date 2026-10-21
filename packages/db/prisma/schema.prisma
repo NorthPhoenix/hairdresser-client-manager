@@ -62,10 +62,15 @@ model Client {
   // The request key of the call that created this record, when it sent one: the same call sent
   // again finds the record instead of creating another (docs/adr/0015). The same on the models below.
   requestKey   String?
+  // The Client who recommended this one ("Посоветовала"), of the same Stylist. When that Client is
+  // deleted the link is cleared; a Client merge moves it to the kept Client.
+  referredById String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   stylist       Stylist        @relation(fields: [stylistId], references: [id], onDelete: Cascade)
+  referredBy    Client?        @relation("ClientReferral", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals     Client[]       @relation("ClientReferral")
   primaryAppointments Appointment[] @relation("AppointmentPrimaryClient")
   appointmentParticipants AppointmentParticipant[]
   appointmentServices AppointmentService[]
@@ -75,6 +80,8 @@ model Client {
   distinctPairsAsFirst  ClientDistinctPair[] @relation("ClientDistinctPairFirst")
   distinctPairsAsSecond ClientDistinctPair[] @relation("ClientDistinctPairSecond")
   mergesKept            ClientMerge[]
+
+  @@index([referredById])
 }
 
 // Two Clients of one Stylist whom the Stylist said are different people ("Это разные люди"), so

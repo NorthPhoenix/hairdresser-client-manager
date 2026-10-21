@@ -127,6 +127,9 @@ data class ClientProfile(
     val address: String = "",
     val note: String = "",
     val activeProfileShare: ProfileShare? = null,
+    /** The Client who recommended this one ("Посоветовала"), and their name as the server last stated it. Null: nobody. */
+    val referredById: String? = null,
+    val referredByName: String? = null,
     /** When the Client Profile was last saved, as the server states it: the version a save names (see [HcmApi.saveClient]). */
     val updatedAt: String? = null,
     /**

@@ -1014,6 +1014,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         note: String,
         loadedUpdatedAt: String?,
         requestKey: String,
+        referredById: String? = null,
         onSuccess: (ClientProfile) -> Unit,
     ) {
         act(
@@ -1025,7 +1026,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             touched = { clientReads.changed(id) },
         ) {
             api.saveClient(
-                id, OneLine.clean(name), language, OneLine.clean(phone), email.trim(), address.trim(), note.trim(), loadedUpdatedAt, requestKey,
+                id, OneLine.clean(name), language, OneLine.clean(phone), email.trim(), address.trim(), note.trim(), loadedUpdatedAt, requestKey, referredById,
             ).also { saved ->
                 // In the list and in every picker now, before the reload.
                 clientReads.saved(saved)
@@ -1091,6 +1092,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         ) {
             val merged = api.mergeClients(keepId, removeId)
 
+            clientReads.referralsMoved(removeId, merged.client)
             clientReads.deleted(removeId)
             clientReads.saved(merged.client)
             appointmentReads.clientSaved(merged.client)
