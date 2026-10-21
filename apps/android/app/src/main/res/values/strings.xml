@@ -399,4 +399,52 @@
     <string name="travel_fee_put_back">Put back</string>
     <string name="travel_fee_remove">Remove</string>
     <string name="travel_fee_removed">Removed “%1$s”</string>
+    <string name="calls_unavailable">There is no phone app on this device.</string>
+    <string name="client_book_again">Book again</string>
+    <string name="client_call">Call</string>
+    <string name="client_edit_action">Edit</string>
+    <string name="client_edit_title">Edit Client</string>
+    <string name="client_map">Map</string>
+    <string name="client_next_appointment">Next Appointment</string>
+    <string name="client_not_given">Not given</string>
+    <string name="client_sms">Text</string>
+    <string name="client_stat_last_visit">Last visit</string>
+    <string name="client_stat_no_visits">None yet</string>
+    <string name="client_stat_today">Today</string>
+    <string name="client_stat_usually">Usually</string>
+    <string name="client_stat_visits">Visits</string>
+    <string name="client_stat_yesterday">Yesterday</string>
+    <string name="map_unavailable">There is no map app on this device.</string>
+    <plurals name="client_ago_days">
+        <item quantity="one">%d day ago</item>
+        <item quantity="other">%d days ago</item>
+    </plurals>
+    <plurals name="client_ago_weeks">
+        <item quantity="one">%d week ago</item>
+        <item quantity="other">%d weeks ago</item>
+    </plurals>
+    <plurals name="client_ago_months">
+        <item quantity="one">%d month ago</item>
+        <item quantity="other">%d months ago</item>
+    </plurals>
+    <plurals name="client_ago_years">
+        <item quantity="one">%d year ago</item>
+        <item quantity="other">%d years ago</item>
+    </plurals>
+    <plurals name="client_every_days">
+        <item quantity="one">every day</item>
+        <item quantity="other">every %d days</item>
+    </plurals>
+    <plurals name="client_every_weeks">
+        <item quantity="one">every week</item>
+        <item quantity="other">every %d weeks</item>
+    </plurals>
+    <plurals name="client_every_months">
+        <item quantity="one">every month</item>
+        <item quantity="other">every %d months</item>
+    </plurals>
+    <plurals name="client_every_years">
+        <item quantity="one">every year</item>
+        <item quantity="other">every %d years</item>
+    </plurals>
 </resources>

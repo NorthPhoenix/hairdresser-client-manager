@@ -45,10 +45,23 @@ import java.time.ZonedDateTime
 
 private enum class AppointmentPicker { PRIMARY, ADDITIONAL }
 
-/** Appointment Creation: primary Client (existing or a minimal inline one), time and location. */
+/**
+ * Appointment Creation: primary Client (existing or a minimal inline one), time and location.
+ * "Book again" on a Client Profile opens it with that Client as the primary Client
+ * ([initialClientId]) and the place of their last visit ([initialLocationType], and
+ * [initialAddress] as if the Stylist had typed it): what it opens with is not a change Back asks about.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBack: () -> Unit, onCreated: (Appointment) -> Unit) {
+fun NewAppointmentScreen(
+    viewModel: AppViewModel,
+    initialDate: LocalDate?,
+    onBack: () -> Unit,
+    onCreated: (Appointment) -> Unit,
+    initialClientId: String? = null,
+    initialLocationType: LocationType? = null,
+    initialAddress: String? = null,
+) {
     val format = LocalTimeFormat.current
     val clientList by viewModel.clients.collectAsStateWithLifecycle()
     val clients = clientList.data.orEmpty()
@@ -59,15 +72,15 @@ fun NewAppointmentScreen(viewModel: AppViewModel, initialDate: LocalDate?, onBac
     // The next full hour in the Stylist's timezone, on the day chosen in the Calendar when that is another day.
     val defaultStart = remember { AppointmentDraft.defaultStart(ZonedDateTime.now(format.zone), initialDate) }
 
-    var primaryClientId by rememberSaveable { mutableStateOf<String?>(null) }
+    var primaryClientId by rememberSaveable { mutableStateOf(initialClientId) }
     var inlineClientName by rememberSaveable { mutableStateOf("") }
     var additionalClientIds by rememberSaveable { mutableStateOf(listOf<String>()) }
     var date by rememberSaveable { mutableStateOf(defaultStart.toLocalDate()) }
     var startTime by rememberSaveable { mutableStateOf(defaultStart.toLocalTime()) }
     var endTime by rememberSaveable { mutableStateOf<LocalTime?>(null) }
-    var locationType by rememberSaveable { mutableStateOf(LocationType.IN_SALON) }
+    var locationType by rememberSaveable { mutableStateOf(initialLocationType ?: LocationType.IN_SALON) }
     // What the Stylist typed into the at-home address field. Null until they type: the field then shows the primary Client's address.
-    var typedAddress by rememberSaveable { mutableStateOf<String?>(null) }
+    var typedAddress by rememberSaveable { mutableStateOf(initialAddress?.takeIf { initialLocationType == LocationType.AT_HOME }) }
     var picker by rememberSaveable { mutableStateOf<AppointmentPicker?>(null) }
     var timePicker by rememberSaveable { mutableStateOf<AppointmentTimeField?>(null) }
 

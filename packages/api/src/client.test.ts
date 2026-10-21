@@ -509,6 +509,9 @@ describe("client router", () => {
       primaryClientId: "client_2",
       startsAt,
       status: "completed",
+      locationType: "inSalon",
+      locationAddress: "100 Salon St",
+      locationAddressIsCustom: false,
       primaryClient: {
         id: "client_2",
         name: "Mila",
@@ -629,6 +632,9 @@ describe("client router", () => {
         primaryClientName: "Mila",
         startsAt: startsAt.toISOString(),
         status: "completed",
+        locationType: "inSalon",
+        locationAddress: "100 Salon St",
+        customLocationAddress: "",
         participantClientIds: ["client_2", "client_1"],
         // Not Mila's Blowout, its Color Formula or her photo.
         services: [
@@ -691,6 +697,54 @@ describe("client router", () => {
         }
       }
     });
+  });
+
+  it("says in the Appointment history where each Appointment was, so the next one can be booked at the same place", async () => {
+    const startsAt = new Date("2026-06-13T15:00:00.000Z");
+    const appointment = (id: string, place: object, primaryClient: { id: string; address: string | null }) => ({
+      id,
+      primaryClientId: primaryClient.id,
+      startsAt,
+      status: "completed",
+      ...place,
+      primaryClient: { ...primaryClient, name: "Anna" },
+      participants: [{ clientId: "client_1" }],
+      services: [],
+      photos: []
+    });
+    const appointmentFindMany = vi.fn().mockResolvedValue([
+      appointment("typed", { locationType: "atHome", locationAddress: "12 Elm St", locationAddressIsCustom: true }, { id: "client_1", address: "1 Oak St" }),
+      appointment("own", { locationType: "atHome", locationAddress: "1 Oak St", locationAddressIsCustom: false }, { id: "client_1", address: "1 Oak St" }),
+      // From before the flag: told apart by the primary Client's address.
+      appointment("old", { locationType: "atHome", locationAddress: "9 Pine St", locationAddressIsCustom: null }, { id: "client_1", address: "1 Oak St" }),
+      appointment("salon", { locationType: "inSalon", locationAddress: null, locationAddressIsCustom: false }, { id: "client_1", address: "1 Oak St" })
+    ]);
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: {
+          upsert: vi.fn().mockResolvedValue({
+            id: "stylist_1",
+            clerkId: "clerk_1",
+            language: "ru",
+            timezone: "America/Chicago",
+            salonAddress: null,
+            onboardingCompletedAt: new Date()
+          })
+        },
+        appointment: {
+          findMany: appointmentFindMany
+        }
+      } as unknown as TRPCContext["db"])
+    );
+
+    const history = await caller.clientProfile.appointmentHistory({ id: "client_1" });
+
+    expect(history.map(({ id, locationType, locationAddress, customLocationAddress }) => ({ id, locationType, locationAddress, customLocationAddress }))).toEqual([
+      { id: "typed", locationType: "atHome", locationAddress: "12 Elm St", customLocationAddress: "12 Elm St" },
+      { id: "own", locationType: "atHome", locationAddress: "1 Oak St", customLocationAddress: "" },
+      { id: "old", locationType: "atHome", locationAddress: "9 Pine St", customLocationAddress: "9 Pine St" },
+      { id: "salon", locationType: "inSalon", locationAddress: "", customLocationAddress: "" }
+    ]);
   });
 
   it("promotes another participant when deleting the primary Client from a group Appointment", async () => {

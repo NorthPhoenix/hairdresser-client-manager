@@ -38,6 +38,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -102,6 +103,7 @@ import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
+import com.northphoenix.hairdresserclientmanager.state.Read
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.BottomActionBar
 import com.northphoenix.hairdresserclientmanager.ui.components.ColorFormulaCard
@@ -156,13 +158,18 @@ internal val ShareChoicesSaver = Saver<Set<ShareChoice>, String>(
     restore = { names -> names.split(",").let { on -> ShareChoice.entries.filter { it.name in on }.toSet() } },
 )
 
-/** Client Profile editor: details, Contact Import, Profile Share and the Client's Appointment history. */
+/**
+ * Client Profile editor: details, Contact Import, Profile Share and the Client's Appointment history.
+ * A new Client is created here; an existing one is edited here from their Client Profile
+ * ([ClientProfileScreen]). [onDeleted] closes it once the Client is deleted.
+ */
 @Composable
 fun ClientEditorScreen(
     viewModel: AppViewModel,
     clientId: String?,
     onBack: () -> Unit,
     onOpenAppointment: (String) -> Unit,
+    onDeleted: () -> Unit = onBack,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -311,7 +318,7 @@ fun ClientEditorScreen(
             lookup = viewModel.findClient(absentId)
         }
 
-        SubScreen(title = stringResource(R.string.edit_client_title), onBack = onBack, saving = saving) { padding ->
+        SubScreen(title = stringResource(R.string.client_edit_title), onBack = onBack, saving = saving) { padding ->
             when (val state = lookup) {
                 is LoadState.Failed -> LoadFailed(state.message, onRetry = { lookupAttempt++ }, Modifier.padding(padding))
                 LoadState.Missing -> ItemMissing(
@@ -327,7 +334,7 @@ fun ClientEditorScreen(
     }
 
     SubScreen(
-        title = stringResource(if (existing != null) R.string.edit_client_title else R.string.new_client_title),
+        title = stringResource(if (existing != null) R.string.client_edit_title else R.string.new_client_title),
         onBack = onBack,
         saving = saving,
         unsaved = UnsavedInput.clientForm(name, language, phone, email, address, note) != savedContent,
@@ -408,7 +415,9 @@ fun ClientEditorScreen(
                     onCopied = { viewModel.notify(R.string.profile_share_link_copied) },
                     onOpenFailed = { viewModel.notify(R.string.link_open_failed, isError = true) },
                 )
-                ClientHistoryCard(viewModel, existing.id, onOpenAppointment)
+                val history by rememberClientHistory(viewModel, existing.id)
+
+                ClientHistoryCard(history, onRetry = { viewModel.loadClientHistory(existing.id) }, onOpenAppointment)
                 TextAction(
                     stringResource(R.string.delete_client),
                     onClick = { dialog = ClientDialog.DELETE },
@@ -438,7 +447,7 @@ fun ClientEditorScreen(
             danger = true,
             onConfirm = {
                 dialog = null
-                currentId?.let { viewModel.deleteClient(it, onSuccess = onBack) }
+                currentId?.let { viewModel.deleteClient(it, onSuccess = onDeleted) }
             },
             onDismiss = { dialog = null },
         )
@@ -601,22 +610,31 @@ private fun ShareChoices(included: Set<ShareChoice>, enabled: Boolean, onChange:
 }
 
 /**
- * The Client's Appointment history, newest first: each Appointment with this Client's part of it,
- * the Services with their prices, notes and Color Formulas, and the Client's photos.
+ * A Client's Appointment history, read through the cache for as long as the screen is open, also
+ * while the app is not in front (see `collectWhileOpen`). A history that was shown before is there
+ * from the first frame and refreshed behind it; one that is on screen stays there when loading it
+ * again fails.
  */
 @Composable
-private fun ClientHistoryCard(viewModel: AppViewModel, clientId: String, onOpenAppointment: (String) -> Unit) {
-    // Read through the cache for as long as the profile is open, also while the app is not in front (see
-    // `collectWhileOpen`). A history that was shown before is there from the first frame and refreshed behind it;
-    // one that is on screen stays there when loading it again fails.
-    val history by remember(viewModel, clientId) { viewModel.clientHistory(clientId) }.collectWhileOpen(
+internal fun rememberClientHistory(viewModel: AppViewModel, clientId: String): State<Read<List<ClientHistoryEntry>>> {
+    val history = remember(viewModel, clientId) { viewModel.clientHistory(clientId) }.collectWhileOpen(
         initialValue = remember(viewModel, clientId) { viewModel.shownClientHistory(clientId) },
     )
 
-    // Asked for each time the profile comes into view, from an Appointment opened here or from the background:
+    // Asked for each time the screen comes into view, from an Appointment opened there or from the background:
     // a history that cannot be loaded says so as a notice too.
     LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.loadClientHistory(clientId) }
 
+    return history
+}
+
+/**
+ * The Client's Appointment history ([rememberClientHistory]), newest first: each Appointment with
+ * this Client's part of it, the Services with their prices, notes and Color Formulas, and the
+ * Client's photos.
+ */
+@Composable
+internal fun ClientHistoryCard(history: Read<List<ClientHistoryEntry>>, onRetry: () -> Unit, onOpenAppointment: (String) -> Unit) {
     HcmCard(contentPadding = PaddingValues(vertical = 18.dp)) {
         Text(stringResource(R.string.appointment_history_title), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(horizontal = 18.dp))
 
@@ -625,7 +643,7 @@ private fun ClientHistoryCard(viewModel: AppViewModel, clientId: String, onOpenA
         when (val state = history.state) {
             is LoadState.Failed -> InlineLoadFailed(
                 state.message,
-                onRetry = { viewModel.loadClientHistory(clientId) },
+                onRetry = onRetry,
                 Modifier.padding(start = 18.dp, end = 18.dp, top = 10.dp),
             )
             LoadState.Loaded -> if (entries.isEmpty()) {
