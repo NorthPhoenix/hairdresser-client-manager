@@ -54,6 +54,11 @@ class HcmApi(private val trpc: TrpcClient) {
             },
         )
 
+    // --- app ---
+
+    /** The app's releases and their notes, and where the app is downloaded from. */
+    suspend fun appReleases(): AppReleases = trpc.query("app.releases", JsonObject(emptyMap()))
+
     // --- clients ---
 
     suspend fun listClients(): List<ClientProfile> = trpc.query("clientProfile.list", JsonObject(emptyMap()))

@@ -1,5 +1,6 @@
 export { appRouter, type AppRouter } from "./root";
 export { createTRPCContext, type CreateTRPCContextOptions } from "./context";
+export { appVersionFromHeaders, type AppVersion } from "./appReleases";
 export { getUploadThingOrigins } from "./photoStorage";
 export { appointmentPhotoFiles, authorizePhotoUpload, type PhotoUploadInput, type PhotoUploadRefusal } from "./photoUpload";
 export {

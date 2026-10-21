@@ -374,3 +374,35 @@ data class EarningsSummary(
     @Serializable
     data class TopService(val name: String, val revenueCents: Long = 0, val count: Int = 0)
 }
+
+/** The Android app's releases (`app.releases`): the latest one, every release newest first, and where the app is downloaded from. */
+@Serializable
+data class AppReleases(
+    val latest: LatestRelease,
+    val releases: List<AppRelease> = emptyList(),
+    /** Null when the server has no download address: then the app offers no download. */
+    val downloadUrl: String? = null,
+)
+
+@Serializable
+data class LatestRelease(
+    val versionCode: Int,
+    val versionName: String,
+    val date: String = "",
+)
+
+@Serializable
+data class AppRelease(
+    val versionCode: Int,
+    val versionName: String,
+    /** The day it was published, "2026-10-21". */
+    val date: String = "",
+    val notes: ReleaseNotes = ReleaseNotes(),
+)
+
+/** What a release changed, one line per thing the Stylist can see, in each of the app's languages. */
+@Serializable
+data class ReleaseNotes(
+    val ru: List<String> = emptyList(),
+    val en: List<String> = emptyList(),
+)

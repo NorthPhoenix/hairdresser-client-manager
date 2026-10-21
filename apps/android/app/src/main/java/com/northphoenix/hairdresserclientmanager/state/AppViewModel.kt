@@ -11,6 +11,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import coil3.SingletonImageLoader
+import com.northphoenix.hairdresserclientmanager.BuildConfig
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.auth.AccountName
 import com.northphoenix.hairdresserclientmanager.auth.AuthGateway
@@ -18,6 +19,7 @@ import com.northphoenix.hairdresserclientmanager.auth.AuthState
 import com.northphoenix.hairdresserclientmanager.auth.SessionCheck
 import com.northphoenix.hairdresserclientmanager.core.AppContainer
 import com.northphoenix.hairdresserclientmanager.data.ApiException
+import com.northphoenix.hairdresserclientmanager.data.AppReleases
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.AppointmentPhoto
 import com.northphoenix.hairdresserclientmanager.data.AppointmentService
@@ -46,6 +48,7 @@ import com.northphoenix.hairdresserclientmanager.data.TravelFeeChange
 import com.northphoenix.hairdresserclientmanager.data.UpdatedAppointment
 import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
 import com.northphoenix.hairdresserclientmanager.data.toApiException
+import com.northphoenix.hairdresserclientmanager.domain.AppUpdates
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentTotals
@@ -290,6 +293,22 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
 
+    /** App Update and Release Notes: Home's update offer and "What's new", and the release list of the Profile tab. */
+    private val updates = AppUpdateNotices(container.appUpdateStore, BuildConfig.VERSION_CODE, container::wasUpdatedInPlace, viewModelScope)
+
+    /** The version of the app that is running, as the Stylist reads it ("1.4.0"), and as Android counts it. */
+    val appVersionName: String = BuildConfig.VERSION_NAME
+    val appVersionCode: Int = BuildConfig.VERSION_CODE
+
+    /** The app's releases, newest first. Not loaded, or failed: Home shows no card, the release list says so. */
+    val appReleases: StateFlow<Read<AppReleases>> = updates.releases
+
+    /** The card at the top of Home: "What's new" after an update, else a newer version to update to. */
+    val appUpdateCard: StateFlow<AppUpdates.HomeCard?> = updates.homeCard
+
+    /** A newer version of the app, also one the Stylist put off: the Profile tab names it. */
+    val newerApp: StateFlow<AppUpdates.Offer?> = updates.newer
+
     private val actions = ActionRunner(
         viewModelScope,
         ::report,
@@ -466,6 +485,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             try {
                 val stylist = api.bootstrap(container.appLanguage.device(), ZoneId.systemDefault().id)
                 showStylist(stylist)
+                loadAppReleases()
                 // What was still on its way when the app was last closed goes on.
                 photos.open(stylist.id)
                 // The day that was selected when Android killed the app in the background, today otherwise.
@@ -493,6 +513,17 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         }
     }
 
+    /** Asks for the app's releases. Quietly: without them the app only shows no update card. */
+    fun loadAppReleases() {
+        viewModelScope.launch { updates.load(api::appReleases) }
+    }
+
+    /** "Got it" on "What's new". */
+    fun acknowledgeWhatsNew() = updates.acknowledge()
+
+    /** "Later" on the update offer: hidden until a version newer than [versionCode] is out. */
+    fun putOffUpdate(versionCode: Int) = updates.later(versionCode)
+
     /** Puts a Stylist the server has just sent in place, and the app in that Stylist's language. */
     private fun showStylist(stylist: Stylist) {
         _stylist.value = stylist
@@ -515,6 +546,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     }
 
     fun refresh() {
+        loadAppReleases()
         viewModelScope.launch {
             _refreshing.value = true
             try {
@@ -536,6 +568,10 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      * Nobody asked for this reload, so it fails quietly and what was on screen stays.
      */
     fun refreshOnReturn() {
+        if (_stylist.value != null) {
+            // A new version may have come out while the app was away.
+            loadAppReleases()
+        }
         if (_stylist.value?.onboardingComplete == true) {
             // The day may have ended meanwhile. Now, so that the screen is on the new day before the reload has its turn.
             followDay()

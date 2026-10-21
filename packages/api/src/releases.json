@@ -1,0 +1,84 @@
+[
+  {
+    "versionCode": 6,
+    "versionName": "1.4.0",
+    "date": "2026-10-21",
+    "notes": {
+      "ru": [
+        "Приложение сообщает о новых версиях и показывает, что изменилось"
+      ],
+      "en": [
+        "The app tells you about new versions and shows what has changed"
+      ]
+    }
+  },
+  {
+    "versionCode": 5,
+    "versionName": "1.3.0",
+    "date": "2026-10-21",
+    "notes": {
+      "ru": [
+        "«Напомнить всем»: напоминания на завтра уходят всем сразу, прямо с телефона",
+        "На карточке записи видно, когда было отправлено напоминание",
+        "Итоги в «Профиле»: сколько заработано за неделю, месяц или год",
+        "Семья: родные клиента в профиле и сразу в «Для кого»"
+      ],
+      "en": [
+        "“Remind all”: tomorrow’s reminders go to everyone at once, straight from your phone",
+        "An Appointment card shows when its reminder was sent",
+        "Earnings in “Profile”: what you earned in a week, month or year",
+        "Family: a Client’s family on their profile and right in “For whom”"
+      ]
+    }
+  },
+  {
+    "versionCode": 4,
+    "versionName": "1.2.0",
+    "date": "2026-10-21",
+    "notes": {
+      "ru": [
+        "Чаевые: записываются отдельно от цены услуг и входят в итог записи",
+        "Услуги для нескольких человек выбираются за один раз",
+        "Крупная кнопка «Добавить формулу» появляется у услуг, к которым вы уже писали формулы"
+      ],
+      "en": [
+        "Tips: recorded apart from the price of the services and counted in the Appointment’s total",
+        "Services for several people are picked in one go",
+        "The big “Add Formula” button shows on services you have written formulas for before"
+      ]
+    }
+  },
+  {
+    "versionCode": 3,
+    "versionName": "1.1.0",
+    "date": "2026-10-21",
+    "notes": {
+      "ru": [
+        "«Для кого»: в одной записи — услуги для нескольких человек",
+        "Быстрый выбор услуг: поиск, группы по длине волос, «Часто у вас» и несколько услуг сразу",
+        "Прошедшие записи закрываются прямо на главной, а целый день — кнопкой «Все завершены»",
+        "Плату за выезд можно отметить в меню услуг: она добавляется сама к записям на дому",
+        "Профиль клиента: позвонить, SMS, карта и «Записать снова»",
+        "Телефоны в одном формате, а двух клиентов с одним номером можно объединить",
+        "Отметка «По рекомендации» в профиле клиента",
+        "Импорт сразу нескольких контактов во вкладке «Клиенты»",
+        "«Завтра» на главной: записи на завтра и напоминание в одно касание",
+        "Точки в календаре под днями, в которые есть записи",
+        "Кнопка «Добавить формулу» крупная только у окрашивания, у остальных услуг — «+ формула»"
+      ],
+      "en": [
+        "“For whom”: services for several people in one Appointment",
+        "Faster service picking: search, groups by hair length, “Often used” and several services at once",
+        "Past Appointments are closed right on Home, and a whole day with “Complete all”",
+        "Mark a travel fee in the service menu: it is added by itself to at-home Appointments",
+        "Client profile: call, text, map and “Book again”",
+        "Phone numbers in one format, and two Clients with the same number can be merged",
+        "“Referred by” on a Client’s profile",
+        "Import several contacts at once from the “Clients” tab",
+        "“Tomorrow” on Home: tomorrow’s Appointments and a one-tap reminder",
+        "Dots in the calendar under days that have Appointments",
+        "The big “Add Formula” button only on colour services; the rest get “+ formula”"
+      ]
+    }
+  }
+]
