@@ -1,7 +1,8 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { addedOrder } from "../addedOrder";
-import { getPrimaryClientChange, hasCustomAddress } from "../appointmentLocation";
+import { getClientAddress, getPrimaryClientChange, hasCustomAddress } from "../appointmentLocation";
+import type { Db } from "../context";
 import {
   emailText,
   expectedUpdatedAt,
@@ -30,6 +31,9 @@ const clientSaveInput = z.object({
   email: emailText.optional(),
   address: text(textLimits.address).optional(),
   note: text(textLimits.note).optional(),
+  // Who recommended this Client. Not stated: a Client who exists keeps theirs, a new one has none.
+  // Null: none (clears it).
+  referredById: z.string().nullable().optional(),
   // With an id: the updatedAt of the Client the form was loaded from.
   expectedUpdatedAt: expectedUpdatedAt.optional(),
   // Without an id: see requestKey.
@@ -38,6 +42,19 @@ const clientSaveInput = z.object({
 
 const clientDeleteInput = z.object({
   id: z.string()
+});
+
+// Two Clients of the Stylist: the one that stays, and the one whose Appointments, Services and
+// photos go to it before it is deleted.
+const clientMergeInput = z.object({
+  keepId: z.string(),
+  removeId: z.string()
+});
+
+// Two Clients of the Stylist who are different people although their phone numbers match.
+const clientDistinctInput = z.object({
+  clientId: z.string(),
+  otherClientId: z.string()
 });
 
 const clientAppointmentHistoryInput = z.object({
@@ -111,6 +128,20 @@ function toProfileShareOutput(share: ProfileShareRow) {
   };
 }
 
+// The pairs a Client is in that the Stylist said are different people, from either side.
+const distinctPairs = {
+  distinctPairsAsFirst: {
+    select: {
+      secondClientId: true
+    }
+  },
+  distinctPairsAsSecond: {
+    select: {
+      firstClientId: true
+    }
+  }
+} as const;
+
 function toClientOutput(client: {
   id: string;
   stylistId: string;
@@ -120,11 +151,19 @@ function toClientOutput(client: {
   email: string | null;
   address: string | null;
   note: string | null;
+  referredById?: string | null;
+  referredBy?: { name: string } | null;
   createdAt: Date;
   updatedAt: Date;
   profileShares?: ProfileShareRow[];
+  distinctPairsAsFirst?: { secondClientId: string }[];
+  distinctPairsAsSecond?: { firstClientId: string }[];
 }) {
   const activeShare = client.profileShares?.find((share) => !share.revokedAt);
+  const distinctFrom = [
+    ...(client.distinctPairsAsFirst ?? []).map((pair) => pair.secondClientId),
+    ...(client.distinctPairsAsSecond ?? []).map((pair) => pair.firstClientId)
+  ];
 
   return {
     id: client.id,
@@ -135,10 +174,169 @@ function toClientOutput(client: {
     email: client.email ?? "",
     address: client.address ?? "",
     note: client.note ?? "",
+    // Who recommended the Client, by id and by name (null: nobody).
+    referredById: client.referredById ?? null,
+    referredByName: client.referredById ? client.referredBy?.name ?? null : null,
     createdAt: client.createdAt.toISOString(),
     updatedAt: client.updatedAt.toISOString(),
-    activeProfileShare: activeShare ? toProfileShareOutput(activeShare) : null
+    activeProfileShare: activeShare ? toProfileShareOutput(activeShare) : null,
+    // Only the list states it: the other Clients this one is not the same person as, although
+    // their phone numbers match. Absent from a saved Client, whose pairs a save does not change.
+    ...(client.distinctPairsAsFirst || client.distinctPairsAsSecond ? { distinctFromIds: distinctFrom } : {})
   };
+}
+
+/** The Client with the name of whoever recommended them, for the reply to a save. */
+async function withReferrer<Row extends { referredById?: string | null }>(db: Db, client: Row) {
+  if (!client.referredById) {
+    return client;
+  }
+
+  const referrer = await db.client.findFirst({
+    where: {
+      id: client.referredById
+    },
+    select: {
+      name: true
+    }
+  });
+
+  return {
+    ...client,
+    referredBy: referrer
+  };
+}
+
+/**
+ * Who a Client may be recommended by: another Client of the same Stylist, never the Client
+ * themselves. Null for nobody.
+ */
+async function checkReferrer(db: Db, stylistId: string, clientId: string | undefined, referredById: string | null) {
+  if (!referredById) {
+    return;
+  }
+
+  if (referredById === clientId) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "A Client cannot be recommended by themselves."
+    });
+  }
+
+  const referrer = await db.client.findFirst({
+    where: {
+      id: referredById,
+      stylistId
+    },
+    select: {
+      id: true
+    }
+  });
+
+  if (!referrer) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Client not found."
+    });
+  }
+}
+
+/** A detail of the kept Client, or the removed Client's when the kept one has none. */
+function filled(kept: string | null, removed: string | null) {
+  return (kept ?? "").trim() ? kept ?? "" : removed ?? "";
+}
+
+/** Both Client Notes, the kept Client's first. The same note twice is kept once. */
+function mergedNote(kept: string | null, removed: string | null) {
+  const first = (kept ?? "").trim();
+  const second = (removed ?? "").trim();
+
+  if (!second || first === second) {
+    return kept ?? "";
+  }
+
+  return first ? `${first}\n\n${second}` : removed ?? "";
+}
+
+/**
+ * Who recommended the kept Client after a merge: their own referrer, or the removed Client's
+ * when they have none. Never one of the two, as nobody recommends themselves.
+ */
+function mergedReferrer(
+  kept: { id: string; referredById?: string | null },
+  removed: { id: string; referredById?: string | null }
+) {
+  const own = kept.referredById && kept.referredById !== removed.id ? kept.referredById : null;
+  const taken = removed.referredById && removed.referredById !== kept.id ? removed.referredById : null;
+
+  return own ?? taken;
+}
+
+/**
+ * What changes on an Appointment whose primary Client is merged into another. A Scheduled one
+ * follows the rule for any change of primary Client. One that has happened stays where it was:
+ * at home at the removed Client's address, that address is kept, as one of its own.
+ */
+async function getMergedPrimaryChange(
+  db: Db,
+  appointment: Parameters<typeof getPrimaryClientChange>[1] & { status: string },
+  clientId: string
+) {
+  if (appointment.status === "scheduled") {
+    return getPrimaryClientChange(db, appointment, clientId);
+  }
+
+  if (appointment.locationType !== "atHome" || hasCustomAddress(appointment)) {
+    return {
+      primaryClientId: clientId
+    };
+  }
+
+  return {
+    primaryClientId: clientId,
+    locationAddressIsCustom: (appointment.locationAddress ?? "") !== (await getClientAddress(db, clientId))
+  };
+}
+
+/** Records that two Clients of a Stylist are different people, once per pair. */
+async function addDistinctPair(db: Db, stylistId: string, clientId: string, otherClientId: string) {
+  const [firstClientId, secondClientId] = clientId < otherClientId ? [clientId, otherClientId] : [otherClientId, clientId];
+  const existing = await db.clientDistinctPair.findFirst({
+    where: {
+      firstClientId,
+      secondClientId
+    }
+  });
+
+  if (!existing) {
+    await db.clientDistinctPair.create({
+      data: {
+        stylistId,
+        firstClientId,
+        secondClientId
+      }
+    });
+  }
+}
+
+/** The kept Client of a merge as the list states a Client. */
+async function loadMergedClient(db: Db, id: string) {
+  const client = await db.client.findUniqueOrThrow({
+    where: {
+      id
+    },
+    include: {
+      profileShares: activeProfileShare,
+      referredBy: {
+        select: {
+          name: true
+        }
+      },
+      ...distinctPairs
+    }
+  });
+
+  return toClientOutput(client);
 }
 
 export const clientRouter = createTRPCRouter({
@@ -169,7 +367,13 @@ export const clientRouter = createTRPCRouter({
         updatedAt: "desc"
       },
       include: {
-        profileShares: activeProfileShare
+        profileShares: activeProfileShare,
+        referredBy: {
+          select: {
+            name: true
+          }
+        },
+        ...distinctPairs
       }
     });
 
@@ -281,6 +485,9 @@ export const clientRouter = createTRPCRouter({
       note: input.note ?? ""
     };
 
+    // Not stated is not the same as none: a save that does not mention it leaves it as it is.
+    const referredById = input.referredById === undefined ? undefined : input.referredById || null;
+
     if (!input.id) {
       const repeatedClient = input.requestKey
         ? await ctx.db.client.findFirst({
@@ -297,18 +504,21 @@ export const clientRouter = createTRPCRouter({
           language: input.language
         });
 
-        return toClientOutput(repeatedClient);
+        return toClientOutput(await withReferrer(ctx.db, repeatedClient));
       }
+
+      await checkReferrer(ctx.db, ctx.stylist.id, undefined, referredById ?? null);
 
       const client = await ctx.db.client.create({
         data: {
           ...data,
+          ...(referredById ? { referredById } : {}),
           stylistId: ctx.stylist.id,
           requestKey: input.requestKey
         }
       });
 
-      return toClientOutput(client);
+      return toClientOutput(await withReferrer(ctx.db, client));
     }
 
     const existingClient = await ctx.db.client.findFirst({
@@ -325,20 +535,30 @@ export const clientRouter = createTRPCRouter({
       });
     }
 
+    const referrerChanges = referredById !== undefined && (existingClient.referredById ?? null) !== referredById;
+
     refuseOutdatedSave(
       existingClient,
       input.expectedUpdatedAt,
-      (Object.keys(data) as (keyof typeof data)[]).some((field) => (existingClient[field] ?? "") !== data[field])
+      (Object.keys(data) as (keyof typeof data)[]).some((field) => (existingClient[field] ?? "") !== data[field]) || referrerChanges
     );
+
+    // A referrer that is already set stays valid without a look; a new one is checked.
+    if (referrerChanges) {
+      await checkReferrer(ctx.db, ctx.stylist.id, existingClient.id, referredById ?? null);
+    }
 
     const client = await ctx.db.client.update({
       where: {
         id: existingClient.id
       },
-      data
+      data: {
+        ...data,
+        ...(referredById !== undefined ? { referredById } : {})
+      }
     });
 
-    return toClientOutput(client);
+    return toClientOutput(await withReferrer(ctx.db, client));
   }),
   // Under the Stylist lock, so two requests at once cannot both find no active Profile Share and
   // each create one. A request sent again gets the Profile Share the first one created, as it is
@@ -480,6 +700,324 @@ export const clientRouter = createTRPCRouter({
 
     return {
       svg: await buildShareImage(content, input.language, ctx.readSharePhoto)
+    };
+  }),
+  // The Stylist says two Clients whose phone numbers match are different people: the app stops
+  // offering to merge them. Saying it again changes nothing.
+  markDistinct: stylistTransactionProcedure.input(clientDistinctInput).mutation(async ({ ctx, input }) => {
+    if (input.clientId === input.otherClientId) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "A Client is the same person as themselves."
+      });
+    }
+
+    const clients = await ctx.db.client.findMany({
+      where: {
+        id: {
+          in: [input.clientId, input.otherClientId]
+        },
+        stylistId: ctx.stylist.id
+      },
+      select: {
+        id: true
+      }
+    });
+
+    if (clients.length !== 2) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Client not found."
+      });
+    }
+
+    await addDistinctPair(ctx.db, ctx.stylist.id, input.clientId, input.otherClientId);
+
+    return {
+      clientId: input.clientId,
+      otherClientId: input.otherClientId
+    };
+  }),
+  // Makes two Client Profiles of one person one: everything of the removed Client goes to the kept
+  // one, which takes the details it does not have, and the removed Client is deleted. All of it or
+  // nothing, under the Stylist lock (ADR 0014). The same merge sent again answers with the kept
+  // Client as it is now (ADR 0015).
+  merge: stylistTransactionProcedure.input(clientMergeInput).mutation(async ({ ctx, input }) => {
+    if (input.keepId === input.removeId) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "A Client cannot be merged into themselves."
+      });
+    }
+
+    const kept = await ctx.db.client.findFirst({
+      where: {
+        id: input.keepId,
+        stylistId: ctx.stylist.id
+      }
+    });
+
+    if (!kept) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Client not found."
+      });
+    }
+
+    const removed = await ctx.db.client.findFirst({
+      where: {
+        id: input.removeId,
+        stylistId: ctx.stylist.id
+      }
+    });
+
+    if (!removed) {
+      const done = await ctx.db.clientMerge.findFirst({
+        where: {
+          stylistId: ctx.stylist.id,
+          keptClientId: kept.id,
+          removedClientId: input.removeId
+        }
+      });
+
+      if (!done) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Client not found."
+        });
+      }
+
+      return {
+        client: await loadMergedClient(ctx.db, kept.id),
+        removedId: input.removeId,
+        appointmentIds: [] as string[]
+      };
+    }
+
+    const note = mergedNote(kept.note, removed.note);
+
+    if (note.length > textLimits.note) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Text is too long."
+      });
+    }
+
+    // The kept Client takes the details they do not have first: an Appointment at the removed
+    // Client's home moves to the kept Client's address below, which is then that one.
+    await ctx.db.client.update({
+      where: {
+        id: kept.id
+      },
+      data: {
+        phone: filled(kept.phone, removed.phone),
+        email: filled(kept.email, removed.email),
+        address: filled(kept.address, removed.address),
+        note,
+        referredById: mergedReferrer(kept, removed)
+      }
+    });
+
+    // Everyone the removed Client recommended is now recommended by the kept Client, who
+    // is never recommended by themselves. Before the delete, which would clear these links.
+    await ctx.db.client.updateMany({
+      where: {
+        stylistId: ctx.stylist.id,
+        referredById: removed.id,
+        id: {
+          not: kept.id
+        }
+      },
+      data: {
+        referredById: kept.id
+      }
+    });
+
+    // Also Appointments that name the removed Client as primary without listing them.
+    const appointments = await ctx.db.appointment.findMany({
+      where: {
+        stylistId: ctx.stylist.id,
+        OR: [
+          {
+            primaryClientId: removed.id
+          },
+          {
+            participants: {
+              some: {
+                clientId: removed.id
+              }
+            }
+          }
+        ]
+      },
+      include: {
+        primaryClient: {
+          select: {
+            address: true
+          }
+        },
+        participants: {
+          select: {
+            id: true,
+            clientId: true
+          }
+        }
+      }
+    });
+
+    for (const appointment of appointments) {
+      const removedRow = appointment.participants.find((participant) => participant.clientId === removed.id);
+      const keptRow = appointment.participants.find((participant) => participant.clientId === kept.id);
+
+      if (removedRow && keptRow) {
+        // Both in one Appointment: it has the kept Client once.
+        await ctx.db.appointmentParticipant.delete({
+          where: {
+            id: removedRow.id
+          }
+        });
+      } else if (removedRow) {
+        // In the removed Client's place among the Clients of the Appointment.
+        await ctx.db.appointmentParticipant.update({
+          where: {
+            id: removedRow.id
+          },
+          data: {
+            clientId: kept.id
+          }
+        });
+      } else if (!keptRow) {
+        await ctx.db.appointmentParticipant.create({
+          data: {
+            appointmentId: appointment.id,
+            clientId: kept.id
+          }
+        });
+      }
+
+      if (appointment.primaryClientId === removed.id) {
+        await ctx.db.appointment.update({
+          where: {
+            id: appointment.id
+          },
+          data: await getMergedPrimaryChange(ctx.db, appointment, kept.id)
+        });
+      }
+    }
+
+    await ctx.db.appointmentService.updateMany({
+      where: {
+        clientId: removed.id,
+        appointment: {
+          stylistId: ctx.stylist.id
+        }
+      },
+      data: {
+        clientId: kept.id
+      }
+    });
+    await ctx.db.appointmentPhoto.updateMany({
+      where: {
+        clientId: removed.id,
+        appointment: {
+          stylistId: ctx.stylist.id
+        }
+      },
+      data: {
+        clientId: kept.id
+      }
+    });
+
+    // A Client has at most one active Profile Share: the kept Client's stays, and the removed
+    // Client's link says it is no longer available. When only the removed Client had one, its link
+    // goes on working and shows the kept Client. Every link that was revoked stays revoked.
+    const keptShare = await ctx.db.profileShare.findFirst({
+      where: {
+        clientId: kept.id,
+        revokedAt: null
+      },
+      select: {
+        id: true
+      }
+    });
+
+    if (keptShare) {
+      await ctx.db.profileShare.updateMany({
+        where: {
+          clientId: removed.id,
+          revokedAt: null
+        },
+        data: {
+          revokedAt: new Date()
+        }
+      });
+    }
+
+    await ctx.db.profileShare.updateMany({
+      where: {
+        clientId: removed.id
+      },
+      data: {
+        clientId: kept.id
+      }
+    });
+
+    // Someone the removed Client is not is not the kept Client either.
+    const pairs = await ctx.db.clientDistinctPair.findMany({
+      where: {
+        OR: [
+          {
+            firstClientId: removed.id
+          },
+          {
+            secondClientId: removed.id
+          }
+        ]
+      }
+    });
+
+    await ctx.db.clientDistinctPair.deleteMany({
+      where: {
+        id: {
+          in: pairs.map((pair) => pair.id)
+        }
+      }
+    });
+
+    for (const pair of pairs) {
+      const otherId = pair.firstClientId === removed.id ? pair.secondClientId : pair.firstClientId;
+
+      if (otherId !== kept.id) {
+        await addDistinctPair(ctx.db, ctx.stylist.id, kept.id, otherId);
+      }
+    }
+
+    // Merges into the removed Client are merges into the kept one from now on.
+    await ctx.db.clientMerge.updateMany({
+      where: {
+        keptClientId: removed.id
+      },
+      data: {
+        keptClientId: kept.id
+      }
+    });
+    await ctx.db.clientMerge.create({
+      data: {
+        stylistId: ctx.stylist.id,
+        keptClientId: kept.id,
+        removedClientId: removed.id
+      }
+    });
+    await ctx.db.client.delete({
+      where: {
+        id: removed.id
+      }
+    });
+
+    return {
+      client: await loadMergedClient(ctx.db, kept.id),
+      removedId: removed.id,
+      appointmentIds: appointments.map((appointment) => appointment.id)
     };
   }),
   delete: stylistTransactionProcedure.input(clientDeleteInput).mutation(async ({ ctx, input }) => {

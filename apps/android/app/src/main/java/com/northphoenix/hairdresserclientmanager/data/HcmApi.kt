@@ -63,7 +63,8 @@ class HcmApi(private val trpc: TrpcClient) {
      * [ClientProfile.updatedAt] of the Client the form was filled from: when the server has
      * another version, it refuses the save ([ApiException.isChangedElsewhere]) instead of putting
      * old fields back over newer ones. For a new Client, [requestKey] names this creation (see
-     * [REQUEST_KEY]). Each is sent only in its own case.
+     * [REQUEST_KEY]). Each is sent only in its own case. [referredById] is who recommended the Client,
+     * null for nobody: the form states it, so a save from it clears it.
      */
     suspend fun saveClient(
         id: String?,
@@ -75,6 +76,7 @@ class HcmApi(private val trpc: TrpcClient) {
         note: String,
         loadedUpdatedAt: String?,
         requestKey: String,
+        referredById: String? = null,
     ): ClientProfile =
         trpc.mutation(
             "clientProfile.save",
@@ -86,12 +88,38 @@ class HcmApi(private val trpc: TrpcClient) {
                 put("email", email)
                 put("address", address)
                 put("note", note)
+                put("referredById", referredById)
                 if (id == null) put(REQUEST_KEY, requestKey) else loadedUpdatedAt?.let { put("expectedUpdatedAt", it) }
             },
         )
 
     suspend fun deleteClient(id: String) {
         trpc.mutation<JsonObject>("clientProfile.delete", idInput(id))
+    }
+
+    /**
+     * Makes [removeId] one with [keepId]: their Appointments, Services, photos and Profile Share go to the kept
+     * Client, who takes the details they do not have, and [removeId] is deleted. All of it or nothing. The same
+     * merge sent again answers with the kept Client as they are now.
+     */
+    suspend fun mergeClients(keepId: String, removeId: String): ClientMergeResult =
+        trpc.mutation(
+            "clientProfile.merge",
+            buildJsonObject {
+                put("keepId", keepId)
+                put("removeId", removeId)
+            },
+        )
+
+    /** The two Clients are different people although their phone numbers match. Saying it again changes nothing. */
+    suspend fun markClientsDistinct(clientId: String, otherClientId: String) {
+        trpc.mutation<JsonObject>(
+            "clientProfile.markDistinct",
+            buildJsonObject {
+                put("clientId", clientId)
+                put("otherClientId", otherClientId)
+            },
+        )
     }
 
     suspend fun clientAppointmentHistory(clientId: String): List<ClientHistoryEntry> =
