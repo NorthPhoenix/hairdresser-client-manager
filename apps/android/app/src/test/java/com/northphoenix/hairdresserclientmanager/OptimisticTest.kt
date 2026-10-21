@@ -174,7 +174,7 @@ class OptimisticTest {
         var reloadsOfEverything = 0
 
         private val marks = Changes()
-        val reads = AppointmentReads(scope, marks, server::today, server::today, server::find, fetchSources = { emptyList() })
+        val reads = AppointmentReads(scope, marks, server::today, server::today, server::find, fetchSources = { emptyList() }, fetchWeek = { emptyList() })
         val clientReads = ClientReads(scope, marks, server::clients, server::history)
         val menuReads = ServiceMenuReads(scope, marks, server::menu)
         val runner = ActionRunner(scope, { failures += it }, reloadAll = { reloadsOfEverything++ })

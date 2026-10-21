@@ -26,10 +26,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,7 +38,6 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
@@ -55,9 +51,8 @@ import com.northphoenix.hairdresserclientmanager.ui.components.LoadFailed
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenPadding
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenTitle
 import com.northphoenix.hairdresserclientmanager.ui.components.Tag
+import com.northphoenix.hairdresserclientmanager.ui.components.rememberNow
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
-import java.time.Instant
-import kotlinx.coroutines.delay
 
 /**
  * Home View: today's Appointments plus past ones still marked scheduled, which need an outcome.
@@ -149,29 +144,6 @@ fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit) {
             }
         }
     }
-}
-
-/**
- * The time, looked at again at the start of every minute, as Appointments start on the minute,
- * and each time the app comes back into view.
- */
-@Composable
-private fun rememberNow(): State<Instant> {
-    val now = remember { mutableStateOf(Instant.now()) }
-
-    LifecycleResumeEffect(Unit) {
-        now.value = Instant.now()
-        onPauseOrDispose { }
-    }
-    LaunchedEffect(Unit) {
-        while (true) {
-            // A moment after the minute has turned, so that the look does not land just before it.
-            delay(60_000 - System.currentTimeMillis() % 60_000 + 50)
-            now.value = Instant.now()
-        }
-    }
-
-    return now
 }
 
 /** "Fri, Oct 16 — 3 Appointments need an outcome" with a button that completes all of them. [day] is the day as the row names it. */
