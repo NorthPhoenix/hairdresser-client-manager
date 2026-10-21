@@ -25,7 +25,7 @@ A minimal first-use setup where the Stylist confirms timezone and can optionally
 _Avoid_: Setup wizard, account setup, profile setup
 
 **Home View**:
-The Stylist's default working view, focused on unresolved past Appointments and today's Appointments, with quick access to create Clients and Appointments.
+The Stylist's default working view, focused on unresolved past Appointments and today's Appointments, with quick access to create Clients and Appointments. A scheduled Appointment on it whose start time has passed (every unresolved one, and one of today's once it has started) can be marked completed, canceled, or no-show straight from its card, without opening it; a day with two or more unresolved Appointments can have all of them marked completed at once. Right after either, the Stylist can undo it, which sets those Appointments back to scheduled by the usual rules, conflict warnings included, and leaves alone one whose outcome was changed elsewhere in the meantime.
 _Avoid_: Dashboard, landing page, overview
 
 **Clients View**:

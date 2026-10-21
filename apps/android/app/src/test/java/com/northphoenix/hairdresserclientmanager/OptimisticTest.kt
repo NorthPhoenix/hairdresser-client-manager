@@ -16,6 +16,7 @@ import com.northphoenix.hairdresserclientmanager.data.ProfileShare
 import com.northphoenix.hairdresserclientmanager.data.ServiceMenuItem
 import com.northphoenix.hairdresserclientmanager.data.ShareChoice
 import com.northphoenix.hairdresserclientmanager.state.ActionRunner
+import com.northphoenix.hairdresserclientmanager.state.Ahead
 import com.northphoenix.hairdresserclientmanager.state.AppointmentKey
 import com.northphoenix.hairdresserclientmanager.state.AppointmentReads
 import com.northphoenix.hairdresserclientmanager.state.Changes
@@ -126,7 +127,11 @@ class OptimisticTest {
             held = null
         }
 
-        suspend fun today(key: DayKey): List<Appointment> = read { listOfNotNull(appointment) }
+        /** Today's list as the server answers it when the Appointment is on a day before today: only while it is Scheduled. */
+        var appointmentIsOverdue = false
+
+        suspend fun today(key: DayKey): List<Appointment> =
+            read { listOfNotNull(appointment).filter { !appointmentIsOverdue || it.status == AppointmentStatus.SCHEDULED } }
 
         suspend fun find(id: String): Appointment? = read { appointment?.takeIf { it.id == id } }
 
@@ -192,6 +197,19 @@ class OptimisticTest {
             status,
             saved = appointment?.status,
             ahead = { next -> reads.ahead("status:a1", "a1") { it.copy(status = next) } + clientReads.statusAhead("status:a1", "a1", next) },
+            reload = ::reload,
+        ) { next -> server.changeAppointment("status $next") { it.copy(status = next) } }
+
+        /** 'Undo' on the Home View: back to Scheduled, and [card], as the Home View showed it, back on Today's list at once. */
+        fun undoFromHome(card: Appointment) = runner.saveLatest(
+            statuses,
+            "status:a1",
+            AppointmentStatus.SCHEDULED,
+            saved = appointment?.status,
+            ahead = { next ->
+                reads.ahead("status:a1", "a1") { it.copy(status = next) } +
+                    if (next == AppointmentStatus.SCHEDULED) reads.backOnToday("status:a1:backOnHome", card) else Ahead(settle = { reads.today.settled("status:a1:backOnHome") })
+            },
             reload = ::reload,
         ) { next -> server.changeAppointment("status $next") { it.copy(status = next) } }
 
@@ -418,6 +436,80 @@ class OptimisticTest {
         assertTrue(late.isCompleted)
         assertEquals(listOf(AppointmentStatus.COMPLETED), screen.drop(before).map { it.data?.status }.distinct())
         assertEquals(listOf(AppointmentStatus.COMPLETED), today.drop(cardsBefore).map { it.data?.single()?.status }.distinct())
+        assertTrue(app.failures.isEmpty())
+    }
+
+    @Test
+    fun `an outcome undone on the Home View is back on Today's list at once, also when the list no longer has it`() = runTest {
+        val server = Server(booked).apply { appointmentIsOverdue = true }
+        val app = app(server)
+        val today = shownBy(app.reads.today.watch(monday))
+        runCurrent()
+
+        app.setStatus(AppointmentStatus.COMPLETED)
+        server.answer()
+        runCurrent()
+        // Saved and reloaded: a Completed Appointment of a day before today is on Today's list no more.
+        assertEquals(emptyList<Appointment>(), today.last().data)
+
+        app.undoFromHome(booked)
+
+        // With the tap, before the server has answered.
+        assertEquals(listOf("a1"), app.reads.today.shown(monday)?.data?.map { it.id })
+        assertEquals(AppointmentStatus.SCHEDULED, app.reads.today.shown(monday)?.data?.single()?.status)
+        assertEquals(listOf("status COMPLETED", "status SCHEDULED"), server.changes)
+
+        server.answer()
+        runCurrent()
+
+        // Saved, and reloaded: the server's list has it again, and it was never gone on the way.
+        assertEquals(AppointmentStatus.SCHEDULED, server.appointment?.status)
+        assertEquals(listOf("a1"), today.last().data?.map { it.id })
+        assertEquals(listOf("a1"), today.last().saved?.map { it.id })
+        assertTrue(app.failures.isEmpty())
+    }
+
+    @Test
+    fun `an undo on the Home View that cannot be saved takes the card away again, and is reported once`() = runTest {
+        val server = Server(booked).apply { appointmentIsOverdue = true }
+        val app = app(server)
+        val today = shownBy(app.reads.today.watch(monday))
+        runCurrent()
+        app.setStatus(AppointmentStatus.COMPLETED)
+        server.answer()
+        runCurrent()
+
+        app.undoFromHome(booked)
+        runCurrent()
+        assertEquals(listOf("a1"), today.last().data?.map { it.id })
+
+        server.refuse(offline())
+        runCurrent()
+
+        assertEquals(emptyList<Appointment>(), today.last().data)
+        assertEquals(listOf("NETWORK"), app.failures.map { it.code })
+        assertFalse(app.runner.saving.value)
+    }
+
+    @Test
+    fun `an undo tapped while the outcome is still being saved is sent after it, and the card never leaves`() = runTest {
+        val server = Server(booked).apply { appointmentIsOverdue = true }
+        val app = app(server)
+        val today = shownBy(app.reads.today.watch(monday))
+        runCurrent()
+
+        app.setStatus(AppointmentStatus.COMPLETED)
+        app.undoFromHome(booked)
+        assertEquals(AppointmentStatus.SCHEDULED, app.reads.today.shown(monday)?.data?.single()?.status)
+
+        server.answer()
+        runCurrent()
+        server.answer()
+        runCurrent()
+
+        assertEquals(listOf("status COMPLETED", "status SCHEDULED"), server.changes)
+        assertEquals(AppointmentStatus.SCHEDULED, server.appointment?.status)
+        assertEquals(listOf(AppointmentStatus.SCHEDULED), today.last().data?.map { it.status })
         assertTrue(app.failures.isEmpty())
     }
 

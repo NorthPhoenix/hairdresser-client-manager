@@ -44,6 +44,7 @@ import com.northphoenix.hairdresserclientmanager.data.toApiException
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
 import com.northphoenix.hairdresserclientmanager.domain.ChangedElsewhere
+import com.northphoenix.hairdresserclientmanager.domain.HomeOutcomes
 import com.northphoenix.hairdresserclientmanager.domain.OneLine
 import com.northphoenix.hairdresserclientmanager.domain.ServiceEdit
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
@@ -1213,13 +1214,104 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             status,
             saved = appointmentReads[id]?.status,
             touched = { appointmentReads.statusChanged(id) },
-            elsewhere = { next -> clientReads.statusAhead(target, id, next) },
+            elsewhere = { next -> clientReads.statusAhead(target, id, next) + backOnHome(target, id, next) },
             edit = { appointment, next -> appointment.copy(status = next) },
         ) { next ->
             val saved = api.updateAppointmentStatus(id, next)
 
             updateLoaded(id) { it.copy(status = next).withTimeAndPlace(saved) }
             overlaps.answered(id, saved.conflicts)
+            // The Home View names no overlap of its own: the notice points to the Appointment's screen, which does.
+            if (next == AppointmentStatus.SCHEDULED && id in homeUndos && saved.conflicts.isNotEmpty()) {
+                notify(R.string.home_undo_overlap)
+            }
+        }
+    }
+
+    // --- quick outcomes on the Home View ---
+
+    /**
+     * The cards that 'Undo' is setting back to Scheduled, by Appointment, as the Home View showed
+     * them. Kept here and not in the call, because a status tap joins whatever request for the
+     * Appointment is already on its way, and that request's code is the one that runs (see [saveLatest]).
+     */
+    private val homeUndos = mutableMapOf<String, Appointment>()
+
+    /**
+     * An Appointment that left Today's list with an outcome is back on it the moment 'Undo' sets it
+     * to Scheduled, not only once the reload has it (see [AppointmentReads.backOnToday]). Taken away
+     * when the status requests for it have ended, whichever way.
+     */
+    private fun backOnHome(target: String, id: String, next: AppointmentStatus): Ahead {
+        val change = "$target:backOnHome"
+        val back = homeUndos[id]?.takeIf { next == AppointmentStatus.SCHEDULED }?.let { appointmentReads.backOnToday(change, it) }
+
+        return Ahead(
+            show = { back?.show() },
+            saved = { back?.saved() },
+            settle = {
+                appointmentReads.today.settled(change)
+                homeUndos -= id
+            },
+        )
+    }
+
+    /**
+     * An outcome chip on a Home card: [outcome] is the Appointment's status at once (see
+     * [setAppointmentStatus]), and a notice says so with 'Undo', which sets it back to Scheduled.
+     * [card] is the Appointment as the card shows it.
+     */
+    fun setOutcomeFromHome(card: Appointment, outcome: AppointmentStatus) {
+        setAppointmentStatus(card.id, outcome)
+        noticeChannel.trySend(
+            Notice(
+                outcome.homeNotice(),
+                args = listOf(AppointmentClients.leadName(card)),
+                action = NoticeAction(R.string.notice_undo) { undoHomeOutcomes(listOf(card), outcome) },
+            ),
+        )
+    }
+
+    /**
+     * 'All completed' for one day of the Home View: each of [cards], the day's unresolved
+     * Appointments, is Completed at once, each by its own status change. One notice says how many,
+     * and its 'Undo' sets all of them back to Scheduled.
+     */
+    fun completeAllFromHome(cards: List<Appointment>) {
+        if (cards.isEmpty()) {
+            return
+        }
+        cards.forEach { setAppointmentStatus(it.id, AppointmentStatus.COMPLETED) }
+        noticeChannel.trySend(
+            Notice(
+                R.plurals.home_completed_count,
+                args = listOf(cards.size),
+                quantity = cards.size,
+                action = NoticeAction(R.string.notice_undo) { undoHomeOutcomes(cards, AppointmentStatus.COMPLETED) },
+            ),
+        )
+    }
+
+    /**
+     * 'Undo' of an outcome set from the Home View: each of [cards] that still has [outcome] goes
+     * back to Scheduled, by the rules of any status change (an overlap is named on its screen).
+     * One that has another outcome by now, set elsewhere, keeps it, and the Stylist is told.
+     */
+    private fun undoHomeOutcomes(cards: List<Appointment>, outcome: AppointmentStatus) {
+        var changedElsewhere = false
+
+        cards.forEach { card ->
+            when (HomeOutcomes.undo(shownAppointment(card.id)?.status, outcome)) {
+                HomeOutcomes.Undo.REVERT -> {
+                    homeUndos[card.id] = card
+                    setAppointmentStatus(card.id, AppointmentStatus.SCHEDULED)
+                }
+                HomeOutcomes.Undo.NOTHING -> Unit
+                HomeOutcomes.Undo.CHANGED_ELSEWHERE -> changedElsewhere = true
+            }
+        }
+        if (changedElsewhere) {
+            notify(R.string.home_undo_changed_elsewhere)
         }
     }
 
@@ -1565,6 +1657,17 @@ internal fun unreadPhotosNotice(selected: Int, unread: List<ApiException>): Noti
         unread.size == selected -> Notice(R.string.appointment_photos_none_read, isError = true)
         // How many, so that the Stylist knows the pictures on screen are not the whole selection.
         else -> Notice(R.string.appointment_photos_some_unread, isError = true, args = listOf(unread.size, selected))
+    }
+
+/** What the notice says after an outcome chip on a Home card set [this]. */
+@StringRes
+internal fun AppointmentStatus.homeNotice(): Int =
+    when (this) {
+        AppointmentStatus.COMPLETED -> R.string.home_outcome_completed
+        AppointmentStatus.CANCELED -> R.string.home_outcome_canceled
+        AppointmentStatus.NO_SHOW -> R.string.home_outcome_no_show
+        // No chip sets it; named for completeness.
+        AppointmentStatus.SCHEDULED -> R.string.appointment_status_scheduled
     }
 
 internal fun profileShareKey(clientId: String) = "profileShare:$clientId"

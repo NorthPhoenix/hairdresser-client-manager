@@ -178,8 +178,16 @@
     <string name="error_timezone_unusable">Устройство не знает сохранённый часовой пояс, поэтому время показано по часовому поясу устройства. Выберите свой часовой пояс на вкладке «Профиль».</string>
     <string name="generate_share_image">Создать изображение</string>
     <string name="home_appointments_title">Сегодня и незакрытые</string>
+    <string name="home_complete_all">Все завершены</string>
+    <string name="home_day_not_closed">%1$s — %2$s</string>
     <string name="home_empty_body">На сегодня записей нет, и все прошлые закрыты.</string>
+    <string name="home_outcome_canceled">%1$s — отменена</string>
+    <string name="home_outcome_chip_description">%1$s, %2$s</string>
+    <string name="home_outcome_completed">%1$s — завершена</string>
+    <string name="home_outcome_no_show">%1$s — неявка</string>
     <string name="home_today_section">Сегодня</string>
+    <string name="home_undo_changed_elsewhere">Запись тем временем изменили, поэтому статус остался как есть.</string>
+    <string name="home_undo_overlap">Запись снова запланирована, но пересекается по времени с другой.</string>
     <string name="home_unresolved_section">Нужно закрыть</string>
     <string name="import_contact">Импорт из контактов</string>
     <string name="import_contact_apply">Импортировать</string>
@@ -206,6 +214,7 @@
     <string name="no_clients_body">Чтобы добавить первого клиента, достаточно имени. Остальное можно заполнить позже.</string>
     <string name="no_clients_title">Клиентов пока нет</string>
     <string name="not_set">Не указано</string>
+    <string name="notice_undo">Отменить</string>
     <string name="ok">ОК</string>
     <string name="onboarding_subtitle">Проверьте язык, часовой пояс и адрес салона перед началом работы.</string>
     <string name="onboarding_title">Настройте приложение</string>
@@ -347,6 +356,18 @@
         <item quantity="few">Скопируются %d услуги</item>
         <item quantity="many">Скопируется %d услуг</item>
         <item quantity="other">Скопируется %d услуги</item>
+    </plurals>
+    <plurals name="home_completed_count">
+        <item quantity="one">%d запись завершена</item>
+        <item quantity="few">%d записи завершены</item>
+        <item quantity="many">%d записей завершено</item>
+        <item quantity="other">%d записи завершено</item>
+    </plurals>
+    <plurals name="home_day_not_closed_count">
+        <item quantity="one">%d запись не закрыта</item>
+        <item quantity="few">%d записи не закрыты</item>
+        <item quantity="many">%d записей не закрыто</item>
+        <item quantity="other">%d записи не закрыто</item>
     </plurals>
     <plurals name="sign_out_unsaved_photos">
         <item quantity="one">%d фото ещё не сохранено. Если вы выйдете, оно будет удалено с этого устройства.</item>
