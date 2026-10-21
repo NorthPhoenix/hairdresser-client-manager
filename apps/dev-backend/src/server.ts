@@ -12,7 +12,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { Readable } from "node:stream";
-import { appointmentPhotoFiles, appRouter, authorizePhotoUpload, createTRPCContext } from "@hcm/api";
+import { appointmentPhotoFiles, appRouter, appVersionFromHeaders, authorizePhotoUpload, createTRPCContext } from "@hcm/api";
 import { db } from "@hcm/db";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { createRouteHandler, createUploadthing, UploadThingError, type FileRouter } from "uploadthing/server";
@@ -224,7 +224,10 @@ async function handle(request: Request): Promise<Response> {
           auth: async () => ({ userId: getDevUserId(request.headers.get("authorization")) }),
           // Photos live in the storage emulator below, not at UploadThing.
           photoOrigins: [new URL(origin).origin],
-          deleteStoredFiles
+          deleteStoredFiles,
+          appVersion: appVersionFromHeaders(request.headers),
+          // Optional here: without it the app's update notice has no "Update" button.
+          appDownloadUrl: process.env.APP_DOWNLOAD_URL
         }),
       // The reply to an unexpected failure says nothing about it, so the log has to.
       onError: ({ error, path }) => {

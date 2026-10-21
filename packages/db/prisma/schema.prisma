@@ -42,6 +42,14 @@ model Stylist {
   timezone              String
   salonAddress          String?
   onboardingCompletedAt DateTime?
+  // The Android app the Stylist last used, as it names itself in the X-App-Version-Code and
+  // X-App-Version-Name headers of its requests, and when a request with them was last seen
+  // (written at most about once an hour, or when the version changes). Null: no app that sends
+  // them has been seen. Writing them does not change updatedAt, which is the version of the
+  // Stylist's settings (docs/adr/0015).
+  appVersionCode        Int?
+  appVersionName        String?
+  appVersionSeenAt      DateTime?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 

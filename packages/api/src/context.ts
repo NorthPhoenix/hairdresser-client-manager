@@ -1,4 +1,5 @@
 import { db, type Prisma } from "@hcm/db";
+import type { AppVersion } from "./appReleases";
 import type { SharePhotoReader } from "./shareImage";
 
 export type ClerkAuth = {
@@ -29,6 +30,26 @@ export type CreateTRPCContextOptions = {
    * called with URLs in `photoOrigins`. Left out: a Share Image embeds no photo and says so.
    */
   readSharePhoto?: SharePhotoReader;
+  /**
+   * The version of the Android app that sent the request (`appVersionFromHeaders`). Left out or
+   * null, as for every app before 1.4.0: the Stylist's last seen app version is not written.
+   */
+  appVersion?: AppVersion | null;
+  /**
+   * Where the Android app is downloaded from (APP_DOWNLOAD_URL), which `app.releases` hands to
+   * the app for its "Update" button. Left out or empty: the app offers no download.
+   */
+  appDownloadUrl?: string | null;
+};
+
+/**
+ * What a request tells about the app that sent it. Optional in the context too: a context made
+ * without it (a test, a host that does not read the headers) is one of no app version and no
+ * download address.
+ */
+type AppRequestContext = {
+  appVersion?: AppVersion | null;
+  appDownloadUrl?: string | null;
 };
 
 export async function createTRPCContext({
@@ -36,9 +57,15 @@ export async function createTRPCContext({
   photoOrigins = [],
   deleteStoredFiles = async () => undefined,
   accountName = async () => null,
-  readSharePhoto = async () => null
+  readSharePhoto = async () => null,
+  appVersion = null,
+  appDownloadUrl = null
 }: CreateTRPCContextOptions) {
   const clerkAuth = await auth();
+  const app: AppRequestContext = {
+    appVersion,
+    appDownloadUrl: appDownloadUrl?.trim() || null
+  };
 
   return {
     db,
@@ -46,7 +73,8 @@ export async function createTRPCContext({
     photoOrigins,
     deleteStoredFiles,
     accountName,
-    readSharePhoto
+    readSharePhoto,
+    ...app
   };
 }
 
