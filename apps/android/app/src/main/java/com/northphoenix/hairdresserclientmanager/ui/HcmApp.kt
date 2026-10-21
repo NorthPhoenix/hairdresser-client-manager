@@ -14,6 +14,7 @@ import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -79,7 +80,21 @@ fun HcmApp(container: AppContainer) {
                 viewModel.notices.collect { notice ->
                     // Replace whatever is showing instead of queueing behind it.
                     snackbarHostState.currentSnackbarData?.dismiss()
-                    launch { snackbarHostState.showSnackbar(NoticeVisuals(context.noticeText(notice.message, notice.args), notice.message, notice.isError, notice.args)) }
+                    launch {
+                        val visuals = NoticeVisuals(
+                            context.noticeText(notice.message, notice.args, notice.quantity),
+                            notice.message,
+                            notice.isError,
+                            notice.args,
+                            notice.quantity,
+                            notice.action?.label,
+                            notice.action?.label?.let(context::getString),
+                        )
+
+                        if (snackbarHostState.showSnackbar(visuals) == SnackbarResult.ActionPerformed) {
+                            notice.action?.run?.invoke()
+                        }
+                    }
                 }
             }
 

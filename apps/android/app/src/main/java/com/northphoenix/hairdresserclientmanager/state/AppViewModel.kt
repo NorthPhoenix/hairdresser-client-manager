@@ -79,8 +79,20 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** A transient message for the snackbar, resolved to text by the UI in the current app language. [args] fill the text's placeholders. */
-data class Notice(@StringRes val message: Int, val isError: Boolean = false, val args: List<Any> = emptyList())
+/**
+ * A transient message for the snackbar, resolved to text by the UI in the current app language. [args] fill the text's placeholders.
+ * With [quantity], [message] is a `plurals` resource, and the form is chosen by the quantity. [action] is a button on the notice, such as 'Undo'.
+ */
+data class Notice(
+    @StringRes val message: Int,
+    val isError: Boolean = false,
+    val args: List<Any> = emptyList(),
+    val quantity: Int? = null,
+    val action: NoticeAction? = null,
+)
+
+/** A button on a notice: [label] says what [run] does. It can be tapped for as long as the notice is shown, and at most once. */
+data class NoticeAction(@StringRes val label: Int, val run: () -> Unit)
 
 /** A Calendar day with what is loaded of it: [appointments] and [load] are always of [day]. The list is empty only when [load] is Loaded. */
 data class CalendarDay(val day: LocalDate, val appointments: List<Appointment> = emptyList(), val load: LoadState = LoadState.Loading)
