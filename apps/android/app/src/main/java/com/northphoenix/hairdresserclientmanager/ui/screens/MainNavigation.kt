@@ -74,6 +74,7 @@ private object Routes {
     const val MAIN = "main"
     const val SERVICES = "services"
     const val EARNINGS = "earnings"
+    const val RELEASES = "releases"
     const val APPOINTMENT = "appointment/{id}"
     const val NEW_APPOINTMENT = "appointment-new?date={date}&client={client}&place={place}&address={address}"
 
@@ -153,6 +154,9 @@ fun MainNavigation(viewModel: AppViewModel) {
         }
         composable(Routes.EARNINGS) { entry ->
             EarningsScreen(viewModel, onBack = { navController.from(entry) { popBackStack() } })
+        }
+        composable(Routes.RELEASES) { entry ->
+            ReleasesScreen(viewModel, onBack = { navController.from(entry) { popBackStack() } })
         }
         composable(Routes.SERVICES) { entry ->
             ServiceMenuScreen(viewModel, onBack = { navController.from(entry) { popBackStack() } })
@@ -313,7 +317,12 @@ private fun MainScreen(viewModel: AppViewModel, open: (route: String) -> Unit) {
                     MainTab.TODAY -> TodayScreen(viewModel, openAppointment)
                     MainTab.CALENDAR -> CalendarScreen(viewModel, openAppointment)
                     MainTab.CLIENTS -> ClientsScreen(viewModel, onOpenClient = { open(Routes.clientProfile(it)) }, onImport = { open(Routes.CONTACT_IMPORT) })
-                    MainTab.PROFILE -> ProfileScreen(viewModel, onOpenServiceMenu = { open(Routes.SERVICES) }, onOpenEarnings = { open(Routes.EARNINGS) })
+                    MainTab.PROFILE -> ProfileScreen(
+                        viewModel,
+                        onOpenServiceMenu = { open(Routes.SERVICES) },
+                        onOpenEarnings = { open(Routes.EARNINGS) },
+                        onOpenReleases = { open(Routes.RELEASES) },
+                    )
                 }
             }
             BusyBar(saving, Modifier.align(Alignment.TopCenter))
