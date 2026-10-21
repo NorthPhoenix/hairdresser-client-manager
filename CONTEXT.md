@@ -112,7 +112,7 @@ Making two Client Profiles of one person one. The Stylist picks which of the two
 _Avoid_: Combine, dedupe, link contacts
 
 **Phone Number Display**:
-Every phone number is shown in one form: a US number (ten digits, or eleven starting with 1) as "(512) 917-4528", any other as typed. Showing does not change what is stored; a save from the Client Profile form stores a US number in that form. Two phone numbers are the same number when their digits are, a US number and a Russian mobile compared without their country code.
+Every phone number is shown in one form: a US number (ten digits, or eleven starting with 1) as "(512) 917-4528", any other as typed. Showing does not change what is stored; a save from the Client Profile form stores a US number in that form. Two phone numbers are the same number when their digits are, a US number and a Russian mobile compared without their country code. One rule decides this everywhere a number is compared for being the same: a possible duplicate, Client Merge and Contact Import (a search by digits finds a part of a number and is not this).
 _Avoid_: Phone normalization, canonical phone
 
 **Client Account**:
@@ -132,7 +132,7 @@ Not a v1 concept. Client Profiles can be deleted rather than archived.
 _Avoid_: Hide client, inactive client
 
 **Contact Import**:
-A one-time action that copies details from a selected device contact into a new or existing Client Profile with Stylist confirmation. In v1, Contact Import does not continuously sync with device contacts. The Clients View also imports several contacts at once: a list of the device contacts that have a phone number, to tick, each of which becomes a new Client with its name (its number when it has none), first number, postal address and note (as the Client Note), in the Stylist's language. A contact one of whose numbers a Client already has, compared by the last ten digits, is shown as already a Client and cannot be picked. Each Client is created by its own save with its own request key, so a try sent again creates no second one; the contacts that could not be added stay picked to try again.
+A one-time action that copies details from a selected device contact into a new or existing Client Profile with Stylist confirmation. In v1, Contact Import does not continuously sync with device contacts. The Clients View also imports several contacts at once: a list of the device contacts that have a phone number, to tick, each of which becomes a new Client with its name (its number when it has none), first number, postal address and note (as the Client Note), in the Stylist's language. A contact one of whose numbers a Client already has, compared as for a possible duplicate (see Phone Number Display), is shown as already a Client and cannot be picked. Each Client is created by its own save with its own request key, so a try sent again creates no second one; the contacts that could not be added stay picked to try again.
 _Avoid_: Contact sync, address book sync
 
 **Client Relationship**:
