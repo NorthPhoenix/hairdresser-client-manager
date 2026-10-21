@@ -105,7 +105,8 @@ fun AppointmentCard(
                         name,
                         modifier = Modifier.weight(1f, fill = false),
                         style = MaterialTheme.typography.titleLarge,
-                        maxLines = 1,
+                        // Two lines: at a large font one line holds only the first name ("Наташа Ор…").
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (others > 0) {
