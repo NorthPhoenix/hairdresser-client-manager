@@ -96,8 +96,11 @@ fun ClientProfileScreen(
     val client = clients.firstOrNull { it.id == clientId }
     // The Client the merge sheet is open for.
     var mergingWith by rememberSaveable(clientId) { mutableStateOf<String?>(null) }
-    // The suggested referrer the Stylist said no to, until she leaves this profile.
-    var suggestionRefused by rememberSaveable(clientId) { mutableStateOf(false) }
+    // The suggested referrers the Stylist said no to ("Client:referrer"). Kept on this device, so the
+    // question is not asked again at every visit of the profile.
+    val appContext = LocalContext.current.applicationContext
+    val refusals = remember { appContext.getSharedPreferences("referral_suggestions_refused", Context.MODE_PRIVATE) }
+    var refused by remember { mutableStateOf(refusals.getStringSet("pairs", emptySet()).orEmpty()) }
 
     if (client == null) {
         MissingClient(viewModel, clientId, onBack, saving)
@@ -131,7 +134,7 @@ fun ClientProfileScreen(
             Referrer(
                 client,
                 clients,
-                suggestionRefused = suggestionRefused,
+                refused = refused,
                 busy = busy,
                 onOpenClient = onOpenClient,
                 onAccept = { suggested ->
@@ -140,7 +143,10 @@ fun ClientProfileScreen(
                         client.updatedAt, "", suggested.id,
                     ) {}
                 },
-                onRefuse = { suggestionRefused = true },
+                onRefuse = { pair ->
+                    refused = refused + pair
+                    refusals.edit().putStringSet("pairs", refused).apply()
+                },
             )
 
             // Another Client with the same number, until the Stylist merges them or says they are different people.
@@ -210,11 +216,11 @@ fun ClientProfileScreen(
 private fun Referrer(
     client: ClientProfile,
     clients: List<ClientProfile>,
-    suggestionRefused: Boolean,
+    refused: Set<String>,
     busy: Boolean,
     onOpenClient: (String) -> Unit,
     onAccept: (ClientProfile) -> Unit,
-    onRefuse: () -> Unit,
+    onRefuse: (String) -> Unit,
 ) {
     val referrer = Referrals.referrer(client, clients)
 
@@ -242,7 +248,7 @@ private fun Referrer(
         return
     }
 
-    val suggested = if (suggestionRefused) null else Referrals.suggestion(client, clients)
+    val suggested = Referrals.suggestion(client, clients)?.takeIf { "${client.id}:${it.id}" !in refused }
 
     if (suggested != null) {
         HcmCard(color = MaterialTheme.colorScheme.secondaryContainer, contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp)) {
@@ -252,7 +258,7 @@ private fun Referrer(
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f),
                 )
-                TextAction(stringResource(R.string.client_referral_suggestion_no), onClick = onRefuse, enabled = !busy)
+                TextAction(stringResource(R.string.client_referral_suggestion_no), onClick = { onRefuse("${client.id}:${suggested.id}") }, enabled = !busy)
                 TextAction(stringResource(R.string.client_referral_suggestion_yes), onClick = { onAccept(suggested) }, enabled = !busy)
             }
         }
