@@ -141,7 +141,7 @@ An optional connection that lets a Stylist mirror Appointments from the app to a
 _Avoid_: Calendar source, imported calendar, external schedule
 
 **Calendar View**:
-An in-app way for the Stylist to browse Appointments by date using simple calendar navigation and agenda lists. Drag-and-drop calendar editing is not a v1 concept.
+An in-app way for the Stylist to browse Appointments by date using simple calendar navigation and agenda lists. Its week strip marks each day that has an Appointment that is not canceled. Drag-and-drop calendar editing is not a v1 concept.
 _Avoid_: Scheduler, calendar editor, booking calendar
 
 **Stylist Reminder**:
@@ -149,7 +149,7 @@ A notification automatically shown to the Stylist before a scheduled Appointment
 _Avoid_: Push reminder, internal reminder, alert
 
 **Client Reminder**:
-A Stylist-initiated SMS reminder message before an Appointment. In v1, the app composes a fixed default message in the recipient Client's language with Appointment time and location details, sends group Appointment reminders to the primary Client, requires the reminder recipient to have a phone number, and does not track reminder status.
+A Stylist-initiated SMS reminder message before an Appointment, offered for a scheduled Appointment until its start time. In v1, the app composes a fixed default message in the recipient Client's language with Appointment time and location details, sends group Appointment reminders to the primary Client, requires the reminder recipient to have a phone number, and does not track reminder status.
 _Avoid_: Client notification, appointment text, confirmation message
 
 **Profile Share**:

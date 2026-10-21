@@ -7,6 +7,7 @@ import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
+import com.northphoenix.hairdresserclientmanager.data.StoredFile
 import com.northphoenix.hairdresserclientmanager.data.TravelFeeChange
 import com.northphoenix.hairdresserclientmanager.data.TrpcClient
 import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
@@ -185,6 +186,28 @@ class ApiClientTest {
         assertEquals(
             """{"id":"m1","name":"Cut","defaultPriceCents":1200,"group":"Cuts","travelFee":false}""",
             sent("""{"result":{"data":{"id":"m1","name":"Cut","defaultPriceCents":1200}}}""") { api.saveServiceMenuItem("m1", MenuItemValues("Cut", 1200, "Cuts"), KEY) },
+        )
+    }
+
+    @Test
+    fun `a stored photo is recorded with its size when the app knows it, and without one otherwise`() = runTest {
+        suspend fun sent(stored: StoredFile): String {
+            enqueue("""{"result":{"data":{}}}""")
+            api.addStoredPhoto("a1", "c1", PhotoCategory.AFTER, stored, requestKey = KEY)
+            return server.takeRequest().body?.utf8().orEmpty()
+        }
+        val file = StoredFile("key-1", "https://files.example/1", "https://files.example/1")
+
+        assertEquals(
+            """{"appointmentId":"a1","clientId":"c1","category":"after","status":"stored","fileKey":"key-1","url":"https://files.example/1",""" +
+                """"thumbnailUrl":"https://files.example/1","width":1536,"height":2048,"requestKey":"$KEY"}""",
+            sent(file.copy(width = 1536, height = 2048)),
+        )
+        // A photo whose upload was recorded on the device before the app read sizes: as before.
+        assertEquals(
+            """{"appointmentId":"a1","clientId":"c1","category":"after","status":"stored","fileKey":"key-1","url":"https://files.example/1",""" +
+                """"thumbnailUrl":"https://files.example/1","requestKey":"$KEY"}""",
+            sent(file),
         )
     }
 

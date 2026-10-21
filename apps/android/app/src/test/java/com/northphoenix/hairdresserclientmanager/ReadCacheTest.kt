@@ -7,12 +7,14 @@ import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.LocationType
+import com.northphoenix.hairdresserclientmanager.domain.CalendarWeek
 import com.northphoenix.hairdresserclientmanager.state.Answer
 import com.northphoenix.hairdresserclientmanager.state.AppointmentKey
 import com.northphoenix.hairdresserclientmanager.state.AppointmentReads
 import com.northphoenix.hairdresserclientmanager.state.CacheLimits
 import com.northphoenix.hairdresserclientmanager.state.Changes
 import com.northphoenix.hairdresserclientmanager.state.DayKey
+import com.northphoenix.hairdresserclientmanager.state.WeekKey
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.state.Read
 import com.northphoenix.hairdresserclientmanager.state.ReadCache
@@ -100,6 +102,9 @@ class ReadCacheTest {
 
         suspend fun today(key: DayKey): List<Appointment> = answer("today ${key.day}") { todays }
 
+        suspend fun week(key: WeekKey): List<Appointment> =
+            answer("week ${key.firstDay}") { CalendarWeek.days(key.firstDay).flatMap { days[it].orEmpty() } }
+
         suspend fun find(id: String): Appointment? = answer("get $id") { (days.values.flatten() + todays).firstOrNull { it.id == id } }
 
         private suspend fun <T> answer(request: String, read: () -> T): T {
@@ -123,7 +128,7 @@ class ReadCacheTest {
     }
 
     private fun TestScope.reads(server: Server, changes: Changes = Changes()) =
-        AppointmentReads(backgroundScope, changes, server::today, server::day, server::find, fetchSources = { emptyList() })
+        AppointmentReads(backgroundScope, changes, server::today, server::day, server::find, fetchSources = { emptyList() }, fetchWeek = server::week)
 
     /** What a screen that reads [flow] is shown, value by value. It starts reading at once, as a screen does. */
     private fun <T> TestScope.shownBy(flow: Flow<T>): Pair<List<T>, Job> {
@@ -368,7 +373,7 @@ class ReadCacheTest {
                 days[monday.day] = listOf(appointment("a1"))
                 days[tuesday.day] = listOf(appointment("a2"))
             }
-            val reads = AppointmentReads(immediate, Changes(), server::today, server::day, server::find, fetchSources = { emptyList() })
+            val reads = AppointmentReads(immediate, Changes(), server::today, server::day, server::find, fetchSources = { emptyList() }, fetchWeek = { emptyList() })
             val timezone = MutableStateFlow<ZoneId?>(null)
             val chosen = MutableStateFlow(monday.day)
             val calendar = mutableListOf<Pair<LocalDate, Read<List<Appointment>>>>()
@@ -915,6 +920,47 @@ class ReadCacheTest {
         val (anew) = shownBy(cache.watch("c1"))
         runCurrent()
         assertEquals(listOf(Read<String>(LoadState.Loading), Read<String>(failedOffline)), anew)
+    }
+
+    @Test
+    fun `the week strip's marks follow a canceled, a deleted and a new Appointment`() = runTest {
+        val week = WeekKey(monday.day, zone)
+        val server = Server().apply {
+            days[monday.day] = listOf(appointment("a1"))
+            days[tuesday.day] = listOf(appointment("a2", clientId = "c2").copy(startsAt = "2026-10-13T15:00:00.000Z"))
+        }
+        val reads = reads(server)
+        val (shown, watching) = shownBy(reads.weeks.watch(week))
+        runCurrent()
+        fun marks() = CalendarWeek.daysWithAppointments(shown.last().data.orEmpty(), zone)
+        assertEquals(setOf(monday.day, tuesday.day), marks())
+        assertEquals(listOf("week ${monday.day}"), server.requests)
+
+        // Canceled before the server has answered: Monday is no longer marked, and is again when the change fails.
+        val cancel = reads.ahead("status-a1", "a1") { it.copy(status = AppointmentStatus.CANCELED) }
+        cancel.show()
+        runCurrent()
+        assertEquals(setOf(tuesday.day), marks())
+        cancel.settle()
+        runCurrent()
+        assertEquals(setOf(monday.day, tuesday.day), marks())
+
+        // Deleted: Tuesday has nothing left.
+        server.days[tuesday.day] = emptyList()
+        reads.forget("a2")
+        runCurrent()
+        assertEquals(setOf(monday.day), marks())
+
+        // Created on Wednesday: the week as it was cached does not have it, so it is loaded anew.
+        watching.cancel()
+        runCurrent()
+        val created = appointment("a3", clientId = "c3").copy(startsAt = "2026-10-14T15:00:00.000Z")
+        server.days[wednesday.day] = listOf(created)
+        reads.startChanged(null, Instant.parse(created.startsAt))
+        val (again) = shownBy(reads.weeks.watch(week))
+        runCurrent()
+        assertEquals(listOf(LoadState.Loading, LoadState.Loaded), again.map { it.state })
+        assertEquals(setOf(monday.day, wednesday.day), CalendarWeek.daysWithAppointments(again.last().data.orEmpty(), zone))
     }
 
     @Test

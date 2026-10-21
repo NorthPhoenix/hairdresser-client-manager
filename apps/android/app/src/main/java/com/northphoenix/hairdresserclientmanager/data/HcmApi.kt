@@ -423,9 +423,7 @@ class HcmApi(private val trpc: TrpcClient) {
         appointmentId: String,
         clientId: String,
         category: PhotoCategory,
-        fileKey: String,
-        url: String,
-        thumbnailUrl: String,
+        stored: StoredFile,
         requestKey: String,
     ): List<AppointmentPhoto>? {
         val reply = trpc.mutation<JsonObject>(
@@ -435,9 +433,14 @@ class HcmApi(private val trpc: TrpcClient) {
                 put("clientId", clientId)
                 put("category", category.wire)
                 put("status", "stored")
-                put("fileKey", fileKey)
-                put("url", url)
-                put("thumbnailUrl", thumbnailUrl)
+                put("fileKey", stored.fileKey)
+                put("url", stored.url)
+                put("thumbnailUrl", stored.thumbnailUrl)
+                // Both or neither: a photo is never recorded with one side only.
+                if (stored.width != null && stored.height != null) {
+                    put("width", stored.width)
+                    put("height", stored.height)
+                }
                 put(REQUEST_KEY, requestKey)
             },
         )
