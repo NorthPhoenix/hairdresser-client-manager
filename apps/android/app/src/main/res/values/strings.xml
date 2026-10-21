@@ -72,7 +72,6 @@
     <string name="appointment_photos_title">Photos</string>
     <string name="appointment_photos_unavailable">Photos can\'t be added: photo storage isn\'t set up on the server.</string>
     <string name="appointment_saved">Appointment created.</string>
-    <string name="appointment_service_client_label">Client</string>
     <string name="appointment_service_name_label">Service</string>
     <string name="appointment_service_note_label">Service note</string>
     <string name="appointment_service_price_label">Price</string>
@@ -283,6 +282,11 @@
     <string name="service_group_expanded">Expanded</string>
     <string name="service_group_frequent">Often used</string>
     <string name="service_group_other">Other</string>
+    <string name="service_for_whom">For whom</string>
+    <string name="service_for_whom_add">Person</string>
+    <string name="service_for_whom_add_description">Add a person to the Appointment</string>
+    <string name="service_for_whom_add_title">Who else is coming</string>
+    <string name="add_service_for_client">Add Service for %1$s</string>
     <string name="service_menu_empty_body">Add a common service to fill Appointments faster.</string>
     <string name="service_menu_empty_title">No Service Menu Items</string>
     <string name="service_menu_group_hint">Services of one group are shown together when you add Services to an Appointment.</string>

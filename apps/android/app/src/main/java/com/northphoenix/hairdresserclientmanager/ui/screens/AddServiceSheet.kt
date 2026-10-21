@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.ExpandLess
@@ -41,6 +42,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.Appointment
+import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.ServiceMenuItem
 import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
@@ -48,6 +50,7 @@ import com.northphoenix.hairdresserclientmanager.domain.MenuPicker
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.state.LoadState
+import com.northphoenix.hairdresserclientmanager.ui.components.ActionChip
 import com.northphoenix.hairdresserclientmanager.ui.components.AmountField
 import com.northphoenix.hairdresserclientmanager.ui.components.ChoiceChip
 import com.northphoenix.hairdresserclientmanager.ui.components.Hairline
@@ -57,6 +60,7 @@ import com.northphoenix.hairdresserclientmanager.ui.components.InlineEmpty
 import com.northphoenix.hairdresserclientmanager.ui.components.InlineLoadFailed
 import com.northphoenix.hairdresserclientmanager.ui.components.PrimaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
+import com.northphoenix.hairdresserclientmanager.ui.components.rememberRequestKey
 
 /**
  * Add Services: Services from the Service Menu, several at once, or one custom Service.
@@ -67,25 +71,36 @@ import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
  * request ([onAddFromMenu]). "Custom service" opens the form of an ad hoc Service ([onAddCustom]),
  * which is all the sheet has when the menu is empty.
  *
- * Who the Services are for is picked above both, as before: the primary Client unless another
- * Client of the Appointment is picked.
+ * Who the Services are for is picked above both, under "For whom": one chip per Client of the
+ * Appointment, [initialClientId] or else the primary Client picked when the sheet opens, and a
+ * chip that adds a person to the Appointment. That person is a Client who exists ([onAddPerson])
+ * or a new one made from just a typed name ([onCreatePerson]), and is picked once they are in.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun AddServiceSheet(
     appointment: Appointment,
+    initialClientId: String?,
     menu: List<ServiceMenuItem>,
     menuLoad: LoadState,
     onRetry: () -> Unit,
+    clients: List<ClientProfile>,
+    clientsLoad: LoadState,
     busy: Boolean,
     onDismiss: () -> Unit,
     onMissingName: () -> Unit,
     onAddFromMenu: (clientId: String, menuItemIds: List<String>) -> Unit,
     onAddCustom: (clientId: String, name: String, priceCents: Long, note: String?) -> Unit,
+    onAddPerson: (clientId: String, onAdded: () -> Unit) -> Unit,
+    onCreatePerson: (name: String, requestKey: String, onAdded: (clientId: String) -> Unit) -> Unit,
 ) {
     // The Client picked here, if any. They can have been removed from the Appointment while the sheet is open.
-    var pickedClientId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pickedClientId by rememberSaveable { mutableStateOf(initialClientId) }
     val clientId = AppointmentClients.serviceClientId(appointment, pickedClientId)
+    var personOpen by rememberSaveable { mutableStateOf(false) }
+    // The person just added, until the Appointment read again lists them. Only while that is under way.
+    var addedName by rememberSaveable { mutableStateOf<String?>(null) }
+    val pending = addedName?.takeIf { busy && pickedClientId != null && !AppointmentClients.isIn(appointment, pickedClientId!!) }
     var customOpen by rememberSaveable { mutableStateOf(false) }
     // A menu that has loaded empty has nothing to pick from: the custom form is all there is.
     val custom = customOpen || menuLoad == LoadState.Loaded && menu.isEmpty()
@@ -138,14 +153,25 @@ internal fun AddServiceSheet(
             }
         },
     ) {
-        if (appointment.participants.size > 1) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(stringResource(R.string.appointment_service_client_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    appointment.participants.forEach { participant ->
-                        ChoiceChip(participant.name, selected = clientId == participant.clientId, onClick = { pickedClientId = participant.clientId })
-                    }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.service_for_whom), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                appointment.participants.sortedByDescending { it.isPrimary }.forEach { participant ->
+                    ChoiceChip(
+                        participant.name,
+                        selected = pending == null && clientId == participant.clientId,
+                        wraps = true,
+                        onClick = { pickedClientId = participant.clientId },
+                    )
                 }
+                pending?.let { ChoiceChip(it, selected = true, wraps = true, onClick = {}) }
+                ActionChip(
+                    stringResource(R.string.service_for_whom_add),
+                    icon = Icons.Rounded.Add,
+                    onClick = { personOpen = true },
+                    description = stringResource(R.string.service_for_whom_add_description),
+                    dashed = true,
+                )
             }
         }
 
@@ -188,6 +214,44 @@ internal fun AddServiceSheet(
                 modifier = Modifier.align(Alignment.CenterHorizontally),
             )
         }
+    }
+
+    if (personOpen) {
+        // One key for the person this picker is opened to create: a second try after a failure makes no second Client.
+        val requestKey = rememberRequestKey(appointment.id, "person")
+
+        // Over the sheet, which keeps what is picked in it meanwhile.
+        ClientPickerSheet(
+            title = stringResource(R.string.service_for_whom_add_title),
+            clients = clients,
+            load = clientsLoad,
+            onRetry = onRetry,
+            // The Clients of the Appointment are offered too, ticked: picking one of them only picks them here.
+            selectedIds = appointment.participants.mapTo(HashSet()) { it.clientId },
+            onDismiss = { personOpen = false },
+            onPick = { client ->
+                if (AppointmentClients.isIn(appointment, client.id)) {
+                    pickedClientId = client.id
+                    personOpen = false
+                } else if (!busy) {
+                    onAddPerson(client.id) {
+                        pickedClientId = client.id
+                        addedName = client.name
+                        personOpen = false
+                    }
+                }
+            },
+            onCreateInline = { name ->
+                if (!busy) {
+                    onCreatePerson(name, requestKey) { id ->
+                        pickedClientId = id
+                        addedName = name
+                        personOpen = false
+                    }
+                }
+            },
+            busy = busy,
+        )
     }
 }
 

@@ -71,7 +71,6 @@
     <string name="appointment_photos_title">Фото</string>
     <string name="appointment_photos_unavailable">Добавить фото нельзя: на сервере не настроено хранилище фото.</string>
     <string name="appointment_saved">Запись создана.</string>
-    <string name="appointment_service_client_label">Клиент</string>
     <string name="appointment_service_name_label">Услуга</string>
     <string name="appointment_service_note_label">Заметка к услуге</string>
     <string name="appointment_service_price_label">Цена</string>
@@ -280,6 +279,11 @@
     <string name="service_group_expanded">Развёрнуто</string>
     <string name="service_group_frequent">Часто у вас</string>
     <string name="service_group_other">Другое</string>
+    <string name="service_for_whom">Для кого</string>
+    <string name="service_for_whom_add">Человек</string>
+    <string name="service_for_whom_add_description">Добавить человека в запись</string>
+    <string name="service_for_whom_add_title">Кто ещё на записи</string>
+    <string name="add_service_for_client">Добавить услугу: %1$s</string>
     <string name="service_menu_empty_body">Добавьте услуги, которые оказываете чаще всего, чтобы быстрее заполнять записи.</string>
     <string name="service_menu_empty_title">Меню услуг пустое</string>
     <string name="service_menu_group_hint">Услуги одной группы показываются вместе, когда вы добавляете услуги в запись.</string>

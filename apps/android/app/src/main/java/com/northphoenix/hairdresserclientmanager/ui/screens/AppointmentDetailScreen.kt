@@ -75,12 +75,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -169,7 +171,8 @@ private const val MAX_GALLERY_PHOTOS = 10
 internal sealed interface DetailSheet {
     data object AddClient : DetailSheet
 
-    data object AddService : DetailSheet
+    /** [clientId] is the Client the Services are for when the sheet opens; null for the primary Client. */
+    data class AddService(val clientId: String? = null) : DetailSheet
 
     data object CopyServices : DetailSheet
 
@@ -197,7 +200,7 @@ internal sealed interface DetailSheet {
                 when (sheet) {
                     null -> emptyList()
                     AddClient -> listOf("addClient")
-                    AddService -> listOf("addService")
+                    is AddService -> listOfNotNull("addService", sheet.clientId)
                     CopyServices -> listOf("copyServices")
                     Edit -> listOf("edit")
                     is Service -> listOf("service", sheet.serviceId)
@@ -212,7 +215,7 @@ internal sealed interface DetailSheet {
 
                 when (saved.firstOrNull()) {
                     "addClient" -> AddClient
-                    "addService" -> AddService
+                    "addService" -> AddService(id)
                     "copyServices" -> CopyServices
                     "edit" -> Edit
                     "service" -> id?.let(::Service)
@@ -486,17 +489,18 @@ private fun AppointmentDetail(
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Text(stringResource(R.string.appointment_services_title), style = MaterialTheme.typography.headlineSmall)
 
-                    if (appointment.services.isEmpty()) {
+                    // A group Appointment says so Client by Client.
+                    if (appointment.services.isEmpty() && !isGroup) {
                         InlineEmpty(stringResource(R.string.appointment_no_services))
                     }
 
-                    appointment.services.forEachIndexed { index, service ->
+                    @Composable
+                    fun Services(services: List<AppointmentService>) = services.forEachIndexed { index, service ->
                         if (index > 0) {
                             Hairline()
                         }
                         ServiceBlock(
                             service = service,
-                            clientName = appointment.participants.firstOrNull { it.clientId == service.clientId }?.name.takeIf { isGroup },
                             busy = busy,
                             onEdit = { sheet = DetailSheet.Service(service.id) },
                             onDelete = { deletingServiceId = service.id },
@@ -505,14 +509,34 @@ private fun AppointmentDetail(
                         )
                     }
 
-                    SecondaryButton(
-                        stringResource(R.string.add_appointment_service),
-                        onClick = { sheet = DetailSheet.AddService },
-                        modifier = Modifier.fillMaxWidth(),
-                        // A Service is for one of the Appointment's Clients. Without any, the warning above the Clients says what to do first.
-                        enabled = clientsFault != AppointmentClients.Fault.NO_CLIENTS,
-                        icon = Icons.Rounded.Add,
-                    )
+                    if (isGroup) {
+                        // With several Clients each has their own Services under their name, with what they come to,
+                        // and a Service is added for one of them from there. A Client without Services is listed too.
+                        AppointmentClients.servicesByClient(appointment).forEach { group ->
+                            ClientServicesHeader(group.name, group.subtotalCents)
+                            Services(group.services)
+                            if (AppointmentClients.isIn(appointment, group.clientId)) {
+                                val description = stringResource(R.string.add_service_for_client, group.name)
+
+                                SecondaryButton(
+                                    stringResource(R.string.add_appointment_service),
+                                    onClick = { sheet = DetailSheet.AddService(group.clientId) },
+                                    modifier = Modifier.fillMaxWidth().semantics { contentDescription = description },
+                                    icon = Icons.Rounded.Add,
+                                )
+                            }
+                        }
+                    } else {
+                        Services(appointment.services)
+                        SecondaryButton(
+                            stringResource(R.string.add_appointment_service),
+                            onClick = { sheet = DetailSheet.AddService() },
+                            modifier = Modifier.fillMaxWidth(),
+                            // A Service is for one of the Appointment's Clients. Without any, the warning above the Clients says what to do first.
+                            enabled = clientsFault != AppointmentClients.Fault.NO_CLIENTS,
+                            icon = Icons.Rounded.Add,
+                        )
+                    }
                     TextAction(
                         stringResource(R.string.copy_completed_services),
                         onClick = { sheet = DetailSheet.CopyServices },
@@ -641,7 +665,7 @@ private fun AppointmentDetail(
                 sheet = null
             },
         )
-        DetailSheet.AddService -> {
+        is DetailSheet.AddService -> {
             // One key for the Services this sheet is opened to add from the menu, and one for the
             // custom Service it can add instead, so that a second try of either adds nothing more.
             val menuRequestKey = rememberRequestKey(appointment.id, "menu")
@@ -649,9 +673,12 @@ private fun AppointmentDetail(
 
             AddServiceSheet(
                 appointment = appointment,
+                initialClientId = current.clientId,
                 menu = serviceMenu,
                 menuLoad = serviceMenuLoad,
                 onRetry = viewModel::retryLoad,
+                clients = clients,
+                clientsLoad = clientsLoad,
                 busy = busy,
                 onDismiss = { sheet = null },
                 onMissingName = { viewModel.notify(R.string.service_name_required, isError = true) },
@@ -661,6 +688,8 @@ private fun AppointmentDetail(
                 onAddCustom = { clientId, name, priceCents, note ->
                     viewModel.addService(appointment.id, clientId, null, name, priceCents, note, customRequestKey) { sheet = null }
                 },
+                onAddPerson = { clientId, onAdded -> viewModel.addParticipant(appointment.id, clientId, onAdded) },
+                onCreatePerson = { name, requestKey, onAdded -> viewModel.addNewParticipant(appointment.id, name, requestKey, onAdded) },
             )
         }
         DetailSheet.CopyServices -> {
@@ -1016,9 +1045,10 @@ private fun ParticipantRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Avatar(participant.name, size = 40.dp)
+        val fontScale = LocalDensity.current.fontScale
+        Avatar(participant.name, size = (40 * fontScale.coerceIn(1f, 1.5f)).dp)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(participant.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(participant.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
             // Wraps, so a long badge never squeezes the phone number out.
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                 if (participant.isPrimary) {
@@ -1029,7 +1059,8 @@ private fun ParticipantRow(
                 }
             }
         }
-        if (showSubtotal) {
+        // Each Client's subtotal is also over their Services below; at a large font size the name needs the room more.
+        if (showSubtotal && fontScale < 1.5f) {
             Text(Money.format(participant.subtotalCents), style = MaterialTheme.typography.titleSmall)
         }
         Box {
@@ -1076,10 +1107,23 @@ private fun ParticipantRow(
     }
 }
 
+/** The name of one of the Clients of a group Appointment over their Services, and what their Services come to. */
+@Composable
+private fun ClientServicesHeader(name: String, subtotalCents: Long) {
+    Column(Modifier.fillMaxWidth().padding(top = 6.dp).semantics(mergeDescendants = true) { heading() }, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            // The initials grow with the font size, so the circle does too.
+            Avatar(name, size = (28 * LocalDensity.current.fontScale.coerceIn(1f, 2f)).dp)
+            Text(name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+            Text(Money.format(subtotalCents), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        }
+        Box(Modifier.fillMaxWidth().height(1.5.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)))
+    }
+}
+
 @Composable
 private fun ServiceBlock(
     service: AppointmentService,
-    clientName: String?,
     busy: Boolean,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -1087,19 +1131,25 @@ private fun ServiceBlock(
     onEditFormula: (ColorFormula) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(service.name, style = MaterialTheme.typography.titleLarge)
-                if (clientName != null) {
-                    Text(clientName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
+        // At a large font size the price and the two buttons would leave the name a sliver and break it mid-word: they go under it.
+        val priceAndActions: @Composable () -> Unit = {
             Text(Money.format(service.priceCents), style = MaterialTheme.typography.titleMedium)
             IconButton(onClick = onEdit) {
                 Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.edit_appointment_service), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             IconButton(onClick = onDelete, enabled = !busy) {
                 Icon(Icons.Rounded.DeleteOutline, contentDescription = stringResource(R.string.delete_appointment_service), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        if (LocalDensity.current.fontScale >= 1.5f) {
+            Text(service.name, style = MaterialTheme.typography.titleLarge)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) { priceAndActions() }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(service.name, style = MaterialTheme.typography.titleLarge)
+                }
+                priceAndActions()
             }
         }
         if (service.note.isNotBlank()) {
