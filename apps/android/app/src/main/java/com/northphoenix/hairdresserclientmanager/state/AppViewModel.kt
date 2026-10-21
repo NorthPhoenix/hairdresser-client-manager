@@ -1040,6 +1040,49 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         }
     }
 
+    /**
+     * Makes two Client Profiles of one person one: [removeId]'s Appointments, Services and photos go to
+     * [keepId], and [removeId] is deleted. The server does all of it or nothing, and the screens change only
+     * once it has answered: a merge that could not be sent changes nothing, and one whose answer never came is
+     * reloaded. [onSuccess] gets the kept Client.
+     */
+    fun mergeClients(keepId: String, removeId: String, onSuccess: (ClientProfile) -> Unit) {
+        // A photo on its way to the server would arrive for a Client who is gone.
+        if (photos.uploads.value.any { it.photo.clientId == removeId }) {
+            notify(R.string.client_merge_photo_uploads, isError = true)
+            return
+        }
+
+        // The loaded Appointments of the removed Client, named before the request as for a delete.
+        val affected = AppointmentClients.changedByDeleting(removeId, appointmentReads.all())
+
+        act(
+            key = "mergeClients",
+            successNotice = R.string.client_merged,
+            onSuccess = onSuccess,
+            reload = { together(::loadAll, { affected.forEach { reloadAppointment(it.id) } }, clientReads.history::refreshShown) },
+            touched = {
+                clientReads.changed(keepId)
+                clientReads.changed(removeId)
+            },
+        ) {
+            val merged = api.mergeClients(keepId, removeId)
+
+            clientReads.deleted(removeId)
+            clientReads.saved(merged.client)
+            appointmentReads.clientSaved(merged.client)
+            overlaps.clientDeleted(removeId)
+            merged.client
+        }
+    }
+
+    /** The two Clients are different people: neither is offered as the other's duplicate any more. */
+    fun markClientsDistinct(clientId: String, otherClientId: String) =
+        act("markDistinct:$clientId:$otherClientId", reload = { loadClients() }, touched = { clientReads.changed(clientId) }) {
+            api.markClientsDistinct(clientId, otherClientId)
+            clientReads.distinct(clientId, otherClientId)
+        }
+
     // Creating and revoking one Client's Profile Share share a key, so they run one at a time and a
     // second tap on Create does nothing. A choice of the Profile Share that exists is not waited
     // for (see setProfileShareChoice). The runner sends a Revoke, or the request for a Share Image,
@@ -1757,12 +1800,17 @@ internal fun List<ClientProfile>.withProfileShare(clientId: String, share: Profi
 
 /**
  * The Client list with a just-saved Client in it, first as on the server (latest change first).
- * The reply to a save leaves the Profile Share out, so the one already known is kept.
+ * The reply to a save leaves the Profile Share and whom the Client is not out, so what is already known is kept.
  */
 internal fun List<ClientProfile>.withSaved(saved: ClientProfile): List<ClientProfile> {
     val known = firstOrNull { it.id == saved.id }
 
-    return listOf(saved.copy(activeProfileShare = saved.activeProfileShare ?: known?.activeProfileShare)) + filterNot { it.id == saved.id }
+    return listOf(
+        saved.copy(
+            activeProfileShare = saved.activeProfileShare ?: known?.activeProfileShare,
+            distinctFromIds = saved.distinctFromIds ?: known?.distinctFromIds,
+        ),
+    ) + filterNot { it.id == saved.id }
 }
 
 /**

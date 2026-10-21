@@ -466,4 +466,22 @@
         <item quantity="many">раз в %d лет</item>
         <item quantity="other">раз в %d года</item>
     </plurals>
+    <string name="client_duplicate_banner">Возможно, дубликат: «%1$s» — тот же номер</string>
+    <string name="client_duplicate_merge">Объединить</string>
+    <string name="client_duplicate_distinct">Это разные люди</string>
+    <string name="client_duplicate_tag">Дубликат?</string>
+    <string name="client_merge_title">Объединить клиентов</string>
+    <string name="client_merge_keep_name">Какое имя оставить?</string>
+    <string name="client_merge_no_appointments">Записей нет ни у одного</string>
+    <string name="client_merge_counting">Считаем записи…</string>
+    <string name="client_merge_details">Пустые поля «%1$s» заполнятся из «%2$s», заметки сложатся, фото сохранятся. Карточка «%2$s» будет удалена.</string>
+    <string name="client_merge_confirm">Объединить</string>
+    <string name="client_merged">Клиенты объединены.</string>
+    <string name="client_merge_photo_uploads">У клиента есть фото, которые ещё не загружены. Загрузите или удалите их, затем объединяйте.</string>
+    <plurals name="client_merge_appointments">
+        <item quantity="one">%d запись → будет у «%s»</item>
+        <item quantity="few">Записи: %d → будут у «%s»</item>
+        <item quantity="many">Записи: %d → будут у «%s»</item>
+        <item quantity="other">Записи: %d → будут у «%s»</item>
+    </plurals>
 </resources>

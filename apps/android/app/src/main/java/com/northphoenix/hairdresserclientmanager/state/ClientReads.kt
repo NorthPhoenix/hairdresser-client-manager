@@ -57,6 +57,20 @@ internal class ClientReads(
         changes.changed(id, CLIENTS)
     }
 
+    /** The server has just recorded that these two Clients are different people: neither is the other's duplicate now. */
+    fun distinct(clientId: String, otherClientId: String) {
+        list.update { _, clients ->
+            clients.map { client ->
+                when (client.id) {
+                    clientId -> client.copy(distinctFromIds = client.distinctFromIds.orEmpty() + otherClientId)
+                    otherClientId -> client.copy(distinctFromIds = client.distinctFromIds.orEmpty() + clientId)
+                    else -> client
+                }
+            }
+        }
+        changes.changed(clientId, otherClientId, CLIENTS)
+    }
+
     /** What the server has just answered about a Client's Profile Share: [share], or none after a revoke. */
     fun profileShare(clientId: String, share: ProfileShare?) {
         list.update { _, clients -> clients.withProfileShare(clientId, share) }
