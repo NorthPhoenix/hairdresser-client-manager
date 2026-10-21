@@ -1,6 +1,9 @@
 package com.northphoenix.hairdresserclientmanager.ui.screens
 
 import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -51,6 +54,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -94,9 +98,15 @@ fun ContactImportScreen(viewModel: AppViewModel, onBack: () -> Unit) {
 
     var granted by remember { mutableStateOf(hasPermission()) }
     var asked by rememberSaveable { mutableStateOf(false) }
+    // Android shows its question at most twice; after that "Allow access" can only lead to the settings.
+    var blocked by rememberSaveable { mutableStateOf(false) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { result ->
         granted = result
         asked = true
+        blocked = !result && context.activity()?.let { ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.READ_CONTACTS) } == false
+    }
+    val openSettings = {
+        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)))
     }
 
     // Asked once, when the screen opens. Coming back from the settings looks again.
@@ -191,10 +201,8 @@ fun ContactImportScreen(viewModel: AppViewModel, onBack: () -> Unit) {
         Column(Modifier.fillMaxSize().padding(padding)) {
             when {
                 !granted -> NoPermission(
-                    onAllow = { permission.launch(Manifest.permission.READ_CONTACTS) },
-                    onSettings = {
-                        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)))
-                    },
+                    onAllow = { if (blocked) openSettings() else permission.launch(Manifest.permission.READ_CONTACTS) },
+                    onSettings = openSettings,
                 )
                 read is ContactsRead.Loading -> LoadingRow()
                 rows.isEmpty() -> EmptyState(
@@ -328,4 +336,16 @@ private fun ContactRow(row: ImportRow, checked: Boolean, enabled: Boolean, onTog
             }
         }
     }
+}
+
+private fun Context.activity(): Activity? {
+    var current = this
+
+    while (current is ContextWrapper) {
+        if (current is Activity) {
+            return current
+        }
+        current = current.baseContext
+    }
+    return null
 }
