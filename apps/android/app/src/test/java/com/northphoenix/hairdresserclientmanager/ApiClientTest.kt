@@ -1,11 +1,13 @@
 package com.northphoenix.hairdresserclientmanager
 
 import com.northphoenix.hairdresserclientmanager.data.ApiException
+import com.northphoenix.hairdresserclientmanager.data.AppointmentService
 import com.northphoenix.hairdresserclientmanager.data.HcmApi
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
+import com.northphoenix.hairdresserclientmanager.data.TravelFeeChange
 import com.northphoenix.hairdresserclientmanager.data.TrpcClient
 import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
 import com.northphoenix.hairdresserclientmanager.domain.MenuItemValues
@@ -156,7 +158,7 @@ class ApiClientTest {
             )
         }
         assertEquals(
-            """{"name":"Lost Svc","defaultPriceCents":1200,"group":"","requestKey":"$KEY"}""",
+            """{"name":"Lost Svc","defaultPriceCents":1200,"group":"","travelFee":false,"requestKey":"$KEY"}""",
             sent("""{"result":{"data":{"id":"m1","name":"Lost Svc","defaultPriceCents":1200}}}""") { api.saveServiceMenuItem(null, MenuItemValues("Lost Svc", 1200, ""), KEY) },
         )
         assertEquals(
@@ -181,7 +183,7 @@ class ApiClientTest {
 
         // An edit creates nothing: the key of the form it is sent from is not a part of it.
         assertEquals(
-            """{"id":"m1","name":"Cut","defaultPriceCents":1200,"group":"Cuts"}""",
+            """{"id":"m1","name":"Cut","defaultPriceCents":1200,"group":"Cuts","travelFee":false}""",
             sent("""{"result":{"data":{"id":"m1","name":"Cut","defaultPriceCents":1200}}}""") { api.saveServiceMenuItem("m1", MenuItemValues("Cut", 1200, "Cuts"), KEY) },
         )
     }
@@ -324,6 +326,23 @@ class ApiClientTest {
         assertEquals("9 Lamar Blvd, Austin", saved.locationAddress)
         assertEquals("", saved.customLocationAddress)
         assertEquals("https://www.google.com/maps/search/?api=1&query=9%20Lamar%20Blvd%2C%20Austin", saved.mapUrl)
+    }
+
+    @Test
+    fun `the reply to a change of place says what the Travel Fee added or removed, and an older server says nothing`() = runTest {
+        val fee = """{"id":"sv9","appointmentId":"a1","clientId":"c1","menuItemId":"m9","name":"Выезд на дом","priceCents":2000,"note":"","createdAt":"2026-10-21T20:00:00.000Z"}"""
+        enqueue("""{"result":{"data":${updated.dropLast(1)},"travelFee":{"added":[$fee],"removed":[]}}}}""")
+        enqueue("""{"result":{"data":${updated.dropLast(1)},"travelFee":{"added":[],"removed":[$fee]}}}}""")
+        enqueue("""{"result":{"data":$updated}}""")
+
+        val added = api.updateAppointmentTimeAndPlace("a1", startsAt = null, endsAt = null, locationType = LocationType.AT_HOME, customLocationAddress = "").travelFee
+        val removed = api.updateAppointmentTimeAndPlace("a1", startsAt = null, endsAt = null, locationType = LocationType.IN_SALON, customLocationAddress = "").travelFee
+        val older = api.updateAppointmentTimeAndPlace("a1", startsAt = null, endsAt = null, locationType = LocationType.AT_HOME, customLocationAddress = "").travelFee
+
+        val service = AppointmentService(id = "sv9", clientId = "c1", menuItemId = "m9", name = "Выезд на дом", priceCents = 2000)
+        assertEquals(TravelFeeChange(added = listOf(service)), added)
+        assertEquals(TravelFeeChange(removed = listOf(service)), removed)
+        assertEquals(TravelFeeChange(), older)
     }
 
     @Test

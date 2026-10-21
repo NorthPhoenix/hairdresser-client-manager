@@ -22,10 +22,19 @@ internal class ServiceMenuReads(
     /**
      * The server has just saved this Service Menu Item. One the menu on screen has is replaced
      * where it stands, and keeps how often it was used, which only the menu's list says. Where a
-     * new one goes is the server's to say: the reload shows it.
+     * new one goes is the server's to say: the reload shows it. An item saved as the Travel Fee is
+     * the only one: any other has stopped being it.
      */
     fun saved(item: ServiceMenuItem) {
-        menu.update { _, items -> items.map { if (it.id == item.id) item.copy(useCount = it.useCount) else it } }
+        menu.update { _, items ->
+            items.map {
+                when {
+                    it.id == item.id -> item.copy(useCount = it.useCount)
+                    item.travelFee && it.travelFee -> it.copy(travelFee = false)
+                    else -> it
+                }
+            }
+        }
         changed()
     }
 

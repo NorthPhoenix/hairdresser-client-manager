@@ -278,6 +278,9 @@
     <string name="service_menu_price_label">Цена по умолчанию</string>
     <string name="service_menu_subtitle">Ваши обычные услуги с ценами по умолчанию.</string>
     <string name="service_menu_title">Меню услуг</string>
+    <string name="service_menu_travel_fee_hint">Добавляется сама к записям на дому и убирается, когда запись переносят в салон.</string>
+    <string name="service_menu_travel_fee_label">Плата за выезд</string>
+    <string name="service_menu_travel_fee_replaces">Сейчас это «%1$s»: она перестанет быть платой за выезд.</string>
     <string name="service_search_empty">В меню нет ничего по запросу «%1$s».</string>
     <string name="service_search_placeholder">Услуга или группа</string>
     <string name="service_name_required">Укажите название услуги.</string>
@@ -374,4 +377,8 @@
         <item quantity="many">%d фото ещё не сохранено. Если вы выйдете, они будут удалены с этого устройства.</item>
         <item quantity="other">%d фото ещё не сохранено. Если вы выйдете, они будут удалены с этого устройства.</item>
     </plurals>
+    <string name="travel_fee_added">Добавлен «%1$s» · %2$s</string>
+    <string name="travel_fee_put_back">Вернуть</string>
+    <string name="travel_fee_remove">Убрать</string>
+    <string name="travel_fee_removed">Убран «%1$s»</string>
 </resources>

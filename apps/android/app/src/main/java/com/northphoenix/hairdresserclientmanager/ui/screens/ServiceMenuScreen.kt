@@ -51,6 +51,8 @@ import com.northphoenix.hairdresserclientmanager.ui.components.LoadFailed
 import com.northphoenix.hairdresserclientmanager.ui.components.PrimaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenPadding
 import com.northphoenix.hairdresserclientmanager.ui.components.SubScreen
+import com.northphoenix.hairdresserclientmanager.ui.components.SwitchRow
+import com.northphoenix.hairdresserclientmanager.ui.components.Tag
 import com.northphoenix.hairdresserclientmanager.ui.components.rememberRequestKey
 import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
 
@@ -141,6 +143,7 @@ fun ServiceMenuScreen(viewModel: AppViewModel, onBack: () -> Unit) {
         // own, so it comes back after Android has recreated the screen, also before the menu has loaded.
         var name by rememberSaveable(current) { mutableStateOf(items.firstOrNull { it.id == editedId }?.name.orEmpty()) }
         var group by rememberSaveable(current) { mutableStateOf(items.firstOrNull { it.id == editedId }?.group.orEmpty()) }
+        var travelFee by rememberSaveable(current) { mutableStateOf(items.firstOrNull { it.id == editedId }?.travelFee ?: false) }
         var price by rememberSaveable(current) {
             mutableStateOf(items.firstOrNull { it.id == editedId }?.let { Money.centsToPrice(it.defaultPriceCents) }.orEmpty())
         }
@@ -163,6 +166,7 @@ fun ServiceMenuScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                 placeholder = "85.00",
                 refusal = Money.parse(price).takeIf { price == refusedPrice },
             )
+            TravelFeeField(travelFee, { travelFee = it }, replaces = items.firstOrNull { it.travelFee && it.id != editedId }?.takeIf { travelFee })
             PrimaryButton(
                 stringResource(if (editedId == null) R.string.create_service_menu_item else R.string.save_service_menu_item),
                 onClick = {
@@ -173,7 +177,7 @@ fun ServiceMenuScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                     if (name.isBlank()) {
                         viewModel.notify(R.string.service_name_required, isError = true)
                     } else if (amount is Amount.Valid) {
-                        MenuItemValues.of(name, amount.cents, group)?.let { values ->
+                        MenuItemValues.of(name, amount.cents, group, travelFee)?.let { values ->
                             viewModel.saveServiceMenuItem(editedId, values, requestKey) { editor = null }
                         }
                     }
@@ -227,9 +231,34 @@ private fun MenuGroupHeading(name: String) {
 private fun MenuItemCard(item: ServiceMenuItem, onClick: () -> Unit) {
     HcmCard(Modifier.fillMaxWidth(), onClick = onClick, contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(item.name, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(item.name, style = MaterialTheme.typography.titleLarge)
+                if (item.travelFee) {
+                    Tag(stringResource(R.string.service_menu_travel_fee_label), content = MaterialTheme.colorScheme.tertiary, container = MaterialTheme.colorScheme.tertiaryContainer)
+                }
+            }
             Text(Money.format(item.defaultPriceCents), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
         }
+    }
+}
+
+/**
+ * Whether the item is the Travel Fee, which is added by itself to at-home Appointments. [replaces]
+ * is the item that is the Travel Fee now and stops being it when this one is saved as it.
+ */
+@Composable
+private fun TravelFeeField(checked: Boolean, onCheckedChange: (Boolean) -> Unit, replaces: ServiceMenuItem?) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        SwitchRow(stringResource(R.string.service_menu_travel_fee_label), checked, onCheckedChange)
+        Text(
+            if (replaces != null) {
+                stringResource(R.string.service_menu_travel_fee_replaces, replaces.name)
+            } else {
+                stringResource(R.string.service_menu_travel_fee_hint)
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
