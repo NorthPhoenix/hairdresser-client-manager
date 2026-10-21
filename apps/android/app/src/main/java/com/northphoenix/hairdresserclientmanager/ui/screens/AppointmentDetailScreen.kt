@@ -680,8 +680,8 @@ private fun AppointmentDetail(
                 busy = busy,
                 onDismiss = { sheet = null },
                 onMissingName = { viewModel.notify(R.string.service_name_required, isError = true) },
-                onAddFromMenu = { clientId, menuItemIds ->
-                    viewModel.addMenuServices(appointment.id, clientId, menuItemIds, menuRequestKey) { sheet = null }
+                onAddFromMenu = { picks ->
+                    viewModel.addMenuServices(appointment.id, picks, menuRequestKey) { sheet = null }
                 },
                 onAddCustom = { clientId, name, priceCents, note ->
                     viewModel.addService(appointment.id, clientId, null, name, priceCents, note, customRequestKey) { sheet = null }

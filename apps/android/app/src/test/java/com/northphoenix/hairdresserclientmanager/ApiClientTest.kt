@@ -177,6 +177,15 @@ class ApiClientTest {
             """{"appointmentId":"a1","clientId":"c1","menuItemIds":["m2","m1","m2"],"requestKey":"$KEY"}""",
             sent("""{"result":{"data":{}}}""") { api.addMenuServices("a1", "c1", listOf("m2", "m1", "m2"), KEY) },
         )
+        // Picks for several Clients are one creation too, Client after Client; picks for one go in the shape the API always took.
+        assertEquals(
+            """{"appointmentId":"a1","clients":[{"clientId":"c2","menuItemIds":["m1"]},{"clientId":"c1","menuItemIds":["m2","m1"]}],"requestKey":"$KEY"}""",
+            sent("""{"result":{"data":{}}}""") { api.addMenuServices("a1", listOf("c2" to listOf("m1"), "c1" to listOf("m2", "m1")), KEY) },
+        )
+        assertEquals(
+            """{"appointmentId":"a1","clientId":"c2","menuItemIds":["m1"],"requestKey":"$KEY"}""",
+            sent("""{"result":{"data":{}}}""") { api.addMenuServices("a1", listOf("c2" to listOf("m1")), KEY) },
+        )
         assertEquals(
             """{"appointmentServiceId":"sv1","formula":"7N lost","requestKey":"$KEY"}""",
             sent("""{"result":{"data":{}}}""") { api.addColorFormula("sv1", "7N lost", "", KEY) },

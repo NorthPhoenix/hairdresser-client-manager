@@ -1673,15 +1673,16 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     }
 
     /**
-     * Adds a Service from each of [menuItemIds] for [clientId], at their default prices and in this
-     * order, in one request. [requestKey] is the sheet's own for its picks from the menu. The menu
-     * is read again too: how often its items were used has changed.
+     * Adds a Service from each picked menu item for each Client of [picks], at their default prices,
+     * Client after Client and each one's in the order picked, in one request. [requestKey] is the
+     * sheet's own for its picks from the menu. The menu is read again too: how often its items were
+     * used has changed.
      */
-    fun addMenuServices(appointmentId: String, clientId: String, menuItemIds: List<String>, requestKey: String, onSuccess: () -> Unit) =
+    fun addMenuServices(appointmentId: String, picks: List<Pair<String, List<String>>>, requestKey: String, onSuccess: () -> Unit) =
         act(
             key = "addService:$appointmentId",
             onSuccess = { _: Unit ->
-                notify(R.string.appointment_services_added, isError = false, menuItemIds.size)
+                notify(R.string.appointment_services_added, isError = false, picks.sumOf { it.second.size })
                 onSuccess()
             },
             reload = { together({ reloadAppointmentAndLists(appointmentId) }, ::loadServiceMenu) },
@@ -1690,7 +1691,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                 serviceMenuReads.changed()
             },
         ) {
-            api.addMenuServices(appointmentId, clientId, menuItemIds, requestKey)
+            api.addMenuServices(appointmentId, picks, requestKey)
         }
 
     /**

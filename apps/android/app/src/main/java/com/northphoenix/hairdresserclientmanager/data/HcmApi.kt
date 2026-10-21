@@ -339,13 +339,41 @@ class HcmApi(private val trpc: TrpcClient) {
      * in this order, all in one request: all are added or none. [requestKey] names this addition
      * (see [REQUEST_KEY]).
      */
-    suspend fun addMenuServices(appointmentId: String, clientId: String, menuItemIds: List<String>, requestKey: String) {
+    suspend fun addMenuServices(appointmentId: String, clientId: String, menuItemIds: List<String>, requestKey: String) =
+        addMenuServices(appointmentId, listOf(clientId to menuItemIds), requestKey)
+
+    /**
+     * Adds a Service from each picked menu item for each Client of [picks], at the items' default
+     * prices, Client after Client and each one's items in their order, all in one request: all are
+     * added or none. Picks for one Client go in the shape the API has always taken, so that they
+     * also work with an API from before several Clients at once.
+     */
+    suspend fun addMenuServices(appointmentId: String, picks: List<Pair<String, List<String>>>, requestKey: String) {
+        fun ids(menuItemIds: List<String>) = buildJsonArray { menuItemIds.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } }
+
         trpc.mutation<JsonObject>(
             "appointment.addMenuServices",
             buildJsonObject {
                 put("appointmentId", appointmentId)
-                put("clientId", clientId)
-                put("menuItemIds", buildJsonArray { menuItemIds.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } })
+                val single = picks.singleOrNull()
+                if (single != null) {
+                    put("clientId", single.first)
+                    put("menuItemIds", ids(single.second))
+                } else {
+                    put(
+                        "clients",
+                        buildJsonArray {
+                            picks.forEach { (clientId, menuItemIds) ->
+                                add(
+                                    buildJsonObject {
+                                        put("clientId", clientId)
+                                        put("menuItemIds", ids(menuItemIds))
+                                    },
+                                )
+                            }
+                        },
+                    )
+                }
                 put(REQUEST_KEY, requestKey)
             },
         )
