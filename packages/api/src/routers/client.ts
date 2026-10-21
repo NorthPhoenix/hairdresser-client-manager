@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { addedOrder } from "../addedOrder";
-import { getPrimaryClientChange } from "../appointmentLocation";
+import { getPrimaryClientChange, hasCustomAddress } from "../appointmentLocation";
 import {
   emailText,
   expectedUpdatedAt,
@@ -241,6 +241,10 @@ export const clientRouter = createTRPCRouter({
       primaryClientName: appointment.primaryClient.name,
       startsAt: appointment.startsAt.toISOString(),
       status: appointment.status,
+      // Where it was, as on the Appointment itself: the Client Profile books the next one at the same place.
+      locationType: appointment.locationType,
+      locationAddress: appointment.locationAddress ?? "",
+      customLocationAddress: hasCustomAddress(appointment) ? appointment.locationAddress ?? "" : "",
       participantClientIds: appointment.participants.map((participant) => participant.clientId),
       services: appointment.services.map((service) => ({
         id: service.id,
