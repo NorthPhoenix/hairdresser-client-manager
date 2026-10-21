@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { appRouter } from "./root";
 import type { TRPCContext } from "./context";
@@ -12,6 +13,7 @@ type Client = {
   address: string | null;
   note: string | null;
   requestKey: string | null;
+  referredById: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -53,6 +55,7 @@ function client(id: string, fields: Partial<Client> = {}): Client {
     address: "",
     note: "",
     requestKey: null,
+    referredById: null,
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
     updatedAt: new Date("2026-01-01T00:00:00.000Z"),
     ...fields
@@ -112,6 +115,7 @@ function createStore(initial: Partial<State>) {
   };
   const withClientRelations = (row: Client) => ({
     ...row,
+    referredBy: row.referredById ? { name: state.clients.find((candidate) => candidate.id === row.referredById)?.name ?? "" } : null,
     profileShares: state.shares
       .filter((share) => share.clientId === row.id && !share.revokedAt)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
@@ -132,8 +136,28 @@ function createStore(initial: Partial<State>) {
       }))
     },
     client: {
-      findFirst: vi.fn(async ({ where }: { where: { id: string; stylistId: string } }) =>
-        structuredClone(state.clients.find((row) => row.id === where.id && row.stylistId === where.stylistId) ?? null)
+      findFirst: vi.fn(async ({ where }: { where: { id: string; stylistId?: string } }) =>
+        structuredClone(state.clients.find((row) => row.id === where.id && (!where.stylistId || row.stylistId === where.stylistId)) ?? null)
+      ),
+      create: vi.fn(async ({ data }: { data: Partial<Client> & { name: string; stylistId: string } }) => {
+        if (data.referredById && !state.clients.some((candidate) => candidate.id === data.referredById)) {
+          throw databaseError("P2003");
+        }
+
+        const row = client(id("client"), data);
+
+        state.clients.push(row);
+        return structuredClone(row);
+      }),
+      updateMany: vi.fn(
+        async ({ where, data }: { where: { stylistId: string; referredById: string; id: { not: string } }; data: { referredById: string } }) => {
+          const rows = state.clients.filter(
+            (row) => row.stylistId === where.stylistId && row.referredById === where.referredById && row.id !== where.id.not
+          );
+
+          rows.forEach((row) => Object.assign(row, data));
+          return { count: rows.length };
+        }
       ),
       findMany: vi.fn(async ({ where }: { where: { id?: { in: string[] }; stylistId: string } }) =>
         state.clients
@@ -157,6 +181,10 @@ function createStore(initial: Partial<State>) {
           throw databaseError("P2025");
         }
 
+        if (data.referredById && !state.clients.some((candidate) => candidate.id === data.referredById)) {
+          throw databaseError("P2003");
+        }
+
         Object.assign(row, data, { updatedAt: new Date("2026-10-21T12:00:00.000Z") });
         return structuredClone(row);
       }),
@@ -174,6 +202,12 @@ function createStore(initial: Partial<State>) {
         }
 
         state.clients = state.clients.filter((candidate) => candidate.id !== row.id);
+        // Client.referredBy is onDelete: SetNull.
+        state.clients.forEach((candidate) => {
+          if (candidate.referredById === row.id) {
+            candidate.referredById = null;
+          }
+        });
         state.participants = state.participants.filter((candidate) => candidate.clientId !== row.id);
         state.services = state.services.filter((candidate) => candidate.clientId !== row.id);
         state.photos = state.photos.filter((candidate) => candidate.clientId !== row.id);
@@ -720,5 +754,159 @@ describe("clientProfile.markDistinct", () => {
       code: "NOT_FOUND"
     });
     expect(store.state.pairs).toEqual([]);
+  });
+});
+
+const lena = client("client_lena", { name: "Лена" });
+const nadya = client("client_nadya", { name: "Надя От Лены Балаяж", referredById: "client_lena" });
+
+describe("clientProfile.save with a referrer", () => {
+  it("creates a Client recommended by another Client of the Stylist and says who in the reply and the list", async () => {
+    const store = createStore({ clients: [lena] });
+    const saved = await store.caller().clientProfile.save({ name: "Оля", referredById: "client_lena" });
+
+    expect(saved).toMatchObject({ name: "Оля", referredById: "client_lena", referredByName: "Лена" });
+
+    const list = await store.caller().clientProfile.list();
+
+    expect(list.find((row) => row.id === saved.id)).toMatchObject({ referredById: "client_lena", referredByName: "Лена" });
+    expect(list.find((row) => row.id === "client_lena")).toMatchObject({ referredById: null, referredByName: null });
+  });
+
+  it("says nobody for a Client who was not recommended, and for a Client saved without the field", async () => {
+    const store = createStore({ clients: [lena] });
+    const saved = await store.caller().clientProfile.save({ name: "Оля" });
+
+    expect(saved).toMatchObject({ referredById: null, referredByName: null });
+  });
+
+  it("changes, keeps and clears the referrer: not stated keeps it, null clears it", async () => {
+    const store = createStore({ clients: [lena, nadya, client("client_marina", { name: "Марина" })] });
+    const caller = store.caller();
+
+    // What the old app sends: no field at all. The link stays.
+    await caller.clientProfile.save({ id: "client_nadya", name: "Надя", phone: "5125550100" });
+    expect(store.state.clients.find((row) => row.id === "client_nadya")).toMatchObject({ name: "Надя", referredById: "client_lena" });
+
+    const moved = await caller.clientProfile.save({ id: "client_nadya", name: "Надя", referredById: "client_marina" });
+
+    expect(moved).toMatchObject({ referredById: "client_marina", referredByName: "Марина" });
+
+    const cleared = await caller.clientProfile.save({ id: "client_nadya", name: "Надя", referredById: null });
+
+    expect(cleared).toMatchObject({ referredById: null, referredByName: null });
+    expect(store.state.clients.find((row) => row.id === "client_nadya")?.referredById).toBeNull();
+  });
+
+  it("refuses a Client recommending themselves, and changes nothing", async () => {
+    const store = createStore({ clients: [lena, nadya] });
+
+    await expect(store.caller().clientProfile.save({ id: "client_nadya", name: "Надя", referredById: "client_nadya" })).rejects.toMatchObject({
+      code: "BAD_REQUEST"
+    });
+    expect(store.state.clients.find((row) => row.id === "client_nadya")?.referredById).toBe("client_lena");
+  });
+
+  it("refuses a referrer who is another Stylist's Client or who does not exist, on create and on update", async () => {
+    const other = client("client_other", { stylistId: "stylist_2" });
+    const store = createStore({ clients: [lena, nadya, other] });
+    const caller = store.caller();
+
+    for (const referredById of ["client_other", "client_nobody"]) {
+      await expect(caller.clientProfile.save({ name: "Оля", referredById })).rejects.toMatchObject({ code: "NOT_FOUND" });
+      await expect(caller.clientProfile.save({ id: "client_nadya", name: "Надя", referredById })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    }
+
+    expect(store.state.clients).toHaveLength(3);
+    expect(store.state.clients.find((row) => row.id === "client_nadya")?.referredById).toBe("client_lena");
+  });
+
+  it("clears the link of everyone she recommended when the referrer is deleted (the database does it)", () => {
+    const schema = readFileSync(new URL("../../db/prisma/schema.prisma", import.meta.url), "utf8");
+
+    expect(schema).toMatch(/referredBy\s+Client\?\s+@relation\("ClientReferral", fields: \[referredById\], references: \[id\], onDelete: SetNull\)/);
+    expect(schema).toMatch(/referredById\s+String\?\n/);
+  });
+});
+
+describe("clientProfile.merge with referrals", () => {
+  const caller = (store: ReturnType<typeof createStore>) => store.caller();
+  const referrerOf = (store: ReturnType<typeof createStore>, id: string) => store.state.clients.find((row) => row.id === id)?.referredById;
+
+  it("points the Clients the removed Client recommended at the kept Client", async () => {
+    const store = createStore({
+      clients: [anna, jessica, client("client_x", { referredById: "client_b" }), client("client_y", { referredById: "client_b" }), client("client_z", { referredById: "client_a" })]
+    });
+
+    await caller(store).clientProfile.merge({ keepId: "client_a", removeId: "client_b" });
+
+    expect(referrerOf(store, "client_x")).toBe("client_a");
+    expect(referrerOf(store, "client_y")).toBe("client_a");
+    expect(referrerOf(store, "client_z")).toBe("client_a");
+  });
+
+  it("gives the kept Client the removed Client's referrer when they have none, and keeps their own when they have one", async () => {
+    const withReferrer = createStore({ clients: [lena, anna, client("client_b", { referredById: "client_lena" })] });
+
+    const result = await caller(withReferrer).clientProfile.merge({ keepId: "client_a", removeId: "client_b" });
+
+    expect(referrerOf(withReferrer, "client_a")).toBe("client_lena");
+    expect(result.client).toMatchObject({ referredById: "client_lena", referredByName: "Лена" });
+
+    const both = createStore({
+      clients: [lena, client("client_marina", { name: "Марина" }), client("client_a", { referredById: "client_marina" }), client("client_b", { referredById: "client_lena" })]
+    });
+
+    await caller(both).clientProfile.merge({ keepId: "client_a", removeId: "client_b" });
+    expect(referrerOf(both, "client_a")).toBe("client_marina");
+  });
+
+  it("never leaves the kept Client recommended by themselves", async () => {
+    // The removed Client recommended the kept one.
+    const keptRecommended = createStore({ clients: [client("client_a", { referredById: "client_b" }), jessica] });
+
+    await caller(keptRecommended).clientProfile.merge({ keepId: "client_a", removeId: "client_b" });
+    expect(referrerOf(keptRecommended, "client_a")).toBeNull();
+
+    // The kept Client recommended the removed one.
+    const removedRecommended = createStore({ clients: [anna, client("client_b", { referredById: "client_a" })] });
+
+    await caller(removedRecommended).clientProfile.merge({ keepId: "client_a", removeId: "client_b" });
+    expect(referrerOf(removedRecommended, "client_a")).toBeNull();
+
+    // Each recommended the other.
+    const eachOther = createStore({ clients: [client("client_a", { referredById: "client_b" }), client("client_b", { referredById: "client_a" })] });
+
+    await caller(eachOther).clientProfile.merge({ keepId: "client_a", removeId: "client_b" });
+    expect(referrerOf(eachOther, "client_a")).toBeNull();
+  });
+
+  it("keeps the kept Client's own referrer from being lost to a removed Client that recommended them", async () => {
+    // The kept Client's referrer is the removed Client, and the removed Client has a referrer of their own: the kept Client takes that.
+    const store = createStore({ clients: [lena, client("client_a", { referredById: "client_b" }), client("client_b", { referredById: "client_lena" })] });
+
+    await caller(store).clientProfile.merge({ keepId: "client_a", removeId: "client_b" });
+    expect(referrerOf(store, "client_a")).toBe("client_lena");
+  });
+
+  it("leaves another Stylist's Clients and links alone, and the same merge sent again changes nothing more", async () => {
+    const store = createStore({
+      clients: [anna, jessica, client("client_x", { referredById: "client_b" }), client("client_s2", { stylistId: "stylist_2", referredById: "client_lena" })]
+    });
+
+    await caller(store).clientProfile.merge({ keepId: "client_a", removeId: "client_b" });
+    await caller(store).clientProfile.merge({ keepId: "client_a", removeId: "client_b" });
+
+    expect(referrerOf(store, "client_x")).toBe("client_a");
+    expect(referrerOf(store, "client_s2")).toBe("client_lena");
+  });
+
+  it("applies nothing of the referrals when the merge fails part-way", async () => {
+    const store = createStore({ clients: [lena, anna, client("client_b", { referredById: "client_lena" }), client("client_x", { referredById: "client_b" })] });
+
+    store.failOn.add("client.delete");
+    await expect(caller(store).clientProfile.merge({ keepId: "client_a", removeId: "client_b" })).rejects.toThrow();
+    expect(referrerOf(store, "client_a")).toBeNull();
+    expect(referrerOf(store, "client_x")).toBe("client_b");
   });
 });
