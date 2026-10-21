@@ -509,4 +509,33 @@
     <string name="appointment_tip_included">incl. %1$s tip</string>
     <string name="history_tip">Tip</string>
     <string name="history_tip_whole_visit">Tip for the whole visit</string>
+
+    <string name="earnings_title">Earnings</string>
+    <string name="earnings_entry_subtitle">Earnings, visits and services by week, month and year</string>
+    <string name="earnings_period_week">Week</string>
+    <string name="earnings_period_month">Month</string>
+    <string name="earnings_period_year">Year</string>
+    <string name="earnings_previous">Previous period</string>
+    <string name="earnings_next">Next period</string>
+    <string name="earnings_earned">Earned (completed Appointments)</string>
+    <string name="earnings_split">services %1$s · tips %2$s</string>
+    <string name="earnings_no_visits">No completed Appointments yet</string>
+    <string name="earnings_visits">Visits</string>
+    <string name="earnings_average">Average visit</string>
+    <string name="earnings_at_home">At home</string>
+    <string name="earnings_at_home_value">%1$d of %2$d</string>
+    <string name="earnings_booked">Already booked</string>
+    <string name="earnings_booked_week">Already booked until the end of the week</string>
+    <string name="earnings_booked_month">Already booked until the end of the month</string>
+    <string name="earnings_booked_year">Already booked until the end of the year</string>
+    <string name="earnings_booked_none">Nothing booked yet</string>
+    <string name="earnings_canceled">Canceled: %d</string>
+    <string name="earnings_no_show">No-shows: %d</string>
+    <string name="earnings_top_services">Revenue by service</string>
+    <string name="earnings_empty_title">Nothing here yet</string>
+    <string name="earnings_empty_body">There are no Appointments in this period. Earnings show up once Appointments are completed.</string>
+    <plurals name="earnings_booked_count">
+        <item quantity="one">%d Appointment</item>
+        <item quantity="other">%d Appointments</item>
+    </plurals>
 </resources>
