@@ -47,6 +47,7 @@ import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.ServiceMenuItem
 import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
+import com.northphoenix.hairdresserclientmanager.domain.Families
 import com.northphoenix.hairdresserclientmanager.domain.MenuPicker
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.ServicePicks
@@ -76,7 +77,9 @@ import com.northphoenix.hairdresserclientmanager.ui.components.rememberRequestKe
  * Who the Services are for is picked above both, under "For whom": one chip per Client of the
  * Appointment, [initialClientId] or else the primary Client picked when the sheet opens, and a
  * chip that adds a person to the Appointment. That person is a Client who exists ([onAddPerson])
- * or a new one made from just a typed name ([onCreatePerson]), and is picked once they are in.
+ * or a new one made from just a typed name ([onCreatePerson]), and is picked once they are in. The
+ * family of the Appointment's Clients who are not in it yet are offered beside them, one tap each
+ * ([Families.suggestions]).
  *
  * Each person has their own picks from the menu (see [ServicePicks]): the chip picked shows and
  * changes that person's, a chip with picks shows how many, and switching chips keeps them all.
@@ -125,6 +128,9 @@ internal fun AddServiceSheet(
     val people = appointment.participants.sortedByDescending { it.isPrimary }
     val toAdd = ServicePicks.toAdd(picks, menu, people.map { it.clientId })
     val pickedCount = toAdd.sumOf { it.items.size }
+    // The family of the people, to add with one tap. The one being added is shown as picked meanwhile.
+    val family = remember(people, clients) { Families.suggestions(people.map { it.clientId }, clients) }
+        .filterNot { pending != null && it.id == pickedClientId }
 
     HcmTallBottomSheet(
         title = stringResource(if (custom) R.string.add_appointment_service else R.string.add_services_title),
@@ -180,6 +186,22 @@ internal fun AddServiceSheet(
                     val count = ServicePicks.of(picks, menu, pickingFor).size
 
                     ChoiceChip(if (count > 0) pendingName + " · " + count else pendingName, selected = true, wraps = true, onClick = {})
+                }
+                family.forEach { member ->
+                    ActionChip(
+                        if (member.familyRole.isBlank()) member.name else member.name + " · " + member.familyRole,
+                        icon = Icons.Rounded.Add,
+                        onClick = {
+                            if (!busy) {
+                                onAddPerson(member.id) {
+                                    pickedClientId = member.id
+                                    addedName = member.name
+                                }
+                            }
+                        },
+                        description = stringResource(R.string.family_suggestion_description, member.name),
+                        dashed = true,
+                    )
                 }
                 ActionChip(
                     stringResource(R.string.service_for_whom_add),
