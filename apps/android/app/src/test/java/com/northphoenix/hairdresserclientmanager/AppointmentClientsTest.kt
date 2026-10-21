@@ -167,4 +167,44 @@ class AppointmentClientsTest {
             AppointmentClients.changedByDeleting("bea", loaded).filter { AppointmentClients.goesWith("bea", it) }.map { it.id },
         )
     }
+
+    private fun service(id: String, clientId: String, priceCents: Long) = AppointmentService(id = id, clientId = clientId, name = id, priceCents = priceCents)
+
+    @Test
+    fun `Services are listed by Client, the primary Client first, each Client with their own in the order they were added`() {
+        // Bea was added first and Ann made primary later; the Services were added for them in turns.
+        val services = listOf(service("cut", "bea", 3_000), service("color", "ann", 9_000), service("toner", "ann", 2_500))
+        val groups = AppointmentClients.servicesByClient(appointment(bea.copy(), ann, cara, services = services))
+
+        assertEquals(listOf("ann", "bea", "cara"), groups.map { it.clientId })
+        assertEquals(listOf("Ann", "Bea", "Cara"), groups.map { it.name })
+        assertEquals(listOf(listOf("color", "toner"), listOf("cut"), emptyList()), groups.map { group -> group.services.map { it.id } })
+        assertEquals(listOf(11_500L, 3_000L, 0L), groups.map { it.subtotalCents })
+    }
+
+    @Test
+    fun `an Appointment with one Client has one group with all its Services`() {
+        val groups = AppointmentClients.servicesByClient(appointment(ann, services = listOf(service("cut", "ann", 3_000))))
+
+        assertEquals(1, groups.size)
+        assertEquals(listOf("cut"), groups.single().services.map { it.id })
+    }
+
+    @Test
+    fun `Services of someone who is not among the Clients any more are not left out`() {
+        // Ann was removed at the same moment as she was made primary, before the server prevented that.
+        val services = listOf(service("cut", "bea", 3_000), service("color", "ann", 9_000), service("old", "gone", 1_000))
+        val groups = AppointmentClients.servicesByClient(appointment(bea, services = services))
+
+        assertEquals(listOf("bea", "ann", "gone"), groups.map { it.clientId })
+        assertEquals(listOf("Bea", "Ann", ""), groups.map { it.name })
+    }
+
+    @Test
+    fun `a Client who is in the Appointment already is told from one who is not`() {
+        val appointment = appointment(ann, bea)
+
+        assertEquals(true, AppointmentClients.isIn(appointment, "bea"))
+        assertEquals(false, AppointmentClients.isIn(appointment, "cara"))
+    }
 }
