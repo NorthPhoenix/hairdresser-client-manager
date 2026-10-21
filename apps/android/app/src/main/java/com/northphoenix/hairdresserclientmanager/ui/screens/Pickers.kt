@@ -62,6 +62,8 @@ fun ClientPickerSheet(
     onDismiss: () -> Unit,
     onCreateInline: ((String) -> Unit)? = null,
     takenIds: Set<String> = emptySet(),
+    /** A pick or a creation is being saved: the button that creates shows it and takes no second tap. */
+    busy: Boolean = false,
 ) {
     var search by rememberSaveable { mutableStateOf("") }
     val offered = remember(clients, takenIds) { clients.filter { it.id !in takenIds } }
@@ -89,6 +91,7 @@ fun ClientPickerSheet(
                     onClick = { onCreateInline(search.trim()) },
                     modifier = Modifier.fillMaxWidth(),
                     icon = Icons.Rounded.PersonAddAlt1,
+                    loading = busy,
                 )
             }
 
