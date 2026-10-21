@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.EventAvailable
+import androidx.compose.material.icons.rounded.Sms
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -27,7 +28,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.Layout
@@ -42,9 +46,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
+import com.northphoenix.hairdresserclientmanager.domain.BatchReminders
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.HomeOutcomes
 import com.northphoenix.hairdresserclientmanager.domain.HomeTomorrow
+import com.northphoenix.hairdresserclientmanager.domain.ReminderLog
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
@@ -55,6 +61,7 @@ import com.northphoenix.hairdresserclientmanager.ui.components.LoadFailed
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenPadding
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenTitle
 import com.northphoenix.hairdresserclientmanager.ui.components.Tag
+import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
 import com.northphoenix.hairdresserclientmanager.ui.components.rememberNow
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 
@@ -85,6 +92,10 @@ fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit) {
     val tomorrowRead by viewModel.tomorrow.collectAsStateWithLifecycle()
     val tomorrows = remember(tomorrowRead.data) { HomeTomorrow.scheduled(tomorrowRead.data.orEmpty()) }
     val context = LocalContext.current
+    // The Appointments reminded, kept on this device: a card says when, and 'Remind all' starts without them checked.
+    val reminded by viewModel.reminders.log.collectAsStateWithLifecycle()
+    val remindable = remember(tomorrows, now) { BatchReminders.remindable(tomorrows, now) }
+    var remindingAll by rememberSaveable { mutableStateOf(false) }
     val unresolvedDays = remember(unresolved, format) { HomeOutcomes.byDay(unresolved, format.zone) }
 
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
@@ -153,7 +164,9 @@ fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit) {
             }
 
             if (tomorrows.isNotEmpty()) {
-                item(key = "tomorrow-section") { ListSectionLabel(stringResource(R.string.home_tomorrow_section), tomorrows.size) }
+                item(key = "tomorrow-section") {
+                    TomorrowHeader(tomorrows.size, onRemindAll = if (remindable.isNotEmpty()) ({ remindingAll = true }) else null)
+                }
                 items(tomorrows, key = { "tomorrow-${it.id}" }) { appointment ->
                     AppointmentCard(
                         appointment,
@@ -164,11 +177,30 @@ fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit) {
                         } else {
                             null
                         },
+                        reminded = ReminderLog.remindedAt(reminded, appointment)?.let { stringResource(R.string.reminded_at, format.stamp(it, now)) },
                         modifier = Modifier.animateItem(),
                     )
                 }
             }
         }
+    }
+
+    if (remindingAll) {
+        BatchReminderSheet(viewModel, remindable, onDismiss = { remindingAll = false })
+    }
+}
+
+/** "Tomorrow" with its count, and 'Remind all' ([onRemindAll]; null when no card can be reminded) beside it, or under it when it does not fit. */
+@Composable
+private fun TomorrowHeader(count: Int, onRemindAll: (() -> Unit)?) {
+    if (onRemindAll == null) {
+        ListSectionLabel(stringResource(R.string.home_tomorrow_section), count)
+        return
+    }
+
+    TextBesideOrAbove {
+        ListSectionLabel(stringResource(R.string.home_tomorrow_section), count)
+        TextAction(stringResource(R.string.home_remind_all), onClick = onRemindAll, icon = Icons.Rounded.Sms)
     }
 }
 
