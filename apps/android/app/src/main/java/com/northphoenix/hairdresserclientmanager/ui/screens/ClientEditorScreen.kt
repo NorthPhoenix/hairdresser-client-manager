@@ -89,6 +89,7 @@ import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
 import com.northphoenix.hairdresserclientmanager.data.ShareChoice
 import com.northphoenix.hairdresserclientmanager.data.SharedPictures
+import com.northphoenix.hairdresserclientmanager.domain.PhoneFormat
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
 import com.northphoenix.hairdresserclientmanager.domain.ContactFields
 import com.northphoenix.hairdresserclientmanager.domain.ContactImport
@@ -266,6 +267,9 @@ fun ClientEditorScreen(
     }
 
     fun save() {
+        // A US number is saved as it is shown, "(512) 917-4528", however it was typed; any other as typed.
+        phone = PhoneFormat.display(OneLine.clean(phone))
+
         val submitted = UnsavedInput.clientForm(name, language, phone, email, address, note)
 
         // One line each, as the save sends them and as the form takes them in.

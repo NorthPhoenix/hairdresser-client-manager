@@ -31,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +49,8 @@ import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.ClientHistoryEntry
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
+import com.northphoenix.hairdresserclientmanager.domain.ClientRules
+import com.northphoenix.hairdresserclientmanager.domain.PhoneFormat
 import com.northphoenix.hairdresserclientmanager.domain.ClientVisits
 import com.northphoenix.hairdresserclientmanager.domain.ClientVisits.SpanUnit
 import com.northphoenix.hairdresserclientmanager.i18n.label
@@ -82,10 +85,14 @@ fun ClientProfileScreen(
     onEdit: () -> Unit,
     onBookAgain: (ClientVisits.Rebooking?) -> Unit,
     onOpenAppointment: (String) -> Unit,
+    onMerged: (keptId: String) -> Unit = {},
 ) {
     val clients = viewModel.clients.collectAsStateWithLifecycle().value.data.orEmpty()
     val saving by viewModel.saving.collectAsStateWithLifecycle()
+    val busy by viewModel.busy.collectAsStateWithLifecycle()
     val client = clients.firstOrNull { it.id == clientId }
+    // The Client the merge sheet is open for.
+    var mergingWith by rememberSaveable(clientId) { mutableStateOf<String?>(null) }
 
     if (client == null) {
         MissingClient(viewModel, clientId, onBack, saving)
@@ -114,6 +121,16 @@ fun ClientProfileScreen(
                 Avatar(client.name, size = 64.dp)
                 // A long name wraps: it is the one place on the profile where the whole of it is shown.
                 Text(client.name, style = MaterialTheme.typography.headlineLarge, modifier = Modifier.weight(1f))
+            }
+
+            // Another Client with the same number, until the Stylist merges them or says they are different people.
+            ClientRules.possibleDuplicates(client, clients).forEach { other ->
+                DuplicateBanner(
+                    other,
+                    busy = busy,
+                    onMerge = { mergingWith = other.id },
+                    onDistinct = { viewModel.markClientsDistinct(client.id, other.id) },
+                )
             }
 
             QuickActions(client, onFailed = { viewModel.notify(it, isError = true) })
@@ -146,6 +163,19 @@ fun ClientProfileScreen(
 
             ClientHistoryCard(history, onRetry = { viewModel.loadClientHistory(client.id) }, onOpenAppointment)
         }
+    }
+
+    clients.firstOrNull { it.id == mergingWith }?.let { other ->
+        MergeClientsSheet(
+            viewModel,
+            client,
+            other,
+            onDismiss = { mergingWith = null },
+            onMerged = { kept ->
+                mergingWith = null
+                onMerged(kept.id)
+            },
+        )
     }
 }
 
@@ -308,7 +338,7 @@ private fun NextAppointment(entry: ClientHistoryEntry, onOpen: () -> Unit) {
 private fun ContactDetails(client: ClientProfile) {
     HcmCard {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            ContactRow(stringResource(R.string.client_phone_label), client.phone)
+            ContactRow(stringResource(R.string.client_phone_label), PhoneFormat.display(client.phone))
             Hairline()
             ContactRow(stringResource(R.string.client_address_label), client.address)
             if (client.email.isNotBlank()) {

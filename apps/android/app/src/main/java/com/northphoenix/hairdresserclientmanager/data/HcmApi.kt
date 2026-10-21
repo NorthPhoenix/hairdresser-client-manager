@@ -94,6 +94,31 @@ class HcmApi(private val trpc: TrpcClient) {
         trpc.mutation<JsonObject>("clientProfile.delete", idInput(id))
     }
 
+    /**
+     * Makes [removeId] one with [keepId]: their Appointments, Services, photos and Profile Share go to the kept
+     * Client, who takes the details they do not have, and [removeId] is deleted. All of it or nothing. The same
+     * merge sent again answers with the kept Client as they are now.
+     */
+    suspend fun mergeClients(keepId: String, removeId: String): ClientMergeResult =
+        trpc.mutation(
+            "clientProfile.merge",
+            buildJsonObject {
+                put("keepId", keepId)
+                put("removeId", removeId)
+            },
+        )
+
+    /** The two Clients are different people although their phone numbers match. Saying it again changes nothing. */
+    suspend fun markClientsDistinct(clientId: String, otherClientId: String) {
+        trpc.mutation<JsonObject>(
+            "clientProfile.markDistinct",
+            buildJsonObject {
+                put("clientId", clientId)
+                put("otherClientId", otherClientId)
+            },
+        )
+    }
+
     suspend fun clientAppointmentHistory(clientId: String): List<ClientHistoryEntry> =
         trpc.query("clientProfile.appointmentHistory", idInput(clientId))
 

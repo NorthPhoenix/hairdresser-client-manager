@@ -221,6 +221,15 @@ fun MainNavigation(viewModel: AppViewModel) {
                     }
                 },
                 onOpenAppointment = { id -> navController.from(entry) { navigate(Routes.appointment(id)) } },
+                // This Client was merged into the other one: their profile takes this one's place.
+                onMerged = { keptId ->
+                    if (keptId != clientId) {
+                        navController.from(entry) {
+                            popBackStack()
+                            navigate(Routes.clientProfile(keptId))
+                        }
+                    }
+                },
             )
         }
     }

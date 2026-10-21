@@ -129,6 +129,19 @@ data class ClientProfile(
     val activeProfileShare: ProfileShare? = null,
     /** When the Client Profile was last saved, as the server states it: the version a save names (see [HcmApi.saveClient]). */
     val updatedAt: String? = null,
+    /**
+     * The other Clients the Stylist has said this one is not, although their phone numbers match. Only the
+     * list says: null in the reply to a save, which does not change it.
+     */
+    val distinctFromIds: List<String>? = null,
+)
+
+/** What a merge of two Clients has left: the kept Client as they are now, and the Appointments it changed. */
+@Serializable
+data class ClientMergeResult(
+    val client: ClientProfile,
+    val removedId: String,
+    val appointmentIds: List<String> = emptyList(),
 )
 
 // Every amount is whole cents in a Long: the totals of one Appointment can be more than an Int holds.

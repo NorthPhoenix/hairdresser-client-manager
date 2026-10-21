@@ -447,4 +447,20 @@
         <item quantity="one">every year</item>
         <item quantity="other">every %d years</item>
     </plurals>
+    <string name="client_duplicate_banner">Possible duplicate: “%1$s” has the same number</string>
+    <string name="client_duplicate_merge">Merge</string>
+    <string name="client_duplicate_distinct">Different people</string>
+    <string name="client_duplicate_tag">Duplicate?</string>
+    <string name="client_merge_title">Merge Clients</string>
+    <string name="client_merge_keep_name">Which name to keep?</string>
+    <string name="client_merge_no_appointments">Neither has any appointments</string>
+    <string name="client_merge_counting">Counting appointments…</string>
+    <string name="client_merge_details">Empty details of “%1$s” are filled in from “%2$s”, the notes are joined, and photos are kept. “%2$s” is deleted.</string>
+    <string name="client_merge_confirm">Merge</string>
+    <string name="client_merged">Clients merged.</string>
+    <string name="client_merge_photo_uploads">This Client has photos that aren\'t uploaded yet. Upload or remove them, then merge.</string>
+    <plurals name="client_merge_appointments">
+        <item quantity="one">%d appointment → goes to “%s”</item>
+        <item quantity="other">Appointments: %d → go to “%s”</item>
+    </plurals>
 </resources>

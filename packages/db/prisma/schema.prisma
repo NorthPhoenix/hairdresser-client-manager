@@ -71,6 +71,40 @@ model Client {
   appointmentServices AppointmentService[]
   appointmentPhotos AppointmentPhoto[]
   profileShares ProfileShare[]
+  // Pairs the Stylist said are different people although their phone numbers match.
+  distinctPairsAsFirst  ClientDistinctPair[] @relation("ClientDistinctPairFirst")
+  distinctPairsAsSecond ClientDistinctPair[] @relation("ClientDistinctPairSecond")
+  mergesKept            ClientMerge[]
+}
+
+// Two Clients of one Stylist whom the Stylist said are different people ("Это разные люди"), so
+// the app stops offering to merge them although their phone numbers match. One row per pair, with
+// the smaller id first.
+model ClientDistinctPair {
+  id             String   @id @default(cuid())
+  stylistId      String
+  firstClientId  String
+  secondClientId String
+  createdAt      DateTime @default(now())
+
+  firstClient  Client @relation("ClientDistinctPairFirst", fields: [firstClientId], references: [id], onDelete: Cascade)
+  secondClient Client @relation("ClientDistinctPairSecond", fields: [secondClientId], references: [id], onDelete: Cascade)
+
+  @@unique([firstClientId, secondClientId])
+}
+
+// A Client merged into another one and deleted: what lets the same merge sent again be answered
+// as done (docs/adr/0015). It goes with the kept Client.
+model ClientMerge {
+  id              String   @id @default(cuid())
+  stylistId       String
+  keptClientId    String
+  removedClientId String
+  createdAt       DateTime @default(now())
+
+  keptClient Client @relation(fields: [keptClientId], references: [id], onDelete: Cascade)
+
+  @@index([removedClientId])
 }
 
 model Appointment {
