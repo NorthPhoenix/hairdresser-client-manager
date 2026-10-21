@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -199,9 +200,9 @@ fun HcmListBottomSheet(title: String, onDismiss: () -> Unit, content: @Composabl
 
 /**
  * [HcmBottomSheet] for picking from a list that may be long, with [bottomBar] (the action that
- * takes what was picked) fixed under the content. With [fillHeight] it is as tall as the screen
- * allows, so it keeps its size while the list grows and shrinks; without, it is as tall as its
- * content. Scrolling the content never moves the sheet: scrolled back past its top it stops
+ * takes what was picked) fixed under the content. With [fillHeight] it is nearly as tall as the
+ * screen, so it keeps its size while the list grows and shrinks and still leaves a strip of scrim
+ * above it; without, it is as tall as its content. Scrolling the content never moves the sheet: scrolled back past its top it stops
  * there, and the sheet closes only by the scrim, Back, or a drag of its handle.
  */
 @Composable
@@ -213,7 +214,8 @@ fun HcmTallBottomSheet(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     SheetFrame(onDismiss) {
-        Column(if (fillHeight) Modifier.fillMaxSize() else Modifier.fillMaxWidth()) {
+        // Not quite the whole height: the strip of the screen above the sheet is the scrim that closes it.
+        Column(if (fillHeight) Modifier.fillMaxWidth().fillMaxHeight(TALL_SHEET_HEIGHT) else Modifier.fillMaxWidth()) {
             Column(
                 Modifier
                     .weight(1f, fill = fillHeight)
@@ -246,6 +248,9 @@ private object KeepScrollInside : NestedScrollConnection {
 
     override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity = available
 }
+
+/** The share of the screen's height a tall sheet takes. */
+private const val TALL_SHEET_HEIGHT = 0.9f
 
 private val SheetPadding = PaddingValues(start = ScreenPadding, end = ScreenPadding, top = 16.dp, bottom = 28.dp)
 
