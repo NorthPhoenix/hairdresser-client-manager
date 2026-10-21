@@ -16,15 +16,33 @@ internal class ServiceMenuReads(
     scope: CoroutineScope,
     private val changes: Changes,
     fetch: suspend (StylistKey) -> List<ServiceMenuItem>,
+    fetchFormulaNames: suspend (StylistKey) -> List<String> = { emptyList() },
 ) {
     val menu = ReadCache(scope, changes, LIMITS, about = { _, _ -> listOf(MENU) }, fetch = fetch)
 
     /**
+     * The names of the Services that have a Color Formula (`serviceMenu.formulaNames`), as typed:
+     * what [com.northphoenix.hairdresserclientmanager.domain.ColorFormulaOffer] learns a Service
+     * without a menu item from. A change to a Color Formula marks it like the menu ([changed]).
+     */
+    val formulaNames = ReadCache(scope, changes, LIMITS, about = { _, _ -> listOf(MENU) }, fetch = fetchFormulaNames)
+
+    /**
      * The server has just saved this Service Menu Item. One the menu on screen has is replaced
-     * where it stands. Where a new one goes is the server's to say: the reload shows it.
+     * where it stands, and keeps how often it was used and how often with a Color Formula, which only the menu's list says. Where a
+     * new one goes is the server's to say: the reload shows it. An item saved as the Travel Fee is
+     * the only one: any other has stopped being it.
      */
     fun saved(item: ServiceMenuItem) {
-        menu.update { _, items -> items.map { if (it.id == item.id) item else it } }
+        menu.update { _, items ->
+            items.map {
+                when {
+                    it.id == item.id -> item.copy(useCount = it.useCount, formulaCount = it.formulaCount)
+                    item.travelFee && it.travelFee -> it.copy(travelFee = false)
+                    else -> it
+                }
+            }
+        }
         changed()
     }
 
@@ -48,7 +66,10 @@ internal class ServiceMenuReads(
     fun changed() = changes.changed(MENU)
 
     /** Empties the cache, for a Stylist who has signed out. Call [Changes.startOver] first. */
-    suspend fun clear() = menu.clear()
+    suspend fun clear() {
+        menu.clear()
+        formulaNames.clear()
+    }
 
     private companion object {
         /** One Stylist has one menu. */

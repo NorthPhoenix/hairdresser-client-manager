@@ -1,9 +1,12 @@
 package com.northphoenix.hairdresserclientmanager.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -11,15 +14,21 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ContentCut
 import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Sms
 import androidx.compose.material.icons.rounded.Storefront
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -33,13 +42,20 @@ import androidx.compose.ui.layout.MeasurePolicy
 import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.Appointment
+import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
+import com.northphoenix.hairdresserclientmanager.domain.HomeOutcomes
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
@@ -47,9 +63,22 @@ import com.northphoenix.hairdresserclientmanager.ui.theme.colors
 
 val LocationType.icon get() = if (this == LocationType.AT_HOME) Icons.Rounded.Home else Icons.Rounded.Storefront
 
-/** One Appointment in a list: time on the left, who/where/what on the right. */
+/**
+ * One Appointment in a list: time on the left, who/where/what on the right. With [onOutcome] the
+ * card ends in a row of outcome chips ([HomeOutcomes.choices]), and a tap on one gives it that
+ * outcome; a tap anywhere else still opens the Appointment. With [onRemind] it ends in a
+ * 'Remind' button instead (a card is not given both: one is for an Appointment that has started,
+ * the other for one that has not).
+ */
 @Composable
-fun AppointmentCard(appointment: Appointment, onClick: () -> Unit, modifier: Modifier = Modifier, showDate: Boolean = false) {
+fun AppointmentCard(
+    appointment: Appointment,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    showDate: Boolean = false,
+    onOutcome: ((AppointmentStatus) -> Unit)? = null,
+    onRemind: (() -> Unit)? = null,
+) {
     val format = LocalTimeFormat.current
     // Named by a Client who is in it, also when its primary Client is not (AppointmentClients.Fault).
     val name = AppointmentClients.leadName(appointment)
@@ -76,7 +105,8 @@ fun AppointmentCard(appointment: Appointment, onClick: () -> Unit, modifier: Mod
                         name,
                         modifier = Modifier.weight(1f, fill = false),
                         style = MaterialTheme.typography.titleLarge,
-                        maxLines = 1,
+                        // Two lines: at a large font one line holds only the first name ("Наташа Ор…").
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (others > 0) {
@@ -96,6 +126,85 @@ fun AppointmentCard(appointment: Appointment, onClick: () -> Unit, modifier: Mod
                     StatusChip(appointment.status)
                     if (appointment.finalTotalCents > 0 || appointment.services.isNotEmpty()) {
                         Text(Money.format(appointment.finalTotalCents), style = MaterialTheme.typography.titleMedium)
+                    }
+                }
+            }
+        }
+        if (onOutcome != null) {
+            OutcomeChips(name, onOutcome, Modifier.padding(start = 18.dp, end = 18.dp, bottom = 16.dp))
+        } else if (onRemind != null) {
+            RemindButton(name, onRemind, Modifier.padding(start = 18.dp, end = 18.dp, bottom = 16.dp))
+        }
+    }
+}
+
+/**
+ * The Client Reminder in one tap, under a hairline: opens the SMS app with the message ready.
+ * It is read out with the Client the card is of, as the buttons of several cards sound alike.
+ */
+@Composable
+private fun RemindButton(name: String, onRemind: () -> Unit, modifier: Modifier = Modifier) {
+    val label = stringResource(R.string.home_remind)
+    val description = stringResource(R.string.home_outcome_chip_description, label, name)
+
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Hairline()
+        Surface(
+            onClick = onRemind,
+            modifier = Modifier.semantics {
+                role = Role.Button
+                contentDescription = description
+            },
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        ) {
+            Row(
+                Modifier.heightIn(min = 40.dp).padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(Icons.Rounded.Sms, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+            }
+        }
+    }
+}
+
+/**
+ * The outcomes a card offers, under a hairline. Each chip is read out with the Client the card is
+ * of, as the chips of several cards sound alike. Only 'Completed', the usual one, has an icon: so
+ * the three fit on one line of a phone at the usual font size, and go on to the next one beyond it.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun OutcomeChips(name: String, onOutcome: (AppointmentStatus) -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Hairline()
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            HomeOutcomes.choices.forEach { outcome ->
+                val label = stringResource(outcome.label)
+                val description = stringResource(R.string.home_outcome_chip_description, label, name)
+
+                Surface(
+                    onClick = { onOutcome(outcome) },
+                    modifier = Modifier.semantics {
+                        role = Role.Button
+                        contentDescription = description
+                    },
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                ) {
+                    Row(
+                        Modifier.heightIn(min = 40.dp).padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        if (outcome == AppointmentStatus.COMPLETED) {
+                            Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                        }
+                        Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
                     }
                 }
             }

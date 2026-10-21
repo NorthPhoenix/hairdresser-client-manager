@@ -45,6 +45,11 @@ describe("service menu router", () => {
         updatedAt: createdAt
       }
     ]);
+    // The first count is of the Services started from the item, the second of those with a Color Formula.
+    const groupBy = vi
+      .fn()
+      .mockResolvedValueOnce([{ menuItemId: "service_1", _count: { _all: 3 } }])
+      .mockResolvedValueOnce([{ menuItemId: "service_1", _count: { _all: 1 } }]);
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
@@ -53,6 +58,9 @@ describe("service menu router", () => {
         serviceMenuItem: {
           create,
           findMany
+        },
+        appointmentService: {
+          groupBy
         }
       } as unknown as TRPCContext["db"])
     );
@@ -73,10 +81,50 @@ describe("service menu router", () => {
         stylistId: "stylist_1",
         name: "Haircut",
         defaultPriceCents: 8500,
+        group: null,
+        travelFee: false,
+        useCount: 3,
+        formulaCount: 1,
         createdAt: createdAt.toISOString(),
         updatedAt: createdAt.toISOString()
       }
     ]);
+    // Oldest first, so that editing an item does not move it.
+    expect(findMany).toHaveBeenCalledWith({
+      where: {
+        stylistId: "stylist_1"
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }]
+    });
+    // Services started from an item count only in the Stylist's own Appointments.
+    expect(groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          menuItemId: {
+            in: ["service_1"]
+          },
+          appointment: {
+            stylistId: "stylist_1"
+          }
+        }
+      })
+    );
+    // The Services with a Color Formula are counted the same way, also only in the Stylist's own Appointments.
+    expect(groupBy).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: {
+          menuItemId: {
+            in: ["service_1"]
+          },
+          appointment: {
+            stylistId: "stylist_1"
+          },
+          colorFormulas: {
+            some: {}
+          }
+        }
+      })
+    );
     expect(create).toHaveBeenCalledWith({
       data: {
         stylistId: "stylist_1",
@@ -84,6 +132,77 @@ describe("service menu router", () => {
         defaultPriceCents: 8500
       }
     });
+  });
+
+  it("counts no Color Formula for an item none of whose Services has one", async () => {
+    const createdAt = new Date("2026-06-13T12:00:00.000Z");
+    const groupBy = vi
+      .fn()
+      .mockResolvedValueOnce([
+        { menuItemId: "item_cut", _count: { _all: 4 } },
+        { menuItemId: "item_color", _count: { _all: 2 } }
+      ])
+      .mockResolvedValueOnce([{ menuItemId: "item_color", _count: { _all: 2 } }]);
+    const item = (id: string, name: string) => ({
+      id,
+      stylistId: "stylist_1",
+      name,
+      defaultPriceCents: 5000,
+      createdAt,
+      updatedAt: createdAt
+    });
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: { upsert: vi.fn().mockResolvedValue(stylist) },
+        serviceMenuItem: {
+          findMany: vi.fn().mockResolvedValue([item("item_cut", "Haircut"), item("item_color", "Color"), item("item_new", "Gloss")])
+        },
+        appointmentService: { groupBy }
+      } as unknown as TRPCContext["db"])
+    );
+
+    const items = await caller.serviceMenu.list();
+
+    expect(items.map((listed) => [listed.id, listed.useCount, listed.formulaCount])).toEqual([
+      ["item_cut", 4, 0],
+      ["item_color", 2, 2],
+      ["item_new", 0, 0]
+    ]);
+  });
+
+  it("lists the names of the Services with a Color Formula, each once, of the Stylist's own Appointments", async () => {
+    const findMany = vi
+      .fn()
+      .mockResolvedValue([{ name: "Ламинирование" }, { name: "Покраска" }, { name: "Ламинирование" }, { name: "ламинирование " }]);
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: { upsert: vi.fn().mockResolvedValue(stylist) },
+        appointmentService: { findMany }
+      } as unknown as TRPCContext["db"])
+    );
+
+    // Exactly as typed: the app compares them in its own way. Only an identical name is dropped.
+    await expect(caller.serviceMenu.formulaNames()).resolves.toEqual(["Ламинирование", "Покраска", "ламинирование "]);
+    expect(findMany).toHaveBeenCalledWith({
+      where: {
+        appointment: { stylistId: "stylist_1" },
+        colorFormulas: { some: {} }
+      },
+      select: { name: true },
+      orderBy: { createdAt: "desc" },
+      take: 1000
+    });
+  });
+
+  it("lists no names for a Stylist without a Color Formula", async () => {
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: { upsert: vi.fn().mockResolvedValue(stylist) },
+        appointmentService: { findMany: vi.fn().mockResolvedValue([]) }
+      } as unknown as TRPCContext["db"])
+    );
+
+    await expect(caller.serviceMenu.formulaNames()).resolves.toEqual([]);
   });
 
   it("edits and deletes only the stylist-owned Service Menu Item", async () => {
@@ -139,6 +258,50 @@ describe("service menu router", () => {
         id: "service_1",
         stylistId: "stylist_1"
       }
+    });
+  });
+
+  it("keeps the group of an edited item that the save leaves out, and clears it when it is empty", async () => {
+    const updatedAt = new Date("2026-06-13T12:00:00.000Z");
+    const update = vi.fn(({ data }: { data: Record<string, unknown> }) => ({
+      id: "service_1",
+      stylistId: "stylist_1",
+      group: "Coloring",
+      createdAt: updatedAt,
+      updatedAt,
+      // As Prisma does: a field that is undefined is left as it is.
+      ...Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined))
+    }));
+    const create = vi.fn(({ data }: { data: Record<string, unknown> }) => ({ id: "service_2", createdAt: updatedAt, updatedAt, ...data }));
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: {
+          upsert: vi.fn().mockResolvedValue(stylist)
+        },
+        serviceMenuItem: {
+          findFirst: vi.fn().mockResolvedValue({ id: "service_1", stylistId: "stylist_1" }),
+          update,
+          create
+        }
+      } as unknown as TRPCContext["db"])
+    );
+
+    await expect(caller.serviceMenu.save({ id: "service_1", name: "Short", defaultPriceCents: 5000 })).resolves.toMatchObject({
+      group: "Coloring"
+    });
+    expect(update.mock.calls[0]?.[0].data).not.toHaveProperty("group", expect.anything());
+
+    await expect(caller.serviceMenu.save({ id: "service_1", name: "Short", defaultPriceCents: 5000, group: "" })).resolves.toMatchObject({
+      group: null
+    });
+    await caller.serviceMenu.save({ id: "service_1", name: "Short", defaultPriceCents: 5000, group: null });
+    expect(update.mock.calls[2]?.[0].data).toMatchObject({ group: null });
+
+    // A group is one line, like a name.
+    await expect(
+      caller.serviceMenu.save({ name: "Coloring short", defaultPriceCents: 5000, group: "  Coloring\n one color " })
+    ).resolves.toMatchObject({
+      group: "Coloring one color"
     });
   });
 });

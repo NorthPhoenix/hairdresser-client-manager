@@ -8,14 +8,50 @@ object ClientRules {
     fun searchablePhone(phone: String): String = phone.filter(Char::isDigit)
 
     /**
-     * The number a phone is compared by: its digits, with a Russian mobile always written as 7 and its ten digits,
-     * however it was typed ("+7 916 ...", "8 916 ..." or "916 ..."). No other number is rewritten.
+     * The number a phone is compared by: its ten digits for a number written with or without its country code,
+     * a US one ("+1 512 ...", "(512) ...") or a Russian mobile ("+7 916 ...", "8 916 ..." or "916 ..."), and
+     * all its digits for any other number, which is not rewritten. Eleven digits that start with 8 and another
+     * digit than 9 are a full number of some other country, not a Russian one written with 8.
      */
     fun comparablePhone(phone: String): String {
         val digits = searchablePhone(phone)
 
-        return russianMobile(digits)?.let { "7$it" } ?: digits
+        return when {
+            digits.length == 11 && digits[0] == '1' -> digits.drop(1)
+            else -> russianMobile(digits) ?: digits
+        }
     }
+
+    /**
+     * The other Clients who may be the same person as [client]: their phone numbers are one number by
+     * [comparablePhone]. A Client the Stylist has said is someone else ([ClientProfile.distinctFromIds], on
+     * either side) is not one, and neither is anyone for a Client without a number. In the order of [clients].
+     */
+    fun possibleDuplicates(client: ClientProfile, clients: List<ClientProfile>): List<ClientProfile> {
+        val number = comparablePhone(client.phone)
+
+        if (number.isEmpty()) {
+            return emptyList()
+        }
+
+        return clients.filter { other ->
+            other.id != client.id &&
+                comparablePhone(other.phone) == number &&
+                other.id !in client.distinctFromIds.orEmpty() &&
+                client.id !in other.distinctFromIds.orEmpty()
+        }
+    }
+
+    /** The ids of the Clients in [clients] who have a possible duplicate among them (see [possibleDuplicates]). */
+    fun withPossibleDuplicates(clients: List<ClientProfile>): Set<String> =
+        clients
+            .groupBy { comparablePhone(it.phone) }
+            .filterKeys { it.isNotEmpty() }
+            .values
+            .filter { it.size > 1 }
+            .flatMap { group -> group.filter { possibleDuplicates(it, group).isNotEmpty() } }
+            .map { it.id }
+            .toSet()
 
     /**
      * Matches by name or by phone. Upper and lower case are the same, and so are "ё" and "е".

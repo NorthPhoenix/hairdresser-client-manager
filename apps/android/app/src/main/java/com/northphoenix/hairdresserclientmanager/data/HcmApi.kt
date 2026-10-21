@@ -1,5 +1,6 @@
 package com.northphoenix.hairdresserclientmanager.data
 
+import com.northphoenix.hairdresserclientmanager.domain.MenuItemValues
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -62,7 +63,8 @@ class HcmApi(private val trpc: TrpcClient) {
      * [ClientProfile.updatedAt] of the Client the form was filled from: when the server has
      * another version, it refuses the save ([ApiException.isChangedElsewhere]) instead of putting
      * old fields back over newer ones. For a new Client, [requestKey] names this creation (see
-     * [REQUEST_KEY]). Each is sent only in its own case.
+     * [REQUEST_KEY]). Each is sent only in its own case. [referredById] is who recommended the Client,
+     * null for nobody: the form states it, so a save from it clears it.
      */
     suspend fun saveClient(
         id: String?,
@@ -74,6 +76,7 @@ class HcmApi(private val trpc: TrpcClient) {
         note: String,
         loadedUpdatedAt: String?,
         requestKey: String,
+        referredById: String? = null,
     ): ClientProfile =
         trpc.mutation(
             "clientProfile.save",
@@ -85,12 +88,38 @@ class HcmApi(private val trpc: TrpcClient) {
                 put("email", email)
                 put("address", address)
                 put("note", note)
+                put("referredById", referredById)
                 if (id == null) put(REQUEST_KEY, requestKey) else loadedUpdatedAt?.let { put("expectedUpdatedAt", it) }
             },
         )
 
     suspend fun deleteClient(id: String) {
         trpc.mutation<JsonObject>("clientProfile.delete", idInput(id))
+    }
+
+    /**
+     * Makes [removeId] one with [keepId]: their Appointments, Services, photos and Profile Share go to the kept
+     * Client, who takes the details they do not have, and [removeId] is deleted. All of it or nothing. The same
+     * merge sent again answers with the kept Client as they are now.
+     */
+    suspend fun mergeClients(keepId: String, removeId: String): ClientMergeResult =
+        trpc.mutation(
+            "clientProfile.merge",
+            buildJsonObject {
+                put("keepId", keepId)
+                put("removeId", removeId)
+            },
+        )
+
+    /** The two Clients are different people although their phone numbers match. Saying it again changes nothing. */
+    suspend fun markClientsDistinct(clientId: String, otherClientId: String) {
+        trpc.mutation<JsonObject>(
+            "clientProfile.markDistinct",
+            buildJsonObject {
+                put("clientId", clientId)
+                put("otherClientId", otherClientId)
+            },
+        )
     }
 
     suspend fun clientAppointmentHistory(clientId: String): List<ClientHistoryEntry> =
@@ -137,14 +166,23 @@ class HcmApi(private val trpc: TrpcClient) {
 
     suspend fun listServiceMenu(): List<ServiceMenuItem> = trpc.query("serviceMenu.list")
 
-    /** [requestKey] names the creation of a new Service Menu Item (see [REQUEST_KEY]); an edit ([id]) does not send it. */
-    suspend fun saveServiceMenuItem(id: String?, name: String, defaultPriceCents: Long, requestKey: String): ServiceMenuItem =
+    /** The names, as typed, of the Services that have a Color Formula, each once. */
+    suspend fun listFormulaNames(): List<String> = trpc.query("serviceMenu.formulaNames")
+
+    /**
+     * Saves the whole editor of a Service Menu Item: an empty group clears it, and marking it the
+     * Travel Fee unmarks any other item. [requestKey] names
+     * the creation of a new one (see [REQUEST_KEY]); an edit ([id]) does not send it.
+     */
+    suspend fun saveServiceMenuItem(id: String?, values: MenuItemValues, requestKey: String): ServiceMenuItem =
         trpc.mutation(
             "serviceMenu.save",
             buildJsonObject {
                 id?.let { put("id", it) }
-                put("name", name)
-                put("defaultPriceCents", defaultPriceCents)
+                put("name", values.name)
+                put("defaultPriceCents", values.defaultPriceCents)
+                put("group", values.group)
+                put("travelFee", values.travelFee)
                 if (id == null) put(REQUEST_KEY, requestKey)
             },
         )
@@ -300,6 +338,51 @@ class HcmApi(private val trpc: TrpcClient) {
     }
 
     /**
+     * Adds a Service from each of [menuItemIds] for [clientId], at the items' default prices and
+     * in this order, all in one request: all are added or none. [requestKey] names this addition
+     * (see [REQUEST_KEY]).
+     */
+    suspend fun addMenuServices(appointmentId: String, clientId: String, menuItemIds: List<String>, requestKey: String) =
+        addMenuServices(appointmentId, listOf(clientId to menuItemIds), requestKey)
+
+    /**
+     * Adds a Service from each picked menu item for each Client of [picks], at the items' default
+     * prices, Client after Client and each one's items in their order, all in one request: all are
+     * added or none. Picks for one Client go in the shape the API has always taken, so that they
+     * also work with an API from before several Clients at once.
+     */
+    suspend fun addMenuServices(appointmentId: String, picks: List<Pair<String, List<String>>>, requestKey: String) {
+        fun ids(menuItemIds: List<String>) = buildJsonArray { menuItemIds.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } }
+
+        trpc.mutation<JsonObject>(
+            "appointment.addMenuServices",
+            buildJsonObject {
+                put("appointmentId", appointmentId)
+                val single = picks.singleOrNull()
+                if (single != null) {
+                    put("clientId", single.first)
+                    put("menuItemIds", ids(single.second))
+                } else {
+                    put(
+                        "clients",
+                        buildJsonArray {
+                            picks.forEach { (clientId, menuItemIds) ->
+                                add(
+                                    buildJsonObject {
+                                        put("clientId", clientId)
+                                        put("menuItemIds", ids(menuItemIds))
+                                    },
+                                )
+                            }
+                        },
+                    )
+                }
+                put(REQUEST_KEY, requestKey)
+            },
+        )
+    }
+
+    /**
      * An edit of a Service is a save of its whole form: the name, the price and the note are sent
      * together, and an empty note clears the note.
      */
@@ -374,9 +457,7 @@ class HcmApi(private val trpc: TrpcClient) {
         appointmentId: String,
         clientId: String,
         category: PhotoCategory,
-        fileKey: String,
-        url: String,
-        thumbnailUrl: String,
+        stored: StoredFile,
         requestKey: String,
     ): List<AppointmentPhoto>? {
         val reply = trpc.mutation<JsonObject>(
@@ -386,9 +467,14 @@ class HcmApi(private val trpc: TrpcClient) {
                 put("clientId", clientId)
                 put("category", category.wire)
                 put("status", "stored")
-                put("fileKey", fileKey)
-                put("url", url)
-                put("thumbnailUrl", thumbnailUrl)
+                put("fileKey", stored.fileKey)
+                put("url", stored.url)
+                put("thumbnailUrl", stored.thumbnailUrl)
+                // Both or neither: a photo is never recorded with one side only.
+                if (stored.width != null && stored.height != null) {
+                    put("width", stored.width)
+                    put("height", stored.height)
+                }
                 put(REQUEST_KEY, requestKey)
             },
         )

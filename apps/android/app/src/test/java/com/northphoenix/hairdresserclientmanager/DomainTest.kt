@@ -239,10 +239,11 @@ class DomainTest {
     fun `no number but a Russian mobile is rewritten for the duplicate check`() {
         // Eleven digits that start with 8: Japan's +81, not a Russian number written with 8.
         assertFalse(ClientRules.isDuplicatePhone(listOf(client("1", "Yuki", "+81 3 1234 5678")), null, "+7 131 234 56 78"))
-        // The app cannot know the country of a number that has no country code.
-        assertFalse(ClientRules.isDuplicatePhone(listOf(client("1", "Anna", "+1 512 555 0100")), null, "512 555 0100"))
-        assertEquals("15125550100", ClientRules.comparablePhone("+1 (512) 555-0100"))
-        assertEquals("79161234567", ClientRules.comparablePhone("8 (916) 123-45-67"))
+        // Ten digits without a country code are a number of the US or a Russian mobile, the same with its code.
+        assertTrue(ClientRules.isDuplicatePhone(listOf(client("1", "Anna", "+1 512 555 0100")), null, "512 555 0100"))
+        assertFalse(ClientRules.isDuplicatePhone(listOf(client("1", "Ann", "+44 512 555 0100")), null, "512 555 0100"))
+        assertEquals("5125550100", ClientRules.comparablePhone("+1 (512) 555-0100"))
+        assertEquals("9161234567", ClientRules.comparablePhone("8 (916) 123-45-67"))
         assertEquals("", ClientRules.comparablePhone("ext"))
     }
 
@@ -576,10 +577,29 @@ class DomainTest {
     fun `a reminder is offered only for a scheduled Appointment`() {
         fun offered(status: AppointmentStatus) = ClientReminder.isOffered(
             Appointment(id = "a", primaryClientId = "c", primaryClientName = "Rita", startsAt = "2026-10-09T09:00:00.000Z", status = status, locationType = LocationType.IN_SALON),
+            now = Instant.parse("2026-10-08T12:00:00Z"),
         )
 
         // Its text says "your appointment is scheduled for", which no other status makes true.
         assertEquals(listOf(AppointmentStatus.SCHEDULED), AppointmentStatus.entries.filter(::offered))
+    }
+
+    @Test
+    fun `a reminder is offered only until the Appointment starts`() {
+        val appointment = Appointment(
+            id = "a",
+            primaryClientId = "c",
+            primaryClientName = "Rita",
+            startsAt = "2026-10-09T09:00:00.000Z",
+            status = AppointmentStatus.SCHEDULED,
+            locationType = LocationType.IN_SALON,
+        )
+        val start = Instant.parse(appointment.startsAt)
+
+        assertTrue(ClientReminder.isOffered(appointment, start.minusSeconds(60)))
+        assertFalse(ClientReminder.isOffered(appointment, start))
+        // Started a minute ago, and still Scheduled until the Stylist marks an outcome: too late to remind.
+        assertFalse(ClientReminder.isOffered(appointment, start.plusSeconds(60)))
     }
 
     @Test

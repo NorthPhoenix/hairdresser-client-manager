@@ -2,7 +2,6 @@ package com.northphoenix.hairdresserclientmanager.ui.screens
 
 import android.content.ActivityNotFoundException
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -75,12 +74,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -101,27 +102,26 @@ import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.ColorFormula
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
 import com.northphoenix.hairdresserclientmanager.data.PhotoStatus
-import com.northphoenix.hairdresserclientmanager.data.ServiceMenuItem
+import com.northphoenix.hairdresserclientmanager.domain.PhoneFormat
 import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentCopying
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
+import com.northphoenix.hairdresserclientmanager.domain.ColorFormulaOffer
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.ServiceEdit
 import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
 import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
-import com.northphoenix.hairdresserclientmanager.i18n.clientReminderTemplate
 import com.northphoenix.hairdresserclientmanager.i18n.label
-import com.northphoenix.hairdresserclientmanager.i18n.inLanguage
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
-import com.northphoenix.hairdresserclientmanager.i18n.toLocale
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.state.PhotoUpload
 import com.northphoenix.hairdresserclientmanager.state.Read
 import com.northphoenix.hairdresserclientmanager.state.UploadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
+import com.northphoenix.hairdresserclientmanager.ui.composeClientReminder
 import com.northphoenix.hairdresserclientmanager.ui.components.AmountField
 import com.northphoenix.hairdresserclientmanager.ui.components.Avatar
 import com.northphoenix.hairdresserclientmanager.ui.components.ChoiceChip
@@ -148,9 +148,11 @@ import com.northphoenix.hairdresserclientmanager.ui.components.StatusChip
 import com.northphoenix.hairdresserclientmanager.ui.components.SubScreen
 import com.northphoenix.hairdresserclientmanager.ui.components.Tag
 import com.northphoenix.hairdresserclientmanager.ui.components.TagPadding
+import com.northphoenix.hairdresserclientmanager.ui.components.QuietTextAction
 import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
 import com.northphoenix.hairdresserclientmanager.ui.components.fittedTextStyle
 import com.northphoenix.hairdresserclientmanager.ui.components.icon
+import com.northphoenix.hairdresserclientmanager.ui.components.rememberNow
 import com.northphoenix.hairdresserclientmanager.ui.components.rememberRequestKey
 import com.northphoenix.hairdresserclientmanager.ui.components.tagTextStyle
 import com.northphoenix.hairdresserclientmanager.ui.openUri
@@ -167,7 +169,8 @@ private const val MAX_GALLERY_PHOTOS = 10
 internal sealed interface DetailSheet {
     data object AddClient : DetailSheet
 
-    data object AddService : DetailSheet
+    /** [clientId] is the Client the Services are for when the sheet opens; null for the primary Client. */
+    data class AddService(val clientId: String? = null) : DetailSheet
 
     data object CopyServices : DetailSheet
 
@@ -195,7 +198,7 @@ internal sealed interface DetailSheet {
                 when (sheet) {
                     null -> emptyList()
                     AddClient -> listOf("addClient")
-                    AddService -> listOf("addService")
+                    is AddService -> listOfNotNull("addService", sheet.clientId)
                     CopyServices -> listOf("copyServices")
                     Edit -> listOf("edit")
                     is Service -> listOf("service", sheet.serviceId)
@@ -210,7 +213,7 @@ internal sealed interface DetailSheet {
 
                 when (saved.firstOrNull()) {
                     "addClient" -> AddClient
-                    "addService" -> AddService
+                    "addService" -> AddService(id)
                     "copyServices" -> CopyServices
                     "edit" -> Edit
                     "service" -> id?.let(::Service)
@@ -288,12 +291,17 @@ private fun AppointmentDetail(
 ) {
     val context = LocalContext.current
     val format = LocalTimeFormat.current
+    // The reminder is offered until the Appointment starts.
+    val now by rememberNow()
     val clientList by viewModel.clients.collectAsStateWithLifecycle()
     val clients = clientList.data.orEmpty()
     val clientsLoad = clientList.state
     val menu by viewModel.serviceMenu.collectAsStateWithLifecycle()
     val serviceMenu = menu.data.orEmpty()
     val serviceMenuLoad = menu.state
+    val formulaNames by viewModel.formulaNames.collectAsStateWithLifecycle()
+    // What her own formulas say about which Services offer a formula with the full button.
+    val learnedFormulas = remember(serviceMenu, formulaNames.data) { ColorFormulaOffer.Learned.of(serviceMenu, formulaNames.data.orEmpty()) }
     val copyingInto by viewModel.copyingInto.collectAsStateWithLifecycle()
     // The photos of this Appointment that are not on the server yet.
     val uploads = viewModel.photoUploads.collectAsStateWithLifecycle().value.filter { it.photo.appointmentId == appointment.id }
@@ -482,17 +490,19 @@ private fun AppointmentDetail(
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Text(stringResource(R.string.appointment_services_title), style = MaterialTheme.typography.headlineSmall)
 
-                    if (appointment.services.isEmpty()) {
+                    // A group Appointment says so Client by Client.
+                    if (appointment.services.isEmpty() && !isGroup) {
                         InlineEmpty(stringResource(R.string.appointment_no_services))
                     }
 
-                    appointment.services.forEachIndexed { index, service ->
+                    @Composable
+                    fun Services(services: List<AppointmentService>) = services.forEachIndexed { index, service ->
                         if (index > 0) {
                             Hairline()
                         }
                         ServiceBlock(
                             service = service,
-                            clientName = appointment.participants.firstOrNull { it.clientId == service.clientId }?.name.takeIf { isGroup },
+                            learnedFormulas = learnedFormulas,
                             busy = busy,
                             onEdit = { sheet = DetailSheet.Service(service.id) },
                             onDelete = { deletingServiceId = service.id },
@@ -501,14 +511,34 @@ private fun AppointmentDetail(
                         )
                     }
 
-                    SecondaryButton(
-                        stringResource(R.string.add_appointment_service),
-                        onClick = { sheet = DetailSheet.AddService },
-                        modifier = Modifier.fillMaxWidth(),
-                        // A Service is for one of the Appointment's Clients. Without any, the warning above the Clients says what to do first.
-                        enabled = clientsFault != AppointmentClients.Fault.NO_CLIENTS,
-                        icon = Icons.Rounded.Add,
-                    )
+                    if (isGroup) {
+                        // With several Clients each has their own Services under their name, with what they come to,
+                        // and a Service is added for one of them from there. A Client without Services is listed too.
+                        AppointmentClients.servicesByClient(appointment).forEach { group ->
+                            ClientServicesHeader(group.name, group.subtotalCents)
+                            Services(group.services)
+                            if (AppointmentClients.isIn(appointment, group.clientId)) {
+                                val description = stringResource(R.string.add_service_for_client, group.name)
+
+                                SecondaryButton(
+                                    stringResource(R.string.add_appointment_service),
+                                    onClick = { sheet = DetailSheet.AddService(group.clientId) },
+                                    modifier = Modifier.fillMaxWidth().semantics { contentDescription = description },
+                                    icon = Icons.Rounded.Add,
+                                )
+                            }
+                        }
+                    } else {
+                        Services(appointment.services)
+                        SecondaryButton(
+                            stringResource(R.string.add_appointment_service),
+                            onClick = { sheet = DetailSheet.AddService() },
+                            modifier = Modifier.fillMaxWidth(),
+                            // A Service is for one of the Appointment's Clients. Without any, the warning above the Clients says what to do first.
+                            enabled = clientsFault != AppointmentClients.Fault.NO_CLIENTS,
+                            icon = Icons.Rounded.Add,
+                        )
+                    }
                     TextAction(
                         stringResource(R.string.copy_completed_services),
                         onClick = { sheet = DetailSheet.CopyServices },
@@ -605,10 +635,10 @@ private fun AppointmentDetail(
             NoteCard(appointment, note = noteDraft, onNote = { noteDraft = it }, onSave = { viewModel.saveAppointmentNote(appointment.id, it) })
 
             // --- actions ---
-            if (ClientReminder.isOffered(appointment)) {
+            if (ClientReminder.isOffered(appointment, now)) {
                 SecondaryButton(
                     stringResource(R.string.compose_client_reminder),
-                    onClick = { composeReminder(context, viewModel, appointment, format) },
+                    onClick = { composeClientReminder(context, viewModel, appointment, format.zone) },
                     modifier = Modifier.fillMaxWidth(),
                     icon = Icons.Rounded.Sms,
                 )
@@ -637,21 +667,31 @@ private fun AppointmentDetail(
                 sheet = null
             },
         )
-        DetailSheet.AddService -> {
-            // One key for the Service this sheet is opened to add, so that a second try of it adds no second one.
-            val requestKey = rememberRequestKey(appointment.id)
+        is DetailSheet.AddService -> {
+            // One key for the Services this sheet is opened to add from the menu, and one for the
+            // custom Service it can add instead, so that a second try of either adds nothing more.
+            val menuRequestKey = rememberRequestKey(appointment.id, "menu")
+            val customRequestKey = rememberRequestKey(appointment.id, "custom")
 
             AddServiceSheet(
                 appointment = appointment,
+                initialClientId = current.clientId,
                 menu = serviceMenu,
                 menuLoad = serviceMenuLoad,
                 onRetry = viewModel::retryLoad,
+                clients = clients,
+                clientsLoad = clientsLoad,
                 busy = busy,
                 onDismiss = { sheet = null },
                 onMissingName = { viewModel.notify(R.string.service_name_required, isError = true) },
-                onAdd = { clientId, menuItemId, name, priceCents, note ->
-                    viewModel.addService(appointment.id, clientId, menuItemId, name, priceCents, note, requestKey) { sheet = null }
+                onAddFromMenu = { picks ->
+                    viewModel.addMenuServices(appointment.id, picks, menuRequestKey) { sheet = null }
                 },
+                onAddCustom = { clientId, name, priceCents, note ->
+                    viewModel.addService(appointment.id, clientId, null, name, priceCents, note, customRequestKey) { sheet = null }
+                },
+                onAddPerson = { clientId, onAdded -> viewModel.addParticipant(appointment.id, clientId, onAdded) },
+                onCreatePerson = { name, requestKey, onAdded -> viewModel.addNewParticipant(appointment.id, name, requestKey, onAdded) },
             )
         }
         DetailSheet.CopyServices -> {
@@ -966,28 +1006,6 @@ private fun <T> rememberDraft(
 /** What [rememberDraft] had the last time it ran: the field, and what the Appointment showed then. Null before the first time. */
 private class DraftBefore<T>(var last: Pair<MutableState<String>, T>? = null)
 
-/** Opens the SMS app with a reminder in the primary Client's language. Nothing is sent automatically. */
-private fun composeReminder(context: Context, viewModel: AppViewModel, appointment: Appointment, stylistFormat: TimeFormat) {
-    val recipient = appointment.participants.firstOrNull { it.isPrimary }
-    val number = recipient?.let { ClientReminder.recipient(it.phone) }
-
-    if (recipient == null || number == null) {
-        // No primary Client among the Appointment's Clients is not a Client without a phone.
-        viewModel.notify(if (recipient == null) R.string.client_reminder_no_primary_client else R.string.client_reminder_missing_phone, isError = true)
-        return
-    }
-
-    // Written in the Client's language, whatever language the app is in.
-    val template = context.inLanguage(recipient.language).getString(clientReminderTemplate(appointment))
-    val message = ClientReminder.message(template, appointment, recipient.language.toLocale(), stylistFormat.zone)
-
-    try {
-        context.startActivity(Intent(Intent.ACTION_SENDTO, ClientReminder.smsUri(number)).putExtra("sms_body", message))
-    } catch (_: ActivityNotFoundException) {
-        viewModel.notify(R.string.sms_app_unavailable, isError = true)
-    }
-}
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ParticipantRow(
@@ -1007,20 +1025,22 @@ private fun ParticipantRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Avatar(participant.name, size = 40.dp)
+        val fontScale = LocalDensity.current.fontScale
+        Avatar(participant.name, size = (40 * fontScale.coerceIn(1f, 1.5f)).dp)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(participant.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(participant.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
             // Wraps, so a long badge never squeezes the phone number out.
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                 if (participant.isPrimary) {
                     Tag(stringResource(R.string.primary_badge), content = MaterialTheme.colorScheme.primary, container = MaterialTheme.colorScheme.primaryContainer)
                 }
                 if (participant.phone.isNotBlank()) {
-                    Text(participant.phone, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    Text(PhoneFormat.display(participant.phone), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 }
             }
         }
-        if (showSubtotal) {
+        // Each Client's subtotal is also over their Services below; at a large font size the name needs the room more.
+        if (showSubtotal && fontScale < 1.5f) {
             Text(Money.format(participant.subtotalCents), style = MaterialTheme.typography.titleSmall)
         }
         Box {
@@ -1067,10 +1087,24 @@ private fun ParticipantRow(
     }
 }
 
+/** The name of one of the Clients of a group Appointment over their Services, and what their Services come to. */
+@Composable
+private fun ClientServicesHeader(name: String, subtotalCents: Long) {
+    Column(Modifier.fillMaxWidth().padding(top = 6.dp).semantics(mergeDescendants = true) { heading() }, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            // The initials grow with the font size, so the circle does too.
+            Avatar(name, size = (28 * LocalDensity.current.fontScale.coerceIn(1f, 2f)).dp)
+            Text(name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+            Text(Money.format(subtotalCents), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        }
+        Box(Modifier.fillMaxWidth().height(1.5.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)))
+    }
+}
+
 @Composable
 private fun ServiceBlock(
     service: AppointmentService,
-    clientName: String?,
+    learnedFormulas: ColorFormulaOffer.Learned,
     busy: Boolean,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -1078,19 +1112,25 @@ private fun ServiceBlock(
     onEditFormula: (ColorFormula) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(service.name, style = MaterialTheme.typography.titleLarge)
-                if (clientName != null) {
-                    Text(clientName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
+        // At a large font size the price and the two buttons would leave the name a sliver and break it mid-word: they go under it.
+        val priceAndActions: @Composable () -> Unit = {
             Text(Money.format(service.priceCents), style = MaterialTheme.typography.titleMedium)
             IconButton(onClick = onEdit) {
                 Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.edit_appointment_service), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             IconButton(onClick = onDelete, enabled = !busy) {
                 Icon(Icons.Rounded.DeleteOutline, contentDescription = stringResource(R.string.delete_appointment_service), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        if (LocalDensity.current.fontScale >= 1.5f) {
+            Text(service.name, style = MaterialTheme.typography.titleLarge)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) { priceAndActions() }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(service.name, style = MaterialTheme.typography.titleLarge)
+                }
+                priceAndActions()
             }
         }
         if (service.note.isNotBlank()) {
@@ -1100,7 +1140,11 @@ private fun ServiceBlock(
             ColorFormulaCard(formula, onClick = { onEditFormula(formula) })
         }
         // Pull the text button's own padding back so its label lines up with the Service name.
-        TextAction(stringResource(R.string.add_color_formula), onClick = onAddFormula, icon = Icons.Rounded.Add, modifier = Modifier.offset(x = (-10).dp))
+        if (ColorFormulaOffer.isProminent(service, learnedFormulas)) {
+            TextAction(stringResource(R.string.add_color_formula), onClick = onAddFormula, icon = Icons.Rounded.Add, modifier = Modifier.offset(x = (-10).dp))
+        } else {
+            QuietTextAction(stringResource(R.string.add_color_formula_quiet), onClick = onAddFormula, modifier = Modifier.offset(x = (-8).dp))
+        }
     }
 }
 
@@ -1330,111 +1374,6 @@ private fun RowScope.UploadTile(upload: PhotoUpload, tagStyle: TextStyle, onOpen
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun AddServiceSheet(
-    appointment: Appointment,
-    menu: List<ServiceMenuItem>,
-    menuLoad: LoadState,
-    onRetry: () -> Unit,
-    busy: Boolean,
-    onDismiss: () -> Unit,
-    onMissingName: () -> Unit,
-    onAdd: (clientId: String, menuItemId: String?, name: String?, priceCents: Long?, note: String?) -> Unit,
-) {
-    // The Client picked here, if any. They can have been removed from the Appointment while the sheet is open.
-    var pickedClientId by rememberSaveable { mutableStateOf<String?>(null) }
-    val clientId = AppointmentClients.serviceClientId(appointment, pickedClientId)
-    var menuItemId by rememberSaveable { mutableStateOf<String?>(null) }
-    var name by rememberSaveable { mutableStateOf("") }
-    var price by rememberSaveable { mutableStateOf("") }
-    var note by rememberSaveable { mutableStateOf("") }
-    // The price text a save was refused for. The reason stays under the field for as long as the text is that one.
-    var refusedPrice by rememberSaveable { mutableStateOf<String?>(null) }
-    val selectedItem = menu.firstOrNull { it.id == menuItemId }
-
-    HcmBottomSheet(title = stringResource(R.string.add_appointment_service), onDismiss = onDismiss) {
-        if (appointment.participants.size > 1) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(stringResource(R.string.appointment_service_client_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    appointment.participants.forEach { participant ->
-                        ChoiceChip(participant.name, selected = clientId == participant.clientId, onClick = { pickedClientId = participant.clientId })
-                    }
-                }
-            }
-        }
-
-        // A Service Menu that has loaded empty has nothing to offer here. One that is not loaded says so in the chips' place.
-        if (menu.isNotEmpty() || menuLoad != LoadState.Loaded) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(stringResource(R.string.add_menu_service), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (menu.isEmpty() && menuLoad is LoadState.Failed) {
-                    InlineLoadFailed(menuLoad.message, onRetry)
-                } else if (menu.isEmpty()) {
-                    LoadingRow(Modifier.heightIn(max = 96.dp))
-                } else {
-                    FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        menu.forEach { item ->
-                            ChoiceChip(
-                                // The price stays with its dot when a long name takes the chip onto more lines.
-                                item.name + " ·\u00A0" + Money.format(item.defaultPriceCents),
-                                selected = menuItemId == item.id,
-                                wraps = true,
-                                onClick = {
-                                    // Picking a menu item takes its name and default price; the price stays editable.
-                                    menuItemId = item.id
-                                    name = ""
-                                    price = Money.centsToPrice(item.defaultPriceCents)
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        HcmTextField(
-            value = name,
-            onValueChange = {
-                name = it
-                // Typing a name makes this an ad hoc Service rather than a menu one.
-                menuItemId = null
-            },
-            label = stringResource(R.string.appointment_service_name_label),
-            placeholder = selectedItem?.name ?: stringResource(R.string.placeholder_service_name),
-            maxLength = TextLimits.NAME,
-        )
-        AmountField(
-            price,
-            { price = it },
-            label = stringResource(R.string.appointment_service_price_label),
-            // Left empty, a Service from the menu takes the price of its Service Menu Item.
-            placeholder = selectedItem?.let { Money.centsToPrice(it.defaultPriceCents) } ?: "85.00",
-            // An empty price is refused only for an ad hoc Service: the reason goes once a Service from the menu is chosen.
-            refusal = Money.parse(price).takeIf { price == refusedPrice && it.isRefused(required = selectedItem == null) },
-        )
-        HcmTextField(note, { note = it }, label = stringResource(R.string.appointment_service_note_label), placeholder = stringResource(R.string.optional), singleLine = false, minLines = 2, maxLength = TextLimits.NOTE)
-        PrimaryButton(
-            stringResource(if (menuItemId != null) R.string.add_menu_service else R.string.add_ad_hoc_service),
-            onClick = {
-                val amount = Money.parse(price)
-                // An ad hoc Service has to state its price. Only one from the menu may leave it out.
-                val priceRefused = amount.isRefused(required = selectedItem == null)
-
-                refusedPrice = price.takeIf { priceRefused }
-                if (name.isBlank() && selectedItem == null) {
-                    onMissingName()
-                } else if (!priceRefused) {
-                    onAdd(clientId, selectedItem?.id, name.ifBlank { null }, (amount as? Amount.Valid)?.cents, note.ifBlank { null })
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-            loading = busy,
-        )
-    }
-}
-
 /**
  * Edit Service: the name, the price and the note of a Service that is on the Appointment. They are
  * saved together, as the form shows them. Its Client and its Color Formulas are not part of it.
@@ -1468,7 +1407,7 @@ private fun EditServiceSheet(
             price,
             { price = it },
             label = stringResource(R.string.appointment_service_price_label),
-            placeholder = "85.00",
+            placeholder = "0.00",
             refusal = Money.parse(price).takeIf { price == refusedPrice },
         )
         HcmTextField(note, { note = it }, label = stringResource(R.string.appointment_service_note_label), placeholder = stringResource(R.string.optional), singleLine = false, minLines = 2, maxLength = TextLimits.NOTE)
@@ -1580,7 +1519,7 @@ private fun FormulaSheet(
     var confirmDelete by rememberSaveable(service.id, formula?.id) { mutableStateOf(false) }
 
     HcmBottomSheet(title = stringResource(R.string.color_formula_label), subtitle = service.name, onDismiss = onDismiss) {
-        HcmTextField(text, { text = it }, label = stringResource(R.string.color_formula_label), placeholder = "7N + 20 vol", singleLine = false, minLines = 2, maxLength = TextLimits.FORMULA)
+        HcmTextField(text, { text = it }, label = stringResource(R.string.color_formula_label), placeholder = stringResource(R.string.placeholder_formula_text), singleLine = false, minLines = 2, maxLength = TextLimits.FORMULA)
         HcmTextField(placement, { placement = it }, label = stringResource(R.string.color_formula_placement_label), placeholder = stringResource(R.string.placeholder_formula_placement), maxLength = TextLimits.PLACEMENT)
         PrimaryButton(
             stringResource(if (formula != null) R.string.save_color_formula else R.string.add_color_formula),

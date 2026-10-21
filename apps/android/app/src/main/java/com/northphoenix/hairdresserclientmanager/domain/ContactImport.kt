@@ -11,6 +11,10 @@ data class DeviceContact(
     val phones: List<String?> = emptyList(),
     val emails: List<String?> = emptyList(),
     val addresses: List<PostalAddress> = emptyList(),
+    /** The contact's note, when it has one and Android lets the app read it. */
+    val note: String? = null,
+    /** The contact's id on the device: only the list of all contacts has it. */
+    val id: Long? = null,
 ) {
     data class PostalAddress(
         val street: String? = null,

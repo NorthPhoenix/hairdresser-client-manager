@@ -15,6 +15,7 @@ import {
   textLimits
 } from "../input";
 import { isStoredFileUrl, markFilesUnused } from "../photoStorage";
+import { addTravelFee, noTravelFeeChange, removeTravelFee } from "../travelFee";
 import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from "../trpc";
 
 const dateRangeInput = z.object({
@@ -64,6 +65,59 @@ const appointmentServiceInput = z.object({
   note: text(textLimits.note).optional(),
   requestKey: requestKey.optional()
 });
+
+const menuServicesLimit = 100;
+
+const appointmentMenuServicesInput = z
+  .object({
+    appointmentId: z.string(),
+    // For one Client: clientId and menuItemIds, as the app has always sent them.
+    clientId: z.string().optional(),
+    // In the order the Stylist picked them; one item can be in it more than once.
+    menuItemIds: z.array(z.string()).min(1).max(menuServicesLimit).optional(),
+    // For several Clients at once, instead of clientId and menuItemIds: each Client once, in the
+    // order their Services are added, each with their items in the order they were picked.
+    clients: z
+      .array(
+        z.object({
+          clientId: z.string(),
+          menuItemIds: z.array(z.string()).min(1).max(menuServicesLimit)
+        })
+      )
+      .min(1)
+      .max(menuServicesLimit)
+      .optional(),
+    requestKey: requestKey.optional()
+  })
+  .superRefine((input, context) => {
+    const single = input.clientId !== undefined || input.menuItemIds !== undefined;
+
+    if (input.clients === undefined) {
+      if (input.clientId === undefined || input.menuItemIds === undefined) {
+        context.addIssue({ code: "custom", message: "Pick a Client and Service Menu Items." });
+      }
+      return;
+    }
+
+    if (single) {
+      context.addIssue({ code: "custom", message: "Send either one Client or several, not both." });
+    }
+
+    if (new Set(input.clients.map((client) => client.clientId)).size !== input.clients.length) {
+      context.addIssue({ code: "custom", message: "Each Client can be listed once." });
+    }
+
+    if (input.clients.reduce((count, client) => count + client.menuItemIds.length, 0) > menuServicesLimit) {
+      context.addIssue({ code: "custom", message: "Too many Services at once." });
+    }
+  });
+
+/** The Services an addMenuServices input asks for, as pairs of whom and which item, in the order they are added. */
+function menuServicePicks(input: z.infer<typeof appointmentMenuServicesInput>) {
+  const clients = input.clients ?? [{ clientId: input.clientId ?? "", menuItemIds: input.menuItemIds ?? [] }];
+
+  return clients.flatMap((client) => client.menuItemIds.map((menuItemId) => ({ clientId: client.clientId, menuItemId })));
+}
 
 const appointmentServiceUpdateInput = z.object({
   id: z.string(),
@@ -810,7 +864,9 @@ export const appointmentRouter = createTRPCRouter({
 
       return {
         appointment: await getAppointmentOutput(ctx.db, repeatedAppointment.id),
-        conflicts: repeatedConflicts.map(toAppointmentOutput)
+        conflicts: repeatedConflicts.map(toAppointmentOutput),
+        // The first call said what it added.
+        travelFee: noTravelFeeChange
       };
     }
 
@@ -926,9 +982,17 @@ export const appointmentRouter = createTRPCRouter({
       }
     });
 
+    // A new Appointment is Scheduled: at home, it gets the Travel Fee for its primary Client.
+    const travelFee =
+      input.locationType === "atHome"
+        ? await addTravelFee(ctx.db, ctx.stylist.id, appointment.id, primaryClient.id)
+        : noTravelFeeChange;
+
     return {
-      appointment: toAppointmentOutput(appointment),
-      conflicts: conflicts.map(toAppointmentOutput)
+      appointment: travelFee.added.length > 0 ? await getAppointmentOutput(ctx.db, appointment.id) : toAppointmentOutput(appointment),
+      conflicts: conflicts.map(toAppointmentOutput),
+      // The Services the Travel Fee added, for the app to say so and offer to remove them.
+      travelFee
     };
   }),
   update: stylistTransactionProcedure.input(appointmentUpdateInput).mutation(async ({ ctx, input }) => {
@@ -1016,6 +1080,15 @@ export const appointmentRouter = createTRPCRouter({
       };
     }
 
+    // The Travel Fee follows a Scheduled Appointment that changes place: to at home it is added
+    // for the primary Client, to the salon it is removed. Nothing else adds or removes it, so an
+    // edit that keeps the place leaves the Services as the Stylist made them.
+    const travelFee =
+      status === "scheduled" && locationTypeChanges
+        ? locationType === "atHome"
+          ? await addTravelFee(ctx.db, ctx.stylist.id, appointment.id, primaryClientId)
+          : await removeTravelFee(ctx.db, ctx.stylist.id, appointment.id)
+        : noTravelFeeChange;
     const updatedAppointment = await ctx.db.appointment.update({
       where: {
         id: appointment.id
@@ -1081,7 +1154,9 @@ export const appointmentRouter = createTRPCRouter({
 
     return {
       ...toAppointmentOutput(updatedAppointment),
-      conflicts: conflicts.map(toAppointmentOutput)
+      conflicts: conflicts.map(toAppointmentOutput),
+      // The Services the Travel Fee added or removed, for the app to say so and offer to undo it.
+      travelFee
     };
   }),
   addService: stylistTransactionProcedure.input(appointmentServiceInput).mutation(async ({ ctx, input }) => {
@@ -1212,6 +1287,101 @@ export const appointmentRouter = createTRPCRouter({
     });
 
     return toAppointmentOutput(updatedAppointment);
+  }),
+  // Several Services from the Service Menu at once, each at its item's default price, for one
+  // Client in the order of menuItemIds, or for several Clients (clients) one after another. All
+  // are added or none.
+  addMenuServices: stylistTransactionProcedure.input(appointmentMenuServicesInput).mutation(async ({ ctx, input }) => {
+    const picks = menuServicePicks(input);
+
+    const appointment = await ctx.db.appointment.findFirst({
+      where: {
+        id: input.appointmentId,
+        stylistId: ctx.stylist.id
+      },
+      include: {
+        participants: true,
+        services: {
+          select: {
+            ...existingServices.select,
+            id: true,
+            createdAt: true
+          }
+        }
+      }
+    });
+
+    if (!appointment) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Appointment not found."
+      });
+    }
+
+    const repeatedServices = input.requestKey
+      ? inAddedOrder(appointment.services.filter((service) => service.requestKey === input.requestKey))
+      : [];
+
+    if (repeatedServices.length > 0) {
+      // The prices came from the menu: there is nothing to compare but whose and which items.
+      refuseChangedRepeat(
+        { services: repeatedServices.map((service) => `${service.clientId}:${service.menuItemId}`).join(" ") },
+        { services: picks.map((pick) => `${pick.clientId}:${pick.menuItemId}`).join(" ") }
+      );
+
+      return getAppointmentOutput(ctx.db, appointment.id);
+    }
+
+    if (!picks.every((pick) => appointment.participants.some((participant) => participant.clientId === pick.clientId))) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Service Client must be attached to the Appointment."
+      });
+    }
+
+    const menuItems = await ctx.db.serviceMenuItem.findMany({
+      where: {
+        id: {
+          in: [...new Set(picks.map((pick) => pick.menuItemId))]
+        },
+        stylistId: ctx.stylist.id
+      }
+    });
+    const picked = picks.map((pick) => ({ clientId: pick.clientId, item: menuItems.find((item) => item.id === pick.menuItemId) }));
+
+    if (picked.some((pick) => !pick.item)) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Service Menu Item not found."
+      });
+    }
+
+    const items = picked.flatMap(({ clientId, item }) => (item ? [{ clientId, item }] : []));
+
+    refuseTotalAboveMaximum(
+      appointment.services,
+      items.reduce((total, { item }) => total + item.defaultPriceCents, 0)
+    );
+
+    // Dated one millisecond apart, as Appointment Copying does: they keep the order they were picked in.
+    const addedAt = Date.now();
+
+    for (const [index, { clientId, item }] of items.entries()) {
+      await ctx.db.appointmentService.create({
+        data: {
+          appointmentId: appointment.id,
+          clientId,
+          menuItemId: item.id,
+          name: item.name,
+          priceCents: item.defaultPriceCents,
+          note: "",
+          requestKey: input.requestKey,
+          createdAt: new Date(addedAt + index)
+        }
+      });
+    }
+
+    return getAppointmentOutput(ctx.db, appointment.id);
   }),
   updateService: stylistTransactionProcedure.input(appointmentServiceUpdateInput).mutation(async ({ ctx, input }) => {
     const service = await ctx.db.appointmentService.findFirst({

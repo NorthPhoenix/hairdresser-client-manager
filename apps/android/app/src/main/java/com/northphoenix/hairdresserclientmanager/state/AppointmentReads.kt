@@ -2,6 +2,8 @@ package com.northphoenix.hairdresserclientmanager.state
 
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
+import com.northphoenix.hairdresserclientmanager.domain.CalendarWeek
+import com.northphoenix.hairdresserclientmanager.domain.HomeOutcomes
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -13,6 +15,9 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 
 /** A day of the Stylist: [day] in [zone], the timezone its start and its end are worked out in. Another timezone is another key. */
 internal data class DayKey(val day: LocalDate, val zone: ZoneId)
+
+/** The seven days from [firstDay] on in [zone]: a week of the Calendar's week strip. */
+internal data class WeekKey(val firstDay: LocalDate, val zone: ZoneId)
 
 /** One Appointment, by its id. */
 internal data class AppointmentKey(val id: String)
@@ -26,7 +31,8 @@ internal data class CopyTargetKey(val appointmentId: String, val clientIds: Set<
 
 /**
  * Every read of Appointments, each through a [ReadCache]: [today] (`appointment.home`), a
- * Calendar day ([days], `appointment.list`), one Appointment by its id ([one], `appointment.get`)
+ * Calendar day ([days], `appointment.list`), a week of the Calendar's week strip ([weeks], `appointment.list`
+ * for seven days), one Appointment by its id ([one], `appointment.get`)
  * and what Appointment Copying can copy from ([sources], `appointment.completedSources`).
  *
  * A change is told here, and reaches the reads in two ways. What is on screen gets what the
@@ -51,6 +57,7 @@ internal class AppointmentReads(
     /** Null when the server has no such Appointment. */
     find: suspend (id: String) -> Appointment?,
     fetchSources: suspend (CopyTargetKey) -> List<Appointment>,
+    fetchWeek: suspend (WeekKey) -> List<Appointment>,
 ) {
     /**
      * Today's list holds every Scheduled Appointment that is overdue as well, of whatever day. So
@@ -70,6 +77,20 @@ internal class AppointmentReads(
     val days = ReadCache<DayKey, List<Appointment>>(scope, changes, DAY_LIMITS, about = { key, list -> list.flatMap { idsIn(it) } + startsOn(key) }) { key ->
         zones += key.zone
         fetchDay(key)
+    }
+
+    /**
+     * The Appointments that start in a week of the Calendar's week strip, which marks the days that
+     * have any. Such a list is about each of its seven days as a day's list is ([startsOn]).
+     */
+    val weeks = ReadCache<WeekKey, List<Appointment>>(
+        scope,
+        changes,
+        WEEK_LIMITS,
+        about = { key, list -> list.flatMap { idsIn(it) } + weekDays(key).map(::startsOn) },
+    ) { key ->
+        zones += key.zone
+        fetchWeek(key)
     }
 
     /** The answer is null for an Appointment the server no longer has. */
@@ -145,6 +166,7 @@ internal class AppointmentReads(
     fun update(id: String, change: (Appointment) -> Appointment) {
         today.update { _, list -> list.map { if (it.id == id) change(it) else it } }
         days.update { _, list -> list.map { if (it.id == id) change(it) else it } }
+        weeks.update { _, list -> list.map { if (it.id == id) change(it) else it } }
         one.update { key, appointment -> if (key.id == id && appointment != null) change(appointment) else appointment }
         changes.changed(id)
     }
@@ -159,6 +181,7 @@ internal class AppointmentReads(
         show = {
             today.expect(change) { _, list -> list.map { if (it.id == id) edit(it) else it } }
             days.expect(change) { _, list -> list.map { if (it.id == id) edit(it) else it } }
+            weeks.expect(change) { _, list -> list.map { if (it.id == id) edit(it) else it } }
             one.expect(change) { key, appointment -> if (key.id == id && appointment != null) edit(appointment) else appointment }
             expected.value += change to (id to edit)
         },
@@ -166,9 +189,23 @@ internal class AppointmentReads(
         settle = {
             today.settled(change)
             days.settled(change)
+            weeks.settled(change)
             one.settled(change)
             expected.value -= change
         },
+    )
+
+    /**
+     * An Appointment that left Today's list with an outcome and is being set back to Scheduled
+     * ('Undo' on the Home View): [card] is how the list showed it. It is on the list again at once,
+     * and once the server has it Scheduled it is what the list has of the server until the reload,
+     * which answers the same: an overdue Scheduled Appointment is always on Today's list.
+     * [change] names it apart from the status change itself.
+     */
+    fun backOnToday(change: String, card: Appointment) = Ahead(
+        show = { today.expect(change) { _, list -> HomeOutcomes.withCardBack(list, card) } },
+        saved = { today.update { _, list -> HomeOutcomes.withCardBack(list, card) } },
+        settle = { today.settled(change) },
     )
 
     /**
@@ -179,6 +216,7 @@ internal class AppointmentReads(
     fun clientSaved(saved: ClientProfile) {
         today.update { _, list -> list.map { it.withClient(saved) } }
         days.update { _, list -> list.map { it.withClient(saved) } }
+        weeks.update { _, list -> list.map { it.withClient(saved) } }
         one.update { _, appointment -> appointment?.withClient(saved) }
         sources.update { _, list -> list.map { it.withClient(saved) } }
         changes.changed(saved.id)
@@ -209,6 +247,7 @@ internal class AppointmentReads(
     fun forget(id: String) {
         today.update { _, list -> list.filterNot { it.id == id } }
         days.update { _, list -> list.filterNot { it.id == id } }
+        weeks.update { _, list -> list.filterNot { it.id == id } }
         sources.update { _, list -> list.filterNot { it.id == id } }
         one.answer(AppointmentKey(id), null)
         changes.changed(id)
@@ -221,6 +260,7 @@ internal class AppointmentReads(
         zones.clear()
         today.clear()
         days.clear()
+        weeks.clear()
         one.clear()
         sources.clear()
     }
@@ -249,6 +289,9 @@ internal class AppointmentReads(
         /** Two months of days to go back and forth between. */
         val DAY_LIMITS = CacheLimits(answers = 62)
 
+        /** As for the days: two months of weeks. */
+        val WEEK_LIMITS = CacheLimits(answers = 9)
+
         val ONE_LIMITS = CacheLimits(answers = 100)
 
         /** The copy sheets opened of late. A list is kept only until the next change (see [sources]). */
@@ -259,6 +302,8 @@ internal class AppointmentReads(
 
         /** Names the list of a day, in what an answer is about: for an Appointment that is in no answer yet and starts on that day. */
         fun startsOn(key: DayKey): String = "starts-on:${key.day}@${key.zone.id}"
+
+        fun weekDays(key: WeekKey): List<DayKey> = CalendarWeek.days(key.firstDay).map { DayKey(it, key.zone) }
 
         /** What an Appointment repeats of others: a change to one of these is a change to it. */
         fun idsIn(appointment: Appointment): List<String> =

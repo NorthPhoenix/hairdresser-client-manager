@@ -26,6 +26,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Image
@@ -33,11 +34,14 @@ import androidx.compose.material.icons.rounded.ImportContacts
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.LinkOff
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -88,6 +92,7 @@ import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
 import com.northphoenix.hairdresserclientmanager.data.ShareChoice
 import com.northphoenix.hairdresserclientmanager.data.SharedPictures
+import com.northphoenix.hairdresserclientmanager.domain.PhoneFormat
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
 import com.northphoenix.hairdresserclientmanager.domain.ContactFields
 import com.northphoenix.hairdresserclientmanager.domain.ContactImport
@@ -102,6 +107,7 @@ import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
+import com.northphoenix.hairdresserclientmanager.state.Read
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.BottomActionBar
 import com.northphoenix.hairdresserclientmanager.ui.components.ColorFormulaCard
@@ -156,13 +162,18 @@ internal val ShareChoicesSaver = Saver<Set<ShareChoice>, String>(
     restore = { names -> names.split(",").let { on -> ShareChoice.entries.filter { it.name in on }.toSet() } },
 )
 
-/** Client Profile editor: details, Contact Import, Profile Share and the Client's Appointment history. */
+/**
+ * Client Profile editor: details, Contact Import, Profile Share and the Client's Appointment history.
+ * A new Client is created here; an existing one is edited here from their Client Profile
+ * ([ClientProfileScreen]). [onDeleted] closes it once the Client is deleted.
+ */
 @Composable
 fun ClientEditorScreen(
     viewModel: AppViewModel,
     clientId: String?,
     onBack: () -> Unit,
     onOpenAppointment: (String) -> Unit,
+    onDeleted: () -> Unit = onBack,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -188,8 +199,11 @@ fun ClientEditorScreen(
     var email by rememberSaveable { mutableStateOf("") }
     var address by rememberSaveable { mutableStateOf("") }
     var note by rememberSaveable { mutableStateOf("") }
+    // Who recommended the Client ("По рекомендации"), by id; null for nobody.
+    var referredId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pickingReferrer by rememberSaveable { mutableStateOf(false) }
     // The form as it was when it was opened, filled or last saved. Back asks before it discards what was changed since.
-    var savedContent by rememberSaveable { mutableStateOf(UnsavedInput.clientForm(name, language, phone, email, address, note)) }
+    var savedContent by rememberSaveable { mutableStateOf(UnsavedInput.clientForm(name, language, phone, email, address, note, referredId)) }
     // What the last save sent, until its reply has come or the Client was taken in again: a Client who comes back as this was saved from here.
     var sentContent by rememberSaveable { mutableStateOf<List<String>?>(null) }
     // The email a save was refused for: the reason shows under the field until the text is another one.
@@ -219,9 +233,9 @@ fun ClientEditorScreen(
             var collided = false
 
             fun taken(field: Int, typed: String, now: String): String {
-                val filledWith = loaded?.get(field) ?: return now
+                val filledWith = loaded?.getOrNull(field) ?: return now
 
-                collided = collided || ChangedElsewhere.collides(filledWith, typed, now, sentContent?.get(field))
+                collided = collided || ChangedElsewhere.collides(filledWith, typed, now, sentContent?.getOrNull(field))
                 return ChangedElsewhere.field(filledWith, typed, now)
             }
 
@@ -235,9 +249,10 @@ fun ClientEditorScreen(
             email = taken(3, email, existing.email)
             address = taken(4, address, existing.address)
             note = taken(5, note, existing.note)
+            referredId = taken(6, referredId.orEmpty(), existing.referredById.orEmpty()).ifEmpty { null }
             loadedFor = existing.id
             loadedVersion = existing.updatedAt
-            savedContent = UnsavedInput.clientForm(savedName, existing.language, savedPhone, existing.email, existing.address, existing.note)
+            savedContent = UnsavedInput.clientForm(savedName, existing.language, savedPhone, existing.email, existing.address, existing.note, existing.referredById)
             sentContent = null
 
             // The save names the version taken in here and is not refused, so this is the one moment to say it.
@@ -259,11 +274,16 @@ fun ClientEditorScreen(
     }
 
     fun save() {
-        val submitted = UnsavedInput.clientForm(name, language, phone, email, address, note)
+        // A US number is saved as it is shown, "(512) 917-4528", however it was typed; any other as typed.
+        phone = PhoneFormat.display(OneLine.clean(phone))
+
+        // A Client who has been deleted since is no referrer: the link is gone on the server too.
+        val referrerId = referredId?.takeIf { id -> clients.any { it.id == id } }
+        val submitted = UnsavedInput.clientForm(name, language, phone, email, address, note, referrerId)
 
         // One line each, as the save sends them and as the form takes them in.
-        sentContent = UnsavedInput.clientForm(OneLine.clean(name), language, OneLine.clean(phone), email, address, note)
-        viewModel.saveClient(currentId, name, language, phone, email, address, note, loadedVersion, requestKey) { saved ->
+        sentContent = UnsavedInput.clientForm(OneLine.clean(name), language, OneLine.clean(phone), email, address, note, referrerId)
+        viewModel.saveClient(currentId, name, language, phone, email, address, note, loadedVersion, requestKey, referrerId) { saved ->
             currentId = saved.id
             loadedFor = saved.id
             loadedVersion = saved.updatedAt
@@ -311,7 +331,7 @@ fun ClientEditorScreen(
             lookup = viewModel.findClient(absentId)
         }
 
-        SubScreen(title = stringResource(R.string.edit_client_title), onBack = onBack, saving = saving) { padding ->
+        SubScreen(title = stringResource(R.string.client_edit_title), onBack = onBack, saving = saving) { padding ->
             when (val state = lookup) {
                 is LoadState.Failed -> LoadFailed(state.message, onRetry = { lookupAttempt++ }, Modifier.padding(padding))
                 LoadState.Missing -> ItemMissing(
@@ -327,10 +347,10 @@ fun ClientEditorScreen(
     }
 
     SubScreen(
-        title = stringResource(if (existing != null) R.string.edit_client_title else R.string.new_client_title),
+        title = stringResource(if (existing != null) R.string.client_edit_title else R.string.new_client_title),
         onBack = onBack,
         saving = saving,
-        unsaved = UnsavedInput.clientForm(name, language, phone, email, address, note) != savedContent,
+        unsaved = UnsavedInput.clientForm(name, language, phone, email, address, note, referredId) != savedContent,
         bottomBar = {
             BottomActionBar {
                 PrimaryButton(
@@ -367,18 +387,7 @@ fun ClientEditorScreen(
                         Text(stringResource(R.string.client_language_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         SegmentedControl(Language.entries, language, { language = it }, label = { stringResource(it.label) })
                     }
-                    HcmTextField(phone, { phone = it }, label = stringResource(R.string.client_phone_label), placeholder = "+1 555 0100", keyboardType = KeyboardType.Phone, maxLength = TextLimits.PHONE)
-                    HcmTextField(
-                        email,
-                        { email = it },
-                        label = stringResource(R.string.client_email_label),
-                        placeholder = "client@example.com",
-                        keyboardType = KeyboardType.Email,
-                        capitalization = KeyboardCapitalization.None,
-                        error = stringResource(R.string.client_email_invalid).takeIf { email == refusedEmail },
-                        errorAttempt = emailRefusals,
-                        maxLength = TextLimits.EMAIL,
-                    )
+                    HcmTextField(phone, { phone = it }, label = stringResource(R.string.client_phone_label), placeholder = stringResource(R.string.placeholder_client_phone), keyboardType = KeyboardType.Phone, maxLength = TextLimits.PHONE)
                     HcmTextField(
                         address,
                         { address = it },
@@ -390,8 +399,26 @@ fun ClientEditorScreen(
                         maxLength = TextLimits.ADDRESS,
                     )
                     HcmTextField(note, { note = it }, label = stringResource(R.string.client_note_label), placeholder = stringResource(R.string.placeholder_client_note), singleLine = false, minLines = 3, maxLength = TextLimits.NOTE)
+                    // Hardly any Client has an email address, so it comes last.
+                    HcmTextField(
+                        email,
+                        { email = it },
+                        label = stringResource(R.string.client_email_label),
+                        placeholder = stringResource(R.string.optional),
+                        keyboardType = KeyboardType.Email,
+                        capitalization = KeyboardCapitalization.None,
+                        error = stringResource(R.string.client_email_invalid).takeIf { email == refusedEmail },
+                        errorAttempt = emailRefusals,
+                        maxLength = TextLimits.EMAIL,
+                    )
                 }
             }
+
+            ReferrerField(
+                referrer = clients.firstOrNull { it.id == referredId },
+                onPick = { pickingReferrer = true },
+                onClear = { referredId = null },
+            )
 
             if (existing != null) {
                 ProfileShareCard(
@@ -407,7 +434,9 @@ fun ClientEditorScreen(
                     onCopied = { viewModel.notify(R.string.profile_share_link_copied) },
                     onOpenFailed = { viewModel.notify(R.string.link_open_failed, isError = true) },
                 )
-                ClientHistoryCard(viewModel, existing.id, onOpenAppointment)
+                val history by rememberClientHistory(viewModel, existing.id)
+
+                ClientHistoryCard(history, onRetry = { viewModel.loadClientHistory(existing.id) }, onOpenAppointment)
                 TextAction(
                     stringResource(R.string.delete_client),
                     onClick = { dialog = ClientDialog.DELETE },
@@ -417,6 +446,25 @@ fun ClientEditorScreen(
                 )
             }
         }
+    }
+
+    if (pickingReferrer) {
+        val clientList by viewModel.clients.collectAsStateWithLifecycle()
+
+        // Anyone but the Client themselves.
+        ClientPickerSheet(
+            title = stringResource(R.string.client_referred_by_label),
+            clients = clients,
+            load = clientList.state,
+            onRetry = viewModel::retryLoad,
+            selectedIds = setOfNotNull(referredId),
+            takenIds = setOfNotNull(currentId),
+            onDismiss = { pickingReferrer = false },
+            onPick = { picked ->
+                referredId = picked.id
+                pickingReferrer = false
+            },
+        )
     }
 
     when (dialog) {
@@ -437,7 +485,7 @@ fun ClientEditorScreen(
             danger = true,
             onConfirm = {
                 dialog = null
-                currentId?.let { viewModel.deleteClient(it, onSuccess = onBack) }
+                currentId?.let { viewModel.deleteClient(it, onSuccess = onDeleted) }
             },
             onDismiss = { dialog = null },
         )
@@ -475,6 +523,28 @@ fun ClientEditorScreen(
 
     shareImageSvg?.let { svg ->
         ShareImageDialog(svg = svg, onDismiss = { shareImageSvg = null })
+    }
+}
+
+/** Who recommended the Client: the field shows their name, opens the Client list to choose, and clears. */
+@Composable
+private fun ReferrerField(referrer: ClientProfile?, onPick: () -> Unit, onClear: () -> Unit) {
+    HcmCard(onClick = onPick, contentPadding = PaddingValues(start = 18.dp, end = 6.dp, top = 12.dp, bottom = 12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(stringResource(R.string.client_referred_by_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (referrer != null) {
+                    Text(referrer.name, style = MaterialTheme.typography.bodyLarge)
+                } else {
+                    Text(stringResource(R.string.client_referred_by_none), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if (referrer != null) {
+                IconButton(onClick = onClear) {
+                    Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.client_referred_by_clear))
+                }
+            }
+        }
     }
 }
 
@@ -600,22 +670,31 @@ private fun ShareChoices(included: Set<ShareChoice>, enabled: Boolean, onChange:
 }
 
 /**
- * The Client's Appointment history, newest first: each Appointment with this Client's part of it,
- * the Services with their prices, notes and Color Formulas, and the Client's photos.
+ * A Client's Appointment history, read through the cache for as long as the screen is open, also
+ * while the app is not in front (see `collectWhileOpen`). A history that was shown before is there
+ * from the first frame and refreshed behind it; one that is on screen stays there when loading it
+ * again fails.
  */
 @Composable
-private fun ClientHistoryCard(viewModel: AppViewModel, clientId: String, onOpenAppointment: (String) -> Unit) {
-    // Read through the cache for as long as the profile is open, also while the app is not in front (see
-    // `collectWhileOpen`). A history that was shown before is there from the first frame and refreshed behind it;
-    // one that is on screen stays there when loading it again fails.
-    val history by remember(viewModel, clientId) { viewModel.clientHistory(clientId) }.collectWhileOpen(
+internal fun rememberClientHistory(viewModel: AppViewModel, clientId: String): State<Read<List<ClientHistoryEntry>>> {
+    val history = remember(viewModel, clientId) { viewModel.clientHistory(clientId) }.collectWhileOpen(
         initialValue = remember(viewModel, clientId) { viewModel.shownClientHistory(clientId) },
     )
 
-    // Asked for each time the profile comes into view, from an Appointment opened here or from the background:
+    // Asked for each time the screen comes into view, from an Appointment opened there or from the background:
     // a history that cannot be loaded says so as a notice too.
     LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.loadClientHistory(clientId) }
 
+    return history
+}
+
+/**
+ * The Client's Appointment history ([rememberClientHistory]), newest first: each Appointment with
+ * this Client's part of it, the Services with their prices, notes and Color Formulas, and the
+ * Client's photos.
+ */
+@Composable
+internal fun ClientHistoryCard(history: Read<List<ClientHistoryEntry>>, onRetry: () -> Unit, onOpenAppointment: (String) -> Unit) {
     HcmCard(contentPadding = PaddingValues(vertical = 18.dp)) {
         Text(stringResource(R.string.appointment_history_title), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(horizontal = 18.dp))
 
@@ -624,7 +703,7 @@ private fun ClientHistoryCard(viewModel: AppViewModel, clientId: String, onOpenA
         when (val state = history.state) {
             is LoadState.Failed -> InlineLoadFailed(
                 state.message,
-                onRetry = { viewModel.loadClientHistory(clientId) },
+                onRetry = onRetry,
                 Modifier.padding(start = 18.dp, end = 18.dp, top = 10.dp),
             )
             LoadState.Loaded -> if (entries.isEmpty()) {

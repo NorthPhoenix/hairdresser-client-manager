@@ -3,6 +3,7 @@ package com.northphoenix.hairdresserclientmanager.domain
 import android.net.Uri
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
+import java.time.Instant
 import java.time.ZoneId
 import java.util.Locale
 
@@ -18,9 +19,19 @@ object ClientReminder {
 
     /**
      * A Client Reminder is a message before an Appointment, and its text says the Appointment is
-     * scheduled. Neither is true of a completed, canceled or no-show Appointment.
+     * scheduled. Neither is true of a completed, canceled or no-show Appointment, nor of one whose
+     * start time has come by [now]: it is too late to remind anyone of it.
      */
-    fun isOffered(appointment: Appointment): Boolean = appointment.status == AppointmentStatus.SCHEDULED
+    fun isOffered(appointment: Appointment, now: Instant): Boolean =
+        appointment.status == AppointmentStatus.SCHEDULED && Instant.parse(appointment.startsAt).isAfter(now)
+
+    /**
+     * Whether a button that composes the reminder in one tap is worth showing on [appointment]: it
+     * is offered at [now], and its primary Client has a number to send to. The Appointment screen shows the
+     * button anyway and says what is missing; a list of cards has no room for that.
+     */
+    fun canRemindInOneTap(appointment: Appointment, now: Instant): Boolean =
+        isOffered(appointment, now) && appointment.participants.firstOrNull { it.isPrimary }?.let { recipient(it.phone) } != null
 
     /**
      * The number an SMS to [phone] goes to: its digits and '+'. Null when there is no digit to

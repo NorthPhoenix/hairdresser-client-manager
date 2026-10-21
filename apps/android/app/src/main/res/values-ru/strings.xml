@@ -13,7 +13,9 @@
     <string name="add_appointment_service">Добавить услугу</string>
     <string name="add_client_to_appointment">Добавить клиента</string>
     <string name="add_color_formula">Добавить формулу</string>
-    <string name="add_menu_service">Добавить из меню</string>
+    <string name="add_color_formula_quiet">+ формула</string>
+    <string name="add_services_pick">Выберите услуги</string>
+    <string name="add_services_title">Добавить услуги</string>
     <string name="add_photo_from_camera">Камера</string>
     <string name="add_photo_from_gallery">Галерея</string>
     <string name="additional_clients_label">Дополнительные клиенты</string>
@@ -69,13 +71,13 @@
     <string name="appointment_photos_title">Фото</string>
     <string name="appointment_photos_unavailable">Добавить фото нельзя: на сервере не настроено хранилище фото.</string>
     <string name="appointment_saved">Запись создана.</string>
-    <string name="appointment_service_client_label">Клиент</string>
     <string name="appointment_service_name_label">Услуга</string>
     <string name="appointment_service_note_label">Заметка к услуге</string>
     <string name="appointment_service_price_label">Цена</string>
     <string name="appointment_service_saved">Услуга добавлена.</string>
     <string name="appointment_service_total">Сумма услуг</string>
     <string name="appointment_service_updated">Услуга сохранена.</string>
+    <string name="appointment_services_added">Добавлено услуг: %1$d.</string>
     <string name="appointment_services_title">Услуги</string>
     <string name="appointment_start_label">Начало</string>
     <string name="appointment_start_time_skipped">В этот день часы переводят вперёд, и такого времени начала нет. Выберите другое время.</string>
@@ -90,6 +92,7 @@
     <string name="back">Назад</string>
     <string name="calendar_empty_body">На этот день записей нет.</string>
     <string name="calendar_title">Календарь</string>
+    <string name="calendar_day_has_appointments">есть записи</string>
     <string name="cancel">Отмена</string>
     <string name="choose_client">Выбрать клиента</string>
     <string name="clear">Сбросить</string>
@@ -111,6 +114,7 @@
     <string name="client_reminder_missing_phone">У основного клиента нет номера телефона для SMS.</string>
     <string name="client_reminder_no_primary_client">SMS-напоминание отправляется основному клиенту, а среди клиентов этой записи его нет.</string>
     <string name="client_saved">Клиент сохранён.</string>
+    <string name="clear_search">Очистить поиск</string>
     <string name="client_search_label">Поиск по имени или телефону</string>
     <string name="clients_title">Клиенты</string>
     <string name="close">Закрыть</string>
@@ -135,6 +139,8 @@
     <string name="delete">Удалить</string>
     <string name="delete_appointment">Удалить запись</string>
     <string name="delete_appointment_confirm_body">Запись, её услуги и фото будут удалены.</string>
+    <string name="custom_service">Своя услуга</string>
+    <string name="custom_service_back">Назад к меню</string>
     <string name="delete_appointment_service">Удалить услугу</string>
     <string name="delete_appointment_service_confirm_body">Услуга «%1$s» и её формулы окрашивания будут удалены из этой записи.</string>
     <string name="delete_client">Удалить клиента</string>
@@ -178,8 +184,18 @@
     <string name="error_timezone_unusable">Устройство не знает сохранённый часовой пояс, поэтому время показано по часовому поясу устройства. Выберите свой часовой пояс на вкладке «Профиль».</string>
     <string name="generate_share_image">Создать изображение</string>
     <string name="home_appointments_title">Сегодня и незакрытые</string>
+    <string name="home_complete_all">Все завершены</string>
+    <string name="home_day_not_closed">%1$s — %2$s</string>
     <string name="home_empty_body">На сегодня записей нет, и все прошлые закрыты.</string>
+    <string name="home_outcome_canceled">%1$s — отменена</string>
+    <string name="home_outcome_chip_description">%1$s, %2$s</string>
+    <string name="home_outcome_completed">%1$s — завершена</string>
+    <string name="home_outcome_no_show">%1$s — неявка</string>
+    <string name="home_remind">Напомнить</string>
     <string name="home_today_section">Сегодня</string>
+    <string name="home_tomorrow_section">Завтра</string>
+    <string name="home_undo_changed_elsewhere">Запись тем временем изменили, поэтому статус остался как есть.</string>
+    <string name="home_undo_overlap">Запись снова запланирована, но пересекается по времени с другой.</string>
     <string name="home_unresolved_section">Нужно закрыть</string>
     <string name="import_contact">Импорт из контактов</string>
     <string name="import_contact_apply">Импортировать</string>
@@ -206,6 +222,7 @@
     <string name="no_clients_body">Чтобы добавить первого клиента, достаточно имени. Остальное можно заполнить позже.</string>
     <string name="no_clients_title">Клиентов пока нет</string>
     <string name="not_set">Не указано</string>
+    <string name="notice_undo">Отменить</string>
     <string name="ok">ОК</string>
     <string name="onboarding_subtitle">Проверьте язык, часовой пояс и адрес салона перед началом работы.</string>
     <string name="onboarding_title">Настройте приложение</string>
@@ -214,13 +231,15 @@
     <string name="optional">Необязательно</string>
     <string name="optional_setup_body">Google Календарь, напоминания мастеру и меню услуг можно настроить позже.</string>
     <string name="optional_setup_title">Можно настроить позже</string>
-    <string name="placeholder_account_first_name">Мария</string>
-    <string name="placeholder_account_last_name">Иванова</string>
-    <string name="placeholder_address">ул. Садовая, 12</string>
-    <string name="placeholder_client_name">Анна Петрова</string>
-    <string name="placeholder_client_note">Любит мягкие слои.</string>
-    <string name="placeholder_formula_placement">Корни</string>
-    <string name="placeholder_service_name">Стрижка</string>
+    <string name="placeholder_account_first_name">Например: Мария</string>
+    <string name="placeholder_account_last_name">Например: Иванова</string>
+    <string name="placeholder_address">Улица и дом, город</string>
+    <string name="placeholder_client_name">Имя и фамилия</string>
+    <string name="placeholder_client_note">Например: любит мягкие слои, аллергия на аммиак</string>
+    <string name="placeholder_formula_text">Например: 7N + 20 vol</string>
+    <string name="placeholder_client_phone">Например: +1 512 555 0100</string>
+    <string name="placeholder_formula_placement">Например: корни</string>
+    <string name="placeholder_service_name">Например: стрижка</string>
     <string name="previous_day">Предыдущий день</string>
     <string name="previous_month">Предыдущий месяц</string>
     <string name="primary_badge">Основной</string>
@@ -258,14 +277,31 @@
     <string name="save_onboarding">Сохранить и продолжить</string>
     <string name="save_service_menu_item">Сохранить услугу</string>
     <string name="save_settings">Сохранить</string>
+    <string name="service_group_collapsed">Свёрнуто</string>
+    <string name="service_group_expanded">Развёрнуто</string>
+    <string name="service_group_frequent">Часто у вас</string>
+    <string name="service_group_other">Другое</string>
+    <string name="service_for_whom">Для кого</string>
+    <string name="service_for_whom_add">Человек</string>
+    <string name="service_for_whom_add_description">Добавить человека в запись</string>
+    <string name="service_for_whom_add_title">Кто ещё на записи</string>
+    <string name="add_service_for_client">Добавить услугу: %1$s</string>
     <string name="service_menu_empty_body">Добавьте услуги, которые оказываете чаще всего, чтобы быстрее заполнять записи.</string>
     <string name="service_menu_empty_title">Меню услуг пустое</string>
+    <string name="service_menu_group_hint">Услуги одной группы показываются вместе, когда вы добавляете услуги в запись.</string>
+    <string name="service_menu_group_label">Группа</string>
+    <string name="service_menu_group_placeholder">Необязательно, например «Покраска в один цвет»</string>
     <string name="service_menu_item_deleted">Услуга удалена.</string>
     <string name="service_menu_item_saved">Услуга сохранена.</string>
     <string name="service_menu_name_label">Название услуги</string>
     <string name="service_menu_price_label">Цена по умолчанию</string>
     <string name="service_menu_subtitle">Ваши обычные услуги с ценами по умолчанию.</string>
     <string name="service_menu_title">Меню услуг</string>
+    <string name="service_menu_travel_fee_hint">Добавляется сама к записям на дому и убирается, когда запись переносят в салон.</string>
+    <string name="service_menu_travel_fee_label">Плата за выезд</string>
+    <string name="service_menu_travel_fee_replaces">Сейчас это «%1$s»: она перестанет быть платой за выезд.</string>
+    <string name="service_search_empty">В меню нет ничего по запросу «%1$s».</string>
+    <string name="service_search_placeholder">Услуга или группа</string>
     <string name="service_name_required">Укажите название услуги.</string>
     <string name="settings_saved">Настройки сохранены.</string>
     <string name="settings_title">Настройки</string>
@@ -330,6 +366,29 @@
     <string name="timezone_search_placeholder">Поиск часового пояса</string>
     <string name="timezone_unusable">Устройство не знает этот часовой пояс, поэтому время показано по часовому поясу устройства. Выберите свой часовой пояс и сохраните.</string>
 
+    <string name="contact_import_allow">Разрешить доступ</string>
+    <string name="contact_import_already_client">Уже клиент</string>
+    <string name="contact_import_denied_body">Разрешите приложению доступ к контактам, чтобы выбрать сразу нескольких клиентов.</string>
+    <string name="contact_import_denied_title">Нет доступа к контактам</string>
+    <string name="contact_import_empty_body">Здесь появятся контакты, у которых есть номер телефона.</string>
+    <string name="contact_import_empty_title">В контактах нет номеров</string>
+    <string name="contact_import_failed">Не удалось добавить клиентов.</string>
+    <string name="contact_import_failed_banner">Не удалось добавить: %1$d. Они остались выбранными, нажмите кнопку, чтобы повторить.</string>
+    <string name="contact_import_open_settings">Открыть настройки</string>
+    <string name="contact_import_partial">Добавлено %1$d из %2$d. Остальные не добавлены.</string>
+    <string name="contact_import_pick">Выберите контакты</string>
+    <string name="contact_import_progress">Добавлено %1$d из %2$d</string>
+    <string name="contact_import_search">Имя или номер</string>
+    <string name="contact_import_select_all">Выбрать все</string>
+    <string name="contact_import_selected">Выбрано %d</string>
+    <string name="contact_import_unselect_all">Снять выбор</string>
+
+    <plurals name="add_services_count">
+        <item quantity="one">Добавить %d услугу</item>
+        <item quantity="few">Добавить %d услуги</item>
+        <item quantity="many">Добавить %d услуг</item>
+        <item quantity="other">Добавить %d услуги</item>
+    </plurals>
     <plurals name="appointment_photos_not_saved">
         <item quantity="one">%d фото не сохранилось.</item>
         <item quantity="few">%d фото не сохранились.</item>
@@ -342,16 +401,134 @@
         <item quantity="many">Загружается %d фото…</item>
         <item quantity="other">Загружается %d фото…</item>
     </plurals>
+    <plurals name="contact_import_add">
+        <item quantity="one">Добавить %d клиента</item>
+        <item quantity="few">Добавить %d клиентов</item>
+        <item quantity="many">Добавить %d клиентов</item>
+        <item quantity="other">Добавить %d клиентов</item>
+    </plurals>
+    <plurals name="contact_import_added">
+        <item quantity="one">Добавлен %d клиент</item>
+        <item quantity="few">Добавлено %d клиента</item>
+        <item quantity="many">Добавлено %d клиентов</item>
+        <item quantity="other">Добавлено %d клиента</item>
+    </plurals>
     <plurals name="copy_services_count">
         <item quantity="one">Скопируется %d услуга</item>
         <item quantity="few">Скопируются %d услуги</item>
         <item quantity="many">Скопируется %d услуг</item>
         <item quantity="other">Скопируется %d услуги</item>
     </plurals>
+    <plurals name="home_completed_count">
+        <item quantity="one">%d запись завершена</item>
+        <item quantity="few">%d записи завершены</item>
+        <item quantity="many">%d записей завершено</item>
+        <item quantity="other">%d записи завершено</item>
+    </plurals>
+    <plurals name="home_day_not_closed_count">
+        <item quantity="one">%d запись не закрыта</item>
+        <item quantity="few">%d записи не закрыты</item>
+        <item quantity="many">%d записей не закрыто</item>
+        <item quantity="other">%d записи не закрыто</item>
+    </plurals>
     <plurals name="sign_out_unsaved_photos">
         <item quantity="one">%d фото ещё не сохранено. Если вы выйдете, оно будет удалено с этого устройства.</item>
         <item quantity="few">%d фото ещё не сохранены. Если вы выйдете, они будут удалены с этого устройства.</item>
         <item quantity="many">%d фото ещё не сохранено. Если вы выйдете, они будут удалены с этого устройства.</item>
         <item quantity="other">%d фото ещё не сохранено. Если вы выйдете, они будут удалены с этого устройства.</item>
+    </plurals>
+    <string name="travel_fee_added">Добавлен «%1$s» · %2$s</string>
+    <string name="travel_fee_put_back">Вернуть</string>
+    <string name="travel_fee_remove">Убрать</string>
+    <string name="travel_fee_removed">Убран «%1$s»</string>
+    <string name="calls_unavailable">На устройстве нет приложения для звонков.</string>
+    <string name="client_book_again">Записать снова</string>
+    <string name="client_call">Позвонить</string>
+    <string name="client_edit_action">Изменить</string>
+    <string name="client_edit_title">Изменить клиента</string>
+    <string name="client_map">Карта</string>
+    <string name="client_next_appointment">Следующая запись</string>
+    <string name="client_not_given">Не указан</string>
+    <string name="client_sms">SMS</string>
+    <string name="client_stat_last_visit">Последний визит</string>
+    <string name="client_stat_no_visits">Ещё не было</string>
+    <string name="client_stat_today">Сегодня</string>
+    <string name="client_stat_usually">Обычно</string>
+    <string name="client_stat_visits">Визитов</string>
+    <string name="client_stat_yesterday">Вчера</string>
+    <string name="map_unavailable">На устройстве нет приложения с картами.</string>
+    <plurals name="client_ago_days">
+        <item quantity="one">%d день назад</item>
+        <item quantity="few">%d дня назад</item>
+        <item quantity="many">%d дней назад</item>
+        <item quantity="other">%d дня назад</item>
+    </plurals>
+    <plurals name="client_ago_weeks">
+        <item quantity="one">%d неделю назад</item>
+        <item quantity="few">%d недели назад</item>
+        <item quantity="many">%d недель назад</item>
+        <item quantity="other">%d недели назад</item>
+    </plurals>
+    <plurals name="client_ago_months">
+        <item quantity="one">%d месяц назад</item>
+        <item quantity="few">%d месяца назад</item>
+        <item quantity="many">%d месяцев назад</item>
+        <item quantity="other">%d месяца назад</item>
+    </plurals>
+    <plurals name="client_ago_years">
+        <item quantity="one">%d год назад</item>
+        <item quantity="few">%d года назад</item>
+        <item quantity="many">%d лет назад</item>
+        <item quantity="other">%d года назад</item>
+    </plurals>
+    <plurals name="client_every_days">
+        <item quantity="one">раз в %d день</item>
+        <item quantity="few">раз в %d дня</item>
+        <item quantity="many">раз в %d дней</item>
+        <item quantity="other">раз в %d дня</item>
+    </plurals>
+    <plurals name="client_every_weeks">
+        <item quantity="one">раз в %d неделю</item>
+        <item quantity="few">раз в %d недели</item>
+        <item quantity="many">раз в %d недель</item>
+        <item quantity="other">раз в %d недели</item>
+    </plurals>
+    <plurals name="client_every_months">
+        <item quantity="one">раз в %d месяц</item>
+        <item quantity="few">раз в %d месяца</item>
+        <item quantity="many">раз в %d месяцев</item>
+        <item quantity="other">раз в %d месяца</item>
+    </plurals>
+    <plurals name="client_every_years">
+        <item quantity="one">раз в %d год</item>
+        <item quantity="few">раз в %d года</item>
+        <item quantity="many">раз в %d лет</item>
+        <item quantity="other">раз в %d года</item>
+    </plurals>
+    <string name="client_duplicate_banner">Возможно, дубликат: «%1$s» — тот же номер</string>
+    <string name="client_duplicate_merge">Объединить</string>
+    <string name="client_duplicate_distinct">Это разные люди</string>
+    <string name="client_duplicate_tag">Дубликат?</string>
+    <string name="client_referred_by_label">Кто посоветовал</string>
+    <string name="client_referred_by_none">Выбрать клиента</string>
+    <string name="client_referred_by_clear">Убрать</string>
+    <string name="client_referred_by_tag">По рекомендации: %s</string>
+    <string name="client_referrals_title">Пришли по рекомендации · %d</string>
+    <string name="client_referral_suggestion">Кто посоветовал: %s?</string>
+    <string name="client_referral_suggestion_yes">Да</string>
+    <string name="client_referral_suggestion_no">Нет</string>
+    <string name="client_merge_title">Объединить клиентов</string>
+    <string name="client_merge_keep_name">Какое имя оставить?</string>
+    <string name="client_merge_no_appointments">Записей нет ни у одного</string>
+    <string name="client_merge_counting">Считаем записи…</string>
+    <string name="client_merge_details">Пустые поля «%1$s» заполнятся из «%2$s», заметки сложатся, фото сохранятся. Карточка «%2$s» будет удалена.</string>
+    <string name="client_merge_confirm">Объединить</string>
+    <string name="client_merged">Клиенты объединены.</string>
+    <string name="client_merge_photo_uploads">У клиента есть фото, которые ещё не загружены. Загрузите или удалите их, затем объединяйте.</string>
+    <plurals name="client_merge_appointments">
+        <item quantity="one">%d запись → будет у «%s»</item>
+        <item quantity="few">Записи: %d → будут у «%s»</item>
+        <item quantity="many">Записи: %d → будут у «%s»</item>
+        <item quantity="other">Записи: %d → будут у «%s»</item>
     </plurals>
 </resources>

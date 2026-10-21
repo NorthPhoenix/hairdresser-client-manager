@@ -62,15 +62,56 @@ model Client {
   // The request key of the call that created this record, when it sent one: the same call sent
   // again finds the record instead of creating another (docs/adr/0015). The same on the models below.
   requestKey   String?
+  // The Client who recommended this one ("Посоветовала"), of the same Stylist. When that Client is
+  // deleted the link is cleared; a Client merge moves it to the kept Client.
+  referredById String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   stylist       Stylist        @relation(fields: [stylistId], references: [id], onDelete: Cascade)
+  referredBy    Client?        @relation("ClientReferral", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals     Client[]       @relation("ClientReferral")
   primaryAppointments Appointment[] @relation("AppointmentPrimaryClient")
   appointmentParticipants AppointmentParticipant[]
   appointmentServices AppointmentService[]
   appointmentPhotos AppointmentPhoto[]
   profileShares ProfileShare[]
+  // Pairs the Stylist said are different people although their phone numbers match.
+  distinctPairsAsFirst  ClientDistinctPair[] @relation("ClientDistinctPairFirst")
+  distinctPairsAsSecond ClientDistinctPair[] @relation("ClientDistinctPairSecond")
+  mergesKept            ClientMerge[]
+
+  @@index([referredById])
+}
+
+// Two Clients of one Stylist whom the Stylist said are different people ("Это разные люди"), so
+// the app stops offering to merge them although their phone numbers match. One row per pair, with
+// the smaller id first.
+model ClientDistinctPair {
+  id             String   @id @default(cuid())
+  stylistId      String
+  firstClientId  String
+  secondClientId String
+  createdAt      DateTime @default(now())
+
+  firstClient  Client @relation("ClientDistinctPairFirst", fields: [firstClientId], references: [id], onDelete: Cascade)
+  secondClient Client @relation("ClientDistinctPairSecond", fields: [secondClientId], references: [id], onDelete: Cascade)
+
+  @@unique([firstClientId, secondClientId])
+}
+
+// A Client merged into another one and deleted: what lets the same merge sent again be answered
+// as done (docs/adr/0015). It goes with the kept Client.
+model ClientMerge {
+  id              String   @id @default(cuid())
+  stylistId       String
+  keptClientId    String
+  removedClientId String
+  createdAt       DateTime @default(now())
+
+  keptClient Client @relation(fields: [keptClientId], references: [id], onDelete: Cascade)
+
+  @@index([removedClientId])
 }
 
 model Appointment {
@@ -115,6 +156,11 @@ model ServiceMenuItem {
   stylistId         String
   name              String
   defaultPriceCents Int      @default(0)
+  // One line such as "Покраска в один цвет"; the items of a group are its variants. Null: no group.
+  group             String?
+  // The Travel Fee: added by itself to a Scheduled Appointment at home. At most one item of a
+  // Stylist is, which the save keeps under the Stylist lock (ADR 0014).
+  travelFee         Boolean  @default(false)
   requestKey        String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt

@@ -263,6 +263,7 @@ class ClientReadsTest {
             fetchDay = { onMonday },
             find = { null },
             fetchSources = { sources },
+            fetchWeek = { emptyList() },
         )
 
         // The list is on screen. Monday, Anna's history and a copy sheet that offers her Appointment were shown before.
@@ -501,6 +502,37 @@ class ClientReadsTest {
         assertTrue((failureOf { reads.menu.refresh(stylist) } as ApiException).isNetwork)
         runCurrent()
         assertEquals(Read(LoadState.Loaded, listOf(dearer)), shown.last())
+    }
+
+    @Test
+    fun `a saved Service Menu Item keeps how often it was used and how often with a Color Formula`() = runTest {
+        val used = cut.copy(useCount = 5, formulaCount = 2)
+        val server = Server().apply { menu = listOf(used, color) }
+        val reads = menuReads(server)
+        reads.menu.watch(stylist).let { shownBy(it) }
+        runCurrent()
+
+        // The reply of a save does not carry the counts: they stay as the list said.
+        reads.saved(cut.copy(defaultPriceCents = 4_500))
+
+        assertEquals(used.copy(defaultPriceCents = 4_500), reads.menu.shown(stylist)?.data?.first())
+    }
+
+    @Test
+    fun `an item saved as the Travel Fee is the only one in the menu at once`() = runTest {
+        val server = Server().apply { menu = listOf(cut.copy(travelFee = true), color) }
+        val reads = menuReads(server)
+        shownBy(reads.menu.watch(stylist))
+        runCurrent()
+        // What is shown before any reload: the reload has the server's word on it.
+        server.online = false
+
+        reads.saved(color.copy(travelFee = true))
+        assertEquals(listOf(cut, color.copy(travelFee = true)), reads.menu.shown(stylist)?.data)
+
+        // Another save of an item that is not the Travel Fee leaves the one that is.
+        reads.saved(cut.copy(defaultPriceCents = 4_500))
+        assertEquals(listOf(cut.copy(defaultPriceCents = 4_500), color.copy(travelFee = true)), reads.menu.shown(stylist)?.data)
     }
 
     @Test

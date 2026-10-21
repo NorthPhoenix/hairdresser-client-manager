@@ -60,6 +60,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.Layout
@@ -318,6 +324,23 @@ fun TextAction(
 }
 
 /**
+ * A [TextAction] that keeps out of the way: small grey text for something that is seldom wanted
+ * where it is offered, but must still be there.
+ */
+@Composable
+fun QuietTextAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    TextButton(
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+    ) {
+        Text(text, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+/**
  * Something that is on or off, with its name beside the switch. The whole row is the switch, for
  * a finger and for a screen reader, which is told the name and the state together. Only the
  * switch is drawn as off while the row is not [enabled]: that is for the moment a change takes,
@@ -375,6 +398,8 @@ fun HcmTextField(
     onImeAction: (() -> Unit)? = null,
     contentType: ContentType? = null,
     maxLength: Int? = null,
+    /** False for a field whose purpose shows without it, such as a search: [label] is then only read out. */
+    labelVisible: Boolean = true,
 ) {
     val intoView = remember { BringIntoViewRequester() }
     val limit = maxLength?.takeIf { value.length >= it }?.let { stringResource(R.string.text_limit, it) }
@@ -389,7 +414,7 @@ fun HcmTextField(
     }
 
     Column(modifier.bringIntoViewRequester(intoView), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-        if (label.isNotEmpty()) {
+        if (label.isNotEmpty() && labelVisible) {
             Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         OutlinedTextField(
@@ -601,7 +626,16 @@ fun ChoiceChip(text: String, selected: Boolean, onClick: () -> Unit, modifier: M
  * [text] when the text alone does not say what the tap does.
  */
 @Composable
-fun ActionChip(text: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier, highlighted: Boolean = false, description: String? = null) {
+fun ActionChip(
+    text: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    highlighted: Boolean = false,
+    description: String? = null,
+    /** A dashed outline: the chip adds one more to the chips beside it, such as a person to the people. */
+    dashed: Boolean = false,
+) {
     Chip(
         text,
         highlighted = highlighted,
@@ -611,11 +645,12 @@ fun ActionChip(text: String, icon: ImageVector, onClick: () -> Unit, modifier: M
             if (description != null) contentDescription = description
         },
         icon = icon,
+        dashed = dashed,
     )
 }
 
 @Composable
-private fun Chip(text: String, highlighted: Boolean, onClick: () -> Unit, modifier: Modifier, icon: ImageVector? = null, wraps: Boolean = false) {
+private fun Chip(text: String, highlighted: Boolean, onClick: () -> Unit, modifier: Modifier, icon: ImageVector? = null, wraps: Boolean = false, dashed: Boolean = false) {
     val container by animateColorAsState(
         if (highlighted) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLowest,
         label = "chip",
@@ -625,11 +660,12 @@ private fun Chip(text: String, highlighted: Boolean, onClick: () -> Unit, modifi
 
     Surface(
         onClick = onClick,
-        modifier = modifier,
+        // Drawn over the chip, where a border of the Surface would be.
+        modifier = if (dashed) modifier.dashedOutline(border, if (wraps) 20.dp else null) else modifier,
         // The corners of a one-line chip, kept at that size when the chip grows taller.
         shape = if (wraps) RoundedCornerShape(20.dp) else CircleShape,
         color = container,
-        border = BorderStroke(if (highlighted) 1.5.dp else 1.dp, border),
+        border = if (dashed) null else BorderStroke(if (highlighted) 1.5.dp else 1.dp, border),
     ) {
         Row(
             Modifier.heightIn(min = 40.dp).padding(horizontal = 14.dp, vertical = 8.dp),
@@ -643,6 +679,22 @@ private fun Chip(text: String, highlighted: Boolean, onClick: () -> Unit, modifi
         }
     }
 }
+
+/** A dashed 1 dp outline of a rounded shape with corners of [corner], or of a pill when it is null. */
+private fun Modifier.dashedOutline(color: Color, corner: Dp?): Modifier =
+    drawWithContent {
+        drawContent()
+        val width = 1.dp.toPx()
+        val radius = corner?.toPx() ?: (size.height / 2)
+
+        drawRoundRect(
+            color = color,
+            topLeft = Offset(width / 2, width / 2),
+            size = Size(size.width - width, size.height - width),
+            cornerRadius = CornerRadius(radius - width / 2),
+            style = Stroke(width, pathEffect = PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 4.dp.toPx()))),
+        )
+    }
 
 @Composable
 fun StatusChip(status: AppointmentStatus, modifier: Modifier = Modifier) {

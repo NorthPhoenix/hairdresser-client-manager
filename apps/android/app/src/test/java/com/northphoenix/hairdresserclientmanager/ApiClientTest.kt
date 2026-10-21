@@ -1,13 +1,17 @@
 package com.northphoenix.hairdresserclientmanager
 
 import com.northphoenix.hairdresserclientmanager.data.ApiException
+import com.northphoenix.hairdresserclientmanager.data.AppointmentService
 import com.northphoenix.hairdresserclientmanager.data.HcmApi
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
+import com.northphoenix.hairdresserclientmanager.data.StoredFile
+import com.northphoenix.hairdresserclientmanager.data.TravelFeeChange
 import com.northphoenix.hairdresserclientmanager.data.TrpcClient
 import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
+import com.northphoenix.hairdresserclientmanager.domain.MenuItemValues
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
@@ -150,13 +154,13 @@ class ApiClientTest {
         // Twice, as after a lost reply: both name the same creation.
         repeat(2) {
             assertEquals(
-                """{"name":"Lost Carl","language":"en","phone":"5550123","email":"","address":"","note":"","requestKey":"$KEY"}""",
+                """{"name":"Lost Carl","language":"en","phone":"5550123","email":"","address":"","note":"","referredById":null,"requestKey":"$KEY"}""",
                 sent(client) { api.saveClient(null, "Lost Carl", Language.EN, "5550123", "", "", "", loadedUpdatedAt = null, requestKey = KEY) },
             )
         }
         assertEquals(
-            """{"name":"Lost Svc","defaultPriceCents":1200,"requestKey":"$KEY"}""",
-            sent("""{"result":{"data":{"id":"m1","name":"Lost Svc","defaultPriceCents":1200}}}""") { api.saveServiceMenuItem(null, "Lost Svc", 1200, KEY) },
+            """{"name":"Lost Svc","defaultPriceCents":1200,"group":"","travelFee":false,"requestKey":"$KEY"}""",
+            sent("""{"result":{"data":{"id":"m1","name":"Lost Svc","defaultPriceCents":1200}}}""") { api.saveServiceMenuItem(null, MenuItemValues("Lost Svc", 1200, ""), KEY) },
         )
         assertEquals(
             """{"additionalClientIds":[],"inlineClientName":"Lost Dana","startsAt":"2026-10-10T18:31:00Z","locationType":"inSalon","requestKey":"$KEY"}""",
@@ -168,6 +172,20 @@ class ApiClientTest {
             """{"appointmentId":"a1","clientId":"c1","name":"Lost Svc","priceCents":1200,"requestKey":"$KEY"}""",
             sent("""{"result":{"data":{}}}""") { api.addService("a1", "c1", null, "Lost Svc", 1200, null, KEY) },
         )
+        // Several picks from the menu are one creation, in the order they were picked.
+        assertEquals(
+            """{"appointmentId":"a1","clientId":"c1","menuItemIds":["m2","m1","m2"],"requestKey":"$KEY"}""",
+            sent("""{"result":{"data":{}}}""") { api.addMenuServices("a1", "c1", listOf("m2", "m1", "m2"), KEY) },
+        )
+        // Picks for several Clients are one creation too, Client after Client; picks for one go in the shape the API always took.
+        assertEquals(
+            """{"appointmentId":"a1","clients":[{"clientId":"c2","menuItemIds":["m1"]},{"clientId":"c1","menuItemIds":["m2","m1"]}],"requestKey":"$KEY"}""",
+            sent("""{"result":{"data":{}}}""") { api.addMenuServices("a1", listOf("c2" to listOf("m1"), "c1" to listOf("m2", "m1")), KEY) },
+        )
+        assertEquals(
+            """{"appointmentId":"a1","clientId":"c2","menuItemIds":["m1"],"requestKey":"$KEY"}""",
+            sent("""{"result":{"data":{}}}""") { api.addMenuServices("a1", listOf("c2" to listOf("m1")), KEY) },
+        )
         assertEquals(
             """{"appointmentServiceId":"sv1","formula":"7N lost","requestKey":"$KEY"}""",
             sent("""{"result":{"data":{}}}""") { api.addColorFormula("sv1", "7N lost", "", KEY) },
@@ -175,8 +193,30 @@ class ApiClientTest {
 
         // An edit creates nothing: the key of the form it is sent from is not a part of it.
         assertEquals(
-            """{"id":"m1","name":"Cut","defaultPriceCents":1200}""",
-            sent("""{"result":{"data":{"id":"m1","name":"Cut","defaultPriceCents":1200}}}""") { api.saveServiceMenuItem("m1", "Cut", 1200, KEY) },
+            """{"id":"m1","name":"Cut","defaultPriceCents":1200,"group":"Cuts","travelFee":false}""",
+            sent("""{"result":{"data":{"id":"m1","name":"Cut","defaultPriceCents":1200}}}""") { api.saveServiceMenuItem("m1", MenuItemValues("Cut", 1200, "Cuts"), KEY) },
+        )
+    }
+
+    @Test
+    fun `a stored photo is recorded with its size when the app knows it, and without one otherwise`() = runTest {
+        suspend fun sent(stored: StoredFile): String {
+            enqueue("""{"result":{"data":{}}}""")
+            api.addStoredPhoto("a1", "c1", PhotoCategory.AFTER, stored, requestKey = KEY)
+            return server.takeRequest().body?.utf8().orEmpty()
+        }
+        val file = StoredFile("key-1", "https://files.example/1", "https://files.example/1")
+
+        assertEquals(
+            """{"appointmentId":"a1","clientId":"c1","category":"after","status":"stored","fileKey":"key-1","url":"https://files.example/1",""" +
+                """"thumbnailUrl":"https://files.example/1","width":1536,"height":2048,"requestKey":"$KEY"}""",
+            sent(file.copy(width = 1536, height = 2048)),
+        )
+        // A photo whose upload was recorded on the device before the app read sizes: as before.
+        assertEquals(
+            """{"appointmentId":"a1","clientId":"c1","category":"after","status":"stored","fileKey":"key-1","url":"https://files.example/1",""" +
+                """"thumbnailUrl":"https://files.example/1","requestKey":"$KEY"}""",
+            sent(file),
         )
     }
 
@@ -190,13 +230,13 @@ class ApiClientTest {
         enqueue(stylist)
         enqueue(stylist)
 
-        val savedClient = api.saveClient("c1", "Two Tina", Language.EN, "5550999", "", "", "old note app-note", loadedUpdatedAt = loaded, requestKey = KEY)
+        val savedClient = api.saveClient("c1", "Two Tina", Language.EN, "5550999", "", "", "old note app-note", loadedUpdatedAt = loaded, requestKey = KEY, referredById = "c9")
         val savedSettings = api.saveSettings(Language.RU, "Asia/Tokyo", "9 Other Road", loadedUpdatedAt = loaded)
         api.saveSettings(Language.RU, "Asia/Tokyo", "9 Other Road", loadedUpdatedAt = null)
 
         // The version, and not the key: the Client exists.
         assertEquals(
-            """{"id":"c1","name":"Two Tina","language":"en","phone":"5550999","email":"","address":"","note":"old note app-note","expectedUpdatedAt":"$loaded"}""",
+            """{"id":"c1","name":"Two Tina","language":"en","phone":"5550999","email":"","address":"","note":"old note app-note","referredById":"c9","expectedUpdatedAt":"$loaded"}""",
             server.takeRequest().body?.utf8(),
         )
         assertEquals(
@@ -318,6 +358,23 @@ class ApiClientTest {
         assertEquals("9 Lamar Blvd, Austin", saved.locationAddress)
         assertEquals("", saved.customLocationAddress)
         assertEquals("https://www.google.com/maps/search/?api=1&query=9%20Lamar%20Blvd%2C%20Austin", saved.mapUrl)
+    }
+
+    @Test
+    fun `the reply to a change of place says what the Travel Fee added or removed, and an older server says nothing`() = runTest {
+        val fee = """{"id":"sv9","appointmentId":"a1","clientId":"c1","menuItemId":"m9","name":"Выезд на дом","priceCents":2000,"note":"","createdAt":"2026-10-21T20:00:00.000Z"}"""
+        enqueue("""{"result":{"data":${updated.dropLast(1)},"travelFee":{"added":[$fee],"removed":[]}}}}""")
+        enqueue("""{"result":{"data":${updated.dropLast(1)},"travelFee":{"added":[],"removed":[$fee]}}}}""")
+        enqueue("""{"result":{"data":$updated}}""")
+
+        val added = api.updateAppointmentTimeAndPlace("a1", startsAt = null, endsAt = null, locationType = LocationType.AT_HOME, customLocationAddress = "").travelFee
+        val removed = api.updateAppointmentTimeAndPlace("a1", startsAt = null, endsAt = null, locationType = LocationType.IN_SALON, customLocationAddress = "").travelFee
+        val older = api.updateAppointmentTimeAndPlace("a1", startsAt = null, endsAt = null, locationType = LocationType.AT_HOME, customLocationAddress = "").travelFee
+
+        val service = AppointmentService(id = "sv9", clientId = "c1", menuItemId = "m9", name = "Выезд на дом", priceCents = 2000)
+        assertEquals(TravelFeeChange(added = listOf(service)), added)
+        assertEquals(TravelFeeChange(removed = listOf(service)), removed)
+        assertEquals(TravelFeeChange(), older)
     }
 
     @Test
@@ -584,7 +641,7 @@ class ApiClientTest {
         enqueue("""{"error":{"message":"$issues","code":-32600,"data":{"code":"BAD_REQUEST","httpStatus":400}}}""", code = 400)
 
         try {
-            api.saveServiceMenuItem(null, "", 0, KEY)
+            api.saveServiceMenuItem(null, MenuItemValues("", 0, ""), KEY)
             fail("expected an ApiException")
         } catch (error: ApiException) {
             assertEquals("Too small: expected string to have >=1 characters", error.message)

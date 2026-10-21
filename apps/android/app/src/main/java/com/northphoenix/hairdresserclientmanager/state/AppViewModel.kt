@@ -20,11 +20,13 @@ import com.northphoenix.hairdresserclientmanager.core.AppContainer
 import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.AppointmentPhoto
+import com.northphoenix.hairdresserclientmanager.data.AppointmentService
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.CameraCaptures
 import com.northphoenix.hairdresserclientmanager.data.ClientHistoryEntry
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.CreateAppointmentResult
+import com.northphoenix.hairdresserclientmanager.data.JpegSize
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.data.PendingPhoto
@@ -38,12 +40,18 @@ import com.northphoenix.hairdresserclientmanager.data.ShareChoice
 import com.northphoenix.hairdresserclientmanager.data.ShareImage
 import com.northphoenix.hairdresserclientmanager.data.StoredFile
 import com.northphoenix.hairdresserclientmanager.data.Stylist
+import com.northphoenix.hairdresserclientmanager.data.TravelFeeChange
 import com.northphoenix.hairdresserclientmanager.data.UpdatedAppointment
 import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
 import com.northphoenix.hairdresserclientmanager.data.toApiException
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
+import com.northphoenix.hairdresserclientmanager.domain.CalendarWeek
 import com.northphoenix.hairdresserclientmanager.domain.ChangedElsewhere
+import com.northphoenix.hairdresserclientmanager.domain.HomeOutcomes
+import com.northphoenix.hairdresserclientmanager.domain.ImportCandidate
+import com.northphoenix.hairdresserclientmanager.domain.MenuItemValues
+import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.OneLine
 import com.northphoenix.hairdresserclientmanager.domain.ServiceEdit
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
@@ -56,8 +64,10 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Locale
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
@@ -69,6 +79,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -79,8 +90,26 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** A transient message for the snackbar, resolved to text by the UI in the current app language. [args] fill the text's placeholders. */
-data class Notice(@StringRes val message: Int, val isError: Boolean = false, val args: List<Any> = emptyList())
+/**
+ * A transient message for the snackbar, resolved to text by the UI in the current app language. [args] fill the text's placeholders.
+ * With [quantity], [message] is a `plurals` resource, and the form is chosen by the quantity. [action] is a button on the notice, such as 'Undo'.
+ */
+data class Notice(
+    @StringRes val message: Int,
+    val isError: Boolean = false,
+    val args: List<Any> = emptyList(),
+    val quantity: Int? = null,
+    val action: NoticeAction? = null,
+)
+
+/** A button on a notice: [label] says what [run] does. It can be tapped for as long as the notice is shown, and at most once. */
+data class NoticeAction(@StringRes val label: Int, val run: () -> Unit)
+
+/**
+ * How an import of several contacts ended: the contacts that became Clients, and those that did not
+ * ([reason] says why the first of them failed, in the words of the app's error messages).
+ */
+data class ContactImportResult(val added: Set<Long>, val failed: Set<Long>, @StringRes val reason: Int? = null)
 
 /** A Calendar day with what is loaded of it: [appointments] and [load] are always of [day]. The list is empty only when [load] is Loaded. */
 data class CalendarDay(val day: LocalDate, val appointments: List<Appointment> = emptyList(), val load: LoadState = LoadState.Loading)
@@ -166,7 +195,12 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         fetchHistory = { api.clientAppointmentHistory(it.id) },
     )
 
-    private val serviceMenuReads = ServiceMenuReads(viewModelScope, readChanges) { api.listServiceMenu() }
+    private val serviceMenuReads = ServiceMenuReads(
+        viewModelScope,
+        readChanges,
+        fetch = { api.listServiceMenu() },
+        fetchFormulaNames = { api.listFormulaNames() },
+    )
 
     // Each list comes with its load state, in one value. A screen says that a list is empty only when its state is Loaded.
     private val _clients = MutableStateFlow(Read<List<ClientProfile>>())
@@ -179,6 +213,11 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     /** The Service Menu, as the cache shows it. */
     val serviceMenu: StateFlow<Read<List<ServiceMenuItem>>> = _serviceMenu.asStateFlow()
 
+    private val _formulaNames = MutableStateFlow(Read<List<String>>())
+
+    /** The names of the Services that have a Color Formula, as the cache shows them: what a Service without a menu item learns from. */
+    val formulaNames: StateFlow<Read<List<String>>> = _formulaNames.asStateFlow()
+
     /** Every read of Appointments goes through this, and so through the read cache (see [ReadCache]). */
     private val appointmentReads = AppointmentReads(
         viewModelScope,
@@ -187,12 +226,24 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         fetchDay = { key -> dayRange(key).let { (start, end) -> api.listAppointments(start, end) } },
         find = { api.findAppointment(it) },
         fetchSources = { api.completedSources(it.appointmentId) },
+        fetchWeek = { key ->
+            val format = TimeFormat(Locale.ROOT, key.zone)
+            api.listAppointments(format.dayRange(key.firstDay).first, format.dayRange(key.firstDay.plusDays(CalendarWeek.LENGTH - 1)).second)
+        },
     )
 
     private val _home = MutableStateFlow(Read<List<Appointment>>())
 
     /** Today's list, of the day in [today]. It says that it is empty only when its state is Loaded. */
     val home: StateFlow<Read<List<Appointment>>> = _home.asStateFlow()
+
+    private val _tomorrow = MutableStateFlow(Read<List<Appointment>>())
+
+    /**
+     * The list of the day after [today] (the Calendar's cache of that day), for the Home View's
+     * 'Tomorrow'. It is every Appointment of the day: the screen picks the Scheduled ones.
+     */
+    val tomorrow: StateFlow<Read<List<Appointment>>> = _tomorrow.asStateFlow()
 
     private val _calendarDate = MutableStateFlow(day.today.value)
     val calendarDate: StateFlow<LocalDate> = _calendarDate.asStateFlow()
@@ -291,6 +342,12 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         }
         viewModelScope.launch {
             showLatest(
+                keys = combine(listsZone, today) { zone, day -> zone?.let { DayKey(day.plusDays(1), it) } }.distinctUntilChanged(),
+                watch = { key -> key?.let(appointmentReads.days::watch) ?: flowOf(Read()) },
+            ) { _, read -> _tomorrow.value = read }
+        }
+        viewModelScope.launch {
+            showLatest(
                 keys = combine(listsZone, _calendarDate) { zone, date -> date to zone }.distinctUntilChanged(),
                 watch = { (date, zone) -> zone?.let { appointmentReads.days.watch(DayKey(date, it)) } ?: flowOf(Read()) },
             ) { (date, _), read -> _calendarDay.value = CalendarDay(date, read.data.orEmpty(), read.state) }
@@ -302,6 +359,11 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         viewModelScope.launch {
             showLatest(keys = listsOwner, watch = { key -> key?.let(serviceMenuReads.menu::watch) ?: flowOf(Read()) }) { _, read ->
                 _serviceMenu.value = read
+            }
+        }
+        viewModelScope.launch {
+            showLatest(keys = listsOwner, watch = { key -> key?.let(serviceMenuReads.formulaNames::watch) ?: flowOf(Read()) }) { _, read ->
+                _formulaNames.value = read
             }
         }
         viewModelScope.launch {
@@ -517,7 +579,9 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     private suspend fun loadClients(): Read<List<ClientProfile>> = ownerKey()?.let { clientReads.list.refresh(it) } ?: Read()
 
     private suspend fun loadServiceMenu() {
-        ownerKey()?.let { serviceMenuReads.menu.refresh(it) }
+        ownerKey()?.let { key ->
+            together({ serviceMenuReads.menu.refresh(key) }, { serviceMenuReads.formulaNames.refresh(key) })
+        }
     }
 
     /**
@@ -527,7 +591,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      */
     private suspend fun loadAppointmentLists() {
         followDay()
-        together(::loadHome, ::loadCalendarDay, appointmentReads.sources::refreshShown)
+        together(::loadHome, ::loadTomorrow, ::loadCalendarDay, appointmentReads.weeks::refreshShown, appointmentReads.sources::refreshShown)
     }
 
     /** The key of Today's list: today in the Stylist's timezone. Null while there is no Stylist to show it to. */
@@ -543,6 +607,11 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     /** Asks for Today's list again. The answer goes into the cache and onto the screen; what was on screen stays when it fails. */
     private suspend fun loadHome() {
         todayKey()?.let { appointmentReads.today.refresh(it) }
+    }
+
+    /** Asks for the day after today again, for the Home View's 'Tomorrow'. A failure leaves what was shown. */
+    private suspend fun loadTomorrow() {
+        listsDay(today.value.plusDays(1))?.let { appointmentReads.days.refresh(it) }
     }
 
     /** Asks for the day in [calendarDate] again. What arrives after the Stylist has moved on is of another key: cached, and not shown. */
@@ -681,6 +750,21 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         }
     }
 
+    /**
+     * The days of the week from [firstDay] on that have an Appointment that is not canceled, for the
+     * Calendar's week strip, for as long as this is collected. A week shown before is there at once
+     * and is asked again behind it. None are marked while the week is loading or could not be loaded:
+     * the list of the selected day says so for itself.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun calendarWeekMarks(firstDay: LocalDate): Flow<Set<LocalDate>> =
+        listsZone
+            .flatMapLatest { zone ->
+                zone?.let { appointmentReads.weeks.watch(WeekKey(firstDay, it)).map { read -> CalendarWeek.daysWithAppointments(read.data.orEmpty(), zone) } }
+                    ?: flowOf(emptySet())
+            }
+            .distinctUntilChanged()
+
     /** Makes [date] the Calendar's day. It is another key to read (see [calendarKey]): what is on its way for the day before is not shown. */
     private fun showCalendarDay(date: LocalDate) {
         _calendarDate.value = date
@@ -751,12 +835,13 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         onSuccess: () -> Unit = {},
         touched: () -> Unit = { readChanges.changed(id) },
         ahead: ((Appointment) -> Appointment)? = null,
+        reload: suspend () -> Unit = { reloadAppointmentAndLists(id) },
         change: suspend () -> Unit,
     ) = act(
         key,
         successNotice,
         onSuccess = { onSuccess() },
-        reload = { reloadAppointmentAndLists(id) },
+        reload = reload,
         touched = touched,
         ahead = ahead?.let { appointmentReads.ahead(key, id, it) },
         change = change,
@@ -973,6 +1058,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         note: String,
         loadedUpdatedAt: String?,
         requestKey: String,
+        referredById: String? = null,
         onSuccess: (ClientProfile) -> Unit,
     ) {
         act(
@@ -984,7 +1070,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             touched = { clientReads.changed(id) },
         ) {
             api.saveClient(
-                id, OneLine.clean(name), language, OneLine.clean(phone), email.trim(), address.trim(), note.trim(), loadedUpdatedAt, requestKey,
+                id, OneLine.clean(name), language, OneLine.clean(phone), email.trim(), address.trim(), note.trim(), loadedUpdatedAt, requestKey, referredById,
             ).also { saved ->
                 // In the list and in every picker now, before the reload.
                 clientReads.saved(saved)
@@ -992,6 +1078,86 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                 // them now, and no cached day is served as it was before the save, so no reminder goes to the old number.
                 appointmentReads.clientSaved(saved)
             }
+        }
+    }
+
+    private val _contactImportProgress = MutableStateFlow<Pair<Int, Int>?>(null)
+
+    /** While contacts are being imported: how many are done, and how many there are. Null when no import is running. */
+    val contactImportProgress: StateFlow<Pair<Int, Int>?> = _contactImportProgress.asStateFlow()
+
+    // One key per contact as it is imported, kept until it was added: the contacts that failed are sent again with the
+    // key they had, so a retry whose first try was saved but never answered makes no second Client (ADR 0015).
+    private val contactImportKeys = mutableMapOf<ImportCandidate, String>()
+
+    /**
+     * Makes a Client of each of [contacts], one after the other, each with the contact's name, first number,
+     * address and note, in the Stylist's language, by the same save as the Client form. It goes on after a Client
+     * the server refuses, and stops at the first failure to reach the server: the contacts not reached are failed too.
+     * It runs on until it is done also when the Stylist leaves the screen; [onFinished] is told then and
+     * shows one notice, of what was added. A retry of the contacts an earlier try left undone counts
+     * the [addedBefore] Clients that try added into that notice: it is of the whole import.
+     */
+    fun importContacts(contacts: List<ImportCandidate>, addedBefore: Int = 0, onFinished: (ContactImportResult) -> Unit) {
+        if (contacts.isEmpty() || _contactImportProgress.value != null) {
+            return
+        }
+
+        val language = _stylist.value?.language ?: Language.RU
+
+        _contactImportProgress.value = 0 to contacts.size
+        act(
+            key = "importContacts",
+            onSuccess = onFinished,
+            reload = { loadClients() },
+            touched = { clientReads.changed(null) },
+        ) {
+            val added = mutableSetOf<Long>()
+            val failed = mutableSetOf<Long>()
+            var reason: Int? = null
+            var unreachable = false
+
+            try {
+                for (contact in contacts) {
+                    if (unreachable) {
+                        failed += contact.id
+                        continue
+                    }
+
+                    try {
+                        val key = contactImportKeys.getOrPut(contact) { UUID.randomUUID().toString() }
+                        // The Client Note is the contact's, and the form's other fields stay empty.
+                        clientReads.saved(api.saveClient(null, contact.name, language, contact.phone, "", contact.address, contact.note, null, key))
+                        contactImportKeys.remove(contact)
+                        added += contact.id
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        val failure = error.toApiException()
+
+                        failed += contact.id
+                        reason = reason ?: failure.messageRes()
+                        if (failure.isUnauthorized) {
+                            report(failure)
+                        }
+                        unreachable = failure.isNetwork || failure.outcomeUnknown || failure.isUnauthorized
+                    } finally {
+                        _contactImportProgress.value = (added.size + failed.size) to contacts.size
+                    }
+                }
+            } finally {
+                _contactImportProgress.value = null
+            }
+
+            val result = ContactImportResult(added, failed, reason)
+            val addedInAll = addedBefore + added.size
+
+            when {
+                failed.isEmpty() -> noticeChannel.trySend(Notice(R.plurals.contact_import_added, quantity = addedInAll, args = listOf(addedInAll)))
+                added.isEmpty() -> notify(reason ?: R.string.contact_import_failed, isError = true)
+                else -> notify(R.string.contact_import_partial, isError = true, addedInAll, addedBefore + contacts.size)
+            }
+            result
         }
     }
 
@@ -1021,6 +1187,50 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             affected.filter { AppointmentClients.goesWith(id, it) }.forEach { forgetAppointment(it.id) }
         }
     }
+
+    /**
+     * Makes two Client Profiles of one person one: [removeId]'s Appointments, Services and photos go to
+     * [keepId], and [removeId] is deleted. The server does all of it or nothing, and the screens change only
+     * once it has answered: a merge that could not be sent changes nothing, and one whose answer never came is
+     * reloaded. [onSuccess] gets the kept Client.
+     */
+    fun mergeClients(keepId: String, removeId: String, onSuccess: (ClientProfile) -> Unit) {
+        // A photo on its way to the server would arrive for a Client who is gone.
+        if (photos.uploads.value.any { it.photo.clientId == removeId }) {
+            notify(R.string.client_merge_photo_uploads, isError = true)
+            return
+        }
+
+        // The loaded Appointments of the removed Client, named before the request as for a delete.
+        val affected = AppointmentClients.changedByDeleting(removeId, appointmentReads.all())
+
+        act(
+            key = "mergeClients",
+            successNotice = R.string.client_merged,
+            onSuccess = onSuccess,
+            reload = { together(::loadAll, { affected.forEach { reloadAppointment(it.id) } }, clientReads.history::refreshShown) },
+            touched = {
+                clientReads.changed(keepId)
+                clientReads.changed(removeId)
+            },
+        ) {
+            val merged = api.mergeClients(keepId, removeId)
+
+            clientReads.referralsMoved(removeId, merged.client)
+            clientReads.deleted(removeId)
+            clientReads.saved(merged.client)
+            appointmentReads.clientSaved(merged.client)
+            overlaps.clientDeleted(removeId)
+            merged.client
+        }
+    }
+
+    /** The two Clients are different people: neither is offered as the other's duplicate any more. */
+    fun markClientsDistinct(clientId: String, otherClientId: String) =
+        act("markDistinct:$clientId:$otherClientId", reload = { loadClients() }, touched = { clientReads.changed(clientId) }) {
+            api.markClientsDistinct(clientId, otherClientId)
+            clientReads.distinct(clientId, otherClientId)
+        }
 
     // Creating and revoking one Client's Profile Share share a key, so they run one at a time and a
     // second tap on Create does nothing. A choice of the Profile Share that exists is not waited
@@ -1108,7 +1318,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     // --- service menu ---
 
     /** [requestKey] is the editor sheet's own (see `rememberRequestKey`): it counts for a new Service Menu Item. */
-    fun saveServiceMenuItem(id: String?, name: String, defaultPriceCents: Long, requestKey: String, onSuccess: () -> Unit) =
+    fun saveServiceMenuItem(id: String?, values: MenuItemValues, requestKey: String, onSuccess: () -> Unit) =
         act(
             key = "saveServiceMenuItem:${id ?: "new"}",
             successNotice = R.string.service_menu_item_saved,
@@ -1116,7 +1326,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             reload = ::loadServiceMenu,
             touched = serviceMenuReads::changed,
         ) {
-            serviceMenuReads.saved(api.saveServiceMenuItem(id, name.trim(), defaultPriceCents, requestKey))
+            serviceMenuReads.saved(api.saveServiceMenuItem(id, values, requestKey))
         }
 
     /** Not waited for: the item leaves the menu at once, and comes back in its place when the delete fails. */
@@ -1156,7 +1366,10 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         onSuccess = { result: CreateAppointmentResult ->
             // Its screen opens next, before any read of it has answered: it shows the reply until then.
             appointmentReads.created(result.appointment)
-            notify(if (result.conflicts.isEmpty()) R.string.appointment_saved else R.string.appointment_conflict_warning)
+            // A Travel Fee the server added is said instead, with a way to remove it: the overlap is named on the Appointment's screen.
+            if (!notifyTravelFee(result.appointment.id, result.travelFee)) {
+                notify(if (result.conflicts.isEmpty()) R.string.appointment_saved else R.string.appointment_conflict_warning)
+            }
             onSuccess(result)
         },
         // An inline Client is created on the server as part of this call.
@@ -1201,13 +1414,104 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             status,
             saved = appointmentReads[id]?.status,
             touched = { appointmentReads.statusChanged(id) },
-            elsewhere = { next -> clientReads.statusAhead(target, id, next) },
+            elsewhere = { next -> clientReads.statusAhead(target, id, next) + backOnHome(target, id, next) },
             edit = { appointment, next -> appointment.copy(status = next) },
         ) { next ->
             val saved = api.updateAppointmentStatus(id, next)
 
             updateLoaded(id) { it.copy(status = next).withTimeAndPlace(saved) }
             overlaps.answered(id, saved.conflicts)
+            // The Home View names no overlap of its own: the notice points to the Appointment's screen, which does.
+            if (next == AppointmentStatus.SCHEDULED && id in homeUndos && saved.conflicts.isNotEmpty()) {
+                notify(R.string.home_undo_overlap)
+            }
+        }
+    }
+
+    // --- quick outcomes on the Home View ---
+
+    /**
+     * The cards that 'Undo' is setting back to Scheduled, by Appointment, as the Home View showed
+     * them. Kept here and not in the call, because a status tap joins whatever request for the
+     * Appointment is already on its way, and that request's code is the one that runs (see [saveLatest]).
+     */
+    private val homeUndos = mutableMapOf<String, Appointment>()
+
+    /**
+     * An Appointment that left Today's list with an outcome is back on it the moment 'Undo' sets it
+     * to Scheduled, not only once the reload has it (see [AppointmentReads.backOnToday]). Taken away
+     * when the status requests for it have ended, whichever way.
+     */
+    private fun backOnHome(target: String, id: String, next: AppointmentStatus): Ahead {
+        val change = "$target:backOnHome"
+        val back = homeUndos[id]?.takeIf { next == AppointmentStatus.SCHEDULED }?.let { appointmentReads.backOnToday(change, it) }
+
+        return Ahead(
+            show = { back?.show() },
+            saved = { back?.saved() },
+            settle = {
+                appointmentReads.today.settled(change)
+                homeUndos -= id
+            },
+        )
+    }
+
+    /**
+     * An outcome chip on a Home card: [outcome] is the Appointment's status at once (see
+     * [setAppointmentStatus]), and a notice says so with 'Undo', which sets it back to Scheduled.
+     * [card] is the Appointment as the card shows it.
+     */
+    fun setOutcomeFromHome(card: Appointment, outcome: AppointmentStatus) {
+        setAppointmentStatus(card.id, outcome)
+        noticeChannel.trySend(
+            Notice(
+                outcome.homeNotice(),
+                args = listOf(AppointmentClients.leadName(card)),
+                action = NoticeAction(R.string.notice_undo) { undoHomeOutcomes(listOf(card), outcome) },
+            ),
+        )
+    }
+
+    /**
+     * 'All completed' for one day of the Home View: each of [cards], the day's unresolved
+     * Appointments, is Completed at once, each by its own status change. One notice says how many,
+     * and its 'Undo' sets all of them back to Scheduled.
+     */
+    fun completeAllFromHome(cards: List<Appointment>) {
+        if (cards.isEmpty()) {
+            return
+        }
+        cards.forEach { setAppointmentStatus(it.id, AppointmentStatus.COMPLETED) }
+        noticeChannel.trySend(
+            Notice(
+                R.plurals.home_completed_count,
+                args = listOf(cards.size),
+                quantity = cards.size,
+                action = NoticeAction(R.string.notice_undo) { undoHomeOutcomes(cards, AppointmentStatus.COMPLETED) },
+            ),
+        )
+    }
+
+    /**
+     * 'Undo' of an outcome set from the Home View: each of [cards] that still has [outcome] goes
+     * back to Scheduled, by the rules of any status change (an overlap is named on its screen).
+     * One that has another outcome by now, set elsewhere, keeps it, and the Stylist is told.
+     */
+    private fun undoHomeOutcomes(cards: List<Appointment>, outcome: AppointmentStatus) {
+        var changedElsewhere = false
+
+        cards.forEach { card ->
+            when (HomeOutcomes.undo(shownAppointment(card.id)?.status, outcome)) {
+                HomeOutcomes.Undo.REVERT -> {
+                    homeUndos[card.id] = card
+                    setAppointmentStatus(card.id, AppointmentStatus.SCHEDULED)
+                }
+                HomeOutcomes.Undo.NOTHING -> Unit
+                HomeOutcomes.Undo.CHANGED_ELSEWHERE -> changedElsewhere = true
+            }
+        }
+        if (changedElsewhere) {
+            notify(R.string.home_undo_changed_elsewhere)
         }
     }
 
@@ -1216,6 +1520,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      * when the Stylist left them as they were, and they are then not sent; so is [locationType] for
      * a place that is kept ([AppointmentDraft.keepsPlace]). [ownAddress] is the at-home address the
      * Stylist typed, null for the primary Client's.
+     * Another place can add or remove the Travel Fee: the notice then says that, with a way to undo it.
      */
     fun editAppointment(
         id: String,
@@ -1223,22 +1528,71 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         locationType: LocationType?,
         ownAddress: String?,
         onSuccess: () -> Unit,
-    ) = actOnAppointment(
-        id,
-        "editAppointment:$id",
-        R.string.appointment_time_and_place_saved,
-        onSuccess,
-        // At another time the Appointment is in the list of the day it starts on now, which does not hold it yet.
-        touched = { if (times != null) appointmentReads.startChanged(id, times.startsAt) else readChanges.changed(id) },
     ) {
-        val saved = api.updateAppointmentTimeAndPlace(id, times?.startsAt, times?.endsAt, locationType, ownAddress?.trim().orEmpty())
+        var travelFee = TravelFeeChange()
 
-        updateLoaded(id) { it.withTimeAndPlace(saved) }
-        // An answer to times that were not sent names no overlap, and says nothing about the one there may be.
-        if (times != null) {
-            overlaps.answered(id, saved.conflicts)
+        actOnAppointment(
+            id,
+            "editAppointment:$id",
+            onSuccess = {
+                if (!notifyTravelFee(id, travelFee)) {
+                    notify(R.string.appointment_time_and_place_saved)
+                }
+                onSuccess()
+            },
+            // At another time the Appointment is in the list of the day it starts on now, which does not hold it yet.
+            touched = { if (times != null) appointmentReads.startChanged(id, times.startsAt) else readChanges.changed(id) },
+        ) {
+            val saved = api.updateAppointmentTimeAndPlace(id, times?.startsAt, times?.endsAt, locationType, ownAddress?.trim().orEmpty())
+
+            travelFee = saved.travelFee
+            updateLoaded(id) { it.withTimeAndPlace(saved).withTravelFee(saved.travelFee) }
+            // An answer to times that were not sent names no overlap, and says nothing about the one there may be.
+            if (times != null) {
+                overlaps.answered(id, saved.conflicts)
+            }
         }
     }
+
+    /**
+     * Says what the server did with the Travel Fee of an Appointment that was created or changed
+     * place, with a button that undoes it: 'Remove' deletes the Services it added, and the
+     * Appointment stays where it is; 'Put back' adds the ones it removed again, as they were.
+     * Neither moves the Appointment, so the server does not add or remove the fee again until it
+     * changes place. False when the server did nothing with it, and nothing was said.
+     */
+    private fun notifyTravelFee(appointmentId: String, change: TravelFeeChange): Boolean {
+        val added = change.added.firstOrNull()
+        val removed = change.removed.firstOrNull()
+
+        when {
+            added != null -> noticeChannel.trySend(
+                Notice(
+                    R.string.travel_fee_added,
+                    args = listOf(added.name, Money.formatShort(change.added.sumOf { it.priceCents })),
+                    action = NoticeAction(R.string.travel_fee_remove) { change.added.forEach { deleteService(appointmentId, it.id) } },
+                ),
+            )
+            removed != null -> noticeChannel.trySend(
+                Notice(
+                    R.string.travel_fee_removed,
+                    args = listOf(removed.name),
+                    action = NoticeAction(R.string.travel_fee_put_back) { putBackServices(appointmentId, change.removed) },
+                ),
+            )
+            else -> return false
+        }
+        return true
+    }
+
+    /** Adds [services] to the Appointment again, for the same Clients, with the same names, prices and notes. */
+    private fun putBackServices(appointmentId: String, services: List<AppointmentService>) =
+        actOnAppointment(appointmentId, "addService:$appointmentId") {
+            services.forEach { service ->
+                // A new creation each: this tap is the only one that sends it.
+                api.addService(appointmentId, service.clientId, service.menuItemId, service.name, service.priceCents, service.note, UUID.randomUUID().toString())
+            }
+        }
 
     fun dismissOverlapWarning(appointmentId: String) = overlaps.dismiss(appointmentId)
 
@@ -1276,8 +1630,44 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             photos.removeAll { it.appointmentId == id }
         }
 
-    fun addParticipant(appointmentId: String, clientId: String) =
-        actOnAppointment(appointmentId, clientsChangeKey(appointmentId)) { api.addParticipant(appointmentId, clientId) }
+    fun addParticipant(appointmentId: String, clientId: String, onSuccess: () -> Unit = {}) =
+        actOnAppointment(appointmentId, clientsChangeKey(appointmentId), onSuccess = onSuccess) { api.addParticipant(appointmentId, clientId) }
+
+    /**
+     * Adds a new Client to an Appointment, a minimal one made from just [name], as Appointment
+     * Creation makes one inline: in the Stylist's language and with nothing else filled in.
+     * [onSuccess] gets the new Client's id.
+     *
+     * Two requests, each safe to send again: the Client is created under [requestKey], which the
+     * caller keeps for as long as it retries this one, and adding a Client who is in the Appointment
+     * already adds nobody. So when the Client was created and the add failed, the next try finds
+     * that Client and adds them, and no second Client of the same name is made.
+     */
+    fun addNewParticipant(appointmentId: String, name: String, requestKey: String, onSuccess: (String) -> Unit) {
+        var created = false
+
+        actions.run(
+            key = clientsChangeKey(appointmentId),
+            change = {
+                marking({
+                    readChanges.changed(appointmentId)
+                    clientReads.changed(null)
+                }) {
+                    val client = api.saveClient(null, OneLine.clean(name), stylist.value?.language ?: Language.RU, "", "", "", "", null, requestKey)
+
+                    // In the Client list and in every picker now, before the reload.
+                    clientReads.saved(client)
+                    created = true
+                    api.addParticipant(appointmentId, client.id)
+                    client.id
+                }
+            },
+            reload = { together({ reloadAppointmentAndLists(appointmentId) }, { loadClients() }) },
+            // A Client who was created and not added is in the Clients list all the same.
+            savedInPart = { created },
+            onSaved = onSuccess,
+        )
+    }
 
     fun removeParticipant(appointmentId: String, clientId: String) {
         // As the server does for the photos it has: the Stylist deals with them first, so none is dropped without a word.
@@ -1301,6 +1691,28 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     ) = actOnAppointment(appointmentId, "addService:$appointmentId", R.string.appointment_service_saved, onSuccess) {
         api.addService(appointmentId, clientId, menuItemId, name?.trim(), priceCents, note?.trim(), requestKey)
     }
+
+    /**
+     * Adds a Service from each picked menu item for each Client of [picks], at their default prices,
+     * Client after Client and each one's in the order picked, in one request. [requestKey] is the
+     * sheet's own for its picks from the menu. The menu is read again too: how often its items were
+     * used has changed.
+     */
+    fun addMenuServices(appointmentId: String, picks: List<Pair<String, List<String>>>, requestKey: String, onSuccess: () -> Unit) =
+        act(
+            key = "addService:$appointmentId",
+            onSuccess = { _: Unit ->
+                notify(R.string.appointment_services_added, isError = false, picks.sumOf { it.second.size })
+                onSuccess()
+            },
+            reload = { together({ reloadAppointmentAndLists(appointmentId) }, ::loadServiceMenu) },
+            touched = {
+                readChanges.changed(appointmentId)
+                serviceMenuReads.changed()
+            },
+        ) {
+            api.addMenuServices(appointmentId, picks, requestKey)
+        }
 
     /**
      * Saves an edit of a Service: its name, its price and its note, all three as the form has
@@ -1352,7 +1764,13 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         placement: String,
         requestKey: String,
         onSuccess: () -> Unit,
-    ) = actOnAppointment(appointmentId, "saveColorFormula:${formulaId ?: serviceId}", onSuccess = onSuccess) {
+    ) = actOnAppointment(
+        appointmentId,
+        "saveColorFormula:${formulaId ?: serviceId}",
+        onSuccess = onSuccess,
+        touched = { formulaChanged(appointmentId) },
+        reload = { formulaReloaded(appointmentId) },
+    ) {
         if (formulaId == null) {
             api.addColorFormula(serviceId, formula.trim(), placement.trim(), requestKey)
         } else {
@@ -1361,9 +1779,27 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     }
 
     fun deleteColorFormula(appointmentId: String, formulaId: String) =
-        actOnAppointment(appointmentId, "deleteColorFormula:$formulaId", ahead = { it.withoutColorFormula(formulaId) }) {
+        actOnAppointment(
+            appointmentId,
+            "deleteColorFormula:$formulaId",
+            touched = { formulaChanged(appointmentId) },
+            ahead = { it.withoutColorFormula(formulaId) },
+            reload = { formulaReloaded(appointmentId) },
+        ) {
             api.deleteColorFormula(formulaId)
         }
+
+    /**
+     * A Color Formula was added, edited or deleted: besides the Appointment, the menu's count of
+     * Services with a formula and the names of such Services are out of date, and the next
+     * Service the Stylist adds learns from them (see [ColorFormulaOffer]).
+     */
+    private fun formulaChanged(appointmentId: String) {
+        readChanges.changed(appointmentId)
+        serviceMenuReads.changed()
+    }
+
+    private suspend fun formulaReloaded(appointmentId: String) = together({ reloadAppointmentAndLists(appointmentId) }, ::loadServiceMenu)
 
     // --- photos ---
 
@@ -1449,7 +1885,16 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         val serverData = UploadThingClient.decodeUploadedPhoto(uploaded.serverData)
         val url = serverData?.url ?: uploaded.ufsUrl
 
-        return StoredFile(fileKey = serverData?.fileKey ?: uploaded.key, url = url, thumbnailUrl = serverData?.thumbnailUrl ?: url)
+        // The size of what was uploaded, so that the photo is recorded with it.
+        val size = JpegSize.of(bytes)
+
+        return StoredFile(
+            fileKey = serverData?.fileKey ?: uploaded.key,
+            url = url,
+            thumbnailUrl = serverData?.thumbnailUrl ?: url,
+            width = size?.width,
+            height = size?.height,
+        )
     }
 
     private suspend fun recordPhoto(photo: PendingPhoto, stored: StoredFile) {
@@ -1459,7 +1904,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         // The photo's id is its request key: recorded once, however often this is sent.
         val touched = { readChanges.changed(photo.appointmentId) }
         val photosNow = marking(touched) {
-            api.addStoredPhoto(photo.appointmentId, photo.clientId, photo.category, stored.fileKey, stored.url, stored.thumbnailUrl, requestKey = photo.id)
+            api.addStoredPhoto(photo.appointmentId, photo.clientId, photo.category, stored, requestKey = photo.id)
         }
 
         if (photosNow?.hasStored(stored) == true) {
@@ -1555,6 +2000,17 @@ internal fun unreadPhotosNotice(selected: Int, unread: List<ApiException>): Noti
         else -> Notice(R.string.appointment_photos_some_unread, isError = true, args = listOf(unread.size, selected))
     }
 
+/** What the notice says after an outcome chip on a Home card set [this]. */
+@StringRes
+internal fun AppointmentStatus.homeNotice(): Int =
+    when (this) {
+        AppointmentStatus.COMPLETED -> R.string.home_outcome_completed
+        AppointmentStatus.CANCELED -> R.string.home_outcome_canceled
+        AppointmentStatus.NO_SHOW -> R.string.home_outcome_no_show
+        // No chip sets it; named for completeness.
+        AppointmentStatus.SCHEDULED -> R.string.appointment_status_scheduled
+    }
+
 internal fun profileShareKey(clientId: String) = "profileShare:$clientId"
 
 /** The Client list with what the server has just answered about one Client's Profile Share: [share], or none after a revoke. */
@@ -1563,12 +2019,17 @@ internal fun List<ClientProfile>.withProfileShare(clientId: String, share: Profi
 
 /**
  * The Client list with a just-saved Client in it, first as on the server (latest change first).
- * The reply to a save leaves the Profile Share out, so the one already known is kept.
+ * The reply to a save leaves the Profile Share and whom the Client is not out, so what is already known is kept.
  */
 internal fun List<ClientProfile>.withSaved(saved: ClientProfile): List<ClientProfile> {
     val known = firstOrNull { it.id == saved.id }
 
-    return listOf(saved.copy(activeProfileShare = saved.activeProfileShare ?: known?.activeProfileShare)) + filterNot { it.id == saved.id }
+    return listOf(
+        saved.copy(
+            activeProfileShare = saved.activeProfileShare ?: known?.activeProfileShare,
+            distinctFromIds = saved.distinctFromIds ?: known?.distinctFromIds,
+        ),
+    ) + filterNot { it.id == saved.id }
 }
 
 /**
@@ -1578,6 +2039,27 @@ internal fun List<ClientProfile>.withSaved(saved: ClientProfile): List<ClientPro
  * The second does nothing until the first has been answered and the Appointment loaded again.
  */
 internal fun clientsChangeKey(appointmentId: String) = "clients:$appointmentId"
+
+/**
+ * The Services the Travel Fee has just added to or removed from an Appointment, on a loaded copy
+ * of it, with the totals that follow. The server adds it after the Services that were there.
+ */
+internal fun Appointment.withTravelFee(change: TravelFeeChange): Appointment {
+    val kept = change.removed.fold(this) { appointment, service -> appointment.withoutService(service.id) }
+
+    return change.added.filterNot { added -> kept.services.any { it.id == added.id } }.fold(kept) { appointment, service ->
+        val total = appointment.serviceTotalCents + service.priceCents
+
+        appointment.copy(
+            services = appointment.services + service,
+            participants = appointment.participants.map {
+                if (it.clientId == service.clientId) it.copy(subtotalCents = it.subtotalCents + service.priceCents) else it
+            },
+            serviceTotalCents = total,
+            finalTotalCents = appointment.finalTotalCentsOverride ?: total,
+        )
+    }
+}
 
 /** The time and the place the server has just answered with, on a loaded copy of that Appointment. */
 internal fun Appointment.withTimeAndPlace(saved: UpdatedAppointment): Appointment =
