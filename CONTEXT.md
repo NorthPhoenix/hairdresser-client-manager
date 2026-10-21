@@ -81,7 +81,7 @@ The one Service Menu Item a Stylist may mark as the fee for going to a Client, s
 _Avoid_: Travel charge, house-call fee, mileage
 
 **Color Formula**:
-The formula text and optional placement used for a Service. A Service can have multiple Color Formulas. The formula text can have several lines; Profile Share pages and Share Images keep its line breaks.
+The formula text and optional placement used for a Service. A Service can have multiple Color Formulas. The formula text can have several lines; Profile Share pages and Share Images keep its line breaks. Any Service can get one, but the Appointment offers it loudest where it is likely wanted: on a Service that has one, whose name names colour work, whose Service Menu Item has had a Color Formula on any Service started from it, or, for a Service without a menu item, whose name equals (without the difference of letter case, ё and е, and repeated spaces) the name of a Service that had one; every other Service keeps a small quiet button. So the offer learns from the Stylist's own formulas, and adding one formula to a Service makes its menu item prominent from then on.
 _Avoid_: Dye, recipe, mix
 
 **Color Formula Library**:
