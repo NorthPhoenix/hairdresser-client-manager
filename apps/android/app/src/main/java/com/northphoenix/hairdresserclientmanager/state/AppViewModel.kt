@@ -45,6 +45,7 @@ import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
 import com.northphoenix.hairdresserclientmanager.data.toApiException
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
+import com.northphoenix.hairdresserclientmanager.domain.CalendarWeek
 import com.northphoenix.hairdresserclientmanager.domain.ChangedElsewhere
 import com.northphoenix.hairdresserclientmanager.domain.HomeOutcomes
 import com.northphoenix.hairdresserclientmanager.domain.MenuItemValues
@@ -64,6 +65,7 @@ import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
@@ -75,6 +77,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -205,6 +208,10 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         fetchDay = { key -> dayRange(key).let { (start, end) -> api.listAppointments(start, end) } },
         find = { api.findAppointment(it) },
         fetchSources = { api.completedSources(it.appointmentId) },
+        fetchWeek = { key ->
+            val format = TimeFormat(Locale.ROOT, key.zone)
+            api.listAppointments(format.dayRange(key.firstDay).first, format.dayRange(key.firstDay.plusDays(CalendarWeek.LENGTH - 1)).second)
+        },
     )
 
     private val _home = MutableStateFlow(Read<List<Appointment>>())
@@ -545,7 +552,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      */
     private suspend fun loadAppointmentLists() {
         followDay()
-        together(::loadHome, ::loadCalendarDay, appointmentReads.sources::refreshShown)
+        together(::loadHome, ::loadCalendarDay, appointmentReads.weeks::refreshShown, appointmentReads.sources::refreshShown)
     }
 
     /** The key of Today's list: today in the Stylist's timezone. Null while there is no Stylist to show it to. */
@@ -698,6 +705,21 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             }
         }
     }
+
+    /**
+     * The days of the week from [firstDay] on that have an Appointment that is not canceled, for the
+     * Calendar's week strip, for as long as this is collected. A week shown before is there at once
+     * and is asked again behind it. None are marked while the week is loading or could not be loaded:
+     * the list of the selected day says so for itself.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun calendarWeekMarks(firstDay: LocalDate): Flow<Set<LocalDate>> =
+        listsZone
+            .flatMapLatest { zone ->
+                zone?.let { appointmentReads.weeks.watch(WeekKey(firstDay, it)).map { read -> CalendarWeek.daysWithAppointments(read.data.orEmpty(), zone) } }
+                    ?: flowOf(emptySet())
+            }
+            .distinctUntilChanged()
 
     /** Makes [date] the Calendar's day. It is another key to read (see [calendarKey]): what is on its way for the day before is not shown. */
     private fun showCalendarDay(date: LocalDate) {

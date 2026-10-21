@@ -94,6 +94,7 @@
     <string name="back">Back</string>
     <string name="calendar_empty_body">No Appointments on this day.</string>
     <string name="calendar_title">Calendar</string>
+    <string name="calendar_day_has_appointments">has appointments</string>
     <string name="cancel">Cancel</string>
     <string name="choose_client">Choose Client</string>
     <string name="clear">Clear</string>

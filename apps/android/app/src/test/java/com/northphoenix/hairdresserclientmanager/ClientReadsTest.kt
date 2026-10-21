@@ -263,6 +263,7 @@ class ClientReadsTest {
             fetchDay = { onMonday },
             find = { null },
             fetchSources = { sources },
+            fetchWeek = { emptyList() },
         )
 
         // The list is on screen. Monday, Anna's history and a copy sheet that offers her Appointment were shown before.

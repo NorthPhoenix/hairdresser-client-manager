@@ -93,6 +93,7 @@
     <string name="back">Назад</string>
     <string name="calendar_empty_body">На этот день записей нет.</string>
     <string name="calendar_title">Календарь</string>
+    <string name="calendar_day_has_appointments">есть записи</string>
     <string name="cancel">Отмена</string>
     <string name="choose_client">Выбрать клиента</string>
     <string name="clear">Сбросить</string>

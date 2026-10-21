@@ -133,7 +133,7 @@ An optional connection that lets a Stylist mirror Appointments from the app to a
 _Avoid_: Calendar source, imported calendar, external schedule
 
 **Calendar View**:
-An in-app way for the Stylist to browse Appointments by date using simple calendar navigation and agenda lists. Drag-and-drop calendar editing is not a v1 concept.
+An in-app way for the Stylist to browse Appointments by date using simple calendar navigation and agenda lists. Its week strip marks each day that has an Appointment that is not canceled. Drag-and-drop calendar editing is not a v1 concept.
 _Avoid_: Scheduler, calendar editor, booking calendar
 
 **Stylist Reminder**:

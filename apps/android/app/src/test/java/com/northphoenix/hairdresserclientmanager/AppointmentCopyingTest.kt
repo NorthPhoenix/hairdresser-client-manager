@@ -96,7 +96,7 @@ class AppointmentCopyingTest {
 
     /** The reads with a server that answers the copy sources with [fetch]. */
     private fun TestScope.reads(changes: Changes = Changes(), fetch: suspend (CopyTargetKey) -> List<Appointment>) =
-        AppointmentReads(backgroundScope, changes, fetchToday = { emptyList() }, fetchDay = { emptyList() }, find = { null }, fetchSources = fetch)
+        AppointmentReads(backgroundScope, changes, fetchToday = { emptyList() }, fetchDay = { emptyList() }, find = { null }, fetchSources = fetch, fetchWeek = { emptyList() })
 
     /** What a copy sheet that reads [flow] shows, value by value. It starts reading at once, as a sheet does. */
     private fun <T> TestScope.shownBy(flow: Flow<T>): Pair<List<T>, Job> {
