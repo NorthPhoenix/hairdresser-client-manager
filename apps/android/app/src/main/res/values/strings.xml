@@ -386,6 +386,32 @@
     <string name="contact_import_selected">%d selected</string>
     <string name="contact_import_unselect_all">Clear selection</string>
 
+    <string name="batch_reminders_title">Remind everyone for tomorrow</string>
+    <string name="batch_reminders_note">The messages go from your phone as regular SMS, at your carrier\'s rates.</string>
+    <string name="batch_reminders_send">Send %1$d SMS</string>
+    <string name="batch_reminders_none_checked">Pick recipients</string>
+    <string name="batch_reminders_sending">Sending…</string>
+    <string name="batch_reminders_done">Done</string>
+    <string name="batch_reminders_summary">Sent: %1$d of %2$d</string>
+    <string name="batch_reminders_open_messages">Open in Messages (%1$d left)</string>
+    <string name="batch_reminders_permission_title">Allow sending SMS?</string>
+    <string name="batch_reminders_permission_body">To send the reminders the app needs the SMS permission: the messages go from your phone.</string>
+    <string name="batch_reminders_permission_continue">Continue</string>
+    <string name="batch_reminders_fallback_note">Sending SMS from the app is not available: the reminders open in Messages one by one, send each one there.</string>
+    <string name="batch_reminders_check_description">Send the reminder: %1$s</string>
+    <string name="batch_reminder_waiting">Waiting to send</string>
+    <string name="batch_reminder_sending">Sending…</string>
+    <string name="batch_reminder_sent">Sent</string>
+    <string name="batch_reminder_opened">Opened in Messages</string>
+    <string name="batch_reminder_failed">Not sent</string>
+    <string name="batch_reminder_failed_airplane">Not sent: airplane mode is on</string>
+    <string name="batch_reminder_failed_no_service">Not sent: no signal</string>
+    <string name="batch_reminder_failed_no_permission">Not sent: no SMS permission</string>
+    <string name="batch_reminder_failed_timeout">Not sent: the phone did not answer</string>
+    <string name="reminded_at">Reminded %1$s</string>
+    <string name="home_remind_again">Remind again</string>
+    <string name="home_remind_all">Remind all</string>
+    <string name="compose_client_reminder_in_messages">Open in Messages</string>
     <plurals name="add_services_count">
         <item quantity="one">Add %d Service</item>
         <item quantity="other">Add %d Services</item>
@@ -509,4 +535,69 @@
     <string name="appointment_tip_included">incl. %1$s tip</string>
     <string name="history_tip">Tip</string>
     <string name="history_tip_whole_visit">Tip for the whole visit</string>
+
+    <!-- Family (CONTEXT.md: Family). Roles are the Stylist's own words. -->
+    <string name="family_title">Family</string>
+    <string name="family_add">Add to family</string>
+    <string name="family_add_title">Add to the family</string>
+    <string name="family_role_title">Role in the family</string>
+    <string name="family_role_label">Role, optional</string>
+    <string name="family_role_placeholder">For example: son</string>
+    <string name="family_role_save">Save role</string>
+    <string name="family_add_confirm">Add to family</string>
+    <string name="family_moves_note">%s is in another family now and moves to this one.</string>
+    <string name="family_edit_role">Change role</string>
+    <string name="family_remove">Remove from family</string>
+    <string name="family_remove_title">Remove from the family: %s?</string>
+    <string name="family_remove_body">The Client and their visits stay.</string>
+    <string name="family_remove_body_last">Only one person would be left, so the family is removed. The Clients and their visits stay.</string>
+    <string name="family_member_added">Added to the family</string>
+    <string name="family_member_removed">Removed from the family</string>
+    <string name="family_no_visits">no visits yet</string>
+    <string name="family_member_actions">Actions for %s</string>
+    <string name="family_suggestion_description">Add %s to the Appointment</string>
+    <plurals name="family_visits">
+        <item quantity="one">%d visit</item>
+        <item quantity="other">%d visits</item>
+    </plurals>
+    <string-array name="family_role_suggestions">
+        <item>son</item>
+        <item>daughter</item>
+        <item>mom</item>
+        <item>dad</item>
+        <item>wife</item>
+        <item>husband</item>
+        <item>grandma</item>
+        <item>grandpa</item>
+        <item>sister</item>
+        <item>brother</item>
+    </string-array>
+    <string name="earnings_title">Earnings</string>
+    <string name="earnings_entry_subtitle">Earnings, visits and services by week, month and year</string>
+    <string name="earnings_period_week">Week</string>
+    <string name="earnings_period_month">Month</string>
+    <string name="earnings_period_year">Year</string>
+    <string name="earnings_previous">Previous period</string>
+    <string name="earnings_next">Next period</string>
+    <string name="earnings_earned">Earned (completed Appointments)</string>
+    <string name="earnings_split">services %1$s · tips %2$s</string>
+    <string name="earnings_no_visits">No completed Appointments yet</string>
+    <string name="earnings_visits">Visits</string>
+    <string name="earnings_average">Average visit</string>
+    <string name="earnings_at_home">At home</string>
+    <string name="earnings_at_home_value">%1$d of %2$d</string>
+    <string name="earnings_booked">Already booked</string>
+    <string name="earnings_booked_week">Already booked until the end of the week</string>
+    <string name="earnings_booked_month">Already booked until the end of the month</string>
+    <string name="earnings_booked_year">Already booked until the end of the year</string>
+    <string name="earnings_booked_none">Nothing booked yet</string>
+    <string name="earnings_canceled">Canceled: %d</string>
+    <string name="earnings_no_show">No-shows: %d</string>
+    <string name="earnings_top_services">Revenue by service</string>
+    <string name="earnings_empty_title">Nothing here yet</string>
+    <string name="earnings_empty_body">There are no Appointments in this period. Earnings show up once Appointments are completed.</string>
+    <plurals name="earnings_booked_count">
+        <item quantity="one">%d Appointment</item>
+        <item quantity="other">%d Appointments</item>
+    </plurals>
 </resources>

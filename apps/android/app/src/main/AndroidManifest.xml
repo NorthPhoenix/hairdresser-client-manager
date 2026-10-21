@@ -4,6 +4,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- One-time Contact Import of a contact the Stylist picks. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- 'Remind all' sends the Client Reminders from the phone. Asked for when the Stylist first uses it; without it each reminder opens in the SMS app. -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <!-- Not required: a tablet without a mobile radio installs the app too, and its reminders open in the SMS app. -->
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <application
         android:name=".HcmApplication"

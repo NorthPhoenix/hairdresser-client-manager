@@ -14,6 +14,8 @@ type Client = {
   note: string | null;
   requestKey: string | null;
   referredById: string | null;
+  familyId: string | null;
+  familyRole: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -32,6 +34,7 @@ type Photo = { id: string; appointmentId: string; clientId: string };
 type Share = { id: string; clientId: string; token: string; language: "ru" | "en"; revokedAt: Date | null; createdAt: Date };
 type Pair = { id: string; stylistId: string; firstClientId: string; secondClientId: string };
 type Merge = { id: string; stylistId: string; keptClientId: string; removedClientId: string };
+type Family = { id: string; stylistId: string };
 
 type State = {
   clients: Client[];
@@ -42,6 +45,7 @@ type State = {
   shares: Share[];
   pairs: Pair[];
   merges: Merge[];
+  families: Family[];
 };
 
 function client(id: string, fields: Partial<Client> = {}): Client {
@@ -56,6 +60,8 @@ function client(id: string, fields: Partial<Client> = {}): Client {
     note: "",
     requestKey: null,
     referredById: null,
+    familyId: null,
+    familyRole: null,
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
     updatedAt: new Date("2026-01-01T00:00:00.000Z"),
     ...fields
@@ -95,6 +101,7 @@ function createStore(initial: Partial<State>) {
     shares: [],
     pairs: [],
     merges: [],
+    families: [],
     ...structuredClone(initial)
   };
   let nextId = 1;
@@ -150,18 +157,33 @@ function createStore(initial: Partial<State>) {
         return structuredClone(row);
       }),
       updateMany: vi.fn(
-        async ({ where, data }: { where: { stylistId: string; referredById: string; id: { not: string } }; data: { referredById: string } }) => {
+        async ({
+          where,
+          data
+        }: {
+          where: { stylistId: string; referredById?: string; familyId?: string; id?: { not: string } };
+          data: Partial<Client>;
+        }) => {
           const rows = state.clients.filter(
-            (row) => row.stylistId === where.stylistId && row.referredById === where.referredById && row.id !== where.id.not
+            (row) =>
+              row.stylistId === where.stylistId &&
+              (where.referredById === undefined || row.referredById === where.referredById) &&
+              (where.familyId === undefined || row.familyId === where.familyId) &&
+              (!where.id || row.id !== where.id.not)
           );
 
           rows.forEach((row) => Object.assign(row, data));
           return { count: rows.length };
         }
       ),
-      findMany: vi.fn(async ({ where }: { where: { id?: { in: string[] }; stylistId: string } }) =>
+      findMany: vi.fn(async ({ where }: { where: { id?: { in: string[] }; stylistId: string; familyId?: string } }) =>
         state.clients
-          .filter((row) => row.stylistId === where.stylistId && (!where.id || where.id.in.includes(row.id)))
+          .filter(
+            (row) =>
+              row.stylistId === where.stylistId &&
+              (!where.id || where.id.in.includes(row.id)) &&
+              (where.familyId === undefined || row.familyId === where.familyId)
+          )
           .map((row) => structuredClone(withClientRelations(row)))
       ),
       findUniqueOrThrow: vi.fn(async ({ where }: { where: { id: string } }) => {
@@ -322,6 +344,17 @@ function createStore(initial: Partial<State>) {
 
         state.pairs.push(row);
         return structuredClone(row);
+      })
+    },
+    family: {
+      deleteMany: vi.fn(async ({ where }: { where: { id: string; stylistId: string } }) => {
+        state.families = state.families.filter((row) => !(row.id === where.id && row.stylistId === where.stylistId));
+        // Client.family is onDelete: SetNull.
+        state.clients.forEach((row) => {
+          if (row.familyId === where.id) {
+            row.familyId = null;
+          }
+        });
       })
     },
     clientMerge: {
@@ -908,5 +941,113 @@ describe("clientProfile.merge with referrals", () => {
     await expect(caller(store).clientProfile.merge({ keepId: "client_a", removeId: "client_b" })).rejects.toThrow();
     expect(referrerOf(store, "client_a")).toBeNull();
     expect(referrerOf(store, "client_x")).toBe("client_b");
+  });
+});
+
+describe("clientProfile.merge with Families", () => {
+  const caller = (store: ReturnType<typeof createStore>) => store.caller();
+  const membersOf = (store: ReturnType<typeof createStore>) =>
+    store.state.clients.map((row) => [row.id, row.familyId, row.familyRole]);
+  const family = (id: string): Family => ({ id, stylistId: "stylist_1" });
+
+  it("puts the kept Client in the removed Client's Family, with that role, when they are in none", async () => {
+    const store = createStore({
+      clients: [anna, client("client_b", { familyId: "family_1", familyRole: "мама" }), client("client_c", { familyId: "family_1", familyRole: "сын" })],
+      families: [family("family_1")]
+    });
+
+    const result = await caller(store).clientProfile.merge({ keepId: "client_a", removeId: "client_b" });
+
+    expect(membersOf(store)).toEqual([
+      ["client_a", "family_1", "мама"],
+      ["client_c", "family_1", "сын"]
+    ]);
+    expect(store.state.families).toEqual([family("family_1")]);
+    expect(result.client).toMatchObject({ id: "client_a", familyId: "family_1", familyRole: "мама" });
+  });
+
+  it("keeps the kept Client's Family when the removed Client is in none", async () => {
+    const store = createStore({
+      clients: [client("client_a", { familyId: "family_1" }), client("client_b"), client("client_c", { familyId: "family_1" })],
+      families: [family("family_1")]
+    });
+
+    await caller(store).clientProfile.merge({ keepId: "client_a", removeId: "client_b" });
+
+    expect(membersOf(store)).toEqual([
+      ["client_a", "family_1", null],
+      ["client_c", "family_1", null]
+    ]);
+    expect(store.state.families).toEqual([family("family_1")]);
+  });
+
+  it("deletes a Family of the two Clients that are merged, which would have one Client", async () => {
+    const store = createStore({
+      clients: [client("client_a", { familyId: "family_1" }), client("client_b", { familyId: "family_1", familyRole: "мама" })],
+      families: [family("family_1")]
+    });
+
+    await caller(store).clientProfile.merge({ keepId: "client_a", removeId: "client_b" });
+
+    expect(membersOf(store)).toEqual([["client_a", null, null]]);
+    expect(store.state.families).toEqual([]);
+  });
+
+  it("keeps a Family of three that both are in, with the kept Client once", async () => {
+    const store = createStore({
+      clients: [
+        client("client_a", { familyId: "family_1" }),
+        client("client_b", { familyId: "family_1", familyRole: "мама" }),
+        client("client_c", { familyId: "family_1", familyRole: "сын" })
+      ],
+      families: [family("family_1")]
+    });
+
+    await caller(store).clientProfile.merge({ keepId: "client_a", removeId: "client_b" });
+
+    expect(membersOf(store)).toEqual([
+      ["client_a", "family_1", "мама"],
+      ["client_c", "family_1", "сын"]
+    ]);
+    expect(store.state.families).toEqual([family("family_1")]);
+  });
+
+  it("makes one Family of the two Families of one person, the kept Client keeping their role", async () => {
+    const store = createStore({
+      clients: [
+        client("client_a", { familyId: "family_1", familyRole: "мама" }),
+        client("client_b", { familyId: "family_2", familyRole: "бабушка" }),
+        client("client_c", { familyId: "family_1", familyRole: "сын" }),
+        client("client_d", { familyId: "family_2", familyRole: "внучка" })
+      ],
+      families: [family("family_1"), family("family_2")]
+    });
+
+    await caller(store).clientProfile.merge({ keepId: "client_a", removeId: "client_b" });
+
+    expect(membersOf(store)).toEqual([
+      ["client_a", "family_1", "мама"],
+      ["client_c", "family_1", "сын"],
+      ["client_d", "family_1", "внучка"]
+    ]);
+    expect(store.state.families).toEqual([family("family_1")]);
+  });
+
+  it("changes no Family when the merge fails part-way", async () => {
+    const initial = {
+      clients: [
+        client("client_a", { familyId: "family_1" }),
+        client("client_b", { familyId: "family_2", familyRole: "мама" }),
+        client("client_c", { familyId: "family_1" }),
+        client("client_d", { familyId: "family_2" })
+      ],
+      families: [family("family_1"), family("family_2")]
+    };
+    const store = createStore(initial);
+
+    store.failOn.add("clientMerge.create");
+    await expect(caller(store).clientProfile.merge({ keepId: "client_a", removeId: "client_b" })).rejects.toThrow();
+    expect(store.state.clients).toEqual(initial.clients);
+    expect(store.state.families).toEqual(initial.families);
   });
 });

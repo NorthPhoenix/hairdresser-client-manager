@@ -111,6 +111,7 @@ import com.northphoenix.hairdresserclientmanager.domain.AppointmentTotals
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.ColorFormulaOffer
 import com.northphoenix.hairdresserclientmanager.domain.Money
+import com.northphoenix.hairdresserclientmanager.domain.ReminderLog
 import com.northphoenix.hairdresserclientmanager.domain.ServiceEdit
 import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
@@ -345,6 +346,7 @@ private fun AppointmentDetail(
     // The Appointments whose Tip suggestion the Stylist said no to. Kept on this device, so the
     // question is not asked again at every visit of the Appointment.
     val appContext = LocalContext.current.applicationContext
+    val remindedLog by viewModel.reminders.log.collectAsStateWithLifecycle()
     val tipRefusals = remember { appContext.getSharedPreferences("tip_suggestions_refused", Context.MODE_PRIVATE) }
     var tipRefused by remember { mutableStateOf(tipRefusals.getStringSet("appointments", emptySet()).orEmpty()) }
 
@@ -673,6 +675,15 @@ private fun AppointmentDetail(
                     modifier = Modifier.fillMaxWidth(),
                     icon = Icons.Rounded.Sms,
                 )
+                // Kept on this device: sent from 'Remind all', or opened in the SMS app from here or from Home.
+                ReminderLog.remindedAt(remindedLog, appointment)?.let {
+                    Text(
+                        stringResource(R.string.reminded_at, format.stamp(it, now)),
+                        modifier = Modifier.align(Alignment.CenterHorizontally),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = HcmColors.Success,
+                    )
+                }
             }
             TextAction(
                 stringResource(R.string.delete_appointment),

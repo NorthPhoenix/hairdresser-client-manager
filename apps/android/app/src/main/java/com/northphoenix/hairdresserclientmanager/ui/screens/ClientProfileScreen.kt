@@ -90,7 +90,8 @@ fun ClientProfileScreen(
     onMerged: (keptId: String) -> Unit = {},
     onOpenClient: (String) -> Unit = {},
 ) {
-    val clients = viewModel.clients.collectAsStateWithLifecycle().value.data.orEmpty()
+    val clientList by viewModel.clients.collectAsStateWithLifecycle()
+    val clients = clientList.data.orEmpty()
     val saving by viewModel.saving.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val client = clients.firstOrNull { it.id == clientId }
@@ -173,6 +174,8 @@ fun ClientProfileScreen(
                 VisitStats(summary, today)
                 summary.next?.let { next -> NextAppointment(next, onOpen = { onOpenAppointment(next.id) }) }
             }
+
+            FamilySection(viewModel, client, clients, clientList.state, busy = busy, onOpenClient = onOpenClient)
 
             ContactDetails(client)
 

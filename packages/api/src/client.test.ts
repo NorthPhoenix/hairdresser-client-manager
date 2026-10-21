@@ -198,6 +198,7 @@ describe("client router", () => {
     const caller = appRouter.createCaller(
       createContext(
         createDb({
+          findFirst: vi.fn().mockResolvedValue({ familyId: null }),
           deleteMany
         })
       )
@@ -788,6 +789,7 @@ describe("client router", () => {
           deleteMany: participantDeleteMany
         },
         client: {
+          findFirst: vi.fn().mockResolvedValue({ familyId: null }),
           deleteMany: clientDeleteMany
         }
       } as unknown as TRPCContext["db"])
@@ -845,6 +847,7 @@ describe("client router", () => {
           delete: appointmentDelete
         },
         client: {
+          findFirst: vi.fn().mockResolvedValue({ familyId: null }),
           deleteMany: clientDeleteMany
         }
       } as unknown as TRPCContext["db"])
@@ -920,6 +923,7 @@ describe("client router", () => {
           findUniqueOrThrow: vi.fn().mockResolvedValue({
             address: "22 Bob St"
           }),
+          findFirst: vi.fn().mockResolvedValue({ familyId: null }),
           deleteMany: vi.fn().mockResolvedValue({
             count: 1
           })
@@ -967,6 +971,7 @@ describe("client router", () => {
         delete: appointmentDelete
       },
       client: {
+        findFirst: vi.fn().mockResolvedValue({ familyId: null }),
         // What Prisma throws for a foreign key violation.
         deleteMany: vi.fn().mockRejectedValue(
           Object.assign(new Error("Foreign key constraint violated on the constraint: `Appointment_primaryClientId_fkey`"), {

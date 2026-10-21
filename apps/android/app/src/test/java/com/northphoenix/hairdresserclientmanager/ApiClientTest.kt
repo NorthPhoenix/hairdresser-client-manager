@@ -993,4 +993,41 @@ class ApiClientTest {
             assertEquals(R.string.appointment_photo_upload_failed, other.messageRes())
         }
     }
+
+    @Test
+    fun `Family calls send what they state, and leave out a role that is not given`() = runTest {
+        val change = """{"result":{"data":{"familyId":"f1","clients":[{"id":"c2","name":"Антони","language":"ru","familyId":"f1","familyRole":"сын"}]}}}"""
+
+        enqueue(change)
+        val added = api.addFamilyMember("c1", "c2", "сын")
+        assertEquals("""{"clientId":"c1","memberId":"c2","role":"сын"}""", server.takeRequest().body?.utf8())
+        assertEquals("f1", added.familyId)
+        assertEquals("сын", added.clients.single().familyRole)
+
+        enqueue(change)
+        api.addFamilyMember("c1", "c2", null)
+        assertEquals("""{"clientId":"c1","memberId":"c2"}""", server.takeRequest().body?.utf8())
+
+        enqueue(change)
+        api.setFamilyRole("c2", "")
+        assertEquals("""{"clientId":"c2","role":""}""", server.takeRequest().body?.utf8())
+
+        enqueue("""{"result":{"data":{"familyId":null,"clients":[{"id":"c2","name":"Антони","language":"ru","familyId":null,"familyRole":""}]}}}""")
+        assertEquals(null, api.leaveFamily("c2").clients.single().familyId)
+        assertEquals("/api/trpc/clientProfile.leaveFamily", server.takeRequest().url.encodedPath)
+
+        enqueue("""{"result":{"data":{"familyId":"f1","members":[{"id":"c1","name":"Оксана","role":"","visits":3}]}}}""")
+        assertEquals(3, api.clientFamily("c1").members.single().visits)
+        assertEquals("""{"clientId":"c1"}""", server.takeRequest().url.queryParameter("input"))
+    }
+
+    @Test
+    fun `a Client from a server without Families is in none`() = runTest {
+        enqueue("""{"result":{"data":[{"id":"c1","name":"Оксана","language":"ru"}]}}""")
+
+        val client = api.listClients().single()
+
+        assertEquals(null, client.familyId)
+        assertEquals("", client.familyRole)
+    }
 }

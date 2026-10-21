@@ -2,9 +2,12 @@ package com.northphoenix.hairdresserclientmanager.state
 
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.ClientHistoryEntry
+import com.northphoenix.hairdresserclientmanager.data.ClientFamily
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
+import com.northphoenix.hairdresserclientmanager.data.FamilyChange
 import com.northphoenix.hairdresserclientmanager.data.ProfileShare
 import com.northphoenix.hairdresserclientmanager.data.ShareChoice
+import com.northphoenix.hairdresserclientmanager.domain.Families
 import com.northphoenix.hairdresserclientmanager.domain.Referrals
 import kotlinx.coroutines.CoroutineScope
 
@@ -20,7 +23,8 @@ internal data class ClientKey(val id: String)
 /**
  * Every read of Clients, each through a [ReadCache]: the Client list ([list],
  * `clientProfile.list`), which the pickers and the Client Profile read as well, and a Client's
- * Appointment history ([history], `clientProfile.appointmentHistory`).
+ * Appointment history ([history], `clientProfile.appointmentHistory`), and a Client's Family with
+ * each member's visits ([family], `clientProfile.family`).
  *
  * A change is told here, as in [AppointmentReads]: the list on screen gets what the server has
  * confirmed at once ([saved], [deleted], [profileShare]), so a saved Client is in the list and in
@@ -34,6 +38,7 @@ internal class ClientReads(
     private val changes: Changes,
     fetchList: suspend (StylistKey) -> List<ClientProfile>,
     fetchHistory: suspend (ClientKey) -> List<ClientHistoryEntry>,
+    fetchFamily: suspend (ClientKey) -> ClientFamily = { ClientFamily() },
 ) {
     /** Latest change first, as the server lists them. */
     val list = ReadCache(scope, changes, LIST_LIMITS, about = { _, clients -> clients.map { it.id } + CLIENTS }, fetch = fetchList)
@@ -46,6 +51,19 @@ internal class ClientReads(
      */
     val history = ReadCache(scope, changes, HISTORY_LIMITS, about = { _, _ -> listOf(Changes.ANY_CHANGE) }, fetch = fetchHistory)
 
+    /**
+     * A Client's Family with each member's number of visits. Who is in it comes from [list]; this
+     * adds the visits, which any change of an Appointment can change, so like [history] any change
+     * at all puts it out of date.
+     */
+    val family = ReadCache(scope, changes, HISTORY_LIMITS, about = { _, _ -> listOf(Changes.ANY_CHANGE) }, fetch = fetchFamily)
+
+    /** The server has just changed a Family: the Clients it touched are in the list on screen as they are now. */
+    fun familyChanged(change: FamilyChange) {
+        list.update { _, clients -> Families.withChanged(clients, change.clients) }
+        changes.changed(*(change.clients.map { it.id } + CLIENTS).toTypedArray())
+    }
+
     /** The server has just saved this Client, a new one or one it had: they are in the list on screen now, first. */
     fun saved(saved: ClientProfile) {
         list.update { _, clients -> clients.withSaved(saved) }
@@ -55,7 +73,8 @@ internal class ClientReads(
     /** The server has just deleted this Client: they leave the list on screen, and with it every picker. */
     fun deleted(id: String) {
         // Whoever they recommended is recommended by nobody now, as on the server.
-        list.update { _, clients -> Referrals.withoutClient(clients, id) }
+        // And a Family left with one Client is gone.
+        list.update { _, clients -> Families.withoutClient(Referrals.withoutClient(clients, id), id) }
         changes.changed(id, CLIENTS)
     }
 
@@ -66,6 +85,14 @@ internal class ClientReads(
      */
     fun referralsMoved(removedId: String, kept: ClientProfile) {
         list.update { _, clients -> Referrals.afterMerge(clients, removedId, kept) }
+    }
+
+    /**
+     * The server has just merged [removedId] into [kept]: the kept Client is in the Family the server says, which the
+     * removed Client's Family has joined, and no Family keeps one Client. Call it before [deleted] and [saved].
+     */
+    fun familiesMerged(removedId: String, kept: ClientProfile) {
+        list.update { _, clients -> Families.afterMerge(clients, removedId, kept) }
     }
 
     /** The server has just recorded that these two Clients are different people: neither is the other's duplicate now. */
@@ -126,6 +153,7 @@ internal class ClientReads(
     suspend fun clear() {
         list.clear()
         history.clear()
+        family.clear()
     }
 
     private companion object {

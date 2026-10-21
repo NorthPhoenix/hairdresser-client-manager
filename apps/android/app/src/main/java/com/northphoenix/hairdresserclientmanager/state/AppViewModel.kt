@@ -23,7 +23,9 @@ import com.northphoenix.hairdresserclientmanager.data.AppointmentPhoto
 import com.northphoenix.hairdresserclientmanager.data.AppointmentService
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.CameraCaptures
+import com.northphoenix.hairdresserclientmanager.data.ClientFamily
 import com.northphoenix.hairdresserclientmanager.data.ClientHistoryEntry
+import com.northphoenix.hairdresserclientmanager.data.EarningsSummary
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.CreateAppointmentResult
 import com.northphoenix.hairdresserclientmanager.data.JpegSize
@@ -48,6 +50,8 @@ import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentTotals
 import com.northphoenix.hairdresserclientmanager.domain.CalendarWeek
+import com.northphoenix.hairdresserclientmanager.domain.Earnings
+import com.northphoenix.hairdresserclientmanager.domain.EarningsPeriod
 import com.northphoenix.hairdresserclientmanager.domain.ChangedElsewhere
 import com.northphoenix.hairdresserclientmanager.domain.HomeOutcomes
 import com.northphoenix.hairdresserclientmanager.domain.ImportCandidate
@@ -134,6 +138,9 @@ sealed interface BootstrapState {
 class AppViewModel(private val container: AppContainer, val auth: AuthGateway, savedState: SavedStateHandle) : ViewModel() {
     private val api = container.api
 
+    /** Client Reminders sent from the phone, and which Appointments were reminded (kept on this device only). */
+    val reminders: ReminderOutbox get() = container.reminders
+
     val authState: StateFlow<AuthState> = auth.state
 
     /** The Stylist's name on the sign-in account, which Clients see on Profile Shares and Share Images. Null when the account cannot have one. */
@@ -194,6 +201,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         readChanges,
         fetchList = { api.listClients() },
         fetchHistory = { api.clientAppointmentHistory(it.id) },
+        fetchFamily = { api.clientFamily(it.id) },
     )
 
     private val serviceMenuReads = ServiceMenuReads(
@@ -201,6 +209,12 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         readChanges,
         fetch = { api.listServiceMenu() },
         fetchFormulaNames = { api.listFormulaNames() },
+    )
+
+    private val earningsReads = EarningsReads(
+        viewModelScope,
+        readChanges,
+        fetch = { api.earningsSummary(it.period, it.date) },
     )
 
     // Each list comes with its load state, in one value. A screen says that a list is empty only when its state is Loaded.
@@ -436,6 +450,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         appointmentReads.clear()
         clientReads.clear()
         serviceMenuReads.clear()
+        earningsReads.clear()
         overlaps.clear()
         actions.forgetOwed()
         photos.close()
@@ -1219,6 +1234,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             val merged = api.mergeClients(keepId, removeId)
 
             clientReads.referralsMoved(removeId, merged.client)
+            clientReads.familiesMerged(removeId, merged.client)
             clientReads.deleted(removeId)
             clientReads.saved(merged.client)
             appointmentReads.clientSaved(merged.client)
@@ -1316,6 +1332,102 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     /** Called by the Client Profile each time it comes into view, and by 'Try again' under its history (see [loadShown]). */
     fun loadClientHistory(clientId: String) = loadShown(clientReads.history, ClientKey(clientId))
+
+    /** A Client's Family with each member's visits, for as long as the Client Profile collects this (see [clientHistory]). */
+    fun clientFamily(clientId: String): Flow<Read<ClientFamily>> = clientReads.family.watch(ClientKey(clientId))
+
+    /** That Family as it is without asking, for the first frame of the profile. */
+    fun shownClientFamily(clientId: String): Read<ClientFamily> = clientReads.family.now(ClientKey(clientId))
+
+    /** Called by the Client Profile each time it comes into view (see [loadShown]). */
+    fun loadClientFamily(clientId: String) = loadShown(clientReads.family, ClientKey(clientId))
+
+    // Changes of Families are waited for: the answer says who is in which Family now, also a Client whose Family it
+    // ended. They share one key, so they run one at a time.
+
+    /**
+     * Puts [memberId] in one Family with [clientId] (CONTEXT.md: Family), with [role] (null: a member already in it
+     * keeps theirs). The same call sent again changes nothing.
+     */
+    fun addFamilyMember(clientId: String, memberId: String, role: String?, onSuccess: () -> Unit) =
+        act(
+            key = FAMILY_KEY,
+            successNotice = R.string.family_member_added,
+            onSuccess = { onSuccess() },
+            reload = { together({ loadClients() }, clientReads.family::refreshShown) },
+            touched = { clientReads.changed(clientId) },
+        ) {
+            clientReads.familyChanged(api.addFamilyMember(clientId, memberId, role?.let(OneLine::clean)))
+        }
+
+    /**
+     * Makes a new Client of just [name], as Appointment Creation does, and puts them in the Family of [clientId] with
+     * [role]. Two requests, each safe to send again: the Client is created under [requestKey], which the caller keeps
+     * while it retries, and adding a member who is in the Family already changes nothing.
+     */
+    fun addNewFamilyMember(clientId: String, name: String, role: String?, requestKey: String, onSuccess: () -> Unit) {
+        var created = false
+
+        actions.run(
+            key = FAMILY_KEY,
+            change = {
+                marking({
+                    clientReads.changed(clientId)
+                    clientReads.changed(null)
+                }) {
+                    val client = api.saveClient(null, OneLine.clean(name), stylist.value?.language ?: Language.RU, "", "", "", "", null, requestKey)
+
+                    // In the Client list and in every picker now, before the reload.
+                    clientReads.saved(client)
+                    created = true
+                    clientReads.familyChanged(api.addFamilyMember(clientId, client.id, role?.let(OneLine::clean)))
+                }
+            },
+            reload = { together({ loadClients() }, clientReads.family::refreshShown) },
+            // A Client who was created and not added to the Family is in the Clients list all the same.
+            savedInPart = { created },
+            onSaved = {
+                notify(R.string.family_member_added)
+                onSuccess()
+            },
+        )
+    }
+
+    /** The Client's role in their Family; empty for none. */
+    fun setFamilyRole(clientId: String, role: String, onSuccess: () -> Unit = {}) =
+        act(
+            key = FAMILY_KEY,
+            onSuccess = { onSuccess() },
+            reload = { together({ loadClients() }, clientReads.family::refreshShown) },
+            touched = { clientReads.changed(clientId) },
+        ) {
+            clientReads.familyChanged(api.setFamilyRole(clientId, OneLine.clean(role)))
+        }
+
+    /** Takes the Client out of their Family, which is gone when one Client would be left in it. */
+    fun leaveFamily(clientId: String) =
+        act(
+            key = FAMILY_KEY,
+            successNotice = R.string.family_member_removed,
+            reload = { together({ loadClients() }, clientReads.family::refreshShown) },
+            touched = { clientReads.changed(clientId) },
+        ) {
+            clientReads.familyChanged(api.leaveFamily(clientId))
+        }
+    /**
+     * Итоги of the period that holds [date] (the Stylist's calendar), for as long as the screen
+     * collects this. A summary shown before is there at once and refreshed behind it, unless
+     * something was changed since: then it is loaded anew.
+     */
+    fun earnings(period: EarningsPeriod, date: LocalDate): Flow<Read<EarningsSummary>> = earningsReads.summary.watch(earningsKey(period, date))
+
+    /** That summary as it is without asking, for the first frame of the screen. */
+    fun shownEarnings(period: EarningsPeriod, date: LocalDate): Read<EarningsSummary> = earningsReads.summary.now(earningsKey(period, date))
+
+    /** Called each time Итоги comes into view, and by 'Try again' (see [loadShown]). */
+    fun loadEarnings(period: EarningsPeriod, date: LocalDate) = loadShown(earningsReads.summary, earningsKey(period, date))
+
+    private fun earningsKey(period: EarningsPeriod, date: LocalDate) = EarningsKey(period.wire, Earnings.span(period, date).first.toString())
 
     // --- service menu ---
 
@@ -2040,6 +2152,9 @@ internal fun AppointmentStatus.homeNotice(): Int =
     }
 
 internal fun profileShareKey(clientId: String) = "profileShare:$clientId"
+
+/** The key of every change of a Family: they run one at a time, each offered for what the one before it left. */
+private const val FAMILY_KEY = "family"
 
 /** The Client list with what the server has just answered about one Client's Profile Share: [share], or none after a revoke. */
 internal fun List<ClientProfile>.withProfileShare(clientId: String, share: ProfileShare?): List<ClientProfile> =

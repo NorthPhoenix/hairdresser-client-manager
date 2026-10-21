@@ -383,6 +383,32 @@
     <string name="contact_import_selected">Выбрано %d</string>
     <string name="contact_import_unselect_all">Снять выбор</string>
 
+    <string name="batch_reminders_title">Напомнить всем на завтра</string>
+    <string name="batch_reminders_note">Сообщения уйдут с вашего телефона, как обычные SMS, по тарифу вашего оператора.</string>
+    <string name="batch_reminders_send">Отправить %1$d SMS</string>
+    <string name="batch_reminders_none_checked">Выберите получателей</string>
+    <string name="batch_reminders_sending">Отправка…</string>
+    <string name="batch_reminders_done">Готово</string>
+    <string name="batch_reminders_summary">Отправлено: %1$d из %2$d</string>
+    <string name="batch_reminders_open_messages">Открыть в Сообщениях (осталось %1$d)</string>
+    <string name="batch_reminders_permission_title">Разрешить отправку SMS?</string>
+    <string name="batch_reminders_permission_body">Чтобы отправить напоминания, приложению нужно разрешение на SMS: сообщения уйдут с вашего телефона.</string>
+    <string name="batch_reminders_permission_continue">Продолжить</string>
+    <string name="batch_reminders_fallback_note">Отправка SMS из приложения недоступна: напоминания откроются в Сообщениях по одному, отправьте каждое там.</string>
+    <string name="batch_reminders_check_description">Отправить напоминание: %1$s</string>
+    <string name="batch_reminder_waiting">Ожидает отправки</string>
+    <string name="batch_reminder_sending">Отправляется…</string>
+    <string name="batch_reminder_sent">Отправлено</string>
+    <string name="batch_reminder_opened">Открыто в Сообщениях</string>
+    <string name="batch_reminder_failed">Не отправлено</string>
+    <string name="batch_reminder_failed_airplane">Не отправлено: включён режим полёта</string>
+    <string name="batch_reminder_failed_no_service">Не отправлено: нет сети</string>
+    <string name="batch_reminder_failed_no_permission">Не отправлено: нет разрешения на SMS</string>
+    <string name="batch_reminder_failed_timeout">Не отправлено: телефон не ответил</string>
+    <string name="reminded_at">Напомнено %1$s</string>
+    <string name="home_remind_again">Напомнить снова</string>
+    <string name="home_remind_all">Напомнить всем</string>
+    <string name="compose_client_reminder_in_messages">Открыть в Сообщениях</string>
     <plurals name="add_services_count">
         <item quantity="one">Добавить %d услугу</item>
         <item quantity="few">Добавить %d услуги</item>
@@ -542,4 +568,73 @@
     <string name="appointment_tip_included">вкл. чаевые %1$s</string>
     <string name="history_tip">Чаевые</string>
     <string name="history_tip_whole_visit">Чаевые за всю запись</string>
+
+    <!-- Семья (CONTEXT.md: Family). Роли пишет сам мастер. -->
+    <string name="family_title">Семья</string>
+    <string name="family_add">Добавить в семью</string>
+    <string name="family_add_title">Добавить в семью</string>
+    <string name="family_role_title">Роль в семье</string>
+    <string name="family_role_label">Роль, необязательно</string>
+    <string name="family_role_placeholder">Например: сын</string>
+    <string name="family_role_save">Сохранить роль</string>
+    <string name="family_add_confirm">Добавить в семью</string>
+    <string name="family_moves_note">%s сейчас в другой семье и перейдёт в эту.</string>
+    <string name="family_edit_role">Изменить роль</string>
+    <string name="family_remove">Убрать из семьи</string>
+    <string name="family_remove_title">Убрать из семьи: %s?</string>
+    <string name="family_remove_body">Клиент и все визиты остаются.</string>
+    <string name="family_remove_body_last">В семье останется один человек, поэтому семьи больше не будет. Клиенты и все визиты остаются.</string>
+    <string name="family_member_added">Добавлено в семью</string>
+    <string name="family_member_removed">Убрано из семьи</string>
+    <string name="family_no_visits">визитов пока нет</string>
+    <string name="family_member_actions">Действия: %s</string>
+    <string name="family_suggestion_description">Добавить в запись: %s</string>
+    <plurals name="family_visits">
+        <item quantity="one">%d визит</item>
+        <item quantity="few">%d визита</item>
+        <item quantity="many">%d визитов</item>
+        <item quantity="other">%d визита</item>
+    </plurals>
+    <string-array name="family_role_suggestions">
+        <item>сын</item>
+        <item>дочь</item>
+        <item>мама</item>
+        <item>папа</item>
+        <item>жена</item>
+        <item>муж</item>
+        <item>бабушка</item>
+        <item>дедушка</item>
+        <item>сестра</item>
+        <item>брат</item>
+    </string-array>
+    <string name="earnings_title">Итоги</string>
+    <string name="earnings_entry_subtitle">Заработок, визиты и услуги за неделю, месяц, год</string>
+    <string name="earnings_period_week">Неделя</string>
+    <string name="earnings_period_month">Месяц</string>
+    <string name="earnings_period_year">Год</string>
+    <string name="earnings_previous">Предыдущий период</string>
+    <string name="earnings_next">Следующий период</string>
+    <string name="earnings_earned">Заработано (завершённые записи)</string>
+    <string name="earnings_split">услуги %1$s · чаевые %2$s</string>
+    <string name="earnings_no_visits">Завершённых записей пока нет</string>
+    <string name="earnings_visits">Визитов</string>
+    <string name="earnings_average">Средний чек</string>
+    <string name="earnings_at_home">На дому</string>
+    <string name="earnings_at_home_value">%1$d из %2$d</string>
+    <string name="earnings_booked">Уже записано</string>
+    <string name="earnings_booked_week">Уже записано до конца недели</string>
+    <string name="earnings_booked_month">Уже записано до конца месяца</string>
+    <string name="earnings_booked_year">Уже записано до конца года</string>
+    <string name="earnings_booked_none">Пока ничего не записано</string>
+    <string name="earnings_canceled">Отменены: %d</string>
+    <string name="earnings_no_show">Неявки: %d</string>
+    <string name="earnings_top_services">Выручка по услугам</string>
+    <string name="earnings_empty_title">Здесь пока пусто</string>
+    <string name="earnings_empty_body">В этом периоде нет записей. Заработок появится, когда записи будут завершены.</string>
+    <plurals name="earnings_booked_count">
+        <item quantity="one">%d запись</item>
+        <item quantity="few">%d записи</item>
+        <item quantity="many">%d записей</item>
+        <item quantity="other">%d записи</item>
+    </plurals>
 </resources>
