@@ -46,6 +46,7 @@ import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
 import com.northphoenix.hairdresserclientmanager.data.toApiException
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
+import com.northphoenix.hairdresserclientmanager.domain.AppointmentTotals
 import com.northphoenix.hairdresserclientmanager.domain.CalendarWeek
 import com.northphoenix.hairdresserclientmanager.domain.ChangedElsewhere
 import com.northphoenix.hairdresserclientmanager.domain.HomeOutcomes
@@ -297,6 +298,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     private val statusChanges = LatestWins<String, AppointmentStatus>()
     private val noteChanges = LatestWins<String, String>()
     private val finalTotalChanges = LatestWins<String, Long?>()
+    private val tipChanges = LatestWins<String, Long?>()
     private val photoCategoryChanges = LatestWins<String, PhotoCategory>()
     private val shareChoiceChanges = LatestWins<String, Boolean>()
 
@@ -1622,6 +1624,32 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             saved = appointmentReads[id]?.finalTotalCentsOverride,
             edit = { appointment, next -> appointment.copy(finalTotalCentsOverride = next, finalTotalCents = next ?: appointment.serviceTotalCents) },
         ) { next -> api.updateAppointmentFinalTotal(id, next) }
+
+    /**
+     * [tipCents] null or 0 records no Tip. It shows at once, a chip tapped while one is saved
+     * replaces it, and when it cannot be saved the screen is back on the Tip that is saved.
+     */
+    fun setAppointmentTip(id: String, tipCents: Long?) =
+        saveLatest(
+            tipChanges,
+            id,
+            "tip:$id",
+            tipCents?.takeIf { it > 0 },
+            saved = appointmentReads[id]?.tipCents,
+            edit = { appointment, next -> AppointmentTotals.withTip(appointment, next) },
+        ) { next -> api.updateAppointmentTip(id, next) }
+
+    /**
+     * "Yes" to the Tip suggestion: the [tipCents] the Stylist was shown, the difference of the
+     * custom total above the Services, becomes the Tip and the custom total is cleared, in one
+     * save. Only her tap does this; nothing is ever converted by itself.
+     */
+    fun takeSuggestedTip(id: String, tipCents: Long) =
+        actOnAppointment(
+            id,
+            "suggestedTip:$id",
+            ahead = { it.copy(finalTotalCentsOverride = null, finalTotalCents = it.serviceTotalCents, tipCents = tipCents) },
+        ) { api.updateAppointmentTotalAndTip(id, overrideCents = null, tipCents = tipCents) }
 
     fun deleteAppointment(id: String, onSuccess: () -> Unit) =
         actOnAppointment(id, "deleteAppointment:$id", onSuccess = onSuccess) {

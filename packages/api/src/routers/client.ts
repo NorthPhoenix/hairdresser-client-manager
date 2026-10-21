@@ -450,6 +450,8 @@ export const clientRouter = createTRPCRouter({
       locationAddress: appointment.locationAddress ?? "",
       customLocationAddress: hasCustomAddress(appointment) ? appointment.locationAddress ?? "" : "",
       participantClientIds: appointment.participants.map((participant) => participant.clientId),
+      // The tip for the whole visit, also of a group Appointment, whose Services here are this Client's alone.
+      tipCents: appointment.tipCents ?? null,
       services: appointment.services.map((service) => ({
         id: service.id,
         clientId: service.clientId,

@@ -56,6 +56,7 @@ import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.HomeOutcomes
+import com.northphoenix.hairdresserclientmanager.domain.AppointmentTotals
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
@@ -124,8 +125,18 @@ fun AppointmentCard(
                 Spacer(Modifier.height(2.dp))
                 StatusAndAmount {
                     StatusChip(appointment.status)
-                    if (appointment.finalTotalCents > 0 || appointment.services.isNotEmpty()) {
-                        Text(Money.format(appointment.finalTotalCents), style = MaterialTheme.typography.titleMedium)
+                    // The price of the Services and the Tip together, the Tip also apart under it.
+                    if (AppointmentTotals.hasAmount(appointment)) {
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(Money.format(AppointmentTotals.totalCents(appointment)), style = MaterialTheme.typography.titleMedium)
+                            appointment.tipCents?.let { tip ->
+                                Text(
+                                    stringResource(R.string.appointment_tip_included, Money.formatShort(tip)),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                     }
                 }
             }
