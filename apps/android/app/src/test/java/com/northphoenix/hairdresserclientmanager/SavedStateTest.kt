@@ -119,7 +119,8 @@ class SavedStateTest {
     fun `every sheet of the Appointment screen comes back as the sheet it was`() {
         val sheets = listOf(
             DetailSheet.AddClient,
-            DetailSheet.AddService,
+            DetailSheet.AddService(),
+            DetailSheet.AddService(clientId = "client-1"),
             DetailSheet.CopyServices,
             DetailSheet.Edit,
             DetailSheet.Service(serviceId = "service-1"),
