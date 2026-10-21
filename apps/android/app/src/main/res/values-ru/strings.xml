@@ -509,12 +509,12 @@
     <string name="client_duplicate_merge">Объединить</string>
     <string name="client_duplicate_distinct">Это разные люди</string>
     <string name="client_duplicate_tag">Дубликат?</string>
-    <string name="client_referred_by_label">Посоветовал(а)</string>
+    <string name="client_referred_by_label">Кто посоветовал</string>
     <string name="client_referred_by_none">Выбрать клиента</string>
     <string name="client_referred_by_clear">Убрать</string>
-    <string name="client_referred_by_tag">Посоветовала: %s</string>
-    <string name="client_referrals_title">Её рекомендации · %d</string>
-    <string name="client_referral_suggestion">Посоветовала %s?</string>
+    <string name="client_referred_by_tag">По рекомендации: %s</string>
+    <string name="client_referrals_title">Пришли по рекомендации · %d</string>
+    <string name="client_referral_suggestion">Кто посоветовал: %s?</string>
     <string name="client_referral_suggestion_yes">Да</string>
     <string name="client_referral_suggestion_no">Нет</string>
     <string name="client_merge_title">Объединить клиентов</string>

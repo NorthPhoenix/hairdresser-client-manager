@@ -104,7 +104,7 @@ _Avoid_: General note, profile note, memo
 The complete record for one Client, including contact details, address, Client Notes, Appointments, Services, Color Formulas, Appointment Photos, and shareable history. A Client Profile belongs to exactly one Stylist, is searchable by Client name and phone number in v1, warns on duplicate phone numbers without blocking them, shows another Client with the same number as a possible duplicate until the Stylist merges the two (Client Merge) or says they are different people, which holds for that pair for good, shows only that Client's Services and relevant Appointment Photos from group Appointments, and deletion removes that Client's data from group Appointments while keeping the Appointment when other Clients remain and promoting another remaining Client to primary when needed. A Client Profile opens for reading, with its editing one step away; it says how many visits the Client has had, when the last one was, how often the Client usually comes once there are two visit days, and the next Scheduled Appointment, where a visit is a completed Appointment and canceled, no-show and Scheduled Appointments are not visits. From it the Stylist can call, text, or open the Client's address in a map app, and book the Client again.
 _Avoid_: Client file, customer profile, record
 
-**Referrer** ("Посоветовала"):
+**Referrer** ("По рекомендации"):
 The other Client of the same Stylist who recommended a Client to the Stylist, such as "Надя, от Лены". A Client has at most one Referrer, never themselves. The Referrer is chosen in the Client form and shown on the Client Profile as a tag that opens the Referrer, which in turn lists the Clients they recommended. When the Referrer is deleted the link is cleared; a Client Merge moves it to the kept Client. A name that says "от <Name>" and matches exactly one Client by first word is offered as the Referrer on the profile and is only set when the Stylist taps Yes; the name itself is never changed.
 
 **Client Merge**:
@@ -200,7 +200,7 @@ Not a v1 concept. The app does not include a dedicated internal admin or support
 _Avoid_: Admin dashboard, support console, back office
 
 **Language Support**:
-The app supports Russian as the primary language and English as the secondary language in v1. Stylist language defaults from the device language and can be changed by the Stylist; Client language drives Client Reminders and Profile Shares.
+The app supports Russian as the primary language and English as the secondary language in v1. Stylist language defaults from the device language and can be changed by the Stylist; Client language drives Client Reminders and Profile Shares. The app records no gender for a Client, and Clients include men and children, so Russian text about a Client is gender-neutral: a noun or a label with a colon ("По рекомендации: Лена", "Последний визит"), never a verb or pronoun in one gender ("Посоветовала", "Её", "Была").
 _Avoid_: English-only, localization later
 
 **Inventory Tracking**:
