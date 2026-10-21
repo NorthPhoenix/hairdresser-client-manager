@@ -34,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
@@ -45,10 +46,13 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
+import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.HomeOutcomes
+import com.northphoenix.hairdresserclientmanager.domain.HomeTomorrow
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
+import com.northphoenix.hairdresserclientmanager.ui.composeClientReminder
 import com.northphoenix.hairdresserclientmanager.ui.components.AppointmentCard
 import com.northphoenix.hairdresserclientmanager.ui.components.EmptyState
 import com.northphoenix.hairdresserclientmanager.ui.components.LoadFailed
@@ -62,7 +66,8 @@ import kotlinx.coroutines.delay
 /**
  * Home View: today's Appointments plus past ones still marked scheduled, which need an outcome.
  * The card of a Scheduled Appointment whose start time has come offers its outcomes, and a day
- * with several unresolved Appointments can complete them all at once.
+ * with several unresolved Appointments can complete them all at once. Under them, tomorrow's
+ * Scheduled Appointments, each with a one-tap Client Reminder.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,6 +86,10 @@ fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit) {
             it.status == AppointmentStatus.SCHEDULED && format.zoned(it.startsAt).toLocalDate().isBefore(today)
         }
     }
+    // Tomorrow's Scheduled Appointments, in the Stylist's timezone. A day that has not loaded, or failed, has no section.
+    val tomorrowRead by viewModel.tomorrow.collectAsStateWithLifecycle()
+    val tomorrows = remember(tomorrowRead.data) { HomeTomorrow.scheduled(tomorrowRead.data.orEmpty()) }
+    val context = LocalContext.current
     val unresolvedDays = remember(unresolved, format) { HomeOutcomes.byDay(unresolved, format.zone) }
 
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
@@ -140,6 +149,23 @@ fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit) {
                         onClick = { onOpenAppointment(appointment.id) },
                         onOutcome = if (HomeOutcomes.needsOutcome(appointment, now)) {
                             { viewModel.setOutcomeFromHome(appointment, it) }
+                        } else {
+                            null
+                        },
+                        modifier = Modifier.animateItem(),
+                    )
+                }
+            }
+
+            if (tomorrows.isNotEmpty()) {
+                item(key = "tomorrow-section") { ListSectionLabel(stringResource(R.string.home_tomorrow_section), tomorrows.size) }
+                items(tomorrows, key = { "tomorrow-${it.id}" }) { appointment ->
+                    AppointmentCard(
+                        appointment,
+                        onClick = { onOpenAppointment(appointment.id) },
+                        // The reminder is the same one as the Appointment screen's, to the primary Client.
+                        onRemind = if (ClientReminder.canRemindInOneTap(appointment)) {
+                            { composeClientReminder(context, viewModel, appointment, format.zone) }
                         } else {
                             null
                         },

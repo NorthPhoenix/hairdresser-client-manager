@@ -189,7 +189,9 @@
     <string name="home_outcome_chip_description">%1$s, %2$s</string>
     <string name="home_outcome_completed">%1$s — завершена</string>
     <string name="home_outcome_no_show">%1$s — неявка</string>
+    <string name="home_remind">Напомнить</string>
     <string name="home_today_section">Сегодня</string>
+    <string name="home_tomorrow_section">Завтра</string>
     <string name="home_undo_changed_elsewhere">Запись тем временем изменили, поэтому статус остался как есть.</string>
     <string name="home_undo_overlap">Запись снова запланирована, но пересекается по времени с другой.</string>
     <string name="home_unresolved_section">Нужно закрыть</string>

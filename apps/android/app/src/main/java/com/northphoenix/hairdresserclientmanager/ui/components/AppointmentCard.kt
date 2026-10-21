@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ContentCut
 import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Sms
 import androidx.compose.material.icons.rounded.Storefront
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -65,7 +66,9 @@ val LocationType.icon get() = if (this == LocationType.AT_HOME) Icons.Rounded.Ho
 /**
  * One Appointment in a list: time on the left, who/where/what on the right. With [onOutcome] the
  * card ends in a row of outcome chips ([HomeOutcomes.choices]), and a tap on one gives it that
- * outcome; a tap anywhere else still opens the Appointment.
+ * outcome; a tap anywhere else still opens the Appointment. With [onRemind] it ends in a
+ * 'Remind' button instead (a card is not given both: one is for an Appointment that has started,
+ * the other for one that has not).
  */
 @Composable
 fun AppointmentCard(
@@ -74,6 +77,7 @@ fun AppointmentCard(
     modifier: Modifier = Modifier,
     showDate: Boolean = false,
     onOutcome: ((AppointmentStatus) -> Unit)? = null,
+    onRemind: (() -> Unit)? = null,
 ) {
     val format = LocalTimeFormat.current
     // Named by a Client who is in it, also when its primary Client is not (AppointmentClients.Fault).
@@ -127,6 +131,41 @@ fun AppointmentCard(
         }
         if (onOutcome != null) {
             OutcomeChips(name, onOutcome, Modifier.padding(start = 18.dp, end = 18.dp, bottom = 16.dp))
+        } else if (onRemind != null) {
+            RemindButton(name, onRemind, Modifier.padding(start = 18.dp, end = 18.dp, bottom = 16.dp))
+        }
+    }
+}
+
+/**
+ * The Client Reminder in one tap, under a hairline: opens the SMS app with the message ready.
+ * It is read out with the Client the card is of, as the buttons of several cards sound alike.
+ */
+@Composable
+private fun RemindButton(name: String, onRemind: () -> Unit, modifier: Modifier = Modifier) {
+    val label = stringResource(R.string.home_remind)
+    val description = stringResource(R.string.home_outcome_chip_description, label, name)
+
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Hairline()
+        Surface(
+            onClick = onRemind,
+            modifier = Modifier.semantics {
+                role = Role.Button
+                contentDescription = description
+            },
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        ) {
+            Row(
+                Modifier.heightIn(min = 40.dp).padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(Icons.Rounded.Sms, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+            }
         }
     }
 }

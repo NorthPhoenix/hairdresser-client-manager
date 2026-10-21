@@ -2,7 +2,6 @@ package com.northphoenix.hairdresserclientmanager.ui.screens
 
 import android.content.ActivityNotFoundException
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -112,17 +111,15 @@ import com.northphoenix.hairdresserclientmanager.domain.ServiceEdit
 import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
 import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
-import com.northphoenix.hairdresserclientmanager.i18n.clientReminderTemplate
 import com.northphoenix.hairdresserclientmanager.i18n.label
-import com.northphoenix.hairdresserclientmanager.i18n.inLanguage
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
-import com.northphoenix.hairdresserclientmanager.i18n.toLocale
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.state.PhotoUpload
 import com.northphoenix.hairdresserclientmanager.state.Read
 import com.northphoenix.hairdresserclientmanager.state.UploadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
+import com.northphoenix.hairdresserclientmanager.ui.composeClientReminder
 import com.northphoenix.hairdresserclientmanager.ui.components.AmountField
 import com.northphoenix.hairdresserclientmanager.ui.components.Avatar
 import com.northphoenix.hairdresserclientmanager.ui.components.ChoiceChip
@@ -631,7 +628,7 @@ private fun AppointmentDetail(
             if (ClientReminder.isOffered(appointment)) {
                 SecondaryButton(
                     stringResource(R.string.compose_client_reminder),
-                    onClick = { composeReminder(context, viewModel, appointment, format) },
+                    onClick = { composeClientReminder(context, viewModel, appointment, format.zone) },
                     modifier = Modifier.fillMaxWidth(),
                     icon = Icons.Rounded.Sms,
                 )
@@ -998,28 +995,6 @@ private fun <T> rememberDraft(
 
 /** What [rememberDraft] had the last time it ran: the field, and what the Appointment showed then. Null before the first time. */
 private class DraftBefore<T>(var last: Pair<MutableState<String>, T>? = null)
-
-/** Opens the SMS app with a reminder in the primary Client's language. Nothing is sent automatically. */
-private fun composeReminder(context: Context, viewModel: AppViewModel, appointment: Appointment, stylistFormat: TimeFormat) {
-    val recipient = appointment.participants.firstOrNull { it.isPrimary }
-    val number = recipient?.let { ClientReminder.recipient(it.phone) }
-
-    if (recipient == null || number == null) {
-        // No primary Client among the Appointment's Clients is not a Client without a phone.
-        viewModel.notify(if (recipient == null) R.string.client_reminder_no_primary_client else R.string.client_reminder_missing_phone, isError = true)
-        return
-    }
-
-    // Written in the Client's language, whatever language the app is in.
-    val template = context.inLanguage(recipient.language).getString(clientReminderTemplate(appointment))
-    val message = ClientReminder.message(template, appointment, recipient.language.toLocale(), stylistFormat.zone)
-
-    try {
-        context.startActivity(Intent(Intent.ACTION_SENDTO, ClientReminder.smsUri(number)).putExtra("sms_body", message))
-    } catch (_: ActivityNotFoundException) {
-        viewModel.notify(R.string.sms_app_unavailable, isError = true)
-    }
-}
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

@@ -23,6 +23,14 @@ object ClientReminder {
     fun isOffered(appointment: Appointment): Boolean = appointment.status == AppointmentStatus.SCHEDULED
 
     /**
+     * Whether a button that composes the reminder in one tap is worth showing on [appointment]: it
+     * is offered, and its primary Client has a number to send to. The Appointment screen shows the
+     * button anyway and says what is missing; a list of cards has no room for that.
+     */
+    fun canRemindInOneTap(appointment: Appointment): Boolean =
+        isOffered(appointment) && appointment.participants.firstOrNull { it.isPrimary }?.let { recipient(it.phone) } != null
+
+    /**
      * The number an SMS to [phone] goes to: its digits and '+'. Null when there is no digit to
      * dial, so a phone such as "-" or "n/a" counts as no phone.
      */
