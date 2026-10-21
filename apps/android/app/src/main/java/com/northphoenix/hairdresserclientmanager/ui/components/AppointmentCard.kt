@@ -60,6 +60,7 @@ import com.northphoenix.hairdresserclientmanager.domain.AppointmentTotals
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
+import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 import com.northphoenix.hairdresserclientmanager.ui.theme.colors
 
 val LocationType.icon get() = if (this == LocationType.AT_HOME) Icons.Rounded.Home else Icons.Rounded.Storefront
@@ -69,7 +70,7 @@ val LocationType.icon get() = if (this == LocationType.AT_HOME) Icons.Rounded.Ho
  * card ends in a row of outcome chips ([HomeOutcomes.choices]), and a tap on one gives it that
  * outcome; a tap anywhere else still opens the Appointment. With [onRemind] it ends in a
  * 'Remind' button instead (a card is not given both: one is for an Appointment that has started,
- * the other for one that has not).
+ * the other for one that has not), with the time of the last reminder beside it when there was one.
  */
 @Composable
 fun AppointmentCard(
@@ -79,6 +80,8 @@ fun AppointmentCard(
     showDate: Boolean = false,
     onOutcome: ((AppointmentStatus) -> Unit)? = null,
     onRemind: (() -> Unit)? = null,
+    /** With [onRemind]: when the reminder went already ("Reminded 19:30"), which the button then offers to send again. */
+    reminded: String? = null,
 ) {
     val format = LocalTimeFormat.current
     // Named by a Client who is in it, also when its primary Client is not (AppointmentClients.Fault).
@@ -144,7 +147,7 @@ fun AppointmentCard(
         if (onOutcome != null) {
             OutcomeChips(name, onOutcome, Modifier.padding(start = 18.dp, end = 18.dp, bottom = 16.dp))
         } else if (onRemind != null) {
-            RemindButton(name, onRemind, Modifier.padding(start = 18.dp, end = 18.dp, bottom = 16.dp))
+            RemindButton(name, onRemind, reminded, Modifier.padding(start = 18.dp, end = 18.dp, bottom = 16.dp))
         }
     }
 }
@@ -154,30 +157,33 @@ fun AppointmentCard(
  * It is read out with the Client the card is of, as the buttons of several cards sound alike.
  */
 @Composable
-private fun RemindButton(name: String, onRemind: () -> Unit, modifier: Modifier = Modifier) {
-    val label = stringResource(R.string.home_remind)
+private fun RemindButton(name: String, onRemind: () -> Unit, reminded: String?, modifier: Modifier = Modifier) {
+    val label = stringResource(if (reminded == null) R.string.home_remind else R.string.home_remind_again)
     val description = stringResource(R.string.home_outcome_chip_description, label, name)
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Hairline()
-        Surface(
-            onClick = onRemind,
-            modifier = Modifier.semantics {
-                role = Role.Button
-                contentDescription = description
-            },
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.surfaceContainerLowest,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-        ) {
-            Row(
-                Modifier.heightIn(min = 40.dp).padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+            Surface(
+                onClick = onRemind,
+                modifier = Modifier.semantics {
+                    role = Role.Button
+                    contentDescription = description
+                },
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
             ) {
-                Icon(Icons.Rounded.Sms, contentDescription = null, modifier = Modifier.size(16.dp))
-                Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                Row(
+                    Modifier.heightIn(min = 40.dp).padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(Icons.Rounded.Sms, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                }
             }
+            reminded?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = HcmColors.Success) }
         }
     }
 }
