@@ -4,7 +4,7 @@ import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import java.text.Normalizer
 
 /**
- * Who recommended whom ("Посоветовала"): the links between Clients of one Stylist, read from the
+ * Who recommended whom ("По рекомендации"): the links between Clients of one Stylist, read from the
  * Client list ([ClientProfile.referredById]).
  */
 object Referrals {

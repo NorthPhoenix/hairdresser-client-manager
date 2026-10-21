@@ -199,7 +199,7 @@ fun ClientEditorScreen(
     var email by rememberSaveable { mutableStateOf("") }
     var address by rememberSaveable { mutableStateOf("") }
     var note by rememberSaveable { mutableStateOf("") }
-    // Who recommended the Client ("Посоветовала"), by id; null for nobody.
+    // Who recommended the Client ("По рекомендации"), by id; null for nobody.
     var referredId by rememberSaveable { mutableStateOf<String?>(null) }
     var pickingReferrer by rememberSaveable { mutableStateOf(false) }
     // The form as it was when it was opened, filled or last saved. Back asks before it discards what was changed since.

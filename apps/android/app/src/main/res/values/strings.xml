@@ -482,7 +482,7 @@
     <string name="client_referred_by_none">Choose a Client</string>
     <string name="client_referred_by_clear">Clear</string>
     <string name="client_referred_by_tag">Referred by: %s</string>
-    <string name="client_referrals_title">Referrals · %d</string>
+    <string name="client_referrals_title">Clients they referred · %d</string>
     <string name="client_referral_suggestion">Referred by %s?</string>
     <string name="client_referral_suggestion_yes">Yes</string>
     <string name="client_referral_suggestion_no">No</string>
