@@ -153,12 +153,15 @@ fun ContactImportScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     // What the last try left undone: the contacts stay selected, and the screen says why.
     var failedCount by rememberSaveable { mutableStateOf(0) }
     var failureReason by rememberSaveable { mutableStateOf(0) }
+    // The Clients the tries before added, so that the notice at the end counts all that this import added.
+    var addedSoFar by rememberSaveable { mutableStateOf(0) }
 
     fun add() {
         val chosen = rows.filter { it.candidate.id in selected }.map { it.candidate }
 
         failedCount = 0
-        viewModel.importContacts(chosen) { result ->
+        viewModel.importContacts(chosen, addedBefore = addedSoFar) { result ->
+            addedSoFar += result.added.size
             if (result.failed.isEmpty()) {
                 onBack()
             } else {

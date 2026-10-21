@@ -411,6 +411,105 @@ describe("a creating request that is sent again", () => {
     expect(rows.services).toHaveLength(0);
   });
 
+  it("adds the Services picked for several Clients once, per Client in the order they are listed", async () => {
+    const { caller, rows } = withAppointment(createMemoryDb());
+
+    rows.appointments[0]!.clientIds = ["client_1", "client_2"];
+    rows.menuItems.push(
+      { id: "menu_1", stylistId: "stylist_1", name: "Coloring short", defaultPriceCents: 5000 },
+      { id: "menu_2", stylistId: "stylist_1", name: "Haircut", defaultPriceCents: 3000 }
+    );
+
+    const input = {
+      appointmentId: "appointment_1",
+      clients: [
+        { clientId: "client_2", menuItemIds: ["menu_2"] },
+        { clientId: "client_1", menuItemIds: ["menu_1", "menu_2"] }
+      ],
+      requestKey
+    };
+    const [first, second] = await Promise.all([caller.appointment.addMenuServices(input), caller.appointment.addMenuServices(input)]);
+    const third = await caller.appointment.addMenuServices(input);
+
+    expect(rows.services).toHaveLength(3);
+
+    for (const reply of [first, second, third]) {
+      expect(reply.services.map((service) => [service.clientId, service.menuItemId, service.priceCents])).toEqual([
+        ["client_2", "menu_2", 3000],
+        ["client_1", "menu_1", 5000],
+        ["client_1", "menu_2", 3000]
+      ]);
+      expect(reply.serviceTotalCents).toBe(11000);
+    }
+
+    // The same picks sent in the one-Client shape are other Services, and so is another order of the Clients.
+    await expect(
+      caller.appointment.addMenuServices({ ...input, clients: [input.clients[1]!, input.clients[0]!] })
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(
+      caller.appointment.addMenuServices({ appointmentId: "appointment_1", clientId: "client_1", menuItemIds: ["menu_1", "menu_2"], requestKey })
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(rows.services).toHaveLength(3);
+
+    await caller.appointment.addMenuServices({ ...input, requestKey: otherRequestKey });
+    expect(rows.services).toHaveLength(6);
+  });
+
+  it("answers a request for one Client sent again the same in both shapes", async () => {
+    const { caller, rows } = withAppointment(createMemoryDb());
+
+    rows.menuItems.push({ id: "menu_1", stylistId: "stylist_1", name: "Haircut", defaultPriceCents: 3000 });
+
+    await caller.appointment.addMenuServices({ appointmentId: "appointment_1", clientId: "client_1", menuItemIds: ["menu_1"], requestKey });
+    const again = await caller.appointment.addMenuServices({
+      appointmentId: "appointment_1",
+      clients: [{ clientId: "client_1", menuItemIds: ["menu_1"] }],
+      requestKey
+    });
+
+    expect(rows.services).toHaveLength(1);
+    expect(again.services).toHaveLength(1);
+  });
+
+  it("adds no Service for several Clients when one of them cannot be added", async () => {
+    const { caller, rows } = withAppointment(createMemoryDb());
+
+    rows.appointments[0]!.clientIds = ["client_1", "client_2"];
+    rows.menuItems.push({ id: "menu_1", stylistId: "stylist_1", name: "Haircut", defaultPriceCents: 3000 });
+
+    const appointmentId = "appointment_1";
+    const refused = [
+      // Someone who is not one of the Appointment's Clients.
+      [{ appointmentId, clients: [{ clientId: "client_1", menuItemIds: ["menu_1"] }, { clientId: "client_3", menuItemIds: ["menu_1"] }] }, "BAD_REQUEST"],
+      // An item that is not on the menu.
+      [{ appointmentId, clients: [{ clientId: "client_1", menuItemIds: ["menu_1"] }, { clientId: "client_2", menuItemIds: ["menu_gone"] }] }, "NOT_FOUND"],
+      // One Client twice, a Client with nothing, nobody, both shapes at once, and neither.
+      [{ appointmentId, clients: [{ clientId: "client_1", menuItemIds: ["menu_1"] }, { clientId: "client_1", menuItemIds: ["menu_1"] }] }, "BAD_REQUEST"],
+      [{ appointmentId, clients: [{ clientId: "client_1", menuItemIds: ["menu_1"] }, { clientId: "client_2", menuItemIds: [] }] }, "BAD_REQUEST"],
+      [{ appointmentId, clients: [] }, "BAD_REQUEST"],
+      [{ appointmentId, clientId: "client_1", menuItemIds: ["menu_1"], clients: [{ clientId: "client_2", menuItemIds: ["menu_1"] }] }, "BAD_REQUEST"],
+      [{ appointmentId, clientId: "client_1" }, "BAD_REQUEST"],
+      [{ appointmentId }, "BAD_REQUEST"],
+      // More than 100 Services in all.
+      [
+        {
+          appointmentId,
+          clients: [
+            { clientId: "client_1", menuItemIds: Array.from({ length: 60 }, () => "menu_1") },
+            { clientId: "client_2", menuItemIds: Array.from({ length: 41 }, () => "menu_1") }
+          ]
+        },
+        "BAD_REQUEST"
+      ]
+    ] as const;
+
+    for (const [input, code] of refused) {
+      await expect(caller.appointment.addMenuServices(input as Parameters<typeof caller.appointment.addMenuServices>[0])).rejects.toMatchObject({ code });
+    }
+
+    expect(rows.services).toHaveLength(0);
+  });
+
   it("copies the Services of an Appointment once", async () => {
     const memory = withAppointment(withAppointment(createMemoryDb()), "source_1", "completed");
     const { caller, rows } = memory;

@@ -28,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -48,6 +49,7 @@ import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.MenuPicker
 import com.northphoenix.hairdresserclientmanager.domain.Money
+import com.northphoenix.hairdresserclientmanager.domain.ServicePicks
 import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.components.ActionChip
@@ -75,6 +77,10 @@ import com.northphoenix.hairdresserclientmanager.ui.components.rememberRequestKe
  * Appointment, [initialClientId] or else the primary Client picked when the sheet opens, and a
  * chip that adds a person to the Appointment. That person is a Client who exists ([onAddPerson])
  * or a new one made from just a typed name ([onCreatePerson]), and is picked once they are in.
+ *
+ * Each person has their own picks from the menu (see [ServicePicks]): the chip picked shows and
+ * changes that person's, a chip with picks shows how many, and switching chips keeps them all.
+ * The button adds the picks of everyone at once, per person in the order of the chips.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -89,7 +95,7 @@ internal fun AddServiceSheet(
     busy: Boolean,
     onDismiss: () -> Unit,
     onMissingName: () -> Unit,
-    onAddFromMenu: (clientId: String, menuItemIds: List<String>) -> Unit,
+    onAddFromMenu: (picks: List<Pair<String, List<String>>>) -> Unit,
     onAddCustom: (clientId: String, name: String, priceCents: Long, note: String?) -> Unit,
     onAddPerson: (clientId: String, onAdded: () -> Unit) -> Unit,
     onCreatePerson: (name: String, requestKey: String, onAdded: (clientId: String) -> Unit) -> Unit,
@@ -112,9 +118,13 @@ internal fun AddServiceSheet(
     // The price text a save was refused for. The reason stays under the field for as long as the text is that one.
     var refusedPrice by rememberSaveable { mutableStateOf<String?>(null) }
 
-    // The ids of the picked items in the order they were tapped; an item that left the menu meanwhile is not picked.
-    var pickedIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
-    val picked = MenuPicker.picked(menu, pickedIds)
+    // The ids of the picked items per person, each in the order they were tapped; an item that left the menu meanwhile is not picked.
+    var picks by rememberSaveable(stateSaver = PicksSaver) { mutableStateOf(emptyMap<String, List<String>>()) }
+    // Whose picks the menu shows: the person picked, also the one just added before the Appointment lists them.
+    val pickingFor = if (pending != null) pickedClientId ?: clientId else clientId
+    val people = appointment.participants.sortedByDescending { it.isPrimary }
+    val toAdd = ServicePicks.toAdd(picks, menu, people.map { it.clientId })
+    val pickedCount = toAdd.sumOf { it.items.size }
 
     HcmTallBottomSheet(
         title = stringResource(if (custom) R.string.add_appointment_service else R.string.add_services_title),
@@ -139,15 +149,15 @@ internal fun AddServiceSheet(
                 )
             } else {
                 PrimaryButton(
-                    if (picked.isEmpty()) {
+                    if (pickedCount == 0) {
                         stringResource(R.string.add_services_pick)
                     } else {
-                        pluralStringResource(R.plurals.add_services_count, picked.size, picked.size) + " · " +
-                            Money.formatShort(picked.sumOf { it.defaultPriceCents })
+                        pluralStringResource(R.plurals.add_services_count, pickedCount, pickedCount) + " · " +
+                            Money.formatShort(toAdd.sumOf { person -> person.items.sumOf { it.defaultPriceCents } })
                     },
-                    onClick = { onAddFromMenu(clientId, picked.map { it.id }) },
+                    onClick = { onAddFromMenu(toAdd.map { person -> person.clientId to person.items.map { it.id } }) },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = picked.isNotEmpty(),
+                    enabled = pickedCount > 0,
                     loading = busy,
                 )
             }
@@ -156,15 +166,21 @@ internal fun AddServiceSheet(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.service_for_whom), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                appointment.participants.sortedByDescending { it.isPrimary }.forEach { participant ->
+                people.forEach { participant ->
+                    val count = ServicePicks.of(picks, menu, participant.clientId).size
+
                     ChoiceChip(
-                        participant.name,
+                        if (count > 0) participant.name + " · " + count else participant.name,
                         selected = pending == null && clientId == participant.clientId,
                         wraps = true,
                         onClick = { pickedClientId = participant.clientId },
                     )
                 }
-                pending?.let { ChoiceChip(it, selected = true, wraps = true, onClick = {}) }
+                pending?.let { pendingName ->
+                    val count = ServicePicks.of(picks, menu, pickingFor).size
+
+                    ChoiceChip(if (count > 0) pendingName + " · " + count else pendingName, selected = true, wraps = true, onClick = {})
+                }
                 ActionChip(
                     stringResource(R.string.service_for_whom_add),
                     icon = Icons.Rounded.Add,
@@ -204,8 +220,8 @@ internal fun AddServiceSheet(
                 menu = menu,
                 menuLoad = menuLoad,
                 onRetry = onRetry,
-                pickedIds = pickedIds,
-                onToggle = { id -> pickedIds = MenuPicker.toggle(pickedIds.filter { picked -> menu.any { it.id == picked } }, id) },
+                pickedIds = picks[pickingFor].orEmpty(),
+                onToggle = { id -> picks = ServicePicks.toggle(picks, menu, pickingFor, id) },
             )
             TextAction(
                 stringResource(R.string.custom_service),
@@ -254,6 +270,12 @@ internal fun AddServiceSheet(
         )
     }
 }
+
+/** The picks per person, saved as a map that a saved state can hold. */
+private val PicksSaver = Saver<Map<String, List<String>>, HashMap<String, ArrayList<String>>>(
+    save = { picks -> picks.mapValuesTo(HashMap()) { ArrayList(it.value) } },
+    restore = { it },
+)
 
 /** The Service Menu to pick from: search, the most used items, and the groups. */
 @OptIn(ExperimentalLayoutApi::class)
