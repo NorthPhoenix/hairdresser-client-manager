@@ -15,6 +15,7 @@ import {
   textLimits
 } from "../input";
 import { isStoredFileUrl, markFilesUnused } from "../photoStorage";
+import { addTravelFee, noTravelFeeChange, removeTravelFee } from "../travelFee";
 import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from "../trpc";
 
 const dateRangeInput = z.object({
@@ -818,7 +819,9 @@ export const appointmentRouter = createTRPCRouter({
 
       return {
         appointment: await getAppointmentOutput(ctx.db, repeatedAppointment.id),
-        conflicts: repeatedConflicts.map(toAppointmentOutput)
+        conflicts: repeatedConflicts.map(toAppointmentOutput),
+        // The first call said what it added.
+        travelFee: noTravelFeeChange
       };
     }
 
@@ -934,9 +937,17 @@ export const appointmentRouter = createTRPCRouter({
       }
     });
 
+    // A new Appointment is Scheduled: at home, it gets the Travel Fee for its primary Client.
+    const travelFee =
+      input.locationType === "atHome"
+        ? await addTravelFee(ctx.db, ctx.stylist.id, appointment.id, primaryClient.id)
+        : noTravelFeeChange;
+
     return {
-      appointment: toAppointmentOutput(appointment),
-      conflicts: conflicts.map(toAppointmentOutput)
+      appointment: travelFee.added.length > 0 ? await getAppointmentOutput(ctx.db, appointment.id) : toAppointmentOutput(appointment),
+      conflicts: conflicts.map(toAppointmentOutput),
+      // The Services the Travel Fee added, for the app to say so and offer to remove them.
+      travelFee
     };
   }),
   update: stylistTransactionProcedure.input(appointmentUpdateInput).mutation(async ({ ctx, input }) => {
@@ -1024,6 +1035,15 @@ export const appointmentRouter = createTRPCRouter({
       };
     }
 
+    // The Travel Fee follows a Scheduled Appointment that changes place: to at home it is added
+    // for the primary Client, to the salon it is removed. Nothing else adds or removes it, so an
+    // edit that keeps the place leaves the Services as the Stylist made them.
+    const travelFee =
+      status === "scheduled" && locationTypeChanges
+        ? locationType === "atHome"
+          ? await addTravelFee(ctx.db, ctx.stylist.id, appointment.id, primaryClientId)
+          : await removeTravelFee(ctx.db, ctx.stylist.id, appointment.id)
+        : noTravelFeeChange;
     const updatedAppointment = await ctx.db.appointment.update({
       where: {
         id: appointment.id
@@ -1089,7 +1109,9 @@ export const appointmentRouter = createTRPCRouter({
 
     return {
       ...toAppointmentOutput(updatedAppointment),
-      conflicts: conflicts.map(toAppointmentOutput)
+      conflicts: conflicts.map(toAppointmentOutput),
+      // The Services the Travel Fee added or removed, for the app to say so and offer to undo it.
+      travelFee
     };
   }),
   addService: stylistTransactionProcedure.input(appointmentServiceInput).mutation(async ({ ctx, input }) => {

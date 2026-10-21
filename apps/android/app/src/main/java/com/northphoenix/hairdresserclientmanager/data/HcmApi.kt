@@ -139,7 +139,8 @@ class HcmApi(private val trpc: TrpcClient) {
     suspend fun listServiceMenu(): List<ServiceMenuItem> = trpc.query("serviceMenu.list")
 
     /**
-     * Saves the whole editor of a Service Menu Item: an empty group clears it. [requestKey] names
+     * Saves the whole editor of a Service Menu Item: an empty group clears it, and marking it the
+     * Travel Fee unmarks any other item. [requestKey] names
      * the creation of a new one (see [REQUEST_KEY]); an edit ([id]) does not send it.
      */
     suspend fun saveServiceMenuItem(id: String?, values: MenuItemValues, requestKey: String): ServiceMenuItem =
@@ -150,6 +151,7 @@ class HcmApi(private val trpc: TrpcClient) {
                 put("name", values.name)
                 put("defaultPriceCents", values.defaultPriceCents)
                 put("group", values.group)
+                put("travelFee", values.travelFee)
                 if (id == null) put(REQUEST_KEY, requestKey)
             },
         )

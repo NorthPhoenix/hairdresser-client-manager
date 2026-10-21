@@ -142,6 +142,8 @@ data class ServiceMenuItem(
     val group: String? = null,
     /** How many Services were started from this item. Only the menu's list says; a saved item does not. */
     val useCount: Int = 0,
+    /** Whether this is the Travel Fee: added by itself to a Scheduled Appointment at home. At most one item is. */
+    val travelFee: Boolean = false,
 )
 
 @Serializable
@@ -234,12 +236,25 @@ data class UpdatedAppointment(
     val customLocationAddress: String = "",
     val mapUrl: String? = null,
     val conflicts: List<Appointment> = emptyList(),
+    val travelFee: TravelFeeChange = TravelFeeChange(),
 )
 
 @Serializable
 data class CreateAppointmentResult(
     val appointment: Appointment,
     val conflicts: List<Appointment> = emptyList(),
+    val travelFee: TravelFeeChange = TravelFeeChange(),
+)
+
+/**
+ * What the server did with the Travel Fee when an Appointment was created or changed place: the
+ * Services it [added] (at home) or [removed] (back in the salon). Both empty when it did nothing,
+ * also from a server that has no Travel Fee.
+ */
+@Serializable
+data class TravelFeeChange(
+    val added: List<AppointmentService> = emptyList(),
+    val removed: List<AppointmentService> = emptyList(),
 )
 
 /**

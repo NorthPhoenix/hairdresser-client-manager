@@ -20,6 +20,7 @@ import com.northphoenix.hairdresserclientmanager.core.AppContainer
 import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.AppointmentPhoto
+import com.northphoenix.hairdresserclientmanager.data.AppointmentService
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.CameraCaptures
 import com.northphoenix.hairdresserclientmanager.data.ClientHistoryEntry
@@ -38,6 +39,7 @@ import com.northphoenix.hairdresserclientmanager.data.ShareChoice
 import com.northphoenix.hairdresserclientmanager.data.ShareImage
 import com.northphoenix.hairdresserclientmanager.data.StoredFile
 import com.northphoenix.hairdresserclientmanager.data.Stylist
+import com.northphoenix.hairdresserclientmanager.data.TravelFeeChange
 import com.northphoenix.hairdresserclientmanager.data.UpdatedAppointment
 import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
 import com.northphoenix.hairdresserclientmanager.data.toApiException
@@ -46,6 +48,7 @@ import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
 import com.northphoenix.hairdresserclientmanager.domain.ChangedElsewhere
 import com.northphoenix.hairdresserclientmanager.domain.HomeOutcomes
 import com.northphoenix.hairdresserclientmanager.domain.MenuItemValues
+import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.OneLine
 import com.northphoenix.hairdresserclientmanager.domain.ServiceEdit
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
@@ -58,6 +61,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Locale
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -1170,7 +1174,10 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         onSuccess = { result: CreateAppointmentResult ->
             // Its screen opens next, before any read of it has answered: it shows the reply until then.
             appointmentReads.created(result.appointment)
-            notify(if (result.conflicts.isEmpty()) R.string.appointment_saved else R.string.appointment_conflict_warning)
+            // A Travel Fee the server added is said instead, with a way to remove it: the overlap is named on the Appointment's screen.
+            if (!notifyTravelFee(result.appointment.id, result.travelFee)) {
+                notify(if (result.conflicts.isEmpty()) R.string.appointment_saved else R.string.appointment_conflict_warning)
+            }
             onSuccess(result)
         },
         // An inline Client is created on the server as part of this call.
@@ -1321,6 +1328,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      * when the Stylist left them as they were, and they are then not sent; so is [locationType] for
      * a place that is kept ([AppointmentDraft.keepsPlace]). [ownAddress] is the at-home address the
      * Stylist typed, null for the primary Client's.
+     * Another place can add or remove the Travel Fee: the notice then says that, with a way to undo it.
      */
     fun editAppointment(
         id: String,
@@ -1328,22 +1336,71 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         locationType: LocationType?,
         ownAddress: String?,
         onSuccess: () -> Unit,
-    ) = actOnAppointment(
-        id,
-        "editAppointment:$id",
-        R.string.appointment_time_and_place_saved,
-        onSuccess,
-        // At another time the Appointment is in the list of the day it starts on now, which does not hold it yet.
-        touched = { if (times != null) appointmentReads.startChanged(id, times.startsAt) else readChanges.changed(id) },
     ) {
-        val saved = api.updateAppointmentTimeAndPlace(id, times?.startsAt, times?.endsAt, locationType, ownAddress?.trim().orEmpty())
+        var travelFee = TravelFeeChange()
 
-        updateLoaded(id) { it.withTimeAndPlace(saved) }
-        // An answer to times that were not sent names no overlap, and says nothing about the one there may be.
-        if (times != null) {
-            overlaps.answered(id, saved.conflicts)
+        actOnAppointment(
+            id,
+            "editAppointment:$id",
+            onSuccess = {
+                if (!notifyTravelFee(id, travelFee)) {
+                    notify(R.string.appointment_time_and_place_saved)
+                }
+                onSuccess()
+            },
+            // At another time the Appointment is in the list of the day it starts on now, which does not hold it yet.
+            touched = { if (times != null) appointmentReads.startChanged(id, times.startsAt) else readChanges.changed(id) },
+        ) {
+            val saved = api.updateAppointmentTimeAndPlace(id, times?.startsAt, times?.endsAt, locationType, ownAddress?.trim().orEmpty())
+
+            travelFee = saved.travelFee
+            updateLoaded(id) { it.withTimeAndPlace(saved).withTravelFee(saved.travelFee) }
+            // An answer to times that were not sent names no overlap, and says nothing about the one there may be.
+            if (times != null) {
+                overlaps.answered(id, saved.conflicts)
+            }
         }
     }
+
+    /**
+     * Says what the server did with the Travel Fee of an Appointment that was created or changed
+     * place, with a button that undoes it: 'Remove' deletes the Services it added, and the
+     * Appointment stays where it is; 'Put back' adds the ones it removed again, as they were.
+     * Neither moves the Appointment, so the server does not add or remove the fee again until it
+     * changes place. False when the server did nothing with it, and nothing was said.
+     */
+    private fun notifyTravelFee(appointmentId: String, change: TravelFeeChange): Boolean {
+        val added = change.added.firstOrNull()
+        val removed = change.removed.firstOrNull()
+
+        when {
+            added != null -> noticeChannel.trySend(
+                Notice(
+                    R.string.travel_fee_added,
+                    args = listOf(added.name, Money.formatShort(change.added.sumOf { it.priceCents })),
+                    action = NoticeAction(R.string.travel_fee_remove) { change.added.forEach { deleteService(appointmentId, it.id) } },
+                ),
+            )
+            removed != null -> noticeChannel.trySend(
+                Notice(
+                    R.string.travel_fee_removed,
+                    args = listOf(removed.name),
+                    action = NoticeAction(R.string.travel_fee_put_back) { putBackServices(appointmentId, change.removed) },
+                ),
+            )
+            else -> return false
+        }
+        return true
+    }
+
+    /** Adds [services] to the Appointment again, for the same Clients, with the same names, prices and notes. */
+    private fun putBackServices(appointmentId: String, services: List<AppointmentService>) =
+        actOnAppointment(appointmentId, "addService:$appointmentId") {
+            services.forEach { service ->
+                // A new creation each: this tap is the only one that sends it.
+                api.addService(appointmentId, service.clientId, service.menuItemId, service.name, service.priceCents, service.note, UUID.randomUUID().toString())
+            }
+        }
 
     fun dismissOverlapWarning(appointmentId: String) = overlaps.dismiss(appointmentId)
 
@@ -1715,6 +1772,27 @@ internal fun List<ClientProfile>.withSaved(saved: ClientProfile): List<ClientPro
  * The second does nothing until the first has been answered and the Appointment loaded again.
  */
 internal fun clientsChangeKey(appointmentId: String) = "clients:$appointmentId"
+
+/**
+ * The Services the Travel Fee has just added to or removed from an Appointment, on a loaded copy
+ * of it, with the totals that follow. The server adds it after the Services that were there.
+ */
+internal fun Appointment.withTravelFee(change: TravelFeeChange): Appointment {
+    val kept = change.removed.fold(this) { appointment, service -> appointment.withoutService(service.id) }
+
+    return change.added.filterNot { added -> kept.services.any { it.id == added.id } }.fold(kept) { appointment, service ->
+        val total = appointment.serviceTotalCents + service.priceCents
+
+        appointment.copy(
+            services = appointment.services + service,
+            participants = appointment.participants.map {
+                if (it.clientId == service.clientId) it.copy(subtotalCents = it.subtotalCents + service.priceCents) else it
+            },
+            serviceTotalCents = total,
+            finalTotalCents = appointment.finalTotalCentsOverride ?: total,
+        )
+    }
+}
 
 /** The time and the place the server has just answered with, on a loaded copy of that Appointment. */
 internal fun Appointment.withTimeAndPlace(saved: UpdatedAppointment): Appointment =

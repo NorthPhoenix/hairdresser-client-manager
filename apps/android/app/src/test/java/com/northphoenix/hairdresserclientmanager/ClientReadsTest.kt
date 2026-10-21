@@ -504,6 +504,23 @@ class ClientReadsTest {
     }
 
     @Test
+    fun `an item saved as the Travel Fee is the only one in the menu at once`() = runTest {
+        val server = Server().apply { menu = listOf(cut.copy(travelFee = true), color) }
+        val reads = menuReads(server)
+        shownBy(reads.menu.watch(stylist))
+        runCurrent()
+        // What is shown before any reload: the reload has the server's word on it.
+        server.online = false
+
+        reads.saved(color.copy(travelFee = true))
+        assertEquals(listOf(cut, color.copy(travelFee = true)), reads.menu.shown(stylist)?.data)
+
+        // Another save of an item that is not the Travel Fee leaves the one that is.
+        reads.saved(cut.copy(defaultPriceCents = 4_500))
+        assertEquals(listOf(cut.copy(defaultPriceCents = 4_500), color.copy(travelFee = true)), reads.menu.shown(stylist)?.data)
+    }
+
+    @Test
     fun `a Service Menu that was asked for before a change is not shown, and asking again brings the new item`() = runTest {
         val server = Server().apply { menu = listOf(cut) }
         val reads = menuReads(server)

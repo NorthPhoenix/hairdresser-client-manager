@@ -290,6 +290,9 @@
     <string name="service_menu_price_label">Default price</string>
     <string name="service_menu_subtitle">Create standard services with default prices.</string>
     <string name="service_menu_title">Service Menu</string>
+    <string name="service_menu_travel_fee_hint">Added by itself to at-home appointments, and removed when an appointment moves to the salon.</string>
+    <string name="service_menu_travel_fee_label">Travel fee</string>
+    <string name="service_menu_travel_fee_replaces">Now it is “%1$s”: that one will stop being the travel fee.</string>
     <string name="service_search_empty">Nothing in your menu matches “%1$s”.</string>
     <string name="service_search_placeholder">Service or group</string>
     <string name="service_name_required">Add a service name.</string>
@@ -384,4 +387,8 @@
         <item quantity="one">%d photo isn\'t saved yet. If you sign out, it will be deleted from this device.</item>
         <item quantity="other">%d photos aren\'t saved yet. If you sign out, they will be deleted from this device.</item>
     </plurals>
+    <string name="travel_fee_added">Added “%1$s” · %2$s</string>
+    <string name="travel_fee_put_back">Put back</string>
+    <string name="travel_fee_remove">Remove</string>
+    <string name="travel_fee_removed">Removed “%1$s”</string>
 </resources>

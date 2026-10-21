@@ -87,10 +87,11 @@ object MenuPicker {
 
     /**
      * The items the Stylist has used most, most used first: up to [FREQUENT_LIMIT] of those she
-     * has started a Service from at all. Of two used as often, the older one comes first.
+     * has started a Service from at all. Of two used as often, the older one comes first. The
+     * Travel Fee is not among them: it is added by itself, so its uses say nothing of her picks.
      */
     fun frequent(items: List<ServiceMenuItem>): List<ServiceMenuItem> =
-        items.filter { it.useCount > 0 }.sortedByDescending { it.useCount }.take(FREQUENT_LIMIT)
+        items.filter { it.useCount > 0 && !it.travelFee }.sortedByDescending { it.useCount }.take(FREQUENT_LIMIT)
 
     /**
      * The groups of the menu to offer while a group is typed in the item editor: each once, in the

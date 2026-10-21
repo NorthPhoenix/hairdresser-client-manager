@@ -78,6 +78,7 @@ describe("service menu router", () => {
         name: "Haircut",
         defaultPriceCents: 8500,
         group: null,
+        travelFee: false,
         useCount: 3,
         createdAt: createdAt.toISOString(),
         updatedAt: createdAt.toISOString()

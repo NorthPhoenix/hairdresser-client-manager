@@ -126,6 +126,8 @@ class MenuPickerTest {
 
         assertEquals(listOf(b, e, a, c), MenuPicker.frequent(listOf(never, a, b, c, d, e)))
         assertEquals(emptyList<ServiceMenuItem>(), MenuPicker.frequent(listOf(never)))
+        // The Travel Fee is added by itself: however often, it is not one of her picks.
+        assertEquals(listOf(b, e, a, c), MenuPicker.frequent(listOf(never, a, b, c, d, e, b.copy(id = "fee", useCount = 99, travelFee = true))))
     }
 
     @Test
