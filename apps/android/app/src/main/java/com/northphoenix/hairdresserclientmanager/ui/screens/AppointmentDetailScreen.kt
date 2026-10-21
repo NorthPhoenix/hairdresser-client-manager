@@ -152,6 +152,7 @@ import com.northphoenix.hairdresserclientmanager.ui.components.QuietTextAction
 import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
 import com.northphoenix.hairdresserclientmanager.ui.components.fittedTextStyle
 import com.northphoenix.hairdresserclientmanager.ui.components.icon
+import com.northphoenix.hairdresserclientmanager.ui.components.rememberNow
 import com.northphoenix.hairdresserclientmanager.ui.components.rememberRequestKey
 import com.northphoenix.hairdresserclientmanager.ui.components.tagTextStyle
 import com.northphoenix.hairdresserclientmanager.ui.openUri
@@ -289,6 +290,8 @@ private fun AppointmentDetail(
 ) {
     val context = LocalContext.current
     val format = LocalTimeFormat.current
+    // The reminder is offered until the Appointment starts.
+    val now by rememberNow()
     val clientList by viewModel.clients.collectAsStateWithLifecycle()
     val clients = clientList.data.orEmpty()
     val clientsLoad = clientList.state
@@ -606,7 +609,7 @@ private fun AppointmentDetail(
             NoteCard(appointment, note = noteDraft, onNote = { noteDraft = it }, onSave = { viewModel.saveAppointmentNote(appointment.id, it) })
 
             // --- actions ---
-            if (ClientReminder.isOffered(appointment)) {
+            if (ClientReminder.isOffered(appointment, now)) {
                 SecondaryButton(
                     stringResource(R.string.compose_client_reminder),
                     onClick = { composeReminder(context, viewModel, appointment, format) },

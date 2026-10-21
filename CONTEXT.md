@@ -141,7 +141,7 @@ A notification automatically shown to the Stylist before a scheduled Appointment
 _Avoid_: Push reminder, internal reminder, alert
 
 **Client Reminder**:
-A Stylist-initiated SMS reminder message before an Appointment. In v1, the app composes a fixed default message in the recipient Client's language with Appointment time and location details, sends group Appointment reminders to the primary Client, requires the reminder recipient to have a phone number, and does not track reminder status.
+A Stylist-initiated SMS reminder message before an Appointment, offered for a scheduled Appointment until its start time. In v1, the app composes a fixed default message in the recipient Client's language with Appointment time and location details, sends group Appointment reminders to the primary Client, requires the reminder recipient to have a phone number, and does not track reminder status.
 _Avoid_: Client notification, appointment text, confirmation message
 
 **Profile Share**:
