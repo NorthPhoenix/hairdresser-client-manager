@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Group
+import androidx.compose.material.icons.rounded.ImportContacts
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SearchOff
@@ -50,12 +51,13 @@ import com.northphoenix.hairdresserclientmanager.ui.components.HcmTextField
 import com.northphoenix.hairdresserclientmanager.ui.components.LoadFailed
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenPadding
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenTitle
+import com.northphoenix.hairdresserclientmanager.ui.components.SecondaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.Tag
 
 /** Clients View: searchable list of Client Profiles. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ClientsScreen(viewModel: AppViewModel, onOpenClient: (String) -> Unit) {
+fun ClientsScreen(viewModel: AppViewModel, onOpenClient: (String) -> Unit, onImport: () -> Unit) {
     // The list and its load state in one value: "no Clients" is only said of a list that has loaded.
     val read by viewModel.clients.collectAsStateWithLifecycle()
     val clients = read.data.orEmpty()
@@ -73,6 +75,15 @@ fun ClientsScreen(viewModel: AppViewModel, onOpenClient: (String) -> Unit) {
         ) {
             item {
                 ScreenTitle(title = stringResource(R.string.clients_title), modifier = Modifier.padding(bottom = 8.dp))
+            }
+
+            item {
+                SecondaryButton(
+                    stringResource(R.string.import_contact),
+                    onClick = onImport,
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = Icons.Rounded.ImportContacts,
+                )
             }
 
             when (val state = load) {

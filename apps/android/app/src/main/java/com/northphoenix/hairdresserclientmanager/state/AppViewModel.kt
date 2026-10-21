@@ -49,6 +49,7 @@ import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
 import com.northphoenix.hairdresserclientmanager.domain.CalendarWeek
 import com.northphoenix.hairdresserclientmanager.domain.ChangedElsewhere
 import com.northphoenix.hairdresserclientmanager.domain.HomeOutcomes
+import com.northphoenix.hairdresserclientmanager.domain.ImportCandidate
 import com.northphoenix.hairdresserclientmanager.domain.MenuItemValues
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.OneLine
@@ -103,6 +104,12 @@ data class Notice(
 
 /** A button on a notice: [label] says what [run] does. It can be tapped for as long as the notice is shown, and at most once. */
 data class NoticeAction(@StringRes val label: Int, val run: () -> Unit)
+
+/**
+ * How an import of several contacts ended: the contacts that became Clients, and those that did not
+ * ([reason] says why the first of them failed, in the words of the app's error messages).
+ */
+data class ContactImportResult(val added: Set<Long>, val failed: Set<Long>, @StringRes val reason: Int? = null)
 
 /** A Calendar day with what is loaded of it: [appointments] and [load] are always of [day]. The list is empty only when [load] is Loaded. */
 data class CalendarDay(val day: LocalDate, val appointments: List<Appointment> = emptyList(), val load: LoadState = LoadState.Loading)
@@ -1034,6 +1041,84 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                 // them now, and no cached day is served as it was before the save, so no reminder goes to the old number.
                 appointmentReads.clientSaved(saved)
             }
+        }
+    }
+
+    private val _contactImportProgress = MutableStateFlow<Pair<Int, Int>?>(null)
+
+    /** While contacts are being imported: how many are done, and how many there are. Null when no import is running. */
+    val contactImportProgress: StateFlow<Pair<Int, Int>?> = _contactImportProgress.asStateFlow()
+
+    // One key per contact as it is imported, kept until it was added: the contacts that failed are sent again with the
+    // key they had, so a retry whose first try was saved but never answered makes no second Client (ADR 0015).
+    private val contactImportKeys = mutableMapOf<ImportCandidate, String>()
+
+    /**
+     * Makes a Client of each of [contacts], one after the other, each with the contact's name, first number,
+     * address and note, in the Stylist's language, by the same save as the Client form. It goes on after a Client
+     * the server refuses, and stops at the first failure to reach the server: the contacts not reached are failed too.
+     * It runs on until it is done also when the Stylist leaves the screen; [onFinished] is told then and
+     * shows one notice, of what was added.
+     */
+    fun importContacts(contacts: List<ImportCandidate>, onFinished: (ContactImportResult) -> Unit) {
+        if (contacts.isEmpty() || _contactImportProgress.value != null) {
+            return
+        }
+
+        val language = _stylist.value?.language ?: Language.RU
+
+        _contactImportProgress.value = 0 to contacts.size
+        act(
+            key = "importContacts",
+            onSuccess = onFinished,
+            reload = { loadClients() },
+            touched = { clientReads.changed(null) },
+        ) {
+            val added = mutableSetOf<Long>()
+            val failed = mutableSetOf<Long>()
+            var reason: Int? = null
+            var unreachable = false
+
+            try {
+                for (contact in contacts) {
+                    if (unreachable) {
+                        failed += contact.id
+                        continue
+                    }
+
+                    try {
+                        val key = contactImportKeys.getOrPut(contact) { UUID.randomUUID().toString() }
+                        // The Client Note is the contact's, and the form's other fields stay empty.
+                        clientReads.saved(api.saveClient(null, contact.name, language, contact.phone, "", contact.address, contact.note, null, key))
+                        contactImportKeys.remove(contact)
+                        added += contact.id
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        val failure = error.toApiException()
+
+                        failed += contact.id
+                        reason = reason ?: failure.messageRes()
+                        if (failure.isUnauthorized) {
+                            report(failure)
+                        }
+                        unreachable = failure.isNetwork || failure.outcomeUnknown || failure.isUnauthorized
+                    } finally {
+                        _contactImportProgress.value = (added.size + failed.size) to contacts.size
+                    }
+                }
+            } finally {
+                _contactImportProgress.value = null
+            }
+
+            val result = ContactImportResult(added, failed, reason)
+
+            when {
+                failed.isEmpty() -> noticeChannel.trySend(Notice(R.plurals.contact_import_added, quantity = added.size, args = listOf(added.size)))
+                added.isEmpty() -> notify(reason ?: R.string.contact_import_failed, isError = true)
+                else -> notify(R.string.contact_import_partial, isError = true, added.size, contacts.size)
+            }
+            result
         }
     }
 
