@@ -128,6 +128,8 @@ model Appointment {
   locationAddressIsCustom Boolean?
   note         String?
   finalTotalCentsOverride Int?
+  // The tip for the whole visit, apart from the price of its Services. null: no tip recorded.
+  tipCents     Int?
   requestKey   String?
   createdAt    DateTime                @default(now())
   updatedAt    DateTime                @updatedAt
