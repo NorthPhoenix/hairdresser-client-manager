@@ -14,6 +14,7 @@
     <string name="add_appointment_service">Add Service</string>
     <string name="add_client_to_appointment">Add Client</string>
     <string name="add_color_formula">Add Formula</string>
+    <string name="add_color_formula_quiet">+ formula</string>
     <string name="add_services_pick">Pick Services</string>
     <string name="add_services_title">Add Services</string>
     <string name="add_photo_from_camera">Camera</string>
@@ -92,6 +93,7 @@
     <string name="back">Back</string>
     <string name="calendar_empty_body">No Appointments on this day.</string>
     <string name="calendar_title">Calendar</string>
+    <string name="calendar_day_has_appointments">has appointments</string>
     <string name="cancel">Cancel</string>
     <string name="choose_client">Choose Client</string>
     <string name="clear">Clear</string>
@@ -230,13 +232,15 @@
     <string name="optional">Optional</string>
     <string name="optional_setup_body">Google Calendar, Stylist Reminders, and the Service Menu can be set up later.</string>
     <string name="optional_setup_title">Can be set up later</string>
-    <string name="placeholder_account_first_name">Maria</string>
-    <string name="placeholder_account_last_name">Ivanova</string>
-    <string name="placeholder_address">123 Main St</string>
-    <string name="placeholder_client_name">Anna Petrova</string>
-    <string name="placeholder_client_note">Prefers soft layers.</string>
-    <string name="placeholder_formula_placement">Roots</string>
-    <string name="placeholder_service_name">Haircut</string>
+    <string name="placeholder_account_first_name">e.g. Maria</string>
+    <string name="placeholder_account_last_name">e.g. Ivanova</string>
+    <string name="placeholder_address">Street and number, city</string>
+    <string name="placeholder_client_name">First and last name</string>
+    <string name="placeholder_client_note">e.g. prefers soft layers, allergic to ammonia</string>
+    <string name="placeholder_formula_text">e.g. 7N + 20 vol</string>
+    <string name="placeholder_client_phone">e.g. +1 512 555 0100</string>
+    <string name="placeholder_formula_placement">e.g. Roots</string>
+    <string name="placeholder_service_name">e.g. Haircut</string>
     <string name="previous_day">Previous day</string>
     <string name="previous_month">Previous month</string>
     <string name="primary_badge">Primary</string>
@@ -420,4 +424,52 @@
     <string name="travel_fee_put_back">Put back</string>
     <string name="travel_fee_remove">Remove</string>
     <string name="travel_fee_removed">Removed “%1$s”</string>
+    <string name="calls_unavailable">There is no phone app on this device.</string>
+    <string name="client_book_again">Book again</string>
+    <string name="client_call">Call</string>
+    <string name="client_edit_action">Edit</string>
+    <string name="client_edit_title">Edit Client</string>
+    <string name="client_map">Map</string>
+    <string name="client_next_appointment">Next Appointment</string>
+    <string name="client_not_given">Not given</string>
+    <string name="client_sms">Text</string>
+    <string name="client_stat_last_visit">Last visit</string>
+    <string name="client_stat_no_visits">None yet</string>
+    <string name="client_stat_today">Today</string>
+    <string name="client_stat_usually">Usually</string>
+    <string name="client_stat_visits">Visits</string>
+    <string name="client_stat_yesterday">Yesterday</string>
+    <string name="map_unavailable">There is no map app on this device.</string>
+    <plurals name="client_ago_days">
+        <item quantity="one">%d day ago</item>
+        <item quantity="other">%d days ago</item>
+    </plurals>
+    <plurals name="client_ago_weeks">
+        <item quantity="one">%d week ago</item>
+        <item quantity="other">%d weeks ago</item>
+    </plurals>
+    <plurals name="client_ago_months">
+        <item quantity="one">%d month ago</item>
+        <item quantity="other">%d months ago</item>
+    </plurals>
+    <plurals name="client_ago_years">
+        <item quantity="one">%d year ago</item>
+        <item quantity="other">%d years ago</item>
+    </plurals>
+    <plurals name="client_every_days">
+        <item quantity="one">every day</item>
+        <item quantity="other">every %d days</item>
+    </plurals>
+    <plurals name="client_every_weeks">
+        <item quantity="one">every week</item>
+        <item quantity="other">every %d weeks</item>
+    </plurals>
+    <plurals name="client_every_months">
+        <item quantity="one">every month</item>
+        <item quantity="other">every %d months</item>
+    </plurals>
+    <plurals name="client_every_years">
+        <item quantity="one">every year</item>
+        <item quantity="other">every %d years</item>
+    </plurals>
 </resources>

@@ -14,10 +14,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -48,6 +50,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
+import com.northphoenix.hairdresserclientmanager.domain.CalendarWeek
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
@@ -76,6 +79,9 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit)
     val today by viewModel.today.collectAsStateWithLifecycle()
     val weekStart = remember(selected, locale) { selected.with(WeekFields.of(locale).dayOfWeek(), 1) }
     var showDatePicker by rememberSaveable { mutableStateOf(false) }
+    // The days of the strip's week that have Appointments. Another week is another read: a day of the same week is not.
+    val marked by remember(viewModel, weekStart) { viewModel.calendarWeekMarks(weekStart) }.collectAsStateWithLifecycle(emptySet())
+    val hasAppointments = stringResource(R.string.calendar_day_has_appointments)
 
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -108,7 +114,7 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit)
                 // The week has the row to itself: seven days that are each wide enough to tap take all of it,
                 // and on a narrow phone some of the list's side padding as well.
                 BoxWithConstraints(Modifier.padding(top = 6.dp).widenedTo(DayCellMinWidth * 7, into = ScreenPadding)) {
-                    val days = (0L..6L).map(weekStart::plusDays)
+                    val days = CalendarWeek.days(weekStart)
                     val weekdays = days.map(format::shortWeekday)
                     val numbers = days.map { it.dayOfMonth.toString() }
                     // All seven in one size, in which the widest of them is whole.
@@ -123,8 +129,9 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit)
                                 weekdayStyle = weekdayStyle,
                                 dayOfMonth = numbers[index],
                                 numberStyle = numberStyle,
-                                description = format.longDay(day),
+                                description = format.longDay(day) + if (day in marked) ", $hasAppointments" else "",
                                 selected = day == selected,
+                                marked = day in marked,
                                 today = day == today,
                                 onClick = { viewModel.setCalendarDate(day) },
                                 modifier = Modifier.weight(1f),
@@ -173,6 +180,9 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit)
 /** The least a day of the week strip is wide where the screen has the room: the size of a touch target. */
 private val DayCellMinWidth = 48.dp
 
+/** The dot under the number of a day that has Appointments. */
+private val DayDotSize = 5.dp
+
 /** What is left clear between the drawn cells of two days. Their touch targets meet. */
 private val DayCellGap = 4.dp
 
@@ -210,6 +220,8 @@ private fun DayCell(
     description: String,
     selected: Boolean,
     today: Boolean,
+    /** Whether the day has an Appointment that is not canceled: a dot under its number. */
+    marked: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -244,6 +256,19 @@ private fun DayCell(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(dayOfMonth, style = numberStyle, color = content, maxLines = 1, softWrap = false)
+            // The place of the dot is there on every day, so that the strip does not change height when the marks arrive.
+            Box(
+                Modifier
+                    .size(DayDotSize)
+                    .clip(CircleShape)
+                    .background(
+                        when {
+                            !marked -> Color.Transparent
+                            selected -> content
+                            else -> MaterialTheme.colorScheme.primary
+                        },
+                    ),
+            )
         }
     }
 }

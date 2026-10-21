@@ -1,5 +1,6 @@
 package com.northphoenix.hairdresserclientmanager.ui.screens
 
+import android.net.Uri
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -60,6 +61,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.northphoenix.hairdresserclientmanager.R
+import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.ui.HcmSnackbarHost
 import com.northphoenix.hairdresserclientmanager.ui.components.Hairline
@@ -72,15 +74,32 @@ private object Routes {
     const val MAIN = "main"
     const val SERVICES = "services"
     const val APPOINTMENT = "appointment/{id}"
-    const val NEW_APPOINTMENT = "appointment-new?date={date}"
+    const val NEW_APPOINTMENT = "appointment-new?date={date}&client={client}&place={place}&address={address}"
+
+    /** The Client editor: a new Client without an id, an existing one with it. */
     const val CLIENT = "client?id={id}"
     const val CONTACT_IMPORT = "clients-import"
 
+    /** The Client Profile, read-only, with the way to the editor. */
+    const val CLIENT_PROFILE = "client-profile/{id}"
+
     fun appointment(id: String) = "appointment/$id"
 
-    fun newAppointment(date: LocalDate?) = "appointment-new" + (date?.let { "?date=$it" } ?: "")
+    /** [clientId], [place] and [address] are what "Book again" on a Client Profile opens the form with. */
+    fun newAppointment(date: LocalDate?, clientId: String? = null, place: LocationType? = null, address: String? = null): String {
+        val arguments = listOfNotNull(
+            date?.let { "date=$it" },
+            clientId?.let { "client=" + Uri.encode(it) },
+            place?.let { "place=" + it.name },
+            address?.let { "address=" + Uri.encode(it) },
+        )
+
+        return "appointment-new" + if (arguments.isEmpty()) "" else arguments.joinToString("&", prefix = "?")
+    }
 
     fun client(id: String?) = "client" + (id?.let { "?id=$it" } ?: "")
+
+    fun clientProfile(id: String) = "client-profile/$id"
 }
 
 private enum class MainTab(@StringRes val label: Int, val icon: ImageVector) {
@@ -142,16 +161,21 @@ fun MainNavigation(viewModel: AppViewModel) {
                 viewModel = viewModel,
                 appointmentId = entry.arguments?.getString("id").orEmpty(),
                 onBack = { navController.from(entry) { popBackStack() } },
-                onOpenClient = { navController.from(entry) { navigate(Routes.client(it)) } },
+                onOpenClient = { navController.from(entry) { navigate(Routes.clientProfile(it)) } },
             )
         }
         composable(
             Routes.NEW_APPOINTMENT,
-            arguments = listOf(navArgument("date") { type = NavType.StringType; nullable = true; defaultValue = null }),
+            arguments = listOf("date", "client", "place", "address").map { name ->
+                navArgument(name) { type = NavType.StringType; nullable = true; defaultValue = null }
+            },
         ) { entry ->
             NewAppointmentScreen(
                 viewModel = viewModel,
                 initialDate = entry.arguments?.getString("date")?.let { runCatching { LocalDate.parse(it) }.getOrNull() },
+                initialClientId = entry.arguments?.getString("client"),
+                initialLocationType = entry.arguments?.getString("place")?.let { place -> LocationType.entries.firstOrNull { it.name == place } },
+                initialAddress = entry.arguments?.getString("address"),
                 onBack = { navController.from(entry) { popBackStack() } },
                 onCreated = { appointment ->
                     navController.from(entry) {
@@ -172,6 +196,34 @@ fun MainNavigation(viewModel: AppViewModel) {
                 viewModel = viewModel,
                 clientId = entry.arguments?.getString("id"),
                 onBack = { navController.from(entry) { popBackStack() } },
+                onOpenAppointment = { id -> navController.from(entry) { navigate(Routes.appointment(id)) } },
+                // The Client Profile the editor was opened from has no Client left to show.
+                onDeleted = {
+                    navController.from(entry) {
+                        popBackStack()
+                        if (currentBackStackEntry?.destination?.route == Routes.CLIENT_PROFILE) {
+                            popBackStack()
+                        }
+                    }
+                },
+            )
+        }
+        composable(
+            Routes.CLIENT_PROFILE,
+            arguments = listOf(navArgument("id") { type = NavType.StringType }),
+        ) { entry ->
+            val clientId = entry.arguments?.getString("id").orEmpty()
+
+            ClientProfileScreen(
+                viewModel = viewModel,
+                clientId = clientId,
+                onBack = { navController.from(entry) { popBackStack() } },
+                onEdit = { navController.from(entry) { navigate(Routes.client(clientId)) } },
+                onBookAgain = { rebooking ->
+                    navController.from(entry) {
+                        navigate(Routes.newAppointment(null, clientId, rebooking?.locationType, rebooking?.address))
+                    }
+                },
                 onOpenAppointment = { id -> navController.from(entry) { navigate(Routes.appointment(id)) } },
             )
         }
@@ -246,7 +298,7 @@ private fun MainScreen(viewModel: AppViewModel, open: (route: String) -> Unit) {
                 when (tab) {
                     MainTab.TODAY -> TodayScreen(viewModel, openAppointment)
                     MainTab.CALENDAR -> CalendarScreen(viewModel, openAppointment)
-                    MainTab.CLIENTS -> ClientsScreen(viewModel, onOpenClient = { open(Routes.client(it)) }, onImport = { open(Routes.CONTACT_IMPORT) })
+                    MainTab.CLIENTS -> ClientsScreen(viewModel, onOpenClient = { open(Routes.clientProfile(it)) }, onImport = { open(Routes.CONTACT_IMPORT) })
                     MainTab.PROFILE -> ProfileScreen(viewModel, onOpenServiceMenu = { open(Routes.SERVICES) })
                 }
             }

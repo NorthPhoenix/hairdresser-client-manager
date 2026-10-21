@@ -576,10 +576,29 @@ class DomainTest {
     fun `a reminder is offered only for a scheduled Appointment`() {
         fun offered(status: AppointmentStatus) = ClientReminder.isOffered(
             Appointment(id = "a", primaryClientId = "c", primaryClientName = "Rita", startsAt = "2026-10-09T09:00:00.000Z", status = status, locationType = LocationType.IN_SALON),
+            now = Instant.parse("2026-10-08T12:00:00Z"),
         )
 
         // Its text says "your appointment is scheduled for", which no other status makes true.
         assertEquals(listOf(AppointmentStatus.SCHEDULED), AppointmentStatus.entries.filter(::offered))
+    }
+
+    @Test
+    fun `a reminder is offered only until the Appointment starts`() {
+        val appointment = Appointment(
+            id = "a",
+            primaryClientId = "c",
+            primaryClientName = "Rita",
+            startsAt = "2026-10-09T09:00:00.000Z",
+            status = AppointmentStatus.SCHEDULED,
+            locationType = LocationType.IN_SALON,
+        )
+        val start = Instant.parse(appointment.startsAt)
+
+        assertTrue(ClientReminder.isOffered(appointment, start.minusSeconds(60)))
+        assertFalse(ClientReminder.isOffered(appointment, start))
+        // Started a minute ago, and still Scheduled until the Stylist marks an outcome: too late to remind.
+        assertFalse(ClientReminder.isOffered(appointment, start.plusSeconds(60)))
     }
 
     @Test

@@ -267,6 +267,12 @@ data class ClientHistoryEntry(
     val primaryClientName: String,
     val startsAt: String,
     val status: AppointmentStatus,
+    /** Null from a server that does not say (an older one). */
+    val primaryClientId: String? = null,
+    /** Where it was, as on [Appointment]. Null from a server that does not say (an older one). */
+    val locationType: LocationType? = null,
+    val locationAddress: String = "",
+    val customLocationAddress: String = "",
     val services: List<AppointmentService> = emptyList(),
     val photos: List<AppointmentPhoto> = emptyList(),
 )

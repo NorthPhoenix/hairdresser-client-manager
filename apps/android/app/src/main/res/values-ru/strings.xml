@@ -13,6 +13,7 @@
     <string name="add_appointment_service">Добавить услугу</string>
     <string name="add_client_to_appointment">Добавить клиента</string>
     <string name="add_color_formula">Добавить формулу</string>
+    <string name="add_color_formula_quiet">+ формула</string>
     <string name="add_services_pick">Выберите услуги</string>
     <string name="add_services_title">Добавить услуги</string>
     <string name="add_photo_from_camera">Камера</string>
@@ -91,6 +92,7 @@
     <string name="back">Назад</string>
     <string name="calendar_empty_body">На этот день записей нет.</string>
     <string name="calendar_title">Календарь</string>
+    <string name="calendar_day_has_appointments">есть записи</string>
     <string name="cancel">Отмена</string>
     <string name="choose_client">Выбрать клиента</string>
     <string name="clear">Сбросить</string>
@@ -227,13 +229,15 @@
     <string name="optional">Необязательно</string>
     <string name="optional_setup_body">Google Календарь, напоминания мастеру и меню услуг можно настроить позже.</string>
     <string name="optional_setup_title">Можно настроить позже</string>
-    <string name="placeholder_account_first_name">Мария</string>
-    <string name="placeholder_account_last_name">Иванова</string>
-    <string name="placeholder_address">ул. Садовая, 12</string>
-    <string name="placeholder_client_name">Анна Петрова</string>
-    <string name="placeholder_client_note">Любит мягкие слои.</string>
-    <string name="placeholder_formula_placement">Корни</string>
-    <string name="placeholder_service_name">Стрижка</string>
+    <string name="placeholder_account_first_name">Например: Мария</string>
+    <string name="placeholder_account_last_name">Например: Иванова</string>
+    <string name="placeholder_address">Улица и дом, город</string>
+    <string name="placeholder_client_name">Имя и фамилия</string>
+    <string name="placeholder_client_note">Например: любит мягкие слои, аллергия на аммиак</string>
+    <string name="placeholder_formula_text">Например: 7N + 20 vol</string>
+    <string name="placeholder_client_phone">Например: +1 512 555 0100</string>
+    <string name="placeholder_formula_placement">Например: корни</string>
+    <string name="placeholder_service_name">Например: стрижка</string>
     <string name="previous_day">Предыдущий день</string>
     <string name="previous_month">Предыдущий месяц</string>
     <string name="primary_badge">Основной</string>
@@ -435,4 +439,68 @@
     <string name="travel_fee_put_back">Вернуть</string>
     <string name="travel_fee_remove">Убрать</string>
     <string name="travel_fee_removed">Убран «%1$s»</string>
+    <string name="calls_unavailable">На устройстве нет приложения для звонков.</string>
+    <string name="client_book_again">Записать снова</string>
+    <string name="client_call">Позвонить</string>
+    <string name="client_edit_action">Изменить</string>
+    <string name="client_edit_title">Изменить клиента</string>
+    <string name="client_map">Карта</string>
+    <string name="client_next_appointment">Следующая запись</string>
+    <string name="client_not_given">Не указан</string>
+    <string name="client_sms">SMS</string>
+    <string name="client_stat_last_visit">Последний визит</string>
+    <string name="client_stat_no_visits">Ещё не было</string>
+    <string name="client_stat_today">Сегодня</string>
+    <string name="client_stat_usually">Обычно</string>
+    <string name="client_stat_visits">Визитов</string>
+    <string name="client_stat_yesterday">Вчера</string>
+    <string name="map_unavailable">На устройстве нет приложения с картами.</string>
+    <plurals name="client_ago_days">
+        <item quantity="one">%d день назад</item>
+        <item quantity="few">%d дня назад</item>
+        <item quantity="many">%d дней назад</item>
+        <item quantity="other">%d дня назад</item>
+    </plurals>
+    <plurals name="client_ago_weeks">
+        <item quantity="one">%d неделю назад</item>
+        <item quantity="few">%d недели назад</item>
+        <item quantity="many">%d недель назад</item>
+        <item quantity="other">%d недели назад</item>
+    </plurals>
+    <plurals name="client_ago_months">
+        <item quantity="one">%d месяц назад</item>
+        <item quantity="few">%d месяца назад</item>
+        <item quantity="many">%d месяцев назад</item>
+        <item quantity="other">%d месяца назад</item>
+    </plurals>
+    <plurals name="client_ago_years">
+        <item quantity="one">%d год назад</item>
+        <item quantity="few">%d года назад</item>
+        <item quantity="many">%d лет назад</item>
+        <item quantity="other">%d года назад</item>
+    </plurals>
+    <plurals name="client_every_days">
+        <item quantity="one">раз в %d день</item>
+        <item quantity="few">раз в %d дня</item>
+        <item quantity="many">раз в %d дней</item>
+        <item quantity="other">раз в %d дня</item>
+    </plurals>
+    <plurals name="client_every_weeks">
+        <item quantity="one">раз в %d неделю</item>
+        <item quantity="few">раз в %d недели</item>
+        <item quantity="many">раз в %d недель</item>
+        <item quantity="other">раз в %d недели</item>
+    </plurals>
+    <plurals name="client_every_months">
+        <item quantity="one">раз в %d месяц</item>
+        <item quantity="few">раз в %d месяца</item>
+        <item quantity="many">раз в %d месяцев</item>
+        <item quantity="other">раз в %d месяца</item>
+    </plurals>
+    <plurals name="client_every_years">
+        <item quantity="one">раз в %d год</item>
+        <item quantity="few">раз в %d года</item>
+        <item quantity="many">раз в %d лет</item>
+        <item quantity="other">раз в %d года</item>
+    </plurals>
 </resources>

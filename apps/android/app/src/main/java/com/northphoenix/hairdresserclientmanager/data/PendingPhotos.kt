@@ -4,9 +4,19 @@ import kotlinx.serialization.Serializable
 import java.io.File
 import java.io.IOException
 
-/** A picture in photo storage, as the upload answered. It is what `appointment.addPhoto` records. */
+/**
+ * A picture in photo storage, as the upload answered. It is what `appointment.addPhoto` records,
+ * together with the size of the picture that was uploaded, when the app could read it: null in a
+ * record written before the app read it.
+ */
 @Serializable
-data class StoredFile(val fileKey: String, val url: String, val thumbnailUrl: String)
+data class StoredFile(
+    val fileKey: String,
+    val url: String,
+    val thumbnailUrl: String,
+    val width: Int? = null,
+    val height: Int? = null,
+)
 
 /**
  * An Appointment Photo on its way to the server. The prepared picture waits in the app's own
