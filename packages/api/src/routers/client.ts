@@ -3,6 +3,7 @@ import { z } from "zod";
 import { addedOrder } from "../addedOrder";
 import { getClientAddress, getPrimaryClientChange, hasCustomAddress } from "../appointmentLocation";
 import type { Db } from "../context";
+import { dissolveIfAlone, leaveFamily, storedRole } from "../family";
 import {
   emailText,
   expectedUpdatedAt,
@@ -49,6 +50,27 @@ const clientDeleteInput = z.object({
 const clientMergeInput = z.object({
   keepId: z.string(),
   removeId: z.string()
+});
+
+// A Client, for what is read or changed of their Family.
+const clientFamilyInput = z.object({
+  clientId: z.string()
+});
+
+// A role in a Family as the Stylist typed it, such as "сын"; empty for none.
+const familyRole = oneLineText(textLimits.familyRole);
+
+// [memberId] joins the Family of [clientId]; see addFamilyMember. [role] is the member's role:
+// not stated, a member who is in the Family already keeps theirs.
+const addFamilyMemberInput = z.object({
+  clientId: z.string(),
+  memberId: z.string(),
+  role: familyRole.optional()
+});
+
+const setFamilyRoleInput = z.object({
+  clientId: z.string(),
+  role: familyRole
 });
 
 // Two Clients of the Stylist who are different people although their phone numbers match.
@@ -153,6 +175,8 @@ function toClientOutput(client: {
   note: string | null;
   referredById?: string | null;
   referredBy?: { name: string } | null;
+  familyId?: string | null;
+  familyRole?: string | null;
   createdAt: Date;
   updatedAt: Date;
   profileShares?: ProfileShareRow[];
@@ -177,6 +201,9 @@ function toClientOutput(client: {
     // Who recommended the Client, by id and by name (null: nobody).
     referredById: client.referredById ?? null,
     referredByName: client.referredById ? client.referredBy?.name ?? null : null,
+    // The Family the Client is in (null: none), and their role in it (empty: none).
+    familyId: client.familyId ?? null,
+    familyRole: client.familyId ? client.familyRole ?? "" : "",
     createdAt: client.createdAt.toISOString(),
     updatedAt: client.updatedAt.toISOString(),
     activeProfileShare: activeShare ? toProfileShareOutput(activeShare) : null,
@@ -319,24 +346,73 @@ async function addDistinctPair(db: Db, stylistId: string, clientId: string, othe
   }
 }
 
+/** What the list states of a Client, also with what a save does not answer. */
+const listedClient = {
+  profileShares: activeProfileShare,
+  referredBy: {
+    select: {
+      name: true
+    }
+  },
+  ...distinctPairs
+} as const;
+
 /** The kept Client of a merge as the list states a Client. */
 async function loadMergedClient(db: Db, id: string) {
   const client = await db.client.findUniqueOrThrow({
     where: {
       id
     },
-    include: {
-      profileShares: activeProfileShare,
-      referredBy: {
-        select: {
-          name: true
-        }
-      },
-      ...distinctPairs
-    }
+    include: listedClient
   });
 
   return toClientOutput(client);
+}
+
+/**
+ * The answer to a change of a Family: the Family [clientId] is in now (null: none), and every
+ * Client the change touched, [clientId] always among them, as the list states a Client.
+ */
+async function familyChange(db: Db, stylistId: string, clientId: string, changedIds: string[]) {
+  const ids = [...new Set([clientId, ...changedIds])];
+  const clients = await db.client.findMany({
+    where: {
+      id: {
+        in: ids
+      },
+      stylistId
+    },
+    include: listedClient
+  });
+
+  return {
+    familyId: clients.find((client) => client.id === clientId)?.familyId ?? null,
+    clients: clients.map(toClientOutput)
+  };
+}
+
+/** A Client of the Stylist with their Family, or NOT_FOUND. */
+async function findFamilyClient(db: Db, stylistId: string, id: string) {
+  const client = await db.client.findFirst({
+    where: {
+      id,
+      stylistId
+    },
+    select: {
+      id: true,
+      familyId: true,
+      familyRole: true
+    }
+  });
+
+  if (!client) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Client not found."
+    });
+  }
+
+  return client;
 }
 
 export const clientRouter = createTRPCRouter({
@@ -366,18 +442,60 @@ export const clientRouter = createTRPCRouter({
       orderBy: {
         updatedAt: "desc"
       },
-      include: {
-        profileShares: activeProfileShare,
-        referredBy: {
-          select: {
-            name: true
-          }
-        },
-        ...distinctPairs
-      }
+      include: listedClient
     });
 
     return clients.map(toClientOutput);
+  }),
+  // The Family of a Client, every Client in it with their role and their number of visits
+  // (Completed Appointments), the Client themselves too, oldest Client first. No Family: no one.
+  family: stylistProcedure.input(clientFamilyInput).query(async ({ ctx, input }) => {
+    const client = await findFamilyClient(ctx.db, ctx.stylist.id, input.clientId);
+
+    if (!client.familyId) {
+      return {
+        familyId: null,
+        members: []
+      };
+    }
+
+    const members = await ctx.db.client.findMany({
+      where: {
+        stylistId: ctx.stylist.id,
+        familyId: client.familyId
+      },
+      select: {
+        id: true,
+        name: true,
+        familyRole: true
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }]
+    });
+    const visits = await ctx.db.appointmentParticipant.groupBy({
+      by: ["clientId"],
+      where: {
+        clientId: {
+          in: members.map((member) => member.id)
+        },
+        appointment: {
+          stylistId: ctx.stylist.id,
+          status: "completed"
+        }
+      },
+      _count: {
+        _all: true
+      }
+    });
+
+    return {
+      familyId: client.familyId,
+      members: members.map((member) => ({
+        id: member.id,
+        name: member.name,
+        role: member.familyRole ?? "",
+        visits: visits.find((row) => row.clientId === member.id)?._count._all ?? 0
+      }))
+    };
   }),
   appointmentHistory: stylistProcedure.input(clientAppointmentHistoryInput).query(async ({ ctx, input }) => {
     const appointments = await ctx.db.appointment.findMany({
@@ -704,6 +822,133 @@ export const clientRouter = createTRPCRouter({
       svg: await buildShareImage(content, input.language, ctx.readSharePhoto)
     };
   }),
+  // Puts [memberId] in one Family with [clientId]: in the Family of [clientId], or else in the
+  // one [memberId] is in, or else in a new one. A member who was in another Family leaves it (and
+  // a Family that would keep one Client is deleted). The same call sent again changes nothing.
+  addFamilyMember: stylistTransactionProcedure.input(addFamilyMemberInput).mutation(async ({ ctx, input }) => {
+    if (input.clientId === input.memberId) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "A Client cannot be in a family with themselves."
+      });
+    }
+
+    const stylistId = ctx.stylist.id;
+    const client = await findFamilyClient(ctx.db, stylistId, input.clientId);
+    const member = await findFamilyClient(ctx.db, stylistId, input.memberId);
+    const role = input.role === undefined ? undefined : storedRole(input.role);
+    const changed: string[] = [];
+
+    if (client.familyId && member.familyId === client.familyId) {
+      if (role !== undefined && storedRole(member.familyRole) !== role) {
+        await ctx.db.client.update({
+          where: {
+            id: member.id
+          },
+          data: {
+            familyRole: role
+          }
+        });
+        changed.push(member.id);
+      }
+    } else if (client.familyId) {
+      changed.push(...(await leaveFamily(ctx.db, stylistId, member)));
+      await ctx.db.client.update({
+        where: {
+          id: member.id
+        },
+        data: {
+          familyId: client.familyId,
+          familyRole: role ?? null
+        }
+      });
+      changed.push(member.id);
+    } else if (member.familyId) {
+      await ctx.db.client.update({
+        where: {
+          id: client.id
+        },
+        data: {
+          familyId: member.familyId,
+          familyRole: null
+        }
+      });
+      changed.push(client.id);
+
+      if (role !== undefined && storedRole(member.familyRole) !== role) {
+        await ctx.db.client.update({
+          where: {
+            id: member.id
+          },
+          data: {
+            familyRole: role
+          }
+        });
+        changed.push(member.id);
+      }
+    } else {
+      const family = await ctx.db.family.create({
+        data: {
+          stylistId
+        }
+      });
+
+      await ctx.db.client.update({
+        where: {
+          id: client.id
+        },
+        data: {
+          familyId: family.id,
+          familyRole: null
+        }
+      });
+      await ctx.db.client.update({
+        where: {
+          id: member.id
+        },
+        data: {
+          familyId: family.id,
+          familyRole: role ?? null
+        }
+      });
+      changed.push(client.id, member.id);
+    }
+
+    return familyChange(ctx.db, stylistId, input.clientId, [member.id, ...changed]);
+  }),
+  // A Client's role in their Family ("сын", "мама"); empty for none.
+  setFamilyRole: stylistTransactionProcedure.input(setFamilyRoleInput).mutation(async ({ ctx, input }) => {
+    const client = await findFamilyClient(ctx.db, ctx.stylist.id, input.clientId);
+
+    if (!client.familyId) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Family not found."
+      });
+    }
+
+    const role = storedRole(input.role);
+
+    if (storedRole(client.familyRole) !== role) {
+      await ctx.db.client.update({
+        where: {
+          id: client.id
+        },
+        data: {
+          familyRole: role
+        }
+      });
+    }
+
+    return familyChange(ctx.db, ctx.stylist.id, client.id, []);
+  }),
+  // Takes a Client out of their Family. When only one Client would be left in it, the Family is
+  // deleted. A Client who is in no Family stays so.
+  leaveFamily: stylistTransactionProcedure.input(clientFamilyInput).mutation(async ({ ctx, input }) => {
+    const client = await findFamilyClient(ctx.db, ctx.stylist.id, input.clientId);
+
+    return familyChange(ctx.db, ctx.stylist.id, client.id, await leaveFamily(ctx.db, ctx.stylist.id, client));
+  }),
   // The Stylist says two Clients whose phone numbers match are different people: the app stops
   // offering to merge them. Saying it again changes nothing.
   markDistinct: stylistTransactionProcedure.input(clientDistinctInput).mutation(async ({ ctx, input }) => {
@@ -816,9 +1061,27 @@ export const clientRouter = createTRPCRouter({
         email: filled(kept.email, removed.email),
         address: filled(kept.address, removed.address),
         note,
-        referredById: mergedReferrer(kept, removed)
+        referredById: mergedReferrer(kept, removed),
+        // The kept Client is in the removed Client's Family when they are in none, with that role.
+        ...(!kept.familyId && removed.familyId ? { familyId: removed.familyId, familyRole: removed.familyRole } : {}),
+        ...(kept.familyId && removed.familyId && !storedRole(kept.familyRole) && removed.familyRole
+          ? { familyRole: removed.familyRole }
+          : {})
       }
     });
+
+    // One person in two Families makes them one: the removed Client's goes into the kept Client's.
+    if (kept.familyId && removed.familyId && kept.familyId !== removed.familyId) {
+      await ctx.db.client.updateMany({
+        where: {
+          stylistId: ctx.stylist.id,
+          familyId: removed.familyId
+        },
+        data: {
+          familyId: kept.familyId
+        }
+      });
+    }
 
     // Everyone the removed Client recommended is now recommended by the kept Client, who
     // is never recommended by themselves. Before the delete, which would clear these links.
@@ -1015,6 +1278,8 @@ export const clientRouter = createTRPCRouter({
         id: removed.id
       }
     });
+    // A Family the removed Client leaves is never left with one Client, nor with none.
+    await dissolveIfAlone(ctx.db, ctx.stylist.id, removed.familyId);
 
     return {
       client: await loadMergedClient(ctx.db, kept.id),
@@ -1023,6 +1288,16 @@ export const clientRouter = createTRPCRouter({
     };
   }),
   delete: stylistTransactionProcedure.input(clientDeleteInput).mutation(async ({ ctx, input }) => {
+    const deleted = await ctx.db.client.findFirst({
+      where: {
+        id: input.id,
+        stylistId: ctx.stylist.id
+      },
+      select: {
+        familyId: true
+      }
+    });
+
     // The Client's Appointment Photos go with the Client, and their stored files with them. An
     // Appointment that is deleted below has no other Client, so it has no other Client's photos.
     const photos = await ctx.db.appointmentPhoto.findMany({
@@ -1103,6 +1378,8 @@ export const clientRouter = createTRPCRouter({
         stylistId: ctx.stylist.id
       }
     });
+    // The Family of the deleted Client is never left with one Client.
+    await dissolveIfAlone(ctx.db, ctx.stylist.id, deleted?.familyId);
     await markFilesUnused(ctx, photos);
 
     return {
