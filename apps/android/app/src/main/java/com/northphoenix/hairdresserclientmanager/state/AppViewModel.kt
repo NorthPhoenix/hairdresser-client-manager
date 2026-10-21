@@ -1438,8 +1438,44 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             photos.removeAll { it.appointmentId == id }
         }
 
-    fun addParticipant(appointmentId: String, clientId: String) =
-        actOnAppointment(appointmentId, clientsChangeKey(appointmentId)) { api.addParticipant(appointmentId, clientId) }
+    fun addParticipant(appointmentId: String, clientId: String, onSuccess: () -> Unit = {}) =
+        actOnAppointment(appointmentId, clientsChangeKey(appointmentId), onSuccess = onSuccess) { api.addParticipant(appointmentId, clientId) }
+
+    /**
+     * Adds a new Client to an Appointment, a minimal one made from just [name], as Appointment
+     * Creation makes one inline: in the Stylist's language and with nothing else filled in.
+     * [onSuccess] gets the new Client's id.
+     *
+     * Two requests, each safe to send again: the Client is created under [requestKey], which the
+     * caller keeps for as long as it retries this one, and adding a Client who is in the Appointment
+     * already adds nobody. So when the Client was created and the add failed, the next try finds
+     * that Client and adds them, and no second Client of the same name is made.
+     */
+    fun addNewParticipant(appointmentId: String, name: String, requestKey: String, onSuccess: (String) -> Unit) {
+        var created = false
+
+        actions.run(
+            key = clientsChangeKey(appointmentId),
+            change = {
+                marking({
+                    readChanges.changed(appointmentId)
+                    clientReads.changed(null)
+                }) {
+                    val client = api.saveClient(null, OneLine.clean(name), stylist.value?.language ?: Language.RU, "", "", "", "", null, requestKey)
+
+                    // In the Client list and in every picker now, before the reload.
+                    clientReads.saved(client)
+                    created = true
+                    api.addParticipant(appointmentId, client.id)
+                    client.id
+                }
+            },
+            reload = { together({ reloadAppointmentAndLists(appointmentId) }, { loadClients() }) },
+            // A Client who was created and not added is in the Clients list all the same.
+            savedInPart = { created },
+            onSaved = onSuccess,
+        )
+    }
 
     fun removeParticipant(appointmentId: String, clientId: String) {
         // As the server does for the photos it has: the Stylist deals with them first, so none is dropped without a word.
