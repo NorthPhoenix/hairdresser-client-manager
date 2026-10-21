@@ -505,6 +505,20 @@ class ClientReadsTest {
     }
 
     @Test
+    fun `a saved Service Menu Item keeps how often it was used and how often with a Color Formula`() = runTest {
+        val used = cut.copy(useCount = 5, formulaCount = 2)
+        val server = Server().apply { menu = listOf(used, color) }
+        val reads = menuReads(server)
+        reads.menu.watch(stylist).let { shownBy(it) }
+        runCurrent()
+
+        // The reply of a save does not carry the counts: they stay as the list said.
+        reads.saved(cut.copy(defaultPriceCents = 4_500))
+
+        assertEquals(used.copy(defaultPriceCents = 4_500), reads.menu.shown(stylist)?.data?.first())
+    }
+
+    @Test
     fun `an item saved as the Travel Fee is the only one in the menu at once`() = runTest {
         val server = Server().apply { menu = listOf(cut.copy(travelFee = true), color) }
         val reads = menuReads(server)

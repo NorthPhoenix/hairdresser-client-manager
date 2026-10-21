@@ -166,6 +166,9 @@ class HcmApi(private val trpc: TrpcClient) {
 
     suspend fun listServiceMenu(): List<ServiceMenuItem> = trpc.query("serviceMenu.list")
 
+    /** The names, as typed, of the Services that have a Color Formula, each once. */
+    suspend fun listFormulaNames(): List<String> = trpc.query("serviceMenu.formulaNames")
+
     /**
      * Saves the whole editor of a Service Menu Item: an empty group clears it, and marking it the
      * Travel Fee unmarks any other item. [requestKey] names

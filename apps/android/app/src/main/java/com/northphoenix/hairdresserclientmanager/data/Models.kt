@@ -158,6 +158,8 @@ data class ServiceMenuItem(
     val group: String? = null,
     /** How many Services were started from this item. Only the menu's list says; a saved item does not. */
     val useCount: Int = 0,
+    /** How many of those Services have a Color Formula. Only the menu's list says; a saved item does not. */
+    val formulaCount: Int = 0,
     /** Whether this is the Travel Fee: added by itself to a Scheduled Appointment at home. At most one item is. */
     val travelFee: Boolean = false,
 )
