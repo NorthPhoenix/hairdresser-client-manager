@@ -163,7 +163,7 @@ fun ServiceMenuScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                 price,
                 { price = it },
                 label = stringResource(R.string.service_menu_price_label),
-                placeholder = "85.00",
+                placeholder = "0.00",
                 refusal = Money.parse(price).takeIf { price == refusedPrice },
             )
             TravelFeeField(travelFee, { travelFee = it }, replaces = items.firstOrNull { it.travelFee && it.id != editedId }?.takeIf { travelFee })
