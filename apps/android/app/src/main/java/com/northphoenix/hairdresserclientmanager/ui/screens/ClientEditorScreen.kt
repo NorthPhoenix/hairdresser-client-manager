@@ -367,18 +367,7 @@ fun ClientEditorScreen(
                         Text(stringResource(R.string.client_language_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         SegmentedControl(Language.entries, language, { language = it }, label = { stringResource(it.label) })
                     }
-                    HcmTextField(phone, { phone = it }, label = stringResource(R.string.client_phone_label), placeholder = "+1 555 0100", keyboardType = KeyboardType.Phone, maxLength = TextLimits.PHONE)
-                    HcmTextField(
-                        email,
-                        { email = it },
-                        label = stringResource(R.string.client_email_label),
-                        placeholder = "client@example.com",
-                        keyboardType = KeyboardType.Email,
-                        capitalization = KeyboardCapitalization.None,
-                        error = stringResource(R.string.client_email_invalid).takeIf { email == refusedEmail },
-                        errorAttempt = emailRefusals,
-                        maxLength = TextLimits.EMAIL,
-                    )
+                    HcmTextField(phone, { phone = it }, label = stringResource(R.string.client_phone_label), placeholder = stringResource(R.string.placeholder_client_phone), keyboardType = KeyboardType.Phone, maxLength = TextLimits.PHONE)
                     HcmTextField(
                         address,
                         { address = it },
@@ -390,6 +379,18 @@ fun ClientEditorScreen(
                         maxLength = TextLimits.ADDRESS,
                     )
                     HcmTextField(note, { note = it }, label = stringResource(R.string.client_note_label), placeholder = stringResource(R.string.placeholder_client_note), singleLine = false, minLines = 3, maxLength = TextLimits.NOTE)
+                    // Hardly any Client has an email address, so it comes last.
+                    HcmTextField(
+                        email,
+                        { email = it },
+                        label = stringResource(R.string.client_email_label),
+                        placeholder = stringResource(R.string.optional),
+                        keyboardType = KeyboardType.Email,
+                        capitalization = KeyboardCapitalization.None,
+                        error = stringResource(R.string.client_email_invalid).takeIf { email == refusedEmail },
+                        errorAttempt = emailRefusals,
+                        maxLength = TextLimits.EMAIL,
+                    )
                 }
             }
 

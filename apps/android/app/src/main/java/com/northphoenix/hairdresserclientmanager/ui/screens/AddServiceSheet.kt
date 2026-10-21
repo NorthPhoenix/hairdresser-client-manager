@@ -161,7 +161,7 @@ internal fun AddServiceSheet(
                 price,
                 { price = it },
                 label = stringResource(R.string.appointment_service_price_label),
-                placeholder = "85.00",
+                placeholder = "0.00",
                 refusal = Money.parse(price).takeIf { price == refusedPrice },
             )
             HcmTextField(note, { note = it }, label = stringResource(R.string.appointment_service_note_label), placeholder = stringResource(R.string.optional), singleLine = false, minLines = 2, maxLength = TextLimits.NOTE)

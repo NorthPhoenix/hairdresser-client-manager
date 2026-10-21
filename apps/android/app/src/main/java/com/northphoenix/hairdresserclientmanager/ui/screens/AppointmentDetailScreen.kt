@@ -1367,7 +1367,7 @@ private fun EditServiceSheet(
             price,
             { price = it },
             label = stringResource(R.string.appointment_service_price_label),
-            placeholder = "85.00",
+            placeholder = "0.00",
             refusal = Money.parse(price).takeIf { price == refusedPrice },
         )
         HcmTextField(note, { note = it }, label = stringResource(R.string.appointment_service_note_label), placeholder = stringResource(R.string.optional), singleLine = false, minLines = 2, maxLength = TextLimits.NOTE)
@@ -1479,7 +1479,7 @@ private fun FormulaSheet(
     var confirmDelete by rememberSaveable(service.id, formula?.id) { mutableStateOf(false) }
 
     HcmBottomSheet(title = stringResource(R.string.color_formula_label), subtitle = service.name, onDismiss = onDismiss) {
-        HcmTextField(text, { text = it }, label = stringResource(R.string.color_formula_label), placeholder = "7N + 20 vol", singleLine = false, minLines = 2, maxLength = TextLimits.FORMULA)
+        HcmTextField(text, { text = it }, label = stringResource(R.string.color_formula_label), placeholder = stringResource(R.string.placeholder_formula_text), singleLine = false, minLines = 2, maxLength = TextLimits.FORMULA)
         HcmTextField(placement, { placement = it }, label = stringResource(R.string.color_formula_placement_label), placeholder = stringResource(R.string.placeholder_formula_placement), maxLength = TextLimits.PLACEMENT)
         PrimaryButton(
             stringResource(if (formula != null) R.string.save_color_formula else R.string.add_color_formula),
