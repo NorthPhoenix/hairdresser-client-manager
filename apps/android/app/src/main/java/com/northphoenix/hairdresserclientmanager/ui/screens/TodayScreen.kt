@@ -69,7 +69,8 @@ import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
  * Home View: today's Appointments plus past ones still marked scheduled, which need an outcome.
  * The card of a Scheduled Appointment whose start time has come offers its outcomes, and a day
  * with several unresolved Appointments can complete them all at once. Under them, tomorrow's
- * Scheduled Appointments, each with a one-tap Client Reminder.
+ * Scheduled Appointments, each with a one-tap Client Reminder. Above all of it, when there is one,
+ * a card about the app itself: what the last update changed, or a newer version.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -97,6 +98,8 @@ fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit) {
     val remindable = remember(tomorrows, now) { BatchReminders.remindable(tomorrows, now) }
     var remindingAll by rememberSaveable { mutableStateOf(false) }
     val unresolvedDays = remember(unresolved, format) { HomeOutcomes.byDay(unresolved, format.zone) }
+    // "What's new" after an update, or a newer version: one card at the top, never in the way.
+    val updateCard by viewModel.appUpdateCard.collectAsStateWithLifecycle()
 
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -110,6 +113,10 @@ fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit) {
                     kicker = format.longDay(today),
                     modifier = Modifier.padding(bottom = 10.dp),
                 )
+            }
+
+            updateCard?.let { card ->
+                item(key = "app-update") { AppUpdateHomeCard(card, viewModel, Modifier.animateItem()) }
             }
 
             when (val state = load) {

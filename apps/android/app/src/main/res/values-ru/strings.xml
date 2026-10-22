@@ -637,4 +637,20 @@
         <item quantity="many">%d записей</item>
         <item quantity="other">%d записи</item>
     </plurals>
+
+    <!-- Обновления приложения и «Что нового» (CONTEXT.md: App Update, Release Notes). Сами заметки приходят с сервера. -->
+    <string name="update_available_title">Вышла версия %1$s</string>
+    <string name="update_download">Обновить</string>
+    <string name="update_later">Позже</string>
+    <string name="release_notes_more">ещё…</string>
+    <string name="release_notes_less">Свернуть</string>
+    <string name="whats_new_title_one">Что нового в версии %1$s</string>
+    <string name="whats_new_title_range">Что нового в версиях %1$s–%2$s</string>
+    <string name="whats_new_got_it">Понятно</string>
+    <string name="whats_new_entry">Что нового</string>
+    <string name="app_version">Версия %1$s</string>
+    <string name="app_version_newer">Версия %1$s · вышла %2$s</string>
+    <string name="releases_installed">Установлена</string>
+    <string name="releases_new">Новая</string>
+    <string name="releases_update_to">Обновить до %1$s</string>
 </resources>

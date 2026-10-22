@@ -71,6 +71,30 @@ class ApiClientTest {
     }
 
     @Test
+    fun `every request names the app's version, and the releases are read with no input but an empty one`() = runTest {
+        val versioned = HcmApi(TrpcClient(server.url("/api/trpc").toString(), http, TrpcClient.versionHeaders(6, "1.4.0")) { "token-1" })
+
+        enqueue("""{"result":{"data":{"latest":{"versionCode":7,"versionName":"1.5.0","date":"2026-11-02"},"downloadUrl":"https://example.com/a.apk","releases":[{"versionCode":7,"versionName":"1.5.0","date":"2026-11-02","notes":{"ru":["Новое"],"en":["New"]}}]}}}""")
+
+        val releases = versioned.appReleases()
+        val request = server.takeRequest()
+
+        assertEquals("/api/trpc/app.releases", request.url.encodedPath)
+        assertEquals("{}", request.url.queryParameter("input"))
+        assertEquals("6", request.headers["X-App-Version-Code"])
+        assertEquals("1.4.0", request.headers["X-App-Version-Name"])
+        assertEquals("Bearer token-1", request.headers["Authorization"])
+        assertEquals(7, releases.latest.versionCode)
+        assertEquals("https://example.com/a.apk", releases.downloadUrl)
+        assertEquals(listOf("Новое"), releases.releases.single().notes.ru)
+
+        // A change names it too.
+        enqueue("""{"result":{"data":{"id":"s1","language":"en","timezone":"UTC","salonAddress":""}}}""")
+        versioned.saveSettings(Language.EN, "UTC", "", loadedUpdatedAt = null)
+        assertEquals("6", server.takeRequest().headers["X-App-Version-Code"])
+    }
+
+    @Test
     fun `the server says whether it has photo storage, and one that does not say has it`() = runTest {
         fun settings(more: String) = """{"result":{"data":{"id":"s1","language":"en","timezone":"UTC","salonAddress":""$more}}}"""
 

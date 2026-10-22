@@ -1,5 +1,6 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { recordAppVersion } from "./appReleases";
 import type { TRPCContext } from "./context";
 import { timezoneText } from "./input";
 import { deleteUnusedFiles } from "./photoStorage";
@@ -121,6 +122,9 @@ export const stylistProcedure = protectedProcedure.use(async ({ ctx, getRawInput
       cause: deviceDefaults.error
     });
   }
+
+  // Which app the Stylist uses, for the maintainer; at most about once an hour per Stylist.
+  await recordAppVersion(ctx.db, stylist, ctx.appVersion ?? null);
 
   return next({
     ctx: {

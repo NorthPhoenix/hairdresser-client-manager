@@ -22,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ContentCut
 import androidx.compose.material.icons.rounded.Insights
@@ -241,9 +242,9 @@ fun OnboardingScreen(viewModel: AppViewModel, stylist: Stylist) {
     }
 }
 
-/** Profile tab: account, Stylist settings and the Service Menu entry point. */
+/** Profile tab: account, Stylist settings, the Service Menu entry point, and the app's version with what changed in it. */
 @Composable
-fun ProfileScreen(viewModel: AppViewModel, onOpenServiceMenu: () -> Unit, onOpenEarnings: () -> Unit) {
+fun ProfileScreen(viewModel: AppViewModel, onOpenServiceMenu: () -> Unit, onOpenEarnings: () -> Unit, onOpenReleases: () -> Unit) {
     val stylist by viewModel.stylist.collectAsStateWithLifecycle()
     val authState by viewModel.authState.collectAsStateWithLifecycle()
     val menu by viewModel.serviceMenu.collectAsStateWithLifecycle()
@@ -251,6 +252,7 @@ fun ProfileScreen(viewModel: AppViewModel, onOpenServiceMenu: () -> Unit, onOpen
     val serviceMenuLoad = menu.state
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val accountName by viewModel.accountName.collectAsStateWithLifecycle()
+    val newerApp by viewModel.newerApp.collectAsStateWithLifecycle()
     val current = stylist ?: return
     val draft = rememberSettingsDraft(viewModel, current)
     val email = (authState as? AuthState.SignedIn)?.email.orEmpty()
@@ -382,6 +384,23 @@ fun ProfileScreen(viewModel: AppViewModel, onOpenServiceMenu: () -> Unit, onOpen
         accountName?.let { AccountNameCard(saved = it, busy = busy, onSave = viewModel::saveAccountName) }
 
         OptionalSetupNote()
+
+        // Last and small: which version this is, and what changed in it and before it.
+        HcmCard(onClick = onOpenReleases, contentPadding = PaddingValues(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(stringResource(R.string.whats_new_entry), style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        newerApp?.let { stringResource(R.string.app_version_newer, viewModel.appVersionName, it.versionName) }
+                            ?: stringResource(R.string.app_version, viewModel.appVersionName),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
+            }
+        }
     }
 }
 

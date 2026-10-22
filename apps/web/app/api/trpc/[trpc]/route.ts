@@ -1,6 +1,6 @@
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { auth } from "@clerk/nextjs/server";
-import { appRouter, createTRPCContext } from "@hcm/api";
+import { appRouter, appVersionFromHeaders, createTRPCContext } from "@hcm/api";
 import { UTApi } from "uploadthing/server";
 import { accountName, photoOrigins, readSharePhoto } from "../../../../server/profileShare";
 
@@ -32,7 +32,11 @@ function handler(request: Request) {
         photoOrigins,
         deleteStoredFiles,
         accountName: (clerkId) => accountName(clerkId, { fresh: true }),
-        readSharePhoto
+        readSharePhoto,
+        // Which Android app sent the request, so the server can tell which version a Stylist uses.
+        appVersion: appVersionFromHeaders(request.headers),
+        // The same address /download sends the browser to (next.config.mjs).
+        appDownloadUrl: process.env.APP_DOWNLOAD_URL
       }),
     // The reply to an unexpected failure says nothing about it, so the log has to.
     onError: ({ error, path }) => {

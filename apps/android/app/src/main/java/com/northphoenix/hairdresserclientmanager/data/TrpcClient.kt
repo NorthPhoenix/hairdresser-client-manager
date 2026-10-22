@@ -23,6 +23,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 class TrpcClient(
     private val baseUrl: String,
     http: OkHttpClient,
+    /** Sent with every request: the app's version (`X-App-Version-Code`, `X-App-Version-Name`), which the server keeps per Stylist. */
+    private val appHeaders: Map<String, String> = emptyMap(),
     private val tokenProvider: suspend () -> String?,
 ) {
     // A network interceptor runs once a connection exists, just before the request is written to it.
@@ -49,6 +51,7 @@ class TrpcClient(
             }.build()
             val sent = Sent()
             val request = Request.Builder().url(url).tag(Sent::class.java, sent).apply {
+                appHeaders.forEach { (name, value) -> header(name, value) }
                 tokenProvider()?.let { header("Authorization", "Bearer $it") }
                 if (isMutation) {
                     post((input?.toString() ?: "").toRequestBody(jsonMediaType))
@@ -109,6 +112,10 @@ class TrpcClient(
 
     companion object {
         private val jsonMediaType = "application/json".toMediaType()
+
+        /** The headers that name the app's version, which the server records per Stylist. */
+        fun versionHeaders(versionCode: Int, versionName: String): Map<String, String> =
+            mapOf("X-App-Version-Code" to versionCode.toString(), "X-App-Version-Name" to versionName)
 
         /** The code of an error that came without tRPC's own. */
         private const val UNCODED = "UNKNOWN"

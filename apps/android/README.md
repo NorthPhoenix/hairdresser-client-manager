@@ -52,7 +52,7 @@ hcm.release.keyPassword=...
 
 Keep the keystore outside the repository and back it up together with its password: Android only installs an update over an app that was signed with the same key.
 
-`./gradlew :app:assembleRelease` writes `app/build/outputs/apk/release/app-release.apk`. Raise `versionCode` in `app/build.gradle.kts` for every release that goes to a phone; Android refuses to install a lower one over a higher one.
+`./gradlew :app:assembleRelease` writes `app/build/outputs/apk/release/app-release.apk`. Raise `versionCode` in `app/build.gradle.kts` for every release that goes to a phone; Android refuses to install a lower one over a higher one. A release also adds its notes to `packages/api/src/releases.json`: see `docs/releasing.md`.
 
 ## Commands
 
