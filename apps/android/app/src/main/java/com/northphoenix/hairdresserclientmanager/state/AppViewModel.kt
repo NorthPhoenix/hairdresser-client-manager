@@ -58,6 +58,7 @@ import com.northphoenix.hairdresserclientmanager.domain.EarningsPeriod
 import com.northphoenix.hairdresserclientmanager.domain.ChangedElsewhere
 import com.northphoenix.hairdresserclientmanager.domain.HomeOutcomes
 import com.northphoenix.hairdresserclientmanager.domain.ImportCandidate
+import com.northphoenix.hairdresserclientmanager.domain.ImportedContact
 import com.northphoenix.hairdresserclientmanager.domain.MenuItemValues
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.OneLine
@@ -89,6 +90,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -420,6 +422,12 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     }
 
     fun profileShareUrl(token: String): String = container.config.profileShareUrl(token)
+
+    /** A contact shared to the app from another one, waiting to be opened as a new Client. */
+    val sharedContact: StateFlow<ImportedContact?> get() = container.sharedContact
+
+    /** The shared contact, which is then no longer waiting: it opens once. */
+    fun takeSharedContact(): ImportedContact? = container.sharedContact.getAndUpdate { null }
 
     fun notify(@StringRes message: Int, isError: Boolean = false, vararg args: Any) {
         noticeChannel.trySend(Notice(message, isError, args.toList()))

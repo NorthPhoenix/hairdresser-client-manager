@@ -309,6 +309,9 @@
     <string name="settings_saved">Settings saved.</string>
     <string name="settings_title">Settings</string>
     <string name="share_action">Share</string>
+    <string name="share_contact_empty">What was shared has no name, phone, email, or address.</string>
+    <!-- The app's entry in Android's share menu: a contact or a text shared to it opens as a new Client. -->
+    <string name="share_contact_target">New Client</string>
     <string name="share_image_failed">Couldn\'t prepare the image. Close this window and generate it again.</string>
     <string name="share_image_language_label">Share Image language</string>
     <string name="share_image_title">Share Image</string>

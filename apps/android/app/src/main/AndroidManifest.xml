@@ -32,6 +32,30 @@
             </intent-filter>
         </activity>
 
+        <!--
+            "New Client" in Android's share menu: a contact card (vCard), from the phone's contacts or a messaging
+            app such as WhatsApp, or a text with a phone number or email in it becomes a new Client. It shows nothing of its own.
+            It belongs to no task of the app's (taskAffinity ""): as the first activity of the app's task, it would make
+            Android take the next share for a return to that task, and the share would never arrive.
+        -->
+        <activity
+            android:name=".ShareContactActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="@string/share_contact_target"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/x-vcard" />
+                <data android:mimeType="text/vcard" />
+                <data android:mimeType="text/directory" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
         <!-- Remembers the chosen app language on Android versions before 13, which have no system setting for it. -->
         <service
             android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"

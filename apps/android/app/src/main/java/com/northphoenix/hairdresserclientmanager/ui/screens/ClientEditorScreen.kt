@@ -165,7 +165,8 @@ internal val ShareChoicesSaver = Saver<Set<ShareChoice>, String>(
 /**
  * Client Profile editor: details, Contact Import, Profile Share and the Client's Appointment history.
  * A new Client is created here; an existing one is edited here from their Client Profile
- * ([ClientProfileScreen]). [onDeleted] closes it once the Client is deleted.
+ * ([ClientProfileScreen]). [onDeleted] closes it once the Client is deleted. A new Client opens with
+ * the details of [shared], a contact shared to the app from another one, as if it had been imported here.
  */
 @Composable
 fun ClientEditorScreen(
@@ -174,6 +175,7 @@ fun ClientEditorScreen(
     onBack: () -> Unit,
     onOpenAppointment: (String) -> Unit,
     onDeleted: () -> Unit = onBack,
+    shared: ImportedContact? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -271,6 +273,17 @@ fun ClientEditorScreen(
         email = copied.after.email
         address = copied.after.address
         lastImport = copied
+    }
+
+    // Once, also when Android re-creates the app: from then on the form keeps what it holds. As
+    // a Contact Import, a contact picked afterwards takes its place, and Back asks before it is discarded.
+    var sharedTaken by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        if (shared != null && !sharedTaken) {
+            sharedTaken = true
+            applyImport(shared)
+        }
     }
 
     fun save() {
