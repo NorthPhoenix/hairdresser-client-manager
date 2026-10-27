@@ -12,12 +12,14 @@ import com.northphoenix.hairdresserclientmanager.data.SharedPreferencesReminderS
 import com.northphoenix.hairdresserclientmanager.data.TrpcClient
 import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
 import com.northphoenix.hairdresserclientmanager.data.wasUpdatedInPlace
+import com.northphoenix.hairdresserclientmanager.domain.ImportedContact
 import com.northphoenix.hairdresserclientmanager.i18n.AndroidAppLocales
 import com.northphoenix.hairdresserclientmanager.i18n.AppLanguageSetting
 import com.northphoenix.hairdresserclientmanager.state.ReminderOutbox
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -53,6 +55,12 @@ class AppContainer(context: Context) {
 
     /** Whether this install was an update of an earlier version, not a fresh one. */
     fun wasUpdatedInPlace(): Boolean = appContext.wasUpdatedInPlace()
+
+    /**
+     * A contact shared to the app from another one (ShareContactActivity), until the app opens it as a new
+     * Client. It waits here, in memory only, while the Stylist signs in or finishes onboarding.
+     */
+    val sharedContact = MutableStateFlow<ImportedContact?>(null)
 
     /** Client Reminders sent from this phone, and the device-local log of which Appointments were reminded. */
     val reminders by lazy { ReminderOutbox(AndroidSmsGateway(appContext), SharedPreferencesReminderStore(appContext), scope) }
