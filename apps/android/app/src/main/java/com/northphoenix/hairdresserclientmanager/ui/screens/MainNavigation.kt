@@ -62,6 +62,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.LocationType
+import com.northphoenix.hairdresserclientmanager.domain.ImportedContact
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.ui.HcmSnackbarHost
 import com.northphoenix.hairdresserclientmanager.ui.components.Hairline
@@ -78,8 +79,11 @@ private object Routes {
     const val APPOINTMENT = "appointment/{id}"
     const val NEW_APPOINTMENT = "appointment-new?date={date}&client={client}&place={place}&address={address}"
 
-    /** The Client editor: a new Client without an id, an existing one with it. */
-    const val CLIENT = "client?id={id}"
+    /**
+     * The Client editor: a new Client without an id, an existing one with it. A new Client can open
+     * with the details of a contact shared to the app ([newClient]).
+     */
+    const val CLIENT = "client?id={id}&name={name}&phone={phone}&email={email}&address={address}"
     const val CONTACT_IMPORT = "clients-import"
 
     /** The Client Profile, read-only, with the way to the editor. */
@@ -100,6 +104,17 @@ private object Routes {
     }
 
     fun client(id: String?) = "client" + (id?.let { "?id=$it" } ?: "")
+
+    fun newClient(shared: ImportedContact): String {
+        val arguments = listOfNotNull(
+            shared.name?.let { "name=" + Uri.encode(it) },
+            shared.phone?.let { "phone=" + Uri.encode(it) },
+            shared.email?.let { "email=" + Uri.encode(it) },
+            shared.address?.let { "address=" + Uri.encode(it) },
+        )
+
+        return "client" + if (arguments.isEmpty()) "" else arguments.joinToString("&", prefix = "?")
+    }
 
     fun clientProfile(id: String) = "client-profile/$id"
 }
@@ -138,6 +153,20 @@ fun MainNavigation(viewModel: AppViewModel) {
                 viewModel.checkDay()
                 delay(viewModel.millisUntilDayCheck())
             }
+        }
+    }
+
+    // A contact shared to the app from another one opens as a new Client, on top of whatever is open,
+    // once the app is in view. One with nothing in it to import is said so instead.
+    val sharedContact by viewModel.sharedContact.collectAsStateWithLifecycle()
+
+    LaunchedEffect(sharedContact) {
+        val shared = viewModel.takeSharedContact() ?: return@LaunchedEffect
+
+        if (shared.hasFields) {
+            navController.navigate(Routes.newClient(shared))
+        } else {
+            viewModel.notify(R.string.share_contact_empty, isError = true)
         }
     }
 
@@ -198,11 +227,21 @@ fun MainNavigation(viewModel: AppViewModel) {
         }
         composable(
             Routes.CLIENT,
-            arguments = listOf(navArgument("id") { type = NavType.StringType; nullable = true; defaultValue = null }),
+            arguments = listOf("id", "name", "phone", "email", "address").map { name ->
+                navArgument(name) { type = NavType.StringType; nullable = true; defaultValue = null }
+            },
         ) { entry ->
+            val arguments = entry.arguments
+
             ClientEditorScreen(
                 viewModel = viewModel,
-                clientId = entry.arguments?.getString("id"),
+                clientId = arguments?.getString("id"),
+                shared = ImportedContact(
+                    name = arguments?.getString("name"),
+                    phone = arguments?.getString("phone"),
+                    email = arguments?.getString("email"),
+                    address = arguments?.getString("address"),
+                ).takeIf { it.hasFields },
                 onBack = { navController.from(entry) { popBackStack() } },
                 onOpenAppointment = { id -> navController.from(entry) { navigate(Routes.appointment(id)) } },
                 // The Client Profile the editor was opened from has no Client left to show.

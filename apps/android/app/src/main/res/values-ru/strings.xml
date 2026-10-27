@@ -306,6 +306,8 @@
     <string name="settings_saved">Настройки сохранены.</string>
     <string name="settings_title">Настройки</string>
     <string name="share_action">Поделиться</string>
+    <string name="share_contact_empty">В присланном нет имени, телефона, эл. почты или адреса.</string>
+    <string name="share_contact_target">Новый клиент</string>
     <string name="share_image_failed">Не удалось подготовить изображение. Закройте это окно и создайте изображение ещё раз.</string>
     <string name="share_image_language_label">Язык изображения</string>
     <string name="share_image_title">Изображение для отправки</string>
