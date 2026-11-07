@@ -455,6 +455,11 @@
     <string name="travel_fee_put_back">Put back</string>
     <string name="travel_fee_remove">Remove</string>
     <string name="travel_fee_removed">Removed “%1$s”</string>
+    <string name="travel_fee_suggestion">Is “%1$s” your travel fee?</string>
+    <string name="travel_fee_suggestion_body">Then it will be added by itself to new at-home appointments.</string>
+    <string name="travel_fee_suggestion_yes">Yes</string>
+    <string name="travel_fee_suggestion_no">No</string>
+    <string name="travel_fee_marked">“%1$s” is now the travel fee</string>
     <string name="calls_unavailable">There is no phone app on this device.</string>
     <string name="client_book_again">Book again</string>
     <string name="client_call">Call</string>

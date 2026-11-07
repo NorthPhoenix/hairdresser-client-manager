@@ -1,5 +1,18 @@
 [
   {
+    "versionCode": 8,
+    "versionName": "1.6.0",
+    "date": "2026-11-07",
+    "notes": {
+      "ru": [
+        "Запись на дому с услугой вроде «Выезд на дом» спрашивает, плата ли это за выезд: после «Да» она добавляется сама к новым записям на дому"
+      ],
+      "en": [
+        "An at-home Appointment with a service like “Travel fee” asks whether it is your travel fee: after “Yes” it is added by itself to new at-home Appointments"
+      ]
+    }
+  },
+  {
     "versionCode": 7,
     "versionName": "1.5.0",
     "date": "2026-10-27",
