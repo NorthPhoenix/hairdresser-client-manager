@@ -624,4 +624,11 @@
     <string name="releases_installed">Installed</string>
     <string name="releases_new">New</string>
     <string name="releases_update_to">Update to %1$s</string>
+
+    <!-- A start at night, likely AM and PM mixed up (CONTEXT.md: Appointment Creation). %1$s is the start, %2$s the same time 12 hours away. -->
+    <string name="night_start_title">Check the time</string>
+    <string name="night_start_question">Starts at %1$s. Did you mean %2$s?</string>
+    <string name="night_start_change">Change to %1$s</string>
+    <string name="night_start_keep">Time is right</string>
+    <string name="night_start_moved">Start time moved to %1$s.</string>
 </resources>

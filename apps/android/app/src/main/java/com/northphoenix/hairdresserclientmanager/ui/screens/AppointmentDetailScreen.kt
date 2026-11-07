@@ -108,10 +108,12 @@ import com.northphoenix.hairdresserclientmanager.domain.PhoneFormat
 import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentCopying
+import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentTotals
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.ColorFormulaOffer
 import com.northphoenix.hairdresserclientmanager.domain.Money
+import com.northphoenix.hairdresserclientmanager.domain.NightStart
 import com.northphoenix.hairdresserclientmanager.domain.ReminderLog
 import com.northphoenix.hairdresserclientmanager.domain.ServiceEdit
 import com.northphoenix.hairdresserclientmanager.domain.TextLimits
@@ -122,6 +124,7 @@ import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
+import com.northphoenix.hairdresserclientmanager.state.Notice
 import com.northphoenix.hairdresserclientmanager.state.PhotoUpload
 import com.northphoenix.hairdresserclientmanager.state.Read
 import com.northphoenix.hairdresserclientmanager.state.UploadState
@@ -162,6 +165,8 @@ import com.northphoenix.hairdresserclientmanager.ui.components.rememberRequestKe
 import com.northphoenix.hairdresserclientmanager.ui.components.tagTextStyle
 import com.northphoenix.hairdresserclientmanager.ui.openUri
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
+import java.time.Instant
+import java.time.LocalTime
 import kotlinx.coroutines.flow.drop
 
 private const val MAX_GALLERY_PHOTOS = 10
@@ -355,6 +360,36 @@ private fun AppointmentDetail(
     val travelFeeRefusals = remember { appContext.getSharedPreferences("travel_fee_suggestions_refused", Context.MODE_PRIVATE) }
     var travelFeeRefused by remember { mutableStateOf(travelFeeRefusals.getStringSet("items", emptySet()).orEmpty()) }
     val travelFeeSuggestion = TravelFeeSuggestion.item(appointment, serviceMenu, travelFeeRefused)
+    // A start at night is asked about until it is moved or she keeps it, which this device remembers too.
+    val keptNightStarts = remember { KeptNightStarts(appContext) }
+    var nightStartsKept by remember { mutableStateOf(keptNightStarts.all()) }
+    val startTime = format.zoned(appointment.startsAt).toLocalTime()
+
+    // Kept once the edit form was saved with the question under its start time.
+    fun keepIfAtNight(startsAt: Instant) {
+        if (NightStart.isAtNight(startsAt.atZone(format.zone).toLocalTime())) {
+            nightStartsKept = keptNightStarts.keep(appointment.id, startsAt)
+        }
+    }
+
+    // The same time on the other half of the same day, the end time with it, as the edit form saves it.
+    fun moveToDayTime() {
+        val current = AppointmentDraft.saved(appointment, format)
+        val moved = NightStart.moved(current.startTime, current.endTime) ?: return
+
+        when (val times = AppointmentDraft.times(current.date, moved.start, moved.end, format)) {
+            is AppointmentDraft.Times.Valid -> viewModel.editAppointment(
+                appointment.id,
+                times,
+                locationType = null,
+                ownAddress = null,
+                saved = Notice(R.string.night_start_moved, args = listOf(format.time(moved.start))),
+            ) {}
+            AppointmentDraft.Times.StartSkipped -> viewModel.notify(R.string.appointment_start_time_skipped, isError = true)
+            AppointmentDraft.Times.EndSkipped -> viewModel.notify(R.string.appointment_end_time_skipped, isError = true)
+            AppointmentDraft.Times.EndNotAfterStart -> viewModel.notify(R.string.appointment_end_before_start, isError = true)
+        }
+    }
 
     // The photo target has to survive the trip to the camera or gallery and back.
     var photoClientId by rememberSaveable { mutableStateOf("") }
@@ -414,6 +449,14 @@ private fun AppointmentDetail(
         ScreenColumn(padding, scroll = scroll) {
             if (overlapping.isNotEmpty()) {
                 OverlapWarning(appointment, overlapping, onDismiss = { viewModel.dismissOverlapWarning(appointment.id) })
+            }
+            if (NightStart.asks(appointment, startTime, nightStartsKept)) {
+                NightStartWarning(
+                    start = startTime,
+                    enabled = !busy,
+                    onKeep = { nightStartsKept = keptNightStarts.keep(appointment.id, Instant.parse(appointment.startsAt)) },
+                    onDayTime = ::moveToDayTime,
+                )
             }
 
             // --- summary ---
@@ -787,7 +830,10 @@ private fun AppointmentDetail(
             onDismiss = { sheet = null },
             onRefused = { viewModel.notify(it, isError = true) },
             onSave = { times, locationType, ownAddress ->
-                viewModel.editAppointment(appointment.id, times, locationType, ownAddress) { sheet = null }
+                viewModel.editAppointment(appointment.id, times, locationType, ownAddress) {
+                    sheet = null
+                    keepIfAtNight(times?.startsAt ?: Instant.parse(appointment.startsAt))
+                }
             },
         )
         // A sheet about something that is no longer in the Appointment closes.
@@ -996,7 +1042,37 @@ private fun ClientsFaultWarning(fault: AppointmentClients.Fault, primaryClientNa
     }
 }
 
-/** A warning about the Appointment: its title, what [content] says about it, and one action under that. */
+/**
+ * "Starts at 11:00 PM. Did you mean 11:00 AM?" on a Scheduled Appointment that starts at night (see
+ * [NightStart]): [onDayTime] moves it to the same time on the other half of the day, and [onKeep]
+ * keeps the time, which is not asked about again.
+ */
+@Composable
+private fun NightStartWarning(start: LocalTime, enabled: Boolean, onKeep: () -> Unit, onDayTime: () -> Unit) {
+    val format = LocalTimeFormat.current
+    val dayTime = NightStart.dayTime(start) ?: return
+
+    WarningCard(
+        title = stringResource(R.string.night_start_title),
+        action = stringResource(R.string.night_start_change, format.time(dayTime)),
+        onAction = onDayTime,
+        actionEnabled = enabled,
+        secondAction = stringResource(R.string.night_start_keep),
+        onSecondAction = onKeep,
+    ) {
+        Text(
+            stringResource(R.string.night_start_question, format.time(start), format.time(dayTime)),
+            style = MaterialTheme.typography.bodyMedium,
+            color = HcmColors.Ink,
+        )
+    }
+}
+
+/**
+ * A warning about the Appointment: its title, what [content] says about it, and one action under
+ * that, or two side by side, which go one under the other when they do not fit on one line.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun WarningCard(
     title: String,
@@ -1004,6 +1080,8 @@ private fun WarningCard(
     onAction: () -> Unit,
     modifier: Modifier = Modifier,
     actionEnabled: Boolean = true,
+    secondAction: String? = null,
+    onSecondAction: () -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     HcmCard(
@@ -1019,7 +1097,10 @@ private fun WarningCard(
             }
             content()
         }
-        TextAction(action, onClick = onAction, modifier = Modifier.align(Alignment.End), enabled = actionEnabled)
+        FlowRow(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.End) {
+            secondAction?.let { TextAction(it, onClick = onSecondAction) }
+            TextAction(action, onClick = onAction, enabled = actionEnabled)
+        }
     }
 }
 

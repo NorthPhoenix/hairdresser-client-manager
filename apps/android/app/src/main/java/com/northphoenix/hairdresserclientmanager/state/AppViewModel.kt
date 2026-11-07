@@ -1704,6 +1704,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         times: AppointmentDraft.Times.Valid?,
         locationType: LocationType?,
         ownAddress: String?,
+        // What is said once it is saved, unless the Travel Fee was added or removed.
+        saved: Notice = Notice(R.string.appointment_time_and_place_saved),
         onSuccess: () -> Unit,
     ) {
         var travelFee = TravelFeeChange()
@@ -1713,7 +1715,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             "editAppointment:$id",
             onSuccess = {
                 if (!notifyTravelFee(id, travelFee)) {
-                    notify(R.string.appointment_time_and_place_saved)
+                    noticeChannel.trySend(saved)
                 }
                 onSuccess()
             },

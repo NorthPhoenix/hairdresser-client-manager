@@ -660,4 +660,10 @@
     <string name="releases_installed">Установлена</string>
     <string name="releases_new">Новая</string>
     <string name="releases_update_to">Обновить до %1$s</string>
+
+    <string name="night_start_title">Проверьте время</string>
+    <string name="night_start_question">Начало в %1$s. Может быть, в %2$s?</string>
+    <string name="night_start_change">Изменить на %1$s</string>
+    <string name="night_start_keep">Время верное</string>
+    <string name="night_start_moved">Начало перенесено на %1$s.</string>
 </resources>

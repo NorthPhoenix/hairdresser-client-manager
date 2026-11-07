@@ -12,6 +12,7 @@ import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
+import com.northphoenix.hairdresserclientmanager.domain.NightStart
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.Hairline
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmBottomSheet
@@ -78,6 +79,12 @@ internal fun EditAppointmentSheet(
             endDate = AppointmentDraft.editedEndDate(saved, date, startTime, endTime),
             onOpen = { picker = it },
             onClearEnd = { endTime = null },
+            onDayTime = {
+                NightStart.moved(startTime, endTime)?.let {
+                    startTime = it.start
+                    endTime = it.end
+                }
+            },
         )
         Hairline()
         AppointmentLocationFields(
