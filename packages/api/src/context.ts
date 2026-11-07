@@ -1,5 +1,6 @@
 import { db, type Prisma } from "@hcm/db";
 import type { AppVersion } from "./appReleases";
+import type { PublishedReleaseReader } from "./publishedRelease";
 import type { SharePhotoReader } from "./shareImage";
 
 export type ClerkAuth = {
@@ -40,6 +41,11 @@ export type CreateTRPCContextOptions = {
    * the app for its "Update" button. Left out or empty: the app offers no download.
    */
   appDownloadUrl?: string | null;
+  /**
+   * The release whose APK the download server has (`createPublishedReleaseReader`), which caps
+   * what `app.releases` offers. Left out: every release in releases.json counts as published.
+   */
+  publishedRelease?: PublishedReleaseReader | null;
 };
 
 /**
@@ -50,6 +56,7 @@ export type CreateTRPCContextOptions = {
 type AppRequestContext = {
   appVersion?: AppVersion | null;
   appDownloadUrl?: string | null;
+  publishedRelease?: PublishedReleaseReader | null;
 };
 
 export async function createTRPCContext({
@@ -59,12 +66,14 @@ export async function createTRPCContext({
   accountName = async () => null,
   readSharePhoto = async () => null,
   appVersion = null,
-  appDownloadUrl = null
+  appDownloadUrl = null,
+  publishedRelease = null
 }: CreateTRPCContextOptions) {
   const clerkAuth = await auth();
   const app: AppRequestContext = {
     appVersion,
-    appDownloadUrl: appDownloadUrl?.trim() || null
+    appDownloadUrl: appDownloadUrl?.trim() || null,
+    publishedRelease
   };
 
   return {

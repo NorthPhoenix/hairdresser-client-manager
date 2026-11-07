@@ -40,9 +40,16 @@ export function readReleases(file: unknown): AppRelease[] {
 
 export const appReleases: AppRelease[] = readReleases(releasesFile);
 
-/** The latest release, and the releases newer than [sinceVersionCode] (all of them without one), newest first. */
-export function releasesSince(releases: AppRelease[], sinceVersionCode?: number) {
-  const [latest] = releases;
+/**
+ * The latest release, and the releases newer than [sinceVersionCode] (all of them without one),
+ * newest first. With [upTo], only the releases up to that version code count, as the ones that are
+ * published (see `PublishedRelease`): a newer one is left out as if it did not exist yet. Below
+ * every release, the oldest one stands in, which is older than any app that asks.
+ */
+export function releasesSince(releases: AppRelease[], sinceVersionCode?: number, upTo?: number) {
+  const published = upTo === undefined ? releases : releases.filter((release) => release.versionCode <= upTo);
+  const counted = published.length > 0 ? published : releases.slice(-1);
+  const [latest] = counted;
 
   if (!latest) {
     throw new Error("There is no app release.");
@@ -54,7 +61,7 @@ export function releasesSince(releases: AppRelease[], sinceVersionCode?: number)
       versionName: latest.versionName,
       date: latest.date
     },
-    releases: releases
+    releases: counted
       .filter((release) => sinceVersionCode === undefined || release.versionCode > sinceVersionCode)
       .map((release) => ({
         versionCode: release.versionCode,
