@@ -1,10 +1,15 @@
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { auth } from "@clerk/nextjs/server";
-import { appRouter, appVersionFromHeaders, createTRPCContext } from "@hcm/api";
+import { appRouter, appVersionFromHeaders, createPublishedReleaseReader, createTRPCContext, manifestUrlFor } from "@hcm/api";
 import { UTApi } from "uploadthing/server";
 import { accountName, photoOrigins, readSharePhoto } from "../../../../server/profileShare";
 
 const uploadThing = new UTApi();
+
+// The release whose APK is published: latest.json beside APP_DOWNLOAD_URL, read at most once a
+// minute by each server instance (docs/adr/0018).
+const releaseManifestUrl = manifestUrlFor(process.env.APP_DOWNLOAD_URL);
+const publishedRelease = releaseManifestUrl ? createPublishedReleaseReader({ manifestUrl: releaseManifestUrl }) : null;
 
 // The files of deleted Appointment Photos are deleted there too. The router logs a failure.
 async function deleteStoredFiles(fileKeys: string[]) {
@@ -36,7 +41,8 @@ function handler(request: Request) {
         // Which Android app sent the request, so the server can tell which version a Stylist uses.
         appVersion: appVersionFromHeaders(request.headers),
         // The same address /download sends the browser to (next.config.mjs).
-        appDownloadUrl: process.env.APP_DOWNLOAD_URL
+        appDownloadUrl: process.env.APP_DOWNLOAD_URL,
+        publishedRelease
       }),
     // The reply to an unexpected failure says nothing about it, so the log has to.
     onError: ({ error, path }) => {

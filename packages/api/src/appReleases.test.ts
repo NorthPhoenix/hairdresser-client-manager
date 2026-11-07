@@ -37,6 +37,7 @@ function caller(options: {
   userId?: string | null;
   appVersion?: { code: number; name: string | null } | null;
   appDownloadUrl?: string | null;
+  publishedRelease?: (() => Promise<{ versionCode: number; versionName: string; downloadUrl: string } | null>) | null;
   executeRaw?: ReturnType<typeof vi.fn>;
 }) {
   const executeRaw = options.executeRaw ?? vi.fn().mockResolvedValue(1);
@@ -46,7 +47,8 @@ function caller(options: {
     db: { stylist: { upsert, findUnique: upsert }, $executeRaw: executeRaw },
     photoOrigins: [],
     appVersion: options.appVersion ?? null,
-    appDownloadUrl: options.appDownloadUrl ?? null
+    appDownloadUrl: options.appDownloadUrl ?? null,
+    publishedRelease: options.publishedRelease ?? null
   } as unknown as TRPCContext;
 
   return { caller: appRouter.createCaller(ctx), executeRaw, upsert };
@@ -87,6 +89,16 @@ describe("releases.json", () => {
     expect(() => readReleases([newest, { ...newest, versionCode: 999 }])).toThrow();
     expect(() => readReleases([])).toThrow();
     expect(() => readReleases([{ ...newest, notes: { ru: [], en: [] } }])).toThrow();
+  });
+
+  it("counts only the releases up to a version code when one is given, and never none", () => {
+    const releases = readReleases(releasesFile);
+    const [newest, previous] = releases;
+    const oldest = releases.at(-1);
+
+    expect(releasesSince(releases, undefined, previous?.versionCode).latest.versionCode).toBe(previous?.versionCode);
+    expect(releasesSince(releases, undefined, newest?.versionCode).releases).toHaveLength(releases.length);
+    expect(releasesSince(releases, undefined, 0).latest.versionCode).toBe(oldest?.versionCode);
   });
 
   it("gives the latest release and the ones newer than a version", () => {
@@ -141,6 +153,50 @@ describe("app.releases", () => {
 
   it("has no download address when the server has none", async () => {
     expect((await caller({}).caller.app.releases()).downloadUrl).toBeNull();
+  });
+
+  describe("with a download server that says which release is published", () => {
+    const [newest, previous] = appReleases;
+    const published = (release: typeof newest) => async () =>
+      release ? { versionCode: release.versionCode, versionName: release.versionName, downloadUrl: `https://example.com/hcm/client-manager-${release.versionName}.apk` } : null;
+
+    it("offers no release newer than the published one, and links to that release's own file", async () => {
+      const { caller: app } = caller({ appDownloadUrl: "https://example.com/hcm/client-manager.apk", publishedRelease: published(previous) });
+      const answer = await app.app.releases();
+
+      expect(answer.latest.versionCode).toBe(previous?.versionCode);
+      expect(answer.releases.map((release) => release.versionCode)).not.toContain(newest?.versionCode);
+      expect(answer.releases[0]?.versionCode).toBe(previous?.versionCode);
+      expect(answer.downloadUrl).toBe(`https://example.com/hcm/client-manager-${previous?.versionName}.apk`);
+    });
+
+    it("offers the newest release once it is published", async () => {
+      const answer = await caller({ publishedRelease: published(newest) }).caller.app.releases();
+
+      expect(answer.latest.versionCode).toBe(newest?.versionCode);
+      expect(answer.releases.map((release) => release.versionCode)).toEqual(appReleases.map((release) => release.versionCode));
+    });
+
+    it("offers a published APK that is newer than releases.json as the newest release it knows", async () => {
+      const ahead = async () => ({ versionCode: (newest?.versionCode ?? 0) + 1, versionName: "9.9.9", downloadUrl: "https://example.com/hcm/client-manager-9.9.9.apk" });
+      const answer = await caller({ publishedRelease: ahead }).caller.app.releases();
+
+      expect(answer.latest.versionCode).toBe(newest?.versionCode);
+      expect(answer.downloadUrl).toBe("https://example.com/hcm/client-manager-9.9.9.apk");
+    });
+
+    it("offers nothing newer than the app that asks while it cannot tell what is published", async () => {
+      const { caller: app } = caller({
+        appVersion: { code: previous?.versionCode ?? 1, name: previous?.versionName ?? null },
+        appDownloadUrl: "https://example.com/hcm/client-manager.apk",
+        publishedRelease: async () => null
+      });
+      const answer = await app.app.releases({ sinceVersionCode: previous?.versionCode });
+
+      expect(answer.latest.versionCode).toBe(previous?.versionCode);
+      expect(answer.releases).toEqual([]);
+      expect(answer.downloadUrl).toBe("https://example.com/hcm/client-manager.apk");
+    });
   });
 
   it("refuses a version code that is not a whole number", async () => {

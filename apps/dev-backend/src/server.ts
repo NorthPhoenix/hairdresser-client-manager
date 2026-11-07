@@ -12,12 +12,24 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { Readable } from "node:stream";
-import { appointmentPhotoFiles, appRouter, appVersionFromHeaders, authorizePhotoUpload, createTRPCContext } from "@hcm/api";
+import {
+  appointmentPhotoFiles,
+  appRouter,
+  appVersionFromHeaders,
+  authorizePhotoUpload,
+  createPublishedReleaseReader,
+  createTRPCContext,
+  manifestUrlFor
+} from "@hcm/api";
 import { db } from "@hcm/db";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { createRouteHandler, createUploadthing, UploadThingError, type FileRouter } from "uploadthing/server";
 import { z } from "zod";
 import { getDevUserId } from "./auth.ts";
+
+// As on the web server: what is offered is capped by the latest.json beside APP_DOWNLOAD_URL (docs/adr/0018).
+const releaseManifestUrl = manifestUrlFor(process.env.APP_DOWNLOAD_URL);
+const publishedRelease = releaseManifestUrl ? createPublishedReleaseReader({ manifestUrl: releaseManifestUrl }) : null;
 
 const port = Number(process.env.PORT ?? 3000);
 const origin = process.env.DEV_BACKEND_ORIGIN ?? `http://127.0.0.1:${port}`;
@@ -226,8 +238,9 @@ async function handle(request: Request): Promise<Response> {
           photoOrigins: [new URL(origin).origin],
           deleteStoredFiles,
           appVersion: appVersionFromHeaders(request.headers),
-          // Optional here: without it the app's update notice has no "Update" button.
-          appDownloadUrl: process.env.APP_DOWNLOAD_URL
+          // Optional here: without it the app's update notice has no "Update" button, and every release counts as published.
+          appDownloadUrl: process.env.APP_DOWNLOAD_URL,
+          publishedRelease
         }),
       // The reply to an unexpected failure says nothing about it, so the log has to.
       onError: ({ error, path }) => {
