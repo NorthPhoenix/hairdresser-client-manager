@@ -31,11 +31,11 @@ class NightStartTest {
     )
 
     @Test
-    fun `night is from 22 00 to before 7 00`() {
-        listOf("22:00", "23:00", "23:59", "00:00", "00:30", "01:00", "06:59").forEach {
+    fun `night is from 21 00 to before 6 00`() {
+        listOf("21:00", "22:00", "23:00", "23:59", "00:00", "00:30", "01:00", "05:59").forEach {
             assertTrue(it, NightStart.isAtNight(LocalTime.parse(it)))
         }
-        listOf("07:00", "10:00", "12:00", "18:00", "19:00", "21:59").forEach {
+        listOf("06:00", "07:00", "10:00", "12:00", "18:00", "19:00", "20:59").forEach {
             assertFalse(it, NightStart.isAtNight(LocalTime.parse(it)))
         }
     }
@@ -45,9 +45,11 @@ class NightStartTest {
         assertEquals(LocalTime.of(11, 0), NightStart.dayTime(LocalTime.of(23, 0)))
         assertEquals(LocalTime.of(10, 30), NightStart.dayTime(LocalTime.of(22, 30)))
         assertEquals(LocalTime.of(12, 30), NightStart.dayTime(LocalTime.of(0, 30)))
-        assertEquals(LocalTime.of(18, 0), NightStart.dayTime(LocalTime.of(6, 0)))
+        assertEquals(LocalTime.of(9, 0), NightStart.dayTime(LocalTime.of(21, 0)))
+        assertEquals(LocalTime.of(17, 0), NightStart.dayTime(LocalTime.of(5, 0)))
+        assertNull(NightStart.dayTime(LocalTime.of(6, 0)))
         assertNull(NightStart.dayTime(LocalTime.of(11, 0)))
-        assertNull(NightStart.dayTime(LocalTime.of(19, 0)))
+        assertNull(NightStart.dayTime(LocalTime.of(20, 59)))
     }
 
     @Test

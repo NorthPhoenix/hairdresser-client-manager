@@ -6,16 +6,16 @@ import java.time.Instant
 import java.time.LocalTime
 
 /**
- * A start at night, from 22:00 to before 7:00 in the Stylist's timezone, is most likely AM and PM
+ * A start at night, from 21:00 to before 6:00 in the Stylist's timezone, is most likely AM and PM
  * mixed up. The form opens at the next full hour, so on a 12-hour clock a booking made in the
  * afternoon opens the time picker on PM, and a tap on "11" makes it 23:00; one made in the morning
- * turns "6" into 6:00 AM. The Appointment form says so under the start time, and a Scheduled
+ * turns "5" into 5:00 AM. The Appointment form says so under the start time, and a Scheduled
  * Appointment at night asks once on its screen, both offering the same time on the other half of
  * the day. A Stylist who does work at night keeps the time with one tap. Tested in `NightStartTest`.
  */
 object NightStart {
-    private const val NIGHT_FROM_HOUR = 22
-    private const val DAY_FROM_HOUR = 7
+    private const val NIGHT_FROM_HOUR = 21
+    private const val DAY_FROM_HOUR = 6
 
     fun isAtNight(time: LocalTime): Boolean = time.hour >= NIGHT_FROM_HOUR || time.hour < DAY_FROM_HOUR
 
