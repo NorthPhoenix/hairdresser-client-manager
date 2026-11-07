@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -27,6 +28,7 @@ import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
+import com.northphoenix.hairdresserclientmanager.domain.NightStart
 import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
@@ -39,6 +41,7 @@ import com.northphoenix.hairdresserclientmanager.ui.components.PrimaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenColumn
 import com.northphoenix.hairdresserclientmanager.ui.components.SubScreen
 import com.northphoenix.hairdresserclientmanager.ui.components.rememberRequestKey
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZonedDateTime
@@ -96,6 +99,8 @@ fun NewAppointmentScreen(
     val opened = rememberSaveable { content }
     // Names the Appointment this form creates, so that a second try of it creates no second one.
     val requestKey = rememberRequestKey()
+    val context = LocalContext.current
+    val keptNightStarts = remember(context) { KeptNightStarts(context) }
 
     // Called before the primary Client or the location changes: an address that is not the Stylist's own must not stay for the next one.
     fun keepOnlyOwnAddress() {
@@ -136,7 +141,13 @@ fun NewAppointmentScreen(
                 // Sent only when it is the Stylist's own: otherwise the Appointment takes the address of its primary Client.
                 customLocationAddress = ownAddress.takeIf { locationType == LocationType.AT_HOME },
                 requestKey = requestKey,
-                onSuccess = { onCreated(it.appointment) },
+                onSuccess = {
+                    // Created at night with the question under its start time: the Appointment does not ask it again.
+                    if (NightStart.isAtNight(format.zoned(it.appointment.startsAt).toLocalTime())) {
+                        keptNightStarts.keep(it.appointment.id, Instant.parse(it.appointment.startsAt))
+                    }
+                    onCreated(it.appointment)
+                },
             )
         }
     }
@@ -192,6 +203,12 @@ fun NewAppointmentScreen(
                     endDate = endDate,
                     onOpen = { timePicker = it },
                     onClearEnd = { endTime = null },
+                    onDayTime = {
+                        NightStart.moved(startTime, endTime)?.let {
+                            startTime = it.start
+                            endTime = it.end
+                        }
+                    },
                 )
             }
 
