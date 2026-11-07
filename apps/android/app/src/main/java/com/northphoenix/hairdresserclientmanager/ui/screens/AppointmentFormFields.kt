@@ -1,27 +1,38 @@
 package com.northphoenix.hairdresserclientmanager.ui.screens
 
+import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.LocationType
+import com.northphoenix.hairdresserclientmanager.domain.NightStart
 import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmTextField
 import com.northphoenix.hairdresserclientmanager.ui.components.PickerField
 import com.northphoenix.hairdresserclientmanager.ui.components.SegmentedControl
+import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
+import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 
@@ -34,7 +45,9 @@ enum class AppointmentTimeField { DATE, START, END }
 /**
  * Date, start time and end time. One field to a line, each showing its value whole: side by side
  * the times were cut on narrow screens and at large font sizes. [endDate] is the day the end time
- * falls on, which is said under the field when it is another day than [date].
+ * falls on, which is said under the field when it is another day than [date]. A start at night is
+ * said under its field too (see [NightStart]), with [onDayTime] to move it to the same time on the
+ * other half of the day.
  */
 @Composable
 fun AppointmentTimeFields(
@@ -44,6 +57,7 @@ fun AppointmentTimeFields(
     endDate: LocalDate?,
     onOpen: (AppointmentTimeField) -> Unit,
     onClearEnd: () -> Unit,
+    onDayTime: () -> Unit,
 ) {
     val format = LocalTimeFormat.current
 
@@ -55,13 +69,18 @@ fun AppointmentTimeFields(
             onClick = { onOpen(AppointmentTimeField.DATE) },
             wraps = true,
         )
-        PickerField(
-            label = stringResource(R.string.appointment_start_label),
-            value = format.time(startTime),
-            icon = Icons.Rounded.Schedule,
-            onClick = { onOpen(AppointmentTimeField.START) },
-            wraps = true,
-        )
+        Column {
+            PickerField(
+                label = stringResource(R.string.appointment_start_label),
+                value = format.time(startTime),
+                icon = Icons.Rounded.Schedule,
+                onClick = { onOpen(AppointmentTimeField.START) },
+                wraps = true,
+            )
+            NightStart.dayTime(startTime)?.let { dayTime ->
+                NightStartHint(format.time(startTime), format.time(dayTime), onDayTime)
+            }
+        }
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             PickerField(
                 label = stringResource(R.string.appointment_end_label),
@@ -84,6 +103,18 @@ fun AppointmentTimeFields(
                 )
             }
         }
+    }
+}
+
+/** "Starts at 11:00 PM. Did you mean 11:00 AM?" under a start at night, and the button that changes it. */
+@Composable
+private fun NightStartHint(start: String, dayTime: String, onDayTime: () -> Unit) {
+    Column {
+        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(Icons.Rounded.WarningAmber, contentDescription = null, modifier = Modifier.size(18.dp), tint = HcmColors.Warning)
+            Text(stringResource(R.string.night_start_question, start, dayTime), style = MaterialTheme.typography.bodyMedium, color = HcmColors.Warning)
+        }
+        TextAction(stringResource(R.string.night_start_change, dayTime), onClick = onDayTime, modifier = Modifier.align(Alignment.End))
     }
 }
 
@@ -165,5 +196,28 @@ fun AppointmentLocationFields(
                 maxLength = TextLimits.ADDRESS,
             )
         }
+    }
+}
+
+/**
+ * The starts at night the Stylist kept, on this device only ([NightStart.keptKey]): "Time is right"
+ * on the Appointment, or a form saved with the question under its start time. The Appointment does
+ * not ask about that time again.
+ */
+internal class KeptNightStarts(context: Context) {
+    private val memory = context.applicationContext.getSharedPreferences("night_starts_kept", Context.MODE_PRIVATE)
+
+    fun all(): Set<String> = memory.getStringSet(KEY, emptySet()).orEmpty()
+
+    /** Keeps the start of [appointmentId] at [startsAt], and returns all that are kept then. */
+    fun keep(appointmentId: String, startsAt: Instant): Set<String> {
+        val kept = all() + NightStart.keptKey(appointmentId, startsAt)
+
+        memory.edit().putStringSet(KEY, kept).apply()
+        return kept
+    }
+
+    private companion object {
+        const val KEY = "appointments"
     }
 }
