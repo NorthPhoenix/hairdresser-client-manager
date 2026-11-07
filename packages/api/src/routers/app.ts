@@ -14,9 +14,19 @@ export const appReleaseRouter = createTRPCRouter({
    * The Android app's releases and what each one changed (releases.json), and where the app is
    * downloaded from. The app compares the latest release with its own version to offer an update,
    * and shows the notes of the releases it was updated past ("Что нового").
+   *
+   * Only the releases up to the published one count, and the download is that release's own file
+   * (docs/adr/0018). While the server cannot tell what is published, nothing newer than the app
+   * that asks is offered (every app that asks, from 1.4.0, says its version). A server without a
+   * download server (development) counts every release.
    */
-  releases: stylistProcedure.input(releasesInput).query(({ ctx, input }) => ({
-    ...releasesSince(appReleases, input?.sinceVersionCode),
-    downloadUrl: ctx.appDownloadUrl ?? null
-  }))
+  releases: stylistProcedure.input(releasesInput).query(async ({ ctx, input }) => {
+    const published = ctx.publishedRelease ? await ctx.publishedRelease() : undefined;
+    const upTo = published === undefined ? undefined : (published?.versionCode ?? ctx.appVersion?.code);
+
+    return {
+      ...releasesSince(appReleases, input?.sinceVersionCode, upTo),
+      downloadUrl: published?.downloadUrl ?? ctx.appDownloadUrl ?? null
+    };
+  })
 });
