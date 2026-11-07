@@ -469,6 +469,11 @@
     <string name="travel_fee_put_back">Вернуть</string>
     <string name="travel_fee_remove">Убрать</string>
     <string name="travel_fee_removed">Убран «%1$s»</string>
+    <string name="travel_fee_suggestion">«%1$s» — это плата за выезд?</string>
+    <string name="travel_fee_suggestion_body">Тогда она будет сама добавляться к новым записям на дому.</string>
+    <string name="travel_fee_suggestion_yes">Да</string>
+    <string name="travel_fee_suggestion_no">Нет</string>
+    <string name="travel_fee_marked">«%1$s» — теперь плата за выезд</string>
     <string name="calls_unavailable">На устройстве нет приложения для звонков.</string>
     <string name="client_book_again">Записать снова</string>
     <string name="client_call">Позвонить</string>

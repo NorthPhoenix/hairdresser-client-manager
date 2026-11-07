@@ -103,6 +103,7 @@ import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.ColorFormula
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
 import com.northphoenix.hairdresserclientmanager.data.PhotoStatus
+import com.northphoenix.hairdresserclientmanager.data.ServiceMenuItem
 import com.northphoenix.hairdresserclientmanager.domain.PhoneFormat
 import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
@@ -115,6 +116,7 @@ import com.northphoenix.hairdresserclientmanager.domain.ReminderLog
 import com.northphoenix.hairdresserclientmanager.domain.ServiceEdit
 import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
+import com.northphoenix.hairdresserclientmanager.domain.TravelFeeSuggestion
 import com.northphoenix.hairdresserclientmanager.domain.UnsavedInput
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
@@ -349,6 +351,10 @@ private fun AppointmentDetail(
     val remindedLog by viewModel.reminders.log.collectAsStateWithLifecycle()
     val tipRefusals = remember { appContext.getSharedPreferences("tip_suggestions_refused", Context.MODE_PRIVATE) }
     var tipRefused by remember { mutableStateOf(tipRefusals.getStringSet("appointments", emptySet()).orEmpty()) }
+    // The Service Menu Items she said are not her travel fee, kept on this device in the same way.
+    val travelFeeRefusals = remember { appContext.getSharedPreferences("travel_fee_suggestions_refused", Context.MODE_PRIVATE) }
+    var travelFeeRefused by remember { mutableStateOf(travelFeeRefusals.getStringSet("items", emptySet()).orEmpty()) }
+    val travelFeeSuggestion = TravelFeeSuggestion.item(appointment, serviceMenu, travelFeeRefused)
 
     // The photo target has to survive the trip to the camera or gallery and back.
     var photoClientId by rememberSaveable { mutableStateOf("") }
@@ -551,6 +557,17 @@ private fun AppointmentDetail(
                             // A Service is for one of the Appointment's Clients. Without any, the warning above the Clients says what to do first.
                             enabled = clientsFault != AppointmentClients.Fault.NO_CLIENTS,
                             icon = Icons.Rounded.Add,
+                        )
+                    }
+                    travelFeeSuggestion?.let { item ->
+                        TravelFeeSuggestionCard(
+                            item,
+                            enabled = !busy,
+                            onYes = { viewModel.markTravelFee(item) },
+                            onNo = {
+                                travelFeeRefused = travelFeeRefused + item.id
+                                travelFeeRefusals.edit().putStringSet("items", travelFeeRefused).apply()
+                            },
                         )
                     }
                     TextAction(
@@ -1361,6 +1378,34 @@ private fun TipSuggestion(differenceCents: Long, onYes: () -> Unit, onNo: () -> 
             Row(Modifier.align(Alignment.End)) {
                 TextAction(stringResource(R.string.appointment_tip_suggestion_no), onClick = onNo)
                 TextAction(stringResource(R.string.appointment_tip_suggestion_yes), onClick = onYes)
+            }
+        }
+    }
+}
+
+/**
+ * "Is “Выезд на дом” your travel fee? · No · Yes" under the Services of an Appointment at home
+ * (see [TravelFeeSuggestion]). Only "Yes" changes anything, and only when she taps it.
+ */
+@Composable
+private fun TravelFeeSuggestionCard(item: ServiceMenuItem, enabled: Boolean, onYes: () -> Unit, onNo: () -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.medium) {
+        Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 4.dp)) {
+            Text(
+                stringResource(R.string.travel_fee_suggestion, item.name),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.padding(end = 10.dp),
+            )
+            Text(
+                stringResource(R.string.travel_fee_suggestion_body),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.padding(top = 4.dp, end = 10.dp),
+            )
+            Row(Modifier.align(Alignment.End)) {
+                TextAction(stringResource(R.string.travel_fee_suggestion_no), onClick = onNo)
+                TextAction(stringResource(R.string.travel_fee_suggestion_yes), onClick = onYes, enabled = enabled)
             }
         }
     }
