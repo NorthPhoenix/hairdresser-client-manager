@@ -1,5 +1,18 @@
 [
   {
+    "versionCode": 9,
+    "versionName": "1.7.0",
+    "date": "2026-11-07",
+    "notes": {
+      "ru": [
+        "Запись, которая начинается ночью (с 21:00 до 6:00), переспрашивает время: одно нажатие переносит её на то же время днём"
+      ],
+      "en": [
+        "An Appointment that starts at night (9 PM to 6 AM) asks you to check the time: one tap moves it to the same time in the daytime"
+      ]
+    }
+  },
+  {
     "versionCode": 8,
     "versionName": "1.6.0",
     "date": "2026-11-07",
