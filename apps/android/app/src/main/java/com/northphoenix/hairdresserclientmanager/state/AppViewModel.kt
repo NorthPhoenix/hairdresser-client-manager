@@ -1487,6 +1487,25 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             serviceMenuReads.saved(api.saveServiceMenuItem(id, values, requestKey))
         }
 
+    /**
+     * Makes [item] the Travel Fee, as its editor in the Service Menu does with the box ticked: the
+     * "Yes" of [com.northphoenix.hairdresserclientmanager.domain.TravelFeeSuggestion]. Its name,
+     * price and group are saved as the menu on screen has them. One key with the editor's save of
+     * the item, so that a second tap while the first is saved does nothing.
+     */
+    fun markTravelFee(item: ServiceMenuItem) =
+        act(
+            key = "saveServiceMenuItem:${item.id}",
+            onSuccess = { saved: ServiceMenuItem -> notify(R.string.travel_fee_marked, false, saved.name) },
+            reload = ::loadServiceMenu,
+            touched = serviceMenuReads::changed,
+        ) {
+            val values = MenuItemValues(item.name, item.defaultPriceCents, item.group.orEmpty(), travelFee = true)
+
+            // An edit sends no request key (see `saveServiceMenuItem`).
+            api.saveServiceMenuItem(item.id, values, requestKey = "").also(serviceMenuReads::saved)
+        }
+
     /** Not waited for: the item leaves the menu at once, and comes back in its place when the delete fails. */
     fun deleteServiceMenuItem(id: String) {
         val key = "deleteServiceMenuItem:$id"
