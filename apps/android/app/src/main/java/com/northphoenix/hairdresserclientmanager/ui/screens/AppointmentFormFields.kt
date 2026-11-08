@@ -212,8 +212,9 @@ fun AppointmentLocationFields(
 
 /**
  * The starts at night the Stylist kept, on this device only ([NightStart.keptKey]): "Time is right"
- * on the Appointment, or a form saved with the question under its start time. The Appointment does
- * not ask about that time again.
+ * on the Appointment or on its card in the Home View, a form saved with the question under its
+ * start time, or its reminder sent checked from 'Remind all'. The Appointment does not ask about
+ * that time again.
  */
 internal class KeptNightStarts(context: Context) {
     private val memory = context.applicationContext.getSharedPreferences("night_starts_kept", Context.MODE_PRIVATE)

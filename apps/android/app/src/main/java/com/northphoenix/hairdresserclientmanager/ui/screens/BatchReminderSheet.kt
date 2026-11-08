@@ -59,15 +59,17 @@ import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
 import com.northphoenix.hairdresserclientmanager.ui.components.rememberNow
 import com.northphoenix.hairdresserclientmanager.ui.openInMessages
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
+import java.time.Instant
 
 /**
  * 'Remind all': one row per remindable Appointment of [appointments] (tomorrow's), with the Client the
  * reminder goes to, the number, the language and the exact text, and a checkbox. Those already reminded
  * for their current time start unchecked, and so do those whose start at night is asked about
  * ([NightStart.asks]), which say so: their text would give the Client a time that is most likely
- * wrong. "Send N SMS" sends the checked ones from the phone (asking for the SMS permission at that
- * moment); without the permission, or a way to send, each one is opened in the SMS app in turn
- * instead. Each row then shows how its SMS went, and a failed one can be retried.
+ * wrong; one sent checked keeps its time ([KeptNightStarts]). "Send N SMS" sends the checked ones
+ * from the phone (asking for the SMS permission at that moment); without the permission, or a way
+ * to send, each one is opened in the SMS app in turn instead. Each row then shows how its SMS went,
+ * and a failed one can be retried.
  */
 @Composable
 fun BatchReminderSheet(viewModel: AppViewModel, appointments: List<Appointment>, onDismiss: () -> Unit) {
@@ -86,6 +88,7 @@ fun BatchReminderSheet(viewModel: AppViewModel, appointments: List<Appointment>,
     }
     // The starts at night that are asked about: kept ones are not.
     val keptNightStarts by rememberKeptNightStarts()
+    val nightStarts = remember(context) { KeptNightStarts(context) }
     val timeAsked = remember(appointments, format.zone, keptNightStarts) {
         appointments.filter { NightStart.asks(it, format.zone, keptNightStarts) }.map { it.id }.toSet()
     }
@@ -114,6 +117,8 @@ fun BatchReminderSheet(viewModel: AppViewModel, appointments: List<Appointment>,
     }
 
     fun startSending() {
+        // Checked as its row asks when the time is right: sent as it is, it is kept, and its card asks no more.
+        selected.filter { it.appointmentId in timeAsked }.forEach { nightStarts.keep(it.appointmentId, Instant.parse(it.startsAt)) }
         when {
             !DeviceSms.isAvailable(context) -> {
                 fallback = true

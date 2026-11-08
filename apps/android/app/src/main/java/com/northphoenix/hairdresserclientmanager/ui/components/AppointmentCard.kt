@@ -155,8 +155,18 @@ fun AppointmentCard(
     }
 }
 
-/** A question on a card: [text] says what to check, and [action] ([onAction]) puts it right in one tap. */
-data class CardQuestion(val text: String, val action: String, val onAction: () -> Unit, val actionEnabled: Boolean = true)
+/**
+ * A question on a card: [text] says what to check, [action] ([onAction]) puts it right in one tap,
+ * and [secondAction] ([onSecondAction]), when there is one, answers that it is right as it is.
+ */
+data class CardQuestion(
+    val text: String,
+    val action: String,
+    val onAction: () -> Unit,
+    val actionEnabled: Boolean = true,
+    val secondAction: String? = null,
+    val onSecondAction: () -> Unit = {},
+)
 
 /**
  * The Client Reminder in one tap, under a hairline: opens the SMS app with the message ready.
@@ -196,7 +206,11 @@ private fun RemindButton(name: String, onRemind: () -> Unit, reminded: String?, 
     }
 }
 
-/** [question] in the colours of a warning, its action under the text at the end. */
+/**
+ * [question] in the colours of a warning, its actions under the text at the end, side by side, or
+ * one under the other when they do not fit on one line.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CardQuestionBox(question: CardQuestion) {
     Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = HcmColors.WarningSoft) {
@@ -205,7 +219,10 @@ private fun CardQuestionBox(question: CardQuestion) {
                 Icon(Icons.Rounded.WarningAmber, contentDescription = null, modifier = Modifier.padding(top = 1.dp).size(18.dp), tint = HcmColors.Warning)
                 Text(question.text, style = MaterialTheme.typography.bodyMedium, color = HcmColors.Ink)
             }
-            TextAction(question.action, onClick = question.onAction, modifier = Modifier.align(Alignment.End), enabled = question.actionEnabled)
+            FlowRow(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.End) {
+                question.secondAction?.let { TextAction(it, onClick = question.onSecondAction) }
+                TextAction(question.action, onClick = question.onAction, enabled = question.actionEnabled)
+            }
         }
     }
 }

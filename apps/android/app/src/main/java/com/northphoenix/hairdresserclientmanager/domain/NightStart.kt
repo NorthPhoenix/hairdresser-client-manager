@@ -13,8 +13,9 @@ import java.time.ZoneId
  * turns "5" into 5:00 AM. The Appointment form says so under the start time, and a Scheduled
  * Appointment at night asks once on its screen, both offering the same time on the other half of
  * the day. A Stylist who does work at night keeps the time with one tap. A Client Reminder would
- * send that time to the Client, so the Home View's tomorrow card asks too, and 'Remind all' starts
- * with it unchecked. Tested in `NightStartTest`.
+ * send that time to the Client, so the Home View's tomorrow card asks too, with both answers, and
+ * 'Remind all' starts with it unchecked; sent checked from there, the time is kept. Tested in
+ * `NightStartTest`.
  */
 object NightStart {
     private const val NIGHT_FROM_HOUR = 21
