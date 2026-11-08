@@ -79,6 +79,15 @@ class BatchRemindersTest {
     }
 
     @Test
+    fun `an Appointment whose start at night is asked about starts unchecked`() {
+        val day = listOf(appointment("a"), appointment("b"), appointment("c"))
+        val log = mapOf("a" to Reminded("a", "2026-10-22T15:00:00Z", now))
+
+        assertEquals(setOf("c"), BatchReminders.initiallyChecked(day, log, timeAsked = setOf("b")))
+        assertEquals(setOf("b", "c"), BatchReminders.initiallyChecked(day, log, timeAsked = emptySet()))
+    }
+
+    @Test
     fun `the log round-trips through its stored text`() {
         val entry = Reminded("clx1", "2026-10-22T15:00:00Z", Instant.parse("2026-10-21T01:30:00Z"))
 

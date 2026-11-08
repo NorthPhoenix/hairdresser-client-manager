@@ -68,6 +68,17 @@ class NightStartTest {
     }
 
     @Test
+    fun `a list reads the start in the Stylist's timezone`() {
+        val late = appointment()
+
+        // 05:00 UTC is 23:00 in Chicago, at night, and 14:00 in Tokyo, in the daytime. 17:00 UTC is 11:00 in Chicago.
+        assertTrue(NightStart.asks(late, ZoneId.of("America/Chicago"), emptySet()))
+        assertFalse(NightStart.asks(late, ZoneId.of("Asia/Tokyo"), emptySet()))
+        assertFalse(NightStart.asks(late, ZoneId.of("America/Chicago"), setOf(NightStart.keptKey("a1", Instant.parse(late.startsAt)))))
+        assertFalse(NightStart.asks(appointment(startsAt = "2026-11-30T17:00:00.000Z"), ZoneId.of("America/Chicago"), emptySet()))
+    }
+
+    @Test
     fun `a Scheduled Appointment at night asks until the Stylist keeps that time`() {
         val late = appointment()
         val start = chicago.zoned(late.startsAt).toLocalTime()
