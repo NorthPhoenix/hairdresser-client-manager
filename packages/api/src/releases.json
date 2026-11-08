@@ -13,6 +13,21 @@
     }
   },
   {
+    "versionCode": 10,
+    "versionName": "1.8.0",
+    "date": "2026-11-08",
+    "notes": {
+      "ru": [
+        "Завтрашняя запись, которая начинается ночью, переспрашивает время и на главном экране, до напоминания: «Время верное» или перенос одним нажатием",
+        "«Напомнить всем» оставляет напоминание с ночным временем неотмеченным и объясняет почему"
+      ],
+      "en": [
+        "A tomorrow Appointment that starts at night asks you to check the time on Home too, before the reminder: “Time is right” or move it in one tap",
+        "“Remind all” leaves a reminder with a night-time start unchecked and says why"
+      ]
+    }
+  },
+  {
     "versionCode": 8,
     "versionName": "1.6.0",
     "date": "2026-11-07",
