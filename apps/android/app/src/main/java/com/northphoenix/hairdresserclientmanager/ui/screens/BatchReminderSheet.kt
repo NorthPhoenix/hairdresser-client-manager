@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Sms
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -42,6 +43,7 @@ import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.DeviceSms
 import com.northphoenix.hairdresserclientmanager.domain.BatchReminders
+import com.northphoenix.hairdresserclientmanager.domain.NightStart
 import com.northphoenix.hairdresserclientmanager.domain.PhoneFormat
 import com.northphoenix.hairdresserclientmanager.domain.ReminderLog
 import com.northphoenix.hairdresserclientmanager.domain.ReminderMessage
@@ -61,9 +63,11 @@ import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 /**
  * 'Remind all': one row per remindable Appointment of [appointments] (tomorrow's), with the Client the
  * reminder goes to, the number, the language and the exact text, and a checkbox. Those already reminded
- * for their current time start unchecked. "Send N SMS" sends the checked ones from the phone (asking for
- * the SMS permission at that moment); without the permission, or a way to send, each one is opened in the
- * SMS app in turn instead. Each row then shows how its SMS went, and a failed one can be retried.
+ * for their current time start unchecked, and so do those whose start at night is asked about
+ * ([NightStart.asks]), which say so: their text would give the Client a time that is most likely
+ * wrong. "Send N SMS" sends the checked ones from the phone (asking for the SMS permission at that
+ * moment); without the permission, or a way to send, each one is opened in the SMS app in turn
+ * instead. Each row then shows how its SMS went, and a failed one can be retried.
  */
 @Composable
 fun BatchReminderSheet(viewModel: AppViewModel, appointments: List<Appointment>, onDismiss: () -> Unit) {
@@ -80,9 +84,14 @@ fun BatchReminderSheet(viewModel: AppViewModel, appointments: List<Appointment>,
     val messages = remember(appointments, format.zone) {
         appointments.mapNotNull { clientReminderMessage(context, it, format.zone) }
     }
-    // Reminded ones start unchecked. What the Stylist checks is kept across a rotation, and not changed by the log growing as the batch goes.
+    // The starts at night that are asked about: kept ones are not.
+    val keptNightStarts by rememberKeptNightStarts()
+    val timeAsked = remember(appointments, format.zone, keptNightStarts) {
+        appointments.filter { NightStart.asks(it, format.zone, keptNightStarts) }.map { it.id }.toSet()
+    }
+    // Reminded ones and starts at night start unchecked. What the Stylist checks is kept across a rotation, and not changed by the log growing as the batch goes.
     var checked by rememberSaveable {
-        mutableStateOf(BatchReminders.initiallyChecked(appointments, log).toList())
+        mutableStateOf(BatchReminders.initiallyChecked(appointments, log, timeAsked).toList())
     }
     var fallback by rememberSaveable { mutableStateOf(false) }
     var askingPermission by rememberSaveable { mutableStateOf(false) }
@@ -185,6 +194,7 @@ fun BatchReminderSheet(viewModel: AppViewModel, appointments: List<Appointment>,
                 enabled = !started,
                 state = state,
                 remindedNote = remindedAt?.takeIf { state == null }?.let { stringResource(R.string.reminded_at, format.stamp(it, now)) },
+                timeQuestion = nightStartNote(message).takeIf { message.appointmentId in timeAsked && state == null },
                 onToggle = { on -> checked = if (on) checked + message.appointmentId else checked - message.appointmentId },
                 onRetry = { outbox.send(listOf(message)) },
             )
@@ -204,6 +214,7 @@ private fun ReminderRow(
     enabled: Boolean,
     state: SendState?,
     remindedNote: String?,
+    timeQuestion: String?,
     onToggle: (Boolean) -> Unit,
     onRetry: () -> Unit,
 ) {
@@ -231,6 +242,12 @@ private fun ReminderRow(
                 remindedNote?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = HcmColors.Success) }
             }
         }
+        timeQuestion?.let { question ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Rounded.WarningAmber, contentDescription = null, modifier = Modifier.padding(top = 1.dp).size(18.dp), tint = HcmColors.Warning)
+                Text(question, style = MaterialTheme.typography.bodyMedium, color = HcmColors.Warning)
+            }
+        }
         Text(
             message.text,
             modifier = Modifier
@@ -244,6 +261,16 @@ private fun ReminderRow(
             SendResult(state, onRetry)
         }
     }
+}
+
+/** "Starts at 11:00 PM. Did you mean 11:00 AM? Check the box if the time is right." for the row of [message], which starts at night. */
+@Composable
+private fun nightStartNote(message: ReminderMessage): String? {
+    val format = LocalTimeFormat.current
+    val start = format.zoned(message.startsAt).toLocalTime()
+    val dayTime = NightStart.dayTime(start) ?: return null
+
+    return stringResource(R.string.batch_reminder_night_start, format.time(start), format.time(dayTime))
 }
 
 /** How the SMS of a row went: waiting, on its way, sent, opened in the SMS app, or failed with the reason and a retry. */

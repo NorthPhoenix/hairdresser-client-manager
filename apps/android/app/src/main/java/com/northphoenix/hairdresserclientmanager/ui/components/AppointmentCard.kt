@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.ContentCut
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Sms
 import androidx.compose.material.icons.rounded.Storefront
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -82,6 +83,8 @@ fun AppointmentCard(
     onRemind: (() -> Unit)? = null,
     /** With [onRemind]: when the reminder went already ("Reminded 19:30"), which the button then offers to send again. */
     reminded: String? = null,
+    /** With [onRemind]: what to check before the reminder goes, as it would send it to the Client (a start at night), over the button. */
+    question: CardQuestion? = null,
 ) {
     val format = LocalTimeFormat.current
     // Named by a Client who is in it, also when its primary Client is not (AppointmentClients.Fault).
@@ -147,22 +150,27 @@ fun AppointmentCard(
         if (onOutcome != null) {
             OutcomeChips(name, onOutcome, Modifier.padding(start = 18.dp, end = 18.dp, bottom = 16.dp))
         } else if (onRemind != null) {
-            RemindButton(name, onRemind, reminded, Modifier.padding(start = 18.dp, end = 18.dp, bottom = 16.dp))
+            RemindButton(name, onRemind, reminded, question, Modifier.padding(start = 18.dp, end = 18.dp, bottom = 16.dp))
         }
     }
 }
 
+/** A question on a card: [text] says what to check, and [action] ([onAction]) puts it right in one tap. */
+data class CardQuestion(val text: String, val action: String, val onAction: () -> Unit, val actionEnabled: Boolean = true)
+
 /**
  * The Client Reminder in one tap, under a hairline: opens the SMS app with the message ready.
  * It is read out with the Client the card is of, as the buttons of several cards sound alike.
+ * A [question] about what the reminder would say comes first.
  */
 @Composable
-private fun RemindButton(name: String, onRemind: () -> Unit, reminded: String?, modifier: Modifier = Modifier) {
+private fun RemindButton(name: String, onRemind: () -> Unit, reminded: String?, question: CardQuestion?, modifier: Modifier = Modifier) {
     val label = stringResource(if (reminded == null) R.string.home_remind else R.string.home_remind_again)
     val description = stringResource(R.string.home_outcome_chip_description, label, name)
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Hairline()
+        question?.let { CardQuestionBox(it) }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
             Surface(
                 onClick = onRemind,
@@ -184,6 +192,20 @@ private fun RemindButton(name: String, onRemind: () -> Unit, reminded: String?, 
                 }
             }
             reminded?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = HcmColors.Success) }
+        }
+    }
+}
+
+/** [question] in the colours of a warning, its action under the text at the end. */
+@Composable
+private fun CardQuestionBox(question: CardQuestion) {
+    Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = HcmColors.WarningSoft) {
+        Column(Modifier.padding(start = 12.dp, top = 10.dp, end = 4.dp)) {
+            Row(Modifier.padding(end = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Rounded.WarningAmber, contentDescription = null, modifier = Modifier.padding(top = 1.dp).size(18.dp), tint = HcmColors.Warning)
+                Text(question.text, style = MaterialTheme.typography.bodyMedium, color = HcmColors.Ink)
+            }
+            TextAction(question.action, onClick = question.onAction, modifier = Modifier.align(Alignment.End), enabled = question.actionEnabled)
         }
     }
 }

@@ -398,6 +398,7 @@
     <string name="batch_reminders_permission_continue">Продолжить</string>
     <string name="batch_reminders_fallback_note">Отправка SMS из приложения недоступна: напоминания откроются в Сообщениях по одному, отправьте каждое там.</string>
     <string name="batch_reminders_check_description">Отправить напоминание: %1$s</string>
+    <string name="batch_reminder_night_start">Начало в %1$s. Может быть, в %2$s? Отметьте, если время верное.</string>
     <string name="batch_reminder_waiting">Ожидает отправки</string>
     <string name="batch_reminder_sending">Отправляется…</string>
     <string name="batch_reminder_sent">Отправлено</string>

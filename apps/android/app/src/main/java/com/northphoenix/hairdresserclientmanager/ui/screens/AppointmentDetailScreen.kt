@@ -108,7 +108,6 @@ import com.northphoenix.hairdresserclientmanager.domain.PhoneFormat
 import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentCopying
-import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentTotals
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.ColorFormulaOffer
@@ -124,7 +123,6 @@ import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
-import com.northphoenix.hairdresserclientmanager.state.Notice
 import com.northphoenix.hairdresserclientmanager.state.PhotoUpload
 import com.northphoenix.hairdresserclientmanager.state.Read
 import com.northphoenix.hairdresserclientmanager.state.UploadState
@@ -372,25 +370,6 @@ private fun AppointmentDetail(
         }
     }
 
-    // The same time on the other half of the same day, the end time with it, as the edit form saves it.
-    fun moveToDayTime() {
-        val current = AppointmentDraft.saved(appointment, format)
-        val moved = NightStart.moved(current.startTime, current.endTime) ?: return
-
-        when (val times = AppointmentDraft.times(current.date, moved.start, moved.end, format)) {
-            is AppointmentDraft.Times.Valid -> viewModel.editAppointment(
-                appointment.id,
-                times,
-                locationType = null,
-                ownAddress = null,
-                saved = Notice(R.string.night_start_moved, args = listOf(format.time(moved.start))),
-            ) {}
-            AppointmentDraft.Times.StartSkipped -> viewModel.notify(R.string.appointment_start_time_skipped, isError = true)
-            AppointmentDraft.Times.EndSkipped -> viewModel.notify(R.string.appointment_end_time_skipped, isError = true)
-            AppointmentDraft.Times.EndNotAfterStart -> viewModel.notify(R.string.appointment_end_before_start, isError = true)
-        }
-    }
-
     // The photo target has to survive the trip to the camera or gallery and back.
     var photoClientId by rememberSaveable { mutableStateOf("") }
     var photoCategory by rememberSaveable { mutableStateOf(PhotoCategory.AFTER) }
@@ -455,7 +434,7 @@ private fun AppointmentDetail(
                     start = startTime,
                     enabled = !busy,
                     onKeep = { nightStartsKept = keptNightStarts.keep(appointment.id, Instant.parse(appointment.startsAt)) },
-                    onDayTime = ::moveToDayTime,
+                    onDayTime = { moveNightStartToDayTime(viewModel, appointment, format) },
                 )
             }
 
