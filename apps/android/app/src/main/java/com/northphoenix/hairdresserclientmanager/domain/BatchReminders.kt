@@ -22,8 +22,10 @@ object BatchReminders {
 
     /**
      * The Appointments the sheet opens with checked: all but those already reminded for their current
-     * time, so a second go does not send the same reminder again unless the Stylist checks it.
+     * time, so a second go does not send the same reminder again unless the Stylist checks it, and
+     * those in [timeAsked], whose start at night is asked about ([NightStart.asks]): their reminder
+     * would send a time that is most likely wrong, so it goes only once the Stylist checks it.
      */
-    fun initiallyChecked(day: List<Appointment>, log: Map<String, Reminded>): Set<String> =
-        day.filter { ReminderLog.remindedAt(log, it) == null }.map { it.id }.toSet()
+    fun initiallyChecked(day: List<Appointment>, log: Map<String, Reminded>, timeAsked: Set<String> = emptySet()): Set<String> =
+        day.filter { ReminderLog.remindedAt(log, it) == null && it.id !in timeAsked }.map { it.id }.toSet()
 }

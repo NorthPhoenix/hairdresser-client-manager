@@ -45,17 +45,20 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
+import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.domain.BatchReminders
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.HomeOutcomes
 import com.northphoenix.hairdresserclientmanager.domain.HomeTomorrow
+import com.northphoenix.hairdresserclientmanager.domain.NightStart
 import com.northphoenix.hairdresserclientmanager.domain.ReminderLog
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.composeClientReminder
 import com.northphoenix.hairdresserclientmanager.ui.components.AppointmentCard
+import com.northphoenix.hairdresserclientmanager.ui.components.CardQuestion
 import com.northphoenix.hairdresserclientmanager.ui.components.EmptyState
 import com.northphoenix.hairdresserclientmanager.ui.components.LoadFailed
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenPadding
@@ -64,12 +67,14 @@ import com.northphoenix.hairdresserclientmanager.ui.components.Tag
 import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
 import com.northphoenix.hairdresserclientmanager.ui.components.rememberNow
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
+import java.time.Instant
 
 /**
  * Home View: today's Appointments plus past ones still marked scheduled, which need an outcome.
  * The card of a Scheduled Appointment whose start time has come offers its outcomes, and a day
  * with several unresolved Appointments can complete them all at once. Under them, tomorrow's
- * Scheduled Appointments, each with a one-tap Client Reminder. Above all of it, when there is one,
+ * Scheduled Appointments, each with a one-tap Client Reminder; one that starts at night asks about
+ * its time first, as the reminder would send it (see [NightStart]). Above all of it, when there is one,
  * a card about the app itself: what the last update changed, or a newer version.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -97,6 +102,10 @@ fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit) {
     val reminded by viewModel.reminders.log.collectAsStateWithLifecycle()
     val remindable = remember(tomorrows, now) { BatchReminders.remindable(tomorrows, now) }
     var remindingAll by rememberSaveable { mutableStateOf(false) }
+    // The starts at night the Stylist said are right, on this device: their cards ask no more.
+    val keptNightStarts by rememberKeptNightStarts()
+    val nightStarts = remember(context) { KeptNightStarts(context) }
+    val busy by viewModel.busy.collectAsStateWithLifecycle()
     val unresolvedDays = remember(unresolved, format) { HomeOutcomes.byDay(unresolved, format.zone) }
     // "What's new" after an update, or a newer version: one card at the top, never in the way.
     val updateCard by viewModel.appUpdateCard.collectAsStateWithLifecycle()
@@ -185,6 +194,13 @@ fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit) {
                             null
                         },
                         reminded = ReminderLog.remindedAt(reminded, appointment)?.let { stringResource(R.string.reminded_at, format.stamp(it, now)) },
+                        question = nightStartQuestion(
+                            appointment,
+                            keptNightStarts,
+                            enabled = !busy,
+                            onKeep = { nightStarts.keep(appointment.id, Instant.parse(appointment.startsAt)) },
+                            onDayTime = { moveNightStartToDayTime(viewModel, appointment, format) },
+                        ),
                         modifier = Modifier.animateItem(),
                     )
                 }
@@ -195,6 +211,37 @@ fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit) {
     if (remindingAll) {
         BatchReminderSheet(viewModel, remindable, onDismiss = { remindingAll = false })
     }
+}
+
+/**
+ * "Starts at 11:00 PM. Did you mean 11:00 AM?" with "Time is right" ([onKeep]) and "Change to 11:00 AM"
+ * ([onDayTime]), for a card of an Appointment whose start at night is asked about ([NightStart.asks]),
+ * as its Appointment screen asks; null for any other. A kept time is in [kept] from then on, on both.
+ */
+@Composable
+private fun nightStartQuestion(
+    appointment: Appointment,
+    kept: Set<String>,
+    enabled: Boolean,
+    onKeep: () -> Unit,
+    onDayTime: () -> Unit,
+): CardQuestion? {
+    val format = LocalTimeFormat.current
+
+    if (!NightStart.asks(appointment, format.zone, kept)) {
+        return null
+    }
+    val start = format.zoned(appointment.startsAt).toLocalTime()
+    val dayTime = NightStart.dayTime(start) ?: return null
+
+    return CardQuestion(
+        text = stringResource(R.string.night_start_question, format.time(start), format.time(dayTime)),
+        action = stringResource(R.string.night_start_change, format.time(dayTime)),
+        onAction = onDayTime,
+        actionEnabled = enabled,
+        secondAction = stringResource(R.string.night_start_keep),
+        onSecondAction = onKeep,
+    )
 }
 
 /** "Tomorrow" with its count, and 'Remind all' ([onRemindAll]; null when no card can be reminded) beside it, or under it when it does not fit. */

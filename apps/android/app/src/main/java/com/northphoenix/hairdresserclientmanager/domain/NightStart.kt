@@ -4,6 +4,7 @@ import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import java.time.Instant
 import java.time.LocalTime
+import java.time.ZoneId
 
 /**
  * A start at night, from 21:00 to before 6:00 in the Stylist's timezone, is most likely AM and PM
@@ -11,7 +12,10 @@ import java.time.LocalTime
  * afternoon opens the time picker on PM, and a tap on "11" makes it 23:00; one made in the morning
  * turns "5" into 5:00 AM. The Appointment form says so under the start time, and a Scheduled
  * Appointment at night asks once on its screen, both offering the same time on the other half of
- * the day. A Stylist who does work at night keeps the time with one tap. Tested in `NightStartTest`.
+ * the day. A Stylist who does work at night keeps the time with one tap. A Client Reminder would
+ * send that time to the Client, so the Home View's tomorrow card asks too, with both answers, and
+ * 'Remind all' starts with it unchecked; sent checked from there, the time is kept. Tested in
+ * `NightStartTest`.
  */
 object NightStart {
     private const val NIGHT_FROM_HOUR = 21
@@ -42,6 +46,10 @@ object NightStart {
         appointment.status == AppointmentStatus.SCHEDULED &&
             isAtNight(startTime) &&
             keptKey(appointment.id, Instant.parse(appointment.startsAt)) !in kept
+
+    /** [asks], with the start time of [appointment] read in [zone], the Stylist's timezone. */
+    fun asks(appointment: Appointment, zone: ZoneId, kept: Set<String>): Boolean =
+        asks(appointment, Instant.parse(appointment.startsAt).atZone(zone).toLocalTime(), kept)
 
     /**
      * What the device keeps when the Stylist keeps a start at night: the Appointment at that
