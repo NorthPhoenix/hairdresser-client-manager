@@ -223,6 +223,23 @@ class AppointmentDraftTest {
         assertEquals(alice, AppointmentDraft.ownAddress(typed = alice, primaryClientAddress = carol))
     }
 
+    @Test
+    fun `an address typed at home is offered as the address of a primary Client who has none`() {
+        val typed = AppointmentDraft.ownAddress(typed = "1 Lost Lane ", primaryClientAddress = "")
+
+        // A picked Client without an address, and one created inline, who has none.
+        assertTrue(AppointmentDraft.offersSavingAddress(LocationType.AT_HOME, typed, primaryClientAddress = ""))
+        assertTrue(AppointmentDraft.offersSavingAddress(LocationType.AT_HOME, typed, primaryClientAddress = "  "))
+
+        // A Client who has an address keeps it, and a primary Client the form does not know is not asked about.
+        assertFalse(AppointmentDraft.offersSavingAddress(LocationType.AT_HOME, typed, primaryClientAddress = carol))
+        assertFalse(AppointmentDraft.offersSavingAddress(LocationType.AT_HOME, typed, primaryClientAddress = null))
+        // Nothing typed, or in the salon: there is no address of the Stylist's own to save.
+        assertFalse(AppointmentDraft.offersSavingAddress(LocationType.AT_HOME, ownAddress = null, primaryClientAddress = ""))
+        assertFalse(AppointmentDraft.offersSavingAddress(LocationType.AT_HOME, AppointmentDraft.ownAddress(typed = " ", primaryClientAddress = ""), primaryClientAddress = ""))
+        assertFalse(AppointmentDraft.offersSavingAddress(LocationType.IN_SALON, typed, primaryClientAddress = ""))
+    }
+
     // --- the edit of an Appointment's time and place ---
 
     private fun appointment(

@@ -26,6 +26,7 @@
     <string name="amount_too_large">Сумма не может быть больше %1$s.</string>
     <string name="amount_unreadable">Введите сумму цифрами, например 1200 или 85,50.</string>
     <string name="appointment_address_label">Адрес записи</string>
+    <string name="appointment_address_save_to_client">Также сохранить в профиль клиента</string>
     <string name="appointment_at_home">На дому</string>
     <string name="appointment_client_required">Выберите клиента или создайте нового.</string>
     <string name="appointment_conflict_warning">Запись создана, но она пересекается по времени с другой.</string>

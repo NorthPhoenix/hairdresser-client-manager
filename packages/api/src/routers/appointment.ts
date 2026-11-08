@@ -2,7 +2,7 @@ import type { Prisma } from "@hcm/db";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { inAddedOrder } from "../addedOrder";
-import { getClientAddress, getPrimaryClientChange, getSalonAddress, hasCustomAddress } from "../appointmentLocation";
+import { getClientAddress, getPrimaryClientChange, getSalonAddress, hasCustomAddress, saveAddressToClient } from "../appointmentLocation";
 import type { Db } from "../context";
 import {
   amountCents,
@@ -31,6 +31,10 @@ const appointmentCreateInput = z.object({
   endsAt: z.string().datetime().optional(),
   locationType: z.enum(["inSalon", "atHome"]).default("inSalon"),
   customLocationAddress: text(textLimits.address).optional(),
+  // At home with a customLocationAddress: make it the primary Client's address too, when that
+  // Client has none. The Appointment is then at the primary Client's address. Apps before it
+  // send nothing, and the Client keeps no address.
+  saveAddressToClient: z.boolean().optional(),
   requestKey: requestKey.optional()
 }).refine((input) => input.primaryClientId || input.inlineClientName, {
   message: "Choose a primary Client or create one inline.",
@@ -51,7 +55,9 @@ const appointmentUpdateInput = z.object({
   endsAt: z.string().datetime().nullable().optional(),
   locationType: z.enum(["inSalon", "atHome"]).optional(),
   // At home only: an empty string means the primary Client's address.
-  customLocationAddress: text(textLimits.address).optional()
+  customLocationAddress: text(textLimits.address).optional(),
+  // With a customLocationAddress: as in appointmentCreateInput.
+  saveAddressToClient: z.boolean().optional()
 });
 
 const appointmentParticipantInput = z.object({
@@ -843,7 +849,11 @@ export const appointmentRouter = createTRPCRouter({
           ...repeatedAppointment,
           inlineClientName: repeatedAppointment.primaryClient.name,
           clientIds: repeatedAppointment.participants.map((participant) => participant.clientId).sort().join(),
-          customLocationAddress: repeatedAppointment.locationAddressIsCustom ? repeatedAppointment.locationAddress : ""
+          // An address the first call saved to the primary Client is the Appointment's, as typed.
+          customLocationAddress:
+            repeatedAppointment.locationAddressIsCustom || (input.saveAddressToClient && repeatedAppointment.locationType === "atHome")
+              ? repeatedAppointment.locationAddress
+              : ""
         },
         {
           startsAt,
@@ -922,9 +932,13 @@ export const appointmentRouter = createTRPCRouter({
       });
     }
 
+    const typedAddress = input.locationType === "atHome" ? input.customLocationAddress ?? "" : "";
+    // Before the Appointment is created, so that it comes back with its primary Client's new address.
+    const addressSavedToClient =
+      input.saveAddressToClient === true && (await saveAddressToClient(ctx.db, ctx.stylist.id, primaryClient.id, typedAddress));
     const locationAddress =
       input.locationType === "atHome"
-        ? input.customLocationAddress || primaryClient.address || ""
+        ? typedAddress || primaryClient.address || ""
         : await getSalonAddress(ctx.db, ctx.stylist.id);
     const conflicts = await findConflicts(ctx.db, ctx.stylist.id, startsAt, endsAt);
     const addedAt = Date.now();
@@ -936,7 +950,7 @@ export const appointmentRouter = createTRPCRouter({
         endsAt,
         locationType: input.locationType,
         locationAddress,
-        locationAddressIsCustom: input.locationType === "atHome" && Boolean(input.customLocationAddress),
+        locationAddressIsCustom: Boolean(typedAddress) && !addressSavedToClient,
         note: "",
         finalTotalCentsOverride: null,
         requestKey: input.requestKey,
@@ -1070,9 +1084,13 @@ export const appointmentRouter = createTRPCRouter({
         };
       }
     } else if (input.customLocationAddress) {
+      const addressSavedToClient =
+        input.saveAddressToClient === true &&
+        (await saveAddressToClient(ctx.db, ctx.stylist.id, primaryClientId, input.customLocationAddress));
+
       location = {
         locationAddress: input.customLocationAddress,
-        locationAddressIsCustom: true
+        locationAddressIsCustom: !addressSavedToClient
       };
     } else if (
       input.customLocationAddress !== undefined ||
