@@ -28,6 +28,19 @@
     }
   },
   {
+    "versionCode": 11,
+    "versionName": "1.9.0",
+    "date": "2026-11-08",
+    "notes": {
+      "ru": [
+        "Если у клиента нет адреса, адрес на дом, введённый в записи, можно сразу сохранить в профиль клиента"
+      ],
+      "en": [
+        "If a Client has no address, the at-home address you type on an Appointment can be saved to the Client's profile at the same time"
+      ]
+    }
+  },
+  {
     "versionCode": 8,
     "versionName": "1.6.0",
     "date": "2026-11-07",

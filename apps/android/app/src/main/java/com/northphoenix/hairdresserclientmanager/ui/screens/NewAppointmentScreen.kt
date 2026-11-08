@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
@@ -40,6 +41,7 @@ import com.northphoenix.hairdresserclientmanager.ui.components.PickerField
 import com.northphoenix.hairdresserclientmanager.ui.components.PrimaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenColumn
 import com.northphoenix.hairdresserclientmanager.ui.components.SubScreen
+import com.northphoenix.hairdresserclientmanager.ui.components.SwitchRow
 import com.northphoenix.hairdresserclientmanager.ui.components.rememberRequestKey
 import java.time.Instant
 import java.time.LocalDate
@@ -84,6 +86,8 @@ fun NewAppointmentScreen(
     var locationType by rememberSaveable { mutableStateOf(initialLocationType ?: LocationType.IN_SALON) }
     // What the Stylist typed into the at-home address field. Null until they type: the field then shows the primary Client's address.
     var typedAddress by rememberSaveable { mutableStateOf(initialAddress?.takeIf { initialLocationType == LocationType.AT_HOME }) }
+    // Whether that address is saved as the primary Client's too, when it is offered: on unless the Stylist turns it off.
+    var saveAddressToClient by rememberSaveable { mutableStateOf(true) }
     var picker by rememberSaveable { mutableStateOf<AppointmentPicker?>(null) }
     var timePicker by rememberSaveable { mutableStateOf<AppointmentTimeField?>(null) }
 
@@ -91,6 +95,9 @@ fun NewAppointmentScreen(
     // In the order they were picked, which is the order the Appointment will list them in.
     val additionalClients = AppointmentClients.inPickedOrder(additionalClientIds, clients)
     val ownAddress = AppointmentDraft.ownAddress(typedAddress, primaryClient?.address)
+    // Offered for a picked Client without an address, and for one created inline, who has none.
+    val primaryClientAddress = primaryClient?.address ?: "".takeIf { primaryClientId == null && inlineClientName.isNotBlank() }
+    val offersSavingAddress = AppointmentDraft.offersSavingAddress(locationType, ownAddress, primaryClientAddress)
     // An end time before the start time is on the next day. Null as well when the two times cannot be an Appointment: submit says so.
     val endDate = endTime?.let { AppointmentDraft.endDate(date, startTime, it) }
 
@@ -140,6 +147,7 @@ fun NewAppointmentScreen(
                 locationType = locationType,
                 // Sent only when it is the Stylist's own: otherwise the Appointment takes the address of its primary Client.
                 customLocationAddress = ownAddress.takeIf { locationType == LocationType.AT_HOME },
+                saveAddressToClient = offersSavingAddress && saveAddressToClient,
                 requestKey = requestKey,
                 onSuccess = {
                     // Created at night with the question under its start time: the Appointment does not ask it again.
@@ -223,6 +231,14 @@ fun NewAppointmentScreen(
                     address = AppointmentDraft.shownAddress(typedAddress, primaryClient?.address),
                     onAddress = { typedAddress = it },
                 )
+                if (offersSavingAddress) {
+                    SwitchRow(
+                        stringResource(R.string.appointment_address_save_to_client),
+                        checked = saveAddressToClient,
+                        onCheckedChange = { saveAddressToClient = it },
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
             }
         }
     }

@@ -400,6 +400,26 @@ class ApiClientTest {
     }
 
     @Test
+    fun `an address typed at home goes to the primary Client only when the Stylist asks, and only with the address`() = runTest {
+        repeat(3) { enqueue("""{"result":{"data":$updated}}""") }
+        enqueue("""{"result":{"data":{"appointment":$updated,"conflicts":[]}}}""")
+
+        api.updateAppointmentTimeAndPlace("a1", null, null, LocationType.AT_HOME, "1 Lost Lane", saveAddressToClient = true)
+        api.updateAppointmentTimeAndPlace("a1", null, null, LocationType.AT_HOME, "", saveAddressToClient = true)
+        api.updateAppointmentTimeAndPlace("a1", null, null, LocationType.AT_HOME, "1 Lost Lane")
+        api.createAppointment("c1", emptyList(), null, Instant.parse("2026-10-21T20:00:00Z"), null, LocationType.AT_HOME, "1 Lost Lane", "k1", saveAddressToClient = true)
+
+        assertEquals("""{"id":"a1","locationType":"atHome","customLocationAddress":"1 Lost Lane","saveAddressToClient":true}""", server.takeRequest().body?.utf8())
+        // At the primary Client's address there is nothing to save, and the server, older or not, is told nothing new.
+        assertEquals("""{"id":"a1","locationType":"atHome","customLocationAddress":""}""", server.takeRequest().body?.utf8())
+        assertEquals("""{"id":"a1","locationType":"atHome","customLocationAddress":"1 Lost Lane"}""", server.takeRequest().body?.utf8())
+        assertEquals(
+            """{"primaryClientId":"c1","additionalClientIds":[],"startsAt":"2026-10-21T20:00:00Z","locationType":"atHome","customLocationAddress":"1 Lost Lane","saveAddressToClient":true,"requestKey":"k1"}""",
+            server.takeRequest().body?.utf8(),
+        )
+    }
+
+    @Test
     fun `an edit of the place alone sends no times, and at home an empty address for the primary Client's`() = runTest {
         enqueue("""{"result":{"data":$updated}}""")
 

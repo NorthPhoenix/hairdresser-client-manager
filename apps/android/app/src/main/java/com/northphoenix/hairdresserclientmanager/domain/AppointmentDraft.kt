@@ -94,6 +94,16 @@ object AppointmentDraft {
         typed?.trim()?.takeUnless { it.isEmpty() || it == primaryClientAddress.orEmpty().trim() }
 
     /**
+     * Whether the form offers to save the at-home address the Stylist typed ([ownAddress]) as the
+     * primary Client's address too, in the same save: at home, for a primary Client who has no
+     * address. [primaryClientAddress] is that Client's address, empty for a Client created inline,
+     * and null while the form does not know the primary Client: nothing is offered for one it
+     * cannot tell. The server saves it only to a Client who still has no address.
+     */
+    fun offersSavingAddress(locationType: LocationType, ownAddress: String?, primaryClientAddress: String?): Boolean =
+        locationType == LocationType.AT_HOME && ownAddress != null && primaryClientAddress?.isBlank() == true
+
+    /**
      * The time and place an Appointment has, as the edit form opens with them: its day and times in
      * the Stylist's timezone. [ownAddress] is the at-home address the Stylist typed, null when the
      * Appointment is at its primary Client's address or in the salon. [hasOutcome] is true for an

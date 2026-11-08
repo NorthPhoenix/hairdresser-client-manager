@@ -1538,6 +1538,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         customLocationAddress: String?,
         requestKey: String,
         onSuccess: (CreateAppointmentResult) -> Unit,
+        // The at-home address is saved as the primary Client's too, when that Client has none.
+        saveAddressToClient: Boolean = false,
     ) = act(
         key = "createAppointment",
         onSuccess = { result: CreateAppointmentResult ->
@@ -1549,14 +1551,14 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             }
             onSuccess(result)
         },
-        // An inline Client is created on the server as part of this call.
-        reload = { together(::loadAppointmentLists, { if (primaryClientId == null) loadClients() }) },
+        // An inline Client is created on the server as part of this call, and a Client can get an address in it.
+        reload = { together(::loadAppointmentLists, { if (primaryClientId == null || saveAddressToClient) loadClients() }) },
         // A new Appointment is in the list of the day it starts on and may be in Today's. No other cached day has anything of it.
         touched = {
             appointmentReads.startChanged(null, startsAt)
-            // An inline Client is new in the Client list.
-            if (primaryClientId == null) {
-                clientReads.changed(null)
+            // An inline Client is new in the Client list, and a Client with a saved address is another one there and on their profile.
+            if (primaryClientId == null || saveAddressToClient) {
+                clientReads.changed(primaryClientId)
             }
         },
     ) {
@@ -1568,6 +1570,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             endsAt = endsAt,
             locationType = locationType,
             customLocationAddress = customLocationAddress?.trim(),
+            saveAddressToClient = saveAddressToClient,
             requestKey = requestKey,
         ).also {
             // The notice only says that there is an overlap. The Appointment's own screen names it, until dismissed.
@@ -1696,7 +1699,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      * Edit Appointment: saves the day, the times and the place of an Appointment. [times] is null
      * when the Stylist left them as they were, and they are then not sent; so is [locationType] for
      * a place that is kept ([AppointmentDraft.keepsPlace]). [ownAddress] is the at-home address the
-     * Stylist typed, null for the primary Client's.
+     * Stylist typed, null for the primary Client's; with [saveAddressToClient] it is saved as the
+     * address of a primary Client who has none, too.
      * Another place can add or remove the Travel Fee: the notice then says that, with a way to undo it.
      */
     fun editAppointment(
@@ -1706,8 +1710,11 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         ownAddress: String?,
         // What is said once it is saved, unless the Travel Fee was added or removed.
         saved: Notice = Notice(R.string.appointment_time_and_place_saved),
+        saveAddressToClient: Boolean = false,
         onSuccess: () -> Unit,
     ) {
+        val primaryClientId = appointmentReads[id]?.participants?.firstOrNull { it.isPrimary }?.clientId
+
         var travelFee = TravelFeeChange()
 
         actOnAppointment(
@@ -1720,9 +1727,14 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                 onSuccess()
             },
             // At another time the Appointment is in the list of the day it starts on now, which does not hold it yet.
-            touched = { if (times != null) appointmentReads.startChanged(id, times.startsAt) else readChanges.changed(id) },
+            touched = {
+                if (times != null) appointmentReads.startChanged(id, times.startsAt) else readChanges.changed(id)
+                // A Client with a saved address is another one in the Client list and on their profile.
+                if (saveAddressToClient) clientReads.changed(primaryClientId)
+            },
+            reload = { together({ reloadAppointmentAndLists(id) }, { if (saveAddressToClient) loadClients() }) },
         ) {
-            val saved = api.updateAppointmentTimeAndPlace(id, times?.startsAt, times?.endsAt, locationType, ownAddress?.trim().orEmpty())
+            val saved = api.updateAppointmentTimeAndPlace(id, times?.startsAt, times?.endsAt, locationType, ownAddress?.trim().orEmpty(), saveAddressToClient)
 
             travelFee = saved.travelFee
             updateLoaded(id) { it.withTimeAndPlace(saved).withTravelFee(saved.travelFee) }

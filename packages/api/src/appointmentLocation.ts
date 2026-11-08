@@ -51,6 +51,43 @@ export async function getClientAddress(db: Db, clientId: string) {
 }
 
 /**
+ * Makes [address], typed for an at-home Appointment, the address of its primary Client [clientId]
+ * as well, when that Client has none: the Stylist asked for it in the same save. A Client who has
+ * an address keeps it. True when it was saved: the Appointment is then at that Client's address.
+ */
+export async function saveAddressToClient(db: Db, stylistId: string, clientId: string, address: string) {
+  if (!address) {
+    return false;
+  }
+
+  const client = await db.client.findFirst({
+    where: {
+      id: clientId,
+      stylistId
+    },
+    select: {
+      address: true
+    }
+  });
+
+  if (!client || client.address?.trim()) {
+    return false;
+  }
+
+  // An update of the Client, so that a Client form loaded before it is refused (docs/adr/0015).
+  await db.client.update({
+    where: {
+      id: clientId
+    },
+    data: {
+      address
+    }
+  });
+
+  return true;
+}
+
+/**
  * The Appointment fields to write when another Client becomes primary. An at-home Appointment
  * without a custom address is at its primary Client's address, so it moves to the new primary's:
  * a former primary's home address must not stay on the Appointment.
