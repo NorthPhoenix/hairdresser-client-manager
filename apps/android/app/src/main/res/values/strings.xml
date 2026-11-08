@@ -27,6 +27,7 @@
     <string name="amount_too_large">An amount can\'t be more than %1$s.</string>
     <string name="amount_unreadable">Enter the amount in digits, such as 1200 or 85.50.</string>
     <string name="appointment_address_label">Appointment address</string>
+    <string name="appointment_address_save_to_client">Also save to the Client\'s profile</string>
     <string name="appointment_at_home">At home</string>
     <string name="appointment_client_required">Choose a Client or create a new one.</string>
     <string name="appointment_conflict_warning">Appointment created, but it overlaps another one.</string>

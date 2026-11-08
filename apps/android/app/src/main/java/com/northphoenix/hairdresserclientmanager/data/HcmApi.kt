@@ -280,6 +280,8 @@ class HcmApi(private val trpc: TrpcClient) {
         locationType: LocationType,
         customLocationAddress: String?,
         requestKey: String,
+        // The at-home address is saved as the primary Client's too, when that Client has none.
+        saveAddressToClient: Boolean = false,
     ): CreateAppointmentResult =
         trpc.mutation(
             "appointment.create",
@@ -291,6 +293,8 @@ class HcmApi(private val trpc: TrpcClient) {
                 endsAt?.let { put("endsAt", it.toString()) }
                 put("locationType", locationType.wire)
                 putIfNotBlank("customLocationAddress", customLocationAddress)
+                // Sent only when asked: a server from before it reads nothing from it.
+                if (saveAddressToClient) put("saveAddressToClient", true)
                 put(REQUEST_KEY, requestKey)
             },
         )
@@ -304,6 +308,7 @@ class HcmApi(private val trpc: TrpcClient) {
      * both stay as they are, and with it an [endsAt] of null clears the end time. Without
      * [locationType] the place stays as it is, address included.
      * [customLocationAddress] counts at home only, where empty means the primary Client's address.
+     * With [saveAddressToClient] it becomes the address of a primary Client who has none, too.
      */
     suspend fun updateAppointmentTimeAndPlace(
         id: String,
@@ -311,6 +316,7 @@ class HcmApi(private val trpc: TrpcClient) {
         endsAt: Instant?,
         locationType: LocationType?,
         customLocationAddress: String,
+        saveAddressToClient: Boolean = false,
     ): UpdatedAppointment =
         updateAppointment(id) {
             if (startsAt != null) {
@@ -322,6 +328,7 @@ class HcmApi(private val trpc: TrpcClient) {
             }
             if (locationType == LocationType.AT_HOME) {
                 put("customLocationAddress", customLocationAddress)
+                if (saveAddressToClient && customLocationAddress.isNotBlank()) put("saveAddressToClient", true)
             }
         }
 

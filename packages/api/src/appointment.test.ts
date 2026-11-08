@@ -3162,3 +3162,119 @@ describe("appointment router", () => {
     await expect(createPhotoCaller().addPhoto(emulatorUrl)).rejects.toMatchObject(storageRefusal);
   });
 });
+
+describe("an at-home address typed for a primary Client who has none", () => {
+  const startsAt = "2026-06-13T15:00:00.000Z";
+
+  // A Client of the Stylist with [address], and an Appointment that create and update answer with.
+  function createAddressCaller(address: string) {
+    const clientUpdate = vi.fn().mockResolvedValue({});
+    const appointmentCreate = vi.fn().mockResolvedValue({
+      ...scheduledAppointment,
+      locationType: "atHome",
+      locationAddress: "12 Elm St"
+    });
+    const appointmentUpdate = vi.fn().mockResolvedValue(scheduledAppointment);
+    const caller = appRouter.createCaller(
+      createContext(
+        createDb(
+          {
+            findFirst: vi.fn().mockResolvedValue({ ...scheduledAppointment, primaryClient: { address } }),
+            findMany: vi.fn().mockResolvedValue([]),
+            create: appointmentCreate,
+            update: appointmentUpdate
+          },
+          {
+            findFirst: vi.fn().mockResolvedValue({ id: "client_1", name: "Anna", address }),
+            findUniqueOrThrow: vi.fn().mockResolvedValue({ address }),
+            create: vi.fn().mockResolvedValue({ id: "client_2", name: "Walk-in", address: "" }),
+            update: clientUpdate
+          }
+        )
+      )
+    );
+
+    return { caller, clientUpdate, appointmentCreate, appointmentUpdate };
+  }
+
+  const savedTo = (clientId: string) => ({ where: { id: clientId }, data: { address: "12 Elm St" } });
+  const createdAt = (appointmentCreate: ReturnType<typeof vi.fn>) => appointmentCreate.mock.lastCall?.[0].data;
+
+  it("becomes the Client's address in the same save when the Stylist asks, and the Appointment is at it", async () => {
+    const { caller, clientUpdate, appointmentCreate } = createAddressCaller("");
+
+    await caller.appointment.create({
+      primaryClientId: "client_1",
+      startsAt,
+      locationType: "atHome",
+      customLocationAddress: " 12 Elm St ",
+      saveAddressToClient: true
+    });
+
+    expect(clientUpdate).toHaveBeenCalledWith(savedTo("client_1"));
+    expect(createdAt(appointmentCreate)).toMatchObject({ locationAddress: "12 Elm St", locationAddressIsCustom: false });
+    // The Client was saved first, so the Appointment that comes back has the address on its Client.
+    expect(clientUpdate.mock.invocationCallOrder[0]).toBeLessThan(appointmentCreate.mock.invocationCallOrder[0] ?? 0);
+  });
+
+  it("is saved for a Client created inline, who has no address yet", async () => {
+    const { caller, clientUpdate } = createAddressCaller("");
+
+    await caller.appointment.create({
+      inlineClientName: "Walk-in",
+      startsAt,
+      locationType: "atHome",
+      customLocationAddress: "12 Elm St",
+      saveAddressToClient: true
+    });
+
+    expect(clientUpdate).toHaveBeenCalledWith(savedTo("client_2"));
+  });
+
+  it("stays the Appointment's own when the Client has an address, the Stylist did not ask, or the app is older", async () => {
+    for (const [address, saveAddressToClient] of [["10 Client St", true], ["", false], ["", undefined]] as const) {
+      const { caller, clientUpdate, appointmentCreate } = createAddressCaller(address);
+
+      await caller.appointment.create({
+        primaryClientId: "client_1",
+        startsAt,
+        locationType: "atHome",
+        customLocationAddress: "12 Elm St",
+        saveAddressToClient
+      });
+
+      expect(clientUpdate).not.toHaveBeenCalled();
+      expect(createdAt(appointmentCreate)).toMatchObject({ locationAddress: "12 Elm St", locationAddressIsCustom: true });
+    }
+  });
+
+  it("saves nothing to the Client for an Appointment in the salon or at the Client's own address", async () => {
+    for (const place of [{ locationType: "inSalon" as const, customLocationAddress: "12 Elm St" }, { locationType: "atHome" as const }]) {
+      const { caller, clientUpdate } = createAddressCaller("");
+
+      await caller.appointment.create({ primaryClientId: "client_1", startsAt, ...place, saveAddressToClient: true });
+
+      expect(clientUpdate).not.toHaveBeenCalled();
+    }
+  });
+
+  it("is saved by Edit Appointment too, and only for an address that is sent", async () => {
+    const asked = createAddressCaller("");
+
+    await asked.caller.appointment.update({ id: "appointment_1", locationType: "atHome", customLocationAddress: "12 Elm St", saveAddressToClient: true });
+    expect(asked.clientUpdate).toHaveBeenCalledWith(savedTo("client_1"));
+    expect(asked.appointmentUpdate.mock.lastCall?.[0].data).toMatchObject({ locationAddress: "12 Elm St", locationAddressIsCustom: false });
+
+    const hasOne = createAddressCaller("10 Client St");
+
+    await hasOne.caller.appointment.update({ id: "appointment_1", locationType: "atHome", customLocationAddress: "12 Elm St", saveAddressToClient: true });
+    expect(hasOne.clientUpdate).not.toHaveBeenCalled();
+    expect(hasOne.appointmentUpdate.mock.lastCall?.[0].data).toMatchObject({ locationAddress: "12 Elm St", locationAddressIsCustom: true });
+
+    const noAddress = createAddressCaller("");
+
+    await noAddress.caller.appointment.update({ id: "appointment_1", locationType: "atHome", customLocationAddress: "", saveAddressToClient: true });
+    await noAddress.caller.appointment.update({ id: "appointment_1", startsAt, saveAddressToClient: true });
+    expect(noAddress.clientUpdate).not.toHaveBeenCalled();
+  });
+});

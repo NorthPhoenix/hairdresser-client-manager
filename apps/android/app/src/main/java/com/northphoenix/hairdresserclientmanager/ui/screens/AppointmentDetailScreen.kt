@@ -829,8 +829,8 @@ private fun AppointmentDetail(
             busy = busy,
             onDismiss = { sheet = null },
             onRefused = { viewModel.notify(it, isError = true) },
-            onSave = { times, locationType, ownAddress ->
-                viewModel.editAppointment(appointment.id, times, locationType, ownAddress) {
+            onSave = { times, locationType, ownAddress, saveAddressToClient ->
+                viewModel.editAppointment(appointment.id, times, locationType, ownAddress, saveAddressToClient = saveAddressToClient) {
                     sheet = null
                     keepIfAtNight(times?.startsAt ?: Instant.parse(appointment.startsAt))
                 }

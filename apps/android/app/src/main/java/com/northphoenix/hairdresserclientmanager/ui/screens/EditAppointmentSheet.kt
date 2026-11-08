@@ -17,6 +17,7 @@ import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.Hairline
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmBottomSheet
 import com.northphoenix.hairdresserclientmanager.ui.components.PrimaryButton
+import com.northphoenix.hairdresserclientmanager.ui.components.SwitchRow
 import java.time.LocalDate
 
 /**
@@ -28,7 +29,9 @@ import java.time.LocalDate
  * that was changed elsewhere in the meantime. [onSave] gets the times only when the Stylist changed
  * them (see [AppointmentDraft.editedTimes]), the location only when it is sent (null for a place
  * that is kept, see [AppointmentDraft.keepsPlace]), and the at-home address only when it is the
- * Stylist's own; [onRefused] gets the reason, a string resource, for times that cannot be saved.
+ * Stylist's own, with whether to save it as the address of a primary Client who has none
+ * ([AppointmentDraft.offersSavingAddress]); [onRefused] gets the reason, a string resource, for
+ * times that cannot be saved.
  */
 @Composable
 internal fun EditAppointmentSheet(
@@ -37,7 +40,7 @@ internal fun EditAppointmentSheet(
     busy: Boolean,
     onDismiss: () -> Unit,
     onRefused: (Int) -> Unit,
-    onSave: (times: AppointmentDraft.Times.Valid?, locationType: LocationType?, ownAddress: String?) -> Unit,
+    onSave: (times: AppointmentDraft.Times.Valid?, locationType: LocationType?, ownAddress: String?, saveAddressToClient: Boolean) -> Unit,
 ) {
     val format = LocalTimeFormat.current
     val saved = AppointmentDraft.saved(appointment, format)
@@ -51,15 +54,18 @@ internal fun EditAppointmentSheet(
     var locationType by rememberSaveable(appointment.id, appointment.locationType, appointment.customLocationAddress) { mutableStateOf(saved.locationType) }
     // What the Stylist typed into the at-home address field. Null shows the primary Client's address, as in Appointment Creation.
     var typedAddress by rememberSaveable(appointment.id, appointment.locationType, appointment.customLocationAddress) { mutableStateOf(saved.ownAddress) }
+    var saveAddressToClient by rememberSaveable(appointment.id) { mutableStateOf(true) }
     var picker by rememberSaveable { mutableStateOf<AppointmentTimeField?>(null) }
 
     val ownAddress = AppointmentDraft.ownAddress(typedAddress, primaryClientAddress)
     // An Appointment with an outcome keeps the place it had, and the form shows that address, until the Stylist changes the place here.
     val placeKept = AppointmentDraft.keepsPlace(saved, locationType, typedAddress)
+    // Only for an address that is sent: a kept place sends none.
+    val offersSavingAddress = !placeKept && AppointmentDraft.offersSavingAddress(locationType, ownAddress, primaryClientAddress)
 
     fun save() {
         val place = { times: AppointmentDraft.Times.Valid? ->
-            onSave(times, locationType.takeUnless { placeKept }, ownAddress.takeIf { locationType == LocationType.AT_HOME })
+            onSave(times, locationType.takeUnless { placeKept }, ownAddress.takeIf { locationType == LocationType.AT_HOME }, offersSavingAddress && saveAddressToClient)
         }
 
         when (val times = AppointmentDraft.editedTimes(saved, date, startTime, endTime, format)) {
@@ -97,6 +103,9 @@ internal fun EditAppointmentSheet(
             address = if (placeKept) appointment.locationAddress else AppointmentDraft.shownAddress(typedAddress, primaryClientAddress),
             onAddress = { typedAddress = it },
         )
+        if (offersSavingAddress) {
+            SwitchRow(stringResource(R.string.appointment_address_save_to_client), checked = saveAddressToClient, onCheckedChange = { saveAddressToClient = it })
+        }
         PrimaryButton(stringResource(R.string.save_appointment_time_and_place), onClick = ::save, modifier = Modifier.fillMaxWidth(), loading = busy)
     }
 

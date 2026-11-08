@@ -94,13 +94,16 @@ function createMemoryDb() {
           ? {
               id: where.id,
               language: "en",
-              address: "",
+              address: rows.clients.find((row) => row.id === where.id)?.address ?? "",
               profileShares: rows.shares.filter((share) => share.clientId === where.id && !share.revokedAt)
             }
           : (rows.clients.find((row) => row.requestKey === where.requestKey) ?? null)
       ),
       findMany: yieldFirst(({ where }: { where: { id: { in: string[] } } }) => where.id.in.map(readClient)),
-      create: yieldFirst(({ data }: { data: Record<string, unknown> }) => add(rows.clients, "client", data))
+      create: yieldFirst(({ data }: { data: Record<string, unknown> }) => add(rows.clients, "client", data)),
+      update: yieldFirst(({ where, data }: { where: { id: string }; data: Record<string, unknown> }) =>
+        Object.assign(rows.clients.find((row) => row.id === where.id) ?? {}, data)
+      )
     },
     serviceMenuItem: {
       findFirst: byIdOrRequestKey(rows.menuItems),
@@ -692,6 +695,25 @@ describe("a request key that comes again with other values", () => {
     expect(rows.appointments).toHaveLength(1);
     expect(rows.clients.map((client) => client.name)).toEqual(["Walk-in"]);
     await expect(caller.appointment.create(input)).resolves.toMatchObject({ appointment: { id: first.appointment.id } });
+  });
+
+  it("answers the Appointment sent again whose typed address the first call saved to its new Client", async () => {
+    const { caller, rows } = createMemoryDb();
+    const input = {
+      inlineClientName: "Walk-in",
+      startsAt: startsAt.toISOString(),
+      locationType: "atHome" as const,
+      customLocationAddress: "7 Home St",
+      saveAddressToClient: true,
+      requestKey
+    };
+    const first = await caller.appointment.create(input);
+
+    expect(rows.clients.map((client) => client.address)).toEqual(["7 Home St"]);
+    expect(rows.appointments[0]).toMatchObject({ locationAddress: "7 Home St", locationAddressIsCustom: false });
+    await expect(caller.appointment.create(input)).resolves.toMatchObject({ appointment: { id: first.appointment.id } });
+    await expect(caller.appointment.create({ ...input, customLocationAddress: "9 Other St" })).rejects.toMatchObject(carriedOutOtherwise);
+    expect(rows.appointments).toHaveLength(1);
   });
 
   it("refuses the corrected Service", async () => {
