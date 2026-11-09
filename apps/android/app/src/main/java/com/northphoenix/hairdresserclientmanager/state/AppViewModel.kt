@@ -29,6 +29,7 @@ import com.northphoenix.hairdresserclientmanager.data.ClientFamily
 import com.northphoenix.hairdresserclientmanager.data.ClientHistoryEntry
 import com.northphoenix.hairdresserclientmanager.data.EarningsSummary
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
+import com.northphoenix.hairdresserclientmanager.data.ClientVisitDates
 import com.northphoenix.hairdresserclientmanager.data.CreateAppointmentResult
 import com.northphoenix.hairdresserclientmanager.data.JpegSize
 import com.northphoenix.hairdresserclientmanager.data.Language
@@ -207,6 +208,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         fetchList = { api.listClients() },
         fetchHistory = { api.clientAppointmentHistory(it.id) },
         fetchFamily = { api.clientFamily(it.id) },
+        fetchVisitDates = { api.clientVisitDates() },
     )
 
     private val serviceMenuReads = ServiceMenuReads(
@@ -629,7 +631,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      */
     private suspend fun loadEverything() = withSettings({ clock.zone }, ::refreshSettings, ::loadAll, ::loadAppointmentLists)
 
-    private suspend fun loadAll() = together({ loadClients() }, ::loadServiceMenu, ::loadAppointmentLists)
+    private suspend fun loadAll() = together({ loadClients() }, ::loadServiceMenu, ::loadAppointmentLists, ::loadShownClientVisitDates)
 
     /** The key of the Client list and of the Service Menu: the Stylist. Null while there is no Stylist to show them to. */
     private fun ownerKey(): StylistKey? = ownerKey(_stylist.value)
@@ -1385,6 +1387,34 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     /** Called by the Client Profile each time it comes into view (see [loadShown]). */
     fun loadClientFamily(clientId: String) = loadShown(clientReads.family, ClientKey(clientId))
+
+    /**
+     * Each Client's last visit and next Appointment, for as long as the Clients View collects this
+     * (see [clientHistory]). Nothing for a Stylist whose lists are not shown yet.
+     */
+    fun clientVisitDates(): Flow<Read<List<ClientVisitDates>>> = ownerKey()?.let(clientReads.visitDates::watch) ?: flowOf(Read())
+
+    /** Those dates as they are without asking, for the first frame of the Clients View. */
+    fun shownClientVisitDates(): Read<List<ClientVisitDates>> = ownerKey()?.let(clientReads.visitDates::now) ?: Read()
+
+    /** Called by the Clients View each time it comes into view. Quietly: without the dates the rows only say less. */
+    fun loadClientVisitDates() {
+        val key = ownerKey() ?: return
+
+        viewModelScope.launch { quietly { clientReads.visitDates.refresh(key) } }
+    }
+
+    /** With the lists, the dates of the Clients View when it is on screen. Quietly, as [loadClientVisitDates]. */
+    private suspend fun loadShownClientVisitDates() = quietly { clientReads.visitDates.refreshShown() }
+
+    private suspend fun quietly(read: suspend () -> Unit) {
+        try {
+            read()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+        }
+    }
 
     // Changes of Families are waited for: the answer says who is in which Family now, also a Client whose Family it
     // ended. They share one key, so they run one at a time.

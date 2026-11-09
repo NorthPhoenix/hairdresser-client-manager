@@ -31,19 +31,25 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
+import com.northphoenix.hairdresserclientmanager.domain.ClientRowVisits
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
+import com.northphoenix.hairdresserclientmanager.domain.ClientVisits
 import com.northphoenix.hairdresserclientmanager.domain.PhoneFormat
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
+import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.Avatar
 import com.northphoenix.hairdresserclientmanager.ui.components.EmptyState
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmCard
@@ -53,6 +59,8 @@ import com.northphoenix.hairdresserclientmanager.ui.components.ScreenPadding
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenTitle
 import com.northphoenix.hairdresserclientmanager.ui.components.SecondaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.Tag
+import com.northphoenix.hairdresserclientmanager.ui.components.collectWhileOpen
+import java.time.Instant
 
 /** Clients View: searchable list of Client Profiles. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -66,6 +74,7 @@ fun ClientsScreen(viewModel: AppViewModel, onOpenClient: (String) -> Unit, onImp
     var search by rememberSaveable { mutableStateOf("") }
     val filtered = remember(clients, search) { ClientRules.filter(clients, search) }
     val duplicates = remember(clients) { ClientRules.withPossibleDuplicates(clients) }
+    val visits = rememberClientRowVisits(viewModel, clients)
 
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -119,7 +128,7 @@ fun ClientsScreen(viewModel: AppViewModel, onOpenClient: (String) -> Unit, onImp
                 }
 
                 items(filtered, key = { it.id }) { client ->
-                    ClientRow(client, onClick = { onOpenClient(client.id) }, possibleDuplicate = client.id in duplicates)
+                    ClientRow(client, onClick = { onOpenClient(client.id) }, possibleDuplicate = client.id in duplicates, visits = visits?.get(client.id))
                 }
             }
         }
@@ -133,6 +142,7 @@ fun ClientRow(
     modifier: Modifier = Modifier,
     trailing: (@Composable () -> Unit)? = null,
     possibleDuplicate: Boolean = false,
+    visits: ClientRowVisits.Line? = null,
 ) {
     HcmCard(modifier.fillMaxWidth(), onClick = onClick, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -146,6 +156,7 @@ fun ClientRow(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                visits?.let { VisitsLine(it) }
                 // Another Client has the same number: the profile offers to merge them.
                 if (possibleDuplicate) {
                     Tag(
@@ -166,4 +177,82 @@ fun ClientRow(
             }
         }
     }
+}
+
+/**
+ * What each Client's row says of their visits, by Client id, read for as long as the Clients View
+ * is open (as the Client Profile reads its history). Null until the dates have loaded: a row then
+ * says nothing of them, rather than "no visits yet" of a Client who has had some.
+ */
+@Composable
+private fun rememberClientRowVisits(viewModel: AppViewModel, clients: List<ClientProfile>): Map<String, ClientRowVisits.Line>? {
+    val read by remember(viewModel) { viewModel.clientVisitDates() }.collectWhileOpen(
+        initialValue = remember(viewModel) { viewModel.shownClientVisitDates() },
+    )
+    val today by viewModel.today.collectAsStateWithLifecycle()
+    val zone = LocalTimeFormat.current.zone
+
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.loadClientVisitDates() }
+
+    // The day is part of the key: a list left open over midnight says "yesterday" for the visit of today.
+    return remember(read.data, clients, today, zone) {
+        read.data?.let { dates ->
+            val byClient = ClientRowVisits.byClient(dates)
+            val now = Instant.now()
+
+            clients.associate { it.id to ClientRowVisits.line(byClient[it.id], now, zone) }
+        }
+    }
+}
+
+/** "Booked: tomorrow, 10:00", "Last visit: 3 weeks ago", "No visits yet". */
+@Composable
+private fun VisitsLine(line: ClientRowVisits.Line) {
+    val format = LocalTimeFormat.current
+    val text = when (line) {
+        is ClientRowVisits.Line.Next -> {
+            val time = format.time(line.startsAt)
+
+            when (line.day) {
+                ClientRowVisits.Day.TODAY -> stringResource(R.string.client_row_next_today, time)
+                ClientRowVisits.Day.TOMORROW -> stringResource(R.string.client_row_next_tomorrow, time)
+                ClientRowVisits.Day.LATER -> stringResource(R.string.client_row_next, format.shortDate(line.date), time)
+            }
+        }
+        is ClientRowVisits.Line.Last -> when {
+            line.ago.unit == ClientVisits.SpanUnit.DAYS && line.ago.count == 0 -> stringResource(R.string.client_row_last_visit_today)
+            line.ago.unit == ClientVisits.SpanUnit.DAYS && line.ago.count == 1 -> stringResource(R.string.client_row_last_visit_yesterday)
+            else -> stringResource(R.string.client_row_last_visit, agoText(line.ago))
+        }
+        ClientRowVisits.Line.None -> stringResource(R.string.client_row_no_visits)
+    }
+
+    Text(
+        keepValueTogether(text),
+        style = MaterialTheme.typography.bodyMedium,
+        // An Appointment ahead is what the Stylist looks for: in the accent colour. The rest is quieter.
+        color = if (line is ClientRowVisits.Line.Next) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/**
+ * Where the line does not fit, as next to a Profile Share icon, what follows the label goes on the
+ * next line whole: "7 дней назад" under "Последний визит:", never "назад" alone.
+ */
+private fun keepValueTogether(text: String): String {
+    val colon = text.indexOf(": ")
+
+    return if (colon < 0) text else text.substring(0, colon + 2) + text.substring(colon + 2).replace(' ', '\u00A0')
+}
+
+@Composable
+private fun agoText(span: ClientVisits.Span): String {
+    val res = when (span.unit) {
+        ClientVisits.SpanUnit.DAYS -> R.plurals.client_ago_days
+        ClientVisits.SpanUnit.WEEKS -> R.plurals.client_ago_weeks
+        ClientVisits.SpanUnit.MONTHS -> R.plurals.client_ago_months
+        ClientVisits.SpanUnit.YEARS -> R.plurals.client_ago_years
+    }
+
+    return pluralStringResource(res, span.count, span.count)
 }

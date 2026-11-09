@@ -497,6 +497,49 @@ export const clientRouter = createTRPCRouter({
       }))
     };
   }),
+  // What the Clients View says of each Client's visits: the start of their last visit (Completed
+  // Appointment) and of their next Scheduled Appointment that has not started yet, as the Client
+  // Profile counts them. Every Appointment the Client is in counts, as primary Client or not. A
+  // Client with neither is left out: they have had no visit and have nothing ahead.
+  visitDates: stylistProcedure.query(async ({ ctx }) => {
+    const now = new Date();
+    const rows = await ctx.db.appointmentParticipant.findMany({
+      where: {
+        appointment: {
+          stylistId: ctx.stylist.id,
+          OR: [{ status: "completed" }, { status: "scheduled", startsAt: { gt: now } }]
+        }
+      },
+      select: {
+        clientId: true,
+        appointment: {
+          select: {
+            status: true,
+            startsAt: true
+          }
+        }
+      }
+    });
+    const byClient = new Map<string, { last: Date | null; next: Date | null }>();
+
+    for (const { clientId, appointment } of rows) {
+      const dates = byClient.get(clientId) ?? { last: null, next: null };
+
+      if (appointment.status === "completed" && (!dates.last || appointment.startsAt > dates.last)) {
+        dates.last = appointment.startsAt;
+      }
+      if (appointment.status === "scheduled" && appointment.startsAt > now && (!dates.next || appointment.startsAt < dates.next)) {
+        dates.next = appointment.startsAt;
+      }
+      byClient.set(clientId, dates);
+    }
+
+    return [...byClient].map(([clientId, dates]) => ({
+      clientId,
+      lastVisitAt: dates.last?.toISOString() ?? null,
+      nextAppointmentAt: dates.next?.toISOString() ?? null
+    }));
+  }),
   appointmentHistory: stylistProcedure.input(clientAppointmentHistoryInput).query(async ({ ctx, input }) => {
     const appointments = await ctx.db.appointment.findMany({
       where: {
