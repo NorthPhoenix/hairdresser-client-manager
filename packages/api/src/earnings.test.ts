@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { periodBounds, parseLocalDate, startOfLocalDay, topServices } from "./earnings";
+import { periodBounds, parseLocalDate, serviceRevenue, startOfLocalDay, topServices } from "./earnings";
 import { appRouter } from "./root";
 import type { TRPCContext } from "./context";
 
@@ -83,16 +83,16 @@ describe("top services", () => {
     ]);
     const top = topServices(
       [
-        { name: "Стрижка женская", priceCents: 5000, menuItemId: "cut_f" },
-        { name: "Стрижка мужская", priceCents: 3000, menuItemId: "cut_m" },
-        { name: "  стрижки ", priceCents: 1000, menuItemId: null },
-        { name: "Укладка", priceCents: 2000, menuItemId: null },
-        { name: "Укладка", priceCents: 2500, menuItemId: null },
-        { name: "Ёлка", priceCents: 100, menuItemId: null },
-        { name: "елка", priceCents: 100, menuItemId: null },
-        { name: "A", priceCents: 10, menuItemId: null },
-        { name: "B", priceCents: 20, menuItemId: null },
-        { name: "C", priceCents: 30, menuItemId: null }
+        { name: "Стрижка женская", revenueCents: 5000, menuItemId: "cut_f" },
+        { name: "Стрижка мужская", revenueCents: 3000, menuItemId: "cut_m" },
+        { name: "  стрижки ", revenueCents: 1000, menuItemId: null },
+        { name: "Укладка", revenueCents: 2000, menuItemId: null },
+        { name: "Укладка", revenueCents: 2500, menuItemId: null },
+        { name: "Ёлка", revenueCents: 100, menuItemId: null },
+        { name: "елка", revenueCents: 100, menuItemId: null },
+        { name: "A", revenueCents: 10, menuItemId: null },
+        { name: "B", revenueCents: 20, menuItemId: null },
+        { name: "C", revenueCents: 30, menuItemId: null }
       ],
       groups
     );
@@ -104,6 +104,46 @@ describe("top services", () => {
       { name: "Ёлка", revenueCents: 200, count: 2 },
       { name: "C", revenueCents: 30, count: 1 },
       { name: "B", revenueCents: 20, count: 1 }
+    ]);
+  });
+});
+
+describe("what each Service brought in", () => {
+  const service = (name: string, priceCents: number) => ({ name, priceCents, menuItemId: null });
+  const revenue = (finalTotalCentsOverride: number | null, ...services: { name: string; priceCents: number; menuItemId: null }[]) =>
+    serviceRevenue({ finalTotalCentsOverride, services }).map((line) => line.revenueCents);
+
+  it("is the price of each Service without a custom total", () => {
+    expect(serviceRevenue({ finalTotalCentsOverride: null, services: [service("Стрижка", 8550)] })).toEqual([
+      { name: "Стрижка", revenueCents: 8550, menuItemId: null }
+    ]);
+  });
+
+  it("shares a discount by price, in whole dollars that add up to the custom total", () => {
+    // $120 + $85 = $205 charged as $180: 105.37 and 74.63.
+    expect(revenue(18000, service("Окрашивание корней", 12000), service("Стрижка", 8500))).toEqual([10500, 7500]);
+    // Raised above the prices: 22.5 and 67.5, the tie to the earlier Service.
+    expect(revenue(9000, service("A", 2000), service("B", 6000))).toEqual([2300, 6700]);
+  });
+
+  it("shares in cents when the custom total or a price has cents", () => {
+    expect(revenue(10001, service("A", 1000), service("B", 1000), service("C", 1000))).toEqual([3334, 3334, 3333]);
+    expect(revenue(18050, service("A", 12000), service("B", 8500))).toEqual([10566, 7484]);
+    // A custom total equal to the prices changes nothing.
+    expect(revenue(30000, service("A", 26550), service("B", 3450))).toEqual([26550, 3450]);
+  });
+
+  it("shares equally when every price is 0, and gives nothing for a custom total of 0", () => {
+    expect(revenue(5000, service("A", 0), service("B", 0), service("C", 0))).toEqual([1700, 1700, 1600]);
+    expect(revenue(0, service("A", 4000), service("B", 2000))).toEqual([0, 0]);
+    expect(serviceRevenue({ finalTotalCentsOverride: 5000, services: [] })).toEqual([]);
+  });
+
+  it("stays exact at the largest amounts", () => {
+    expect(revenue(999_999_999, service("A", 999_999_998), service("B", 1))).toEqual([999_999_998, 1]);
+    // 333,333,332.67, 333,333,332.67 and 333,333,333.67: the two cents left go to the bigger remainders.
+    expect(revenue(999_999_999, service("A", 333_333_333), service("B", 333_333_333), service("C", 333_333_334))).toEqual([
+      333_333_333, 333_333_333, 333_333_333
     ]);
   });
 });
@@ -243,8 +283,9 @@ describe("stats.summary", () => {
       canceled: 1,
       noShow: 2,
       upcoming: { count: 2, totalCents: 10500 },
+      // Покраска counts its custom total, so the lines add up to the Services: 9000 + 5000 + 2000.
       topServices: [
-        { name: "Покраска", revenueCents: 8000, count: 1 },
+        { name: "Покраска", revenueCents: 9000, count: 1 },
         { name: "Стрижки", revenueCents: 5000, count: 1 },
         { name: "Выезд на дом", revenueCents: 2000, count: 1 }
       ]
@@ -290,6 +331,35 @@ describe("stats.summary", () => {
 
     expect(week).toMatchObject({ firstDay: "2026-10-19", lastDay: "2026-10-25", visits: 0, upcoming: { count: 1, totalCents: 4500 } });
     expect(db.appointment.findMany.mock.calls.at(-1)?.[0].where.startsAt.gte).toEqual(now);
+  });
+
+  it("counts a discounted visit's Services at their share of its custom total", async () => {
+    vi.useFakeTimers({ now, toFake: ["Date"] });
+
+    const { caller } = createStatsDb(
+      [
+        {
+          // $120 + $85 charged as $180.
+          status: "completed",
+          startsAt: "2026-10-05T20:00:00.000Z",
+          finalTotalCentsOverride: 18000,
+          services: [
+            { name: "Окрашивание корней", priceCents: 12000, menuItemId: "color" },
+            { name: "Стрижка женская", priceCents: 8500, menuItemId: "cut" }
+          ]
+        },
+        { status: "completed", startsAt: "2026-10-06T20:00:00.000Z", services: [{ name: "Стрижка женская", priceCents: 8500, menuItemId: "cut" }] }
+      ],
+      items
+    );
+    const month = await caller.stats.summary({ period: "month" });
+
+    expect(month.earned.servicesCents).toBe(26500);
+    expect(month.topServices).toEqual([
+      { name: "Стрижки", revenueCents: 16000, count: 2 },
+      { name: "Окрашивание корней", revenueCents: 10500, count: 1 }
+    ]);
+    expect(month.topServices.reduce((sum, service) => sum + service.revenueCents, 0)).toBe(month.earned.servicesCents);
   });
 
   it("puts an Appointment on the Stylist's local day, not the UTC day", async () => {
