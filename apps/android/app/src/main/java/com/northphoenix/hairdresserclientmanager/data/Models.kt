@@ -151,6 +151,18 @@ data class FamilyMember(
     val visits: Int = 0,
 )
 
+/**
+ * When a Client last came and when they come next, for the Clients View (`clientProfile.visitDates`):
+ * the start of their latest Completed Appointment and of their first Scheduled one that had not
+ * started when the server answered. The server lists only the Clients who have either.
+ */
+@Serializable
+data class ClientVisitDates(
+    val clientId: String,
+    val lastVisitAt: String? = null,
+    val nextAppointmentAt: String? = null,
+)
+
 /** A Client's Family: every Client in it, the Client too, oldest first. No Family: no one. */
 @Serializable
 data class ClientFamily(

@@ -63,6 +63,9 @@ class HcmApi(private val trpc: TrpcClient) {
 
     suspend fun listClients(): List<ClientProfile> = trpc.query("clientProfile.list", JsonObject(emptyMap()))
 
+    /** Each Client's last visit and next Appointment, for the rows of the Clients View. */
+    suspend fun clientVisitDates(): List<ClientVisitDates> = trpc.query("clientProfile.visitDates")
+
     /**
      * A save is the whole form. For a Client who exists ([id]), [loadedUpdatedAt] is the
      * [ClientProfile.updatedAt] of the Client the form was filled from: when the server has
