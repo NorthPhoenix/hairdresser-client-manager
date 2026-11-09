@@ -7,6 +7,7 @@ import {
   localDateOf,
   parseLocalDate,
   periodBounds,
+  serviceRevenue,
   topServices,
   type RevenueLine
 } from "../earnings";
@@ -91,7 +92,8 @@ export const statsRouter = createTRPCRouter({
         atHome += 1;
       }
 
-      lines.push(...appointment.services);
+      // Under a custom total each Service counts its share of it, so the lines add up to Earned's Services.
+      lines.push(...serviceRevenue(appointment));
     }
 
     const itemIds = [...new Set(lines.flatMap((line) => (line.menuItemId ? [line.menuItemId] : [])))];

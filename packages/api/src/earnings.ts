@@ -133,7 +133,59 @@ export function nameKey(name: string) {
   return name.trim().replace(/\s+/g, " ").toLowerCase().replaceAll("ё", "е");
 }
 
-export type RevenueLine = { name: string; priceCents: number; menuItemId: string | null };
+/** What one Service of a completed Appointment brought in, and what it is called. */
+export type RevenueLine = { name: string; revenueCents: number; menuItemId: string | null };
+
+type PricedService = { name: string; priceCents: number; menuItemId: string | null };
+
+/**
+ * What each Service of a completed Appointment brought in. Without a custom total, its price. A
+ * custom total is the price of the Services together, so each Service takes its share of it, in
+ * proportion to its price (equal shares when every price is 0). The shares add up to the custom
+ * total exactly: whole dollars when the custom total and the prices are, else whole cents, the
+ * units left over by rounding down going to the biggest remainders, the earlier Service on a tie.
+ */
+export function serviceRevenue(appointment: {
+  finalTotalCentsOverride: number | null;
+  services: PricedService[];
+}): RevenueLine[] {
+  const total = appointment.finalTotalCentsOverride;
+  const services = appointment.services;
+  const line = (service: PricedService, revenueCents: number): RevenueLine => ({
+    name: service.name,
+    revenueCents,
+    menuItemId: service.menuItemId
+  });
+
+  if (total === null || services.length === 0) {
+    return services.map((service) => line(service, service.priceCents));
+  }
+
+  // Shares in whole dollars when the custom total and every price are in whole dollars.
+  const unit = [total, ...services.map((service) => service.priceCents)].every((cents) => cents % 100 === 0) ? 100 : 1;
+  const units = BigInt(total / unit);
+  const anyPrice = services.some((service) => service.priceCents > 0);
+  // BigInt: a custom total times a price can be past the integers a double holds exactly.
+  const weights = services.map((service) => BigInt(anyPrice ? service.priceCents : 1));
+  const weightSum = weights.reduce((sum, weight) => sum + weight, 0n);
+  const shares = weights.map((weight, index) => ({
+    index,
+    units: (units * weight) / weightSum,
+    remainder: (units * weight) % weightSum
+  }));
+  let left = units - shares.reduce((sum, share) => sum + share.units, 0n);
+
+  for (const share of [...shares].sort((a, b) => (a.remainder === b.remainder ? a.index - b.index : a.remainder > b.remainder ? -1 : 1))) {
+    if (left === 0n) {
+      break;
+    }
+
+    share.units += 1n;
+    left -= 1n;
+  }
+
+  return services.map((service, index) => line(service, Number(shares[index]?.units ?? 0n) * unit));
+}
 
 export type TopService = {
   name: string;
@@ -157,10 +209,10 @@ export function topServices(lines: RevenueLine[], groupOfItem: ReadonlyMap<strin
     const total = totals.get(key);
 
     if (total) {
-      total.revenueCents += line.priceCents;
+      total.revenueCents += line.revenueCents;
       total.count += 1;
     } else {
-      totals.set(key, { name: label, revenueCents: line.priceCents, count: 1 });
+      totals.set(key, { name: label, revenueCents: line.revenueCents, count: 1 });
     }
   }
 
