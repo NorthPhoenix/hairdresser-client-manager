@@ -29,7 +29,7 @@ The Stylist's default working view, focused on unresolved past Appointments and 
 _Avoid_: Dashboard, landing page, overview
 
 **Clients View**:
-The Stylist's list and search view for finding, creating, importing, and opening Client Profiles.
+The Stylist's list and search view for finding, creating, importing, and opening Client Profiles. Each Client's row says, as the Client Profile counts them, when their next Appointment is ("Запись: завтра, 10:00"), or else how long ago their last visit was ("Последний визит: 3 недели назад"), or that they have had no visit yet.
 _Avoid_: Contacts view, customer list, address book
 
 **Client**:

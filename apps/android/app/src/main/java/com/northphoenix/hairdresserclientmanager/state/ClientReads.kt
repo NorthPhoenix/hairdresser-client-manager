@@ -4,6 +4,7 @@ import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.ClientHistoryEntry
 import com.northphoenix.hairdresserclientmanager.data.ClientFamily
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
+import com.northphoenix.hairdresserclientmanager.data.ClientVisitDates
 import com.northphoenix.hairdresserclientmanager.data.FamilyChange
 import com.northphoenix.hairdresserclientmanager.data.ProfileShare
 import com.northphoenix.hairdresserclientmanager.data.ShareChoice
@@ -24,7 +25,8 @@ internal data class ClientKey(val id: String)
  * Every read of Clients, each through a [ReadCache]: the Client list ([list],
  * `clientProfile.list`), which the pickers and the Client Profile read as well, and a Client's
  * Appointment history ([history], `clientProfile.appointmentHistory`), and a Client's Family with
- * each member's visits ([family], `clientProfile.family`).
+ * each member's visits ([family], `clientProfile.family`), and the last visit and next Appointment
+ * of every Client ([visitDates], `clientProfile.visitDates`).
  *
  * A change is told here, as in [AppointmentReads]: the list on screen gets what the server has
  * confirmed at once ([saved], [deleted], [profileShare]), so a saved Client is in the list and in
@@ -39,6 +41,7 @@ internal class ClientReads(
     fetchList: suspend (StylistKey) -> List<ClientProfile>,
     fetchHistory: suspend (ClientKey) -> List<ClientHistoryEntry>,
     fetchFamily: suspend (ClientKey) -> ClientFamily = { ClientFamily() },
+    fetchVisitDates: suspend (StylistKey) -> List<ClientVisitDates> = { emptyList() },
 ) {
     /** Latest change first, as the server lists them. */
     val list = ReadCache(scope, changes, LIST_LIMITS, about = { _, clients -> clients.map { it.id } + CLIENTS }, fetch = fetchList)
@@ -57,6 +60,13 @@ internal class ClientReads(
      * at all puts it out of date.
      */
     val family = ReadCache(scope, changes, HISTORY_LIMITS, about = { _, _ -> listOf(Changes.ANY_CHANGE) }, fetch = fetchFamily)
+
+    /**
+     * Each Client's last visit and next Appointment, for the rows of the Clients View. Any change of
+     * an Appointment, and of who is in it, can change them, so like [history] any change at all puts
+     * it out of date.
+     */
+    val visitDates = ReadCache(scope, changes, LIST_LIMITS, about = { _, _ -> listOf(Changes.ANY_CHANGE) }, fetch = fetchVisitDates)
 
     /** The server has just changed a Family: the Clients it touched are in the list on screen as they are now. */
     fun familyChanged(change: FamilyChange) {

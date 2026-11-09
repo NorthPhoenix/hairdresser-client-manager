@@ -485,6 +485,13 @@
     <string name="client_next_appointment">Следующая запись</string>
     <string name="client_not_given">Не указан</string>
     <string name="client_sms">SMS</string>
+    <string name="client_row_next_today">Запись: сегодня, %1$s</string>
+    <string name="client_row_next_tomorrow">Запись: завтра, %1$s</string>
+    <string name="client_row_next">Запись: %1$s, %2$s</string>
+    <string name="client_row_last_visit">Последний визит: %1$s</string>
+    <string name="client_row_last_visit_today">Последний визит: сегодня</string>
+    <string name="client_row_last_visit_yesterday">Последний визит: вчера</string>
+    <string name="client_row_no_visits">Визитов ещё не было</string>
     <string name="client_stat_last_visit">Последний визит</string>
     <string name="client_stat_no_visits">Ещё не было</string>
     <string name="client_stat_today">Сегодня</string>
