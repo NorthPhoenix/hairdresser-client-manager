@@ -115,15 +115,28 @@ class AppUpdatesTest {
     // --- Home's one card ---
 
     @Test
-    fun homeShowsWhatsNewBeforeAnOffer() {
+    fun homeShowsAnOfferBeforeWhatsNew() {
         val all = releases(5, 6, 7)
         val offer = AppUpdates.offer(all, current = 6, dismissed = null)
         val whatsNew = AppUpdates.whatsNew(all, current = 6, lastSeen = 5, updated = true)
 
-        assertTrue(AppUpdates.homeCard(whatsNew, offer) is AppUpdates.HomeCard.WhatsNew)
-        assertEquals(AppUpdates.HomeCard.Update(offer!!), AppUpdates.homeCard(WhatsNew.Nothing, offer))
+        assertEquals(AppUpdates.HomeCard.Update(offer!!), AppUpdates.homeCard(whatsNew, offer))
+        assertTrue(AppUpdates.homeCard(whatsNew, null) is AppUpdates.HomeCard.WhatsNew)
+        assertEquals(AppUpdates.HomeCard.Update(offer), AppUpdates.homeCard(WhatsNew.Nothing, offer))
         assertEquals(AppUpdates.HomeCard.Update(offer), AppUpdates.homeCard(WhatsNew.Waiting, offer))
         assertNull(AppUpdates.homeCard(WhatsNew.Nothing, null))
+    }
+
+    @Test
+    fun theCornerOffersTheUpdateOnlyWhenNoCardDoes() {
+        val newer = AppUpdates.offer(releases(6, 7), current = 6, dismissed = null)!!
+        val whatsNew = AppUpdates.HomeCard.WhatsNew(listOf(release(6)))
+
+        assertNull(AppUpdates.cornerUpdate(newer, AppUpdates.HomeCard.Update(newer)))
+        assertEquals(newer, AppUpdates.cornerUpdate(newer, null))
+        assertEquals(newer, AppUpdates.cornerUpdate(newer, whatsNew))
+        assertNull(AppUpdates.cornerUpdate(null, null))
+        assertNull(AppUpdates.cornerUpdate(newer.copy(downloadUrl = null), null))
     }
 
     // --- notes ---
@@ -241,15 +254,18 @@ class AppUpdatesTest {
     }
 
     @Test
-    fun whatsNewComesBeforeTheOfferAndTheOfferAfterGotIt() = runTest(UnconfinedTestDispatcher()) {
-        val notices = AppUpdateNotices(MemoryStore(lastSeenVersionCode = 5), 6, { true }, backgroundScope)
+    fun theOfferComesBeforeWhatsNewAndWhatsNewAfterLater() = runTest(UnconfinedTestDispatcher()) {
+        val store = MemoryStore(lastSeenVersionCode = 5)
+        val notices = AppUpdateNotices(store, 6, { true }, backgroundScope)
 
         notices.load { releases(5, 6, 7) }
 
-        assertTrue(notices.homeCard.value is AppUpdates.HomeCard.WhatsNew)
-
-        notices.acknowledge()
-
         assertEquals(7, (notices.homeCard.value as AppUpdates.HomeCard.Update).offer.versionCode)
+        // The notes of this version are still to be seen: after the update they come with the newer ones.
+        assertEquals(5, store.lastSeenVersionCode)
+
+        notices.later(7)
+
+        assertTrue(notices.homeCard.value is AppUpdates.HomeCard.WhatsNew)
     }
 }

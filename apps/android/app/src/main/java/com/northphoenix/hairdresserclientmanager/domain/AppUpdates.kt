@@ -75,7 +75,11 @@ object AppUpdates {
         }
     }
 
-    /** What Home shows at its top: at most one card, and "What's new" before an update offer. */
+    /**
+     * What Home shows at its top: at most one card, and an update offer before "What's new". While
+     * a newer version is out, its card with "Update" is what Home shows; "What's new" waits, and
+     * after the update it shows the notes of every release since the last one she saw.
+     */
     sealed interface HomeCard {
         data class WhatsNew(val releases: List<AppRelease>) : HomeCard
 
@@ -84,10 +88,17 @@ object AppUpdates {
 
     fun homeCard(whatsNew: WhatsNew, offer: Offer?): HomeCard? =
         when {
-            whatsNew is WhatsNew.Show -> HomeCard.WhatsNew(whatsNew.releases)
             offer != null -> HomeCard.Update(offer)
+            whatsNew is WhatsNew.Show -> HomeCard.WhatsNew(whatsNew.releases)
             else -> null
         }
+
+    /**
+     * The small download button in the corner of Home: the newer version ([newer], also one put
+     * off) when Home shows no card to update with ([card]) and the server names its download.
+     */
+    fun cornerUpdate(newer: Offer?, card: HomeCard?): Offer? =
+        newer?.takeIf { it.downloadUrl != null && card !is HomeCard.Update }
 
     /** The notes of [release] in [language], falling back to the other language when that one has none. */
     fun notes(release: AppRelease, language: Language): List<String> {

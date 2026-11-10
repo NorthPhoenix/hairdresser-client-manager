@@ -47,6 +47,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
+import com.northphoenix.hairdresserclientmanager.domain.AppUpdates
 import com.northphoenix.hairdresserclientmanager.domain.BatchReminders
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.HomeOutcomes
@@ -107,8 +108,11 @@ fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit) {
     val nightStarts = remember(context) { KeptNightStarts(context) }
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val unresolvedDays = remember(unresolved, format) { HomeOutcomes.byDay(unresolved, format.zone) }
-    // "What's new" after an update, or a newer version: one card at the top, never in the way.
+    // A newer version, or "What's new" after an update: one card at the top, never in the way.
     val updateCard by viewModel.appUpdateCard.collectAsStateWithLifecycle()
+    // A newer version she put off: a small download button in the corner instead of the card.
+    val newerApp by viewModel.newerApp.collectAsStateWithLifecycle()
+    val cornerUpdate = AppUpdates.cornerUpdate(newerApp, updateCard)
 
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -205,6 +209,11 @@ fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit) {
                     )
                 }
             }
+        }
+
+        // Across from the new-Appointment button, centred on its height (56 dp, 16 dp above the tab bar).
+        cornerUpdate?.let { offer ->
+            AppUpdateCornerButton(offer, viewModel, Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = 20.dp))
         }
     }
 

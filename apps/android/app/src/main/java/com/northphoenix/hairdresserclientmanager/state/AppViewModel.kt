@@ -307,7 +307,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     /** The app's releases, newest first. Not loaded, or failed: Home shows no card, the release list says so. */
     val appReleases: StateFlow<Read<AppReleases>> = updates.releases
 
-    /** The card at the top of Home: "What's new" after an update, else a newer version to update to. */
+    /** The card at the top of Home: a newer version to update to, else "What's new" after an update. */
     val appUpdateCard: StateFlow<AppUpdates.HomeCard?> = updates.homeCard
 
     /** A newer version of the app, also one the Stylist put off: the Profile tab names it. */
