@@ -21,6 +21,8 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -36,6 +38,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -110,6 +114,28 @@ fun AppUpdateHomeCard(card: AppUpdates.HomeCard, viewModel: AppViewModel, modifi
                 }
             }
         }
+    }
+}
+
+/**
+ * The small download button in the bottom left corner of Home, across from the new-Appointment
+ * button: a newer version is out and its card was put off ("Later"). One tap opens the download,
+ * as the card's "Update" does.
+ */
+@Composable
+fun AppUpdateCornerButton(offer: AppUpdates.Offer, viewModel: AppViewModel, modifier: Modifier = Modifier) {
+    val openDownload = rememberOpenDownload(viewModel)
+    val label = stringResource(R.string.releases_update_to, offer.versionName)
+
+    FloatingActionButton(
+        onClick = { offer.downloadUrl?.let(openDownload) },
+        modifier = modifier.size(48.dp).semantics { contentDescription = label },
+        shape = CircleShape,
+        containerColor = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 3.dp, pressedElevation = 1.dp),
+    ) {
+        Icon(Icons.Rounded.Download, contentDescription = null, modifier = Modifier.size(22.dp))
     }
 }
 

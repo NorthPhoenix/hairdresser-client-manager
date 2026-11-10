@@ -1,5 +1,20 @@
 [
   {
+    "versionCode": 15,
+    "versionName": "1.13.0",
+    "date": "2026-11-10",
+    "notes": {
+      "ru": [
+        "Когда выходит новая версия, на главном экране сразу есть кнопка «Обновить», даже если карточка «Что нового» ещё не закрыта",
+        "После «Позже» внизу слева на главном экране остаётся маленькая кнопка загрузки: одно нажатие скачивает новую версию"
+      ],
+      "en": [
+        "When a new version is out, Home shows its \"Update\" button right away, even while \"What's new\" is still open",
+        "After \"Later\", a small download button stays in the bottom left of Home: one tap downloads the new version"
+      ]
+    }
+  },
+  {
     "versionCode": 9,
     "versionName": "1.7.0",
     "date": "2026-11-07",
