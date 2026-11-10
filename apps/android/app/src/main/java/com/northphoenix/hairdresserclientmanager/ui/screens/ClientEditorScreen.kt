@@ -9,6 +9,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,10 +23,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.automirrored.rounded.StickyNote2
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
@@ -62,6 +65,7 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.toClipEntry
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -739,9 +743,9 @@ private val HistoryPhotoSize = 96.dp
 private val HistoryPhotoTagMargin = 6.dp
 
 /**
- * One Appointment of the history: when it was and how it ended, then what the Client had in it.
- * The Services and photos are this Client's alone, also in a group Appointment. The whole row
- * opens the Appointment.
+ * One Appointment of the history: when it was and how it ended, its note, then what the Client
+ * had in it. The Services and photos are this Client's alone, also in a group Appointment. The
+ * whole row opens the Appointment.
  */
 @Composable
 private fun ClientHistoryRow(entry: ClientHistoryEntry, onOpen: () -> Unit) {
@@ -760,6 +764,10 @@ private fun ClientHistoryRow(entry: ClientHistoryEntry, onOpen: () -> Unit) {
                     style = MaterialTheme.typography.titleSmall,
                 )
                 StatusChip(entry.status)
+            }
+            // Above the Services, so it is not read as the last Service's note.
+            if (entry.note.isNotBlank()) {
+                HistoryNote(entry.id, entry.note.trim())
             }
             // In the order they were added, as on the Appointment.
             entry.services.forEach { service ->
@@ -788,6 +796,66 @@ private fun ClientHistoryRow(entry: ClientHistoryEntry, onOpen: () -> Unit) {
             }
             if (entry.photos.isNotEmpty()) {
                 HistoryPhotos(entry.photos)
+            }
+        }
+    }
+}
+
+/** How many lines of an Appointment note a history row shows before "Ещё…". */
+private const val CollapsedHistoryNoteLines = 2
+
+/**
+ * The note of the whole visit, as written on the Appointment: a detail such as a guard size or a
+ * shade, there to read before the next visit. A note can be a paragraph, which would push the
+ * Services of the row a screen down: it shows two lines, and a tap on it ("Ещё…") shows the rest
+ * in place, without opening the Appointment. A note that fits in two lines has no "Ещё…".
+ */
+@Composable
+private fun HistoryNote(appointmentId: String, note: String) {
+    var expanded by rememberSaveable(appointmentId, note) { mutableStateOf(false) }
+    // Whether the collapsed note was cut off, as laid out: it depends on the width and the font size too.
+    var cutOff by remember(note) { mutableStateOf(false) }
+
+    Row(Modifier.padding(horizontal = HistoryInset), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Icon(
+            Icons.AutoMirrored.Rounded.StickyNote2,
+            // Read out as "Note, …".
+            contentDescription = stringResource(R.string.appointment_note_title),
+            modifier = Modifier.padding(top = 1.dp).size(18.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        val collapsible = expanded || cutOff
+
+        // A note cut off is one tap target with its "Ещё…": a tap anywhere on it shows the rest in
+        // place (and folds it again), so a slightly missed tap does not open the Appointment. A
+        // note that fits is part of the row, which opens the Appointment.
+        Column(
+            Modifier
+                .weight(1f)
+                .then(
+                    if (collapsible) {
+                        Modifier.clip(RoundedCornerShape(6.dp)).clickable(role = Role.Button) { expanded = !expanded }
+                    } else {
+                        Modifier
+                    },
+                ),
+        ) {
+            Text(
+                note,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = if (expanded) Int.MAX_VALUE else CollapsedHistoryNoteLines,
+                overflow = TextOverflow.Ellipsis,
+                onTextLayout = { if (!expanded) cutOff = it.hasVisualOverflow },
+            )
+            // Right under the note, as a link, not a button with a button's height.
+            if (collapsible) {
+                Text(
+                    stringResource(if (expanded) R.string.history_note_less else R.string.history_note_more),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
+                )
             }
         }
     }

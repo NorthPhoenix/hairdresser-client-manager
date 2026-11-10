@@ -338,6 +338,8 @@ data class ClientHistoryEntry(
     val participantClientIds: List<String> = emptyList(),
     /** The tip for the whole visit, also of a group Appointment. Null when none is recorded. */
     val tipCents: Long? = null,
+    /** The note of the whole visit, also of a group Appointment. Empty when it has none, or from a server that does not say (an older one). */
+    val note: String = "",
     val services: List<AppointmentService> = emptyList(),
     val photos: List<AppointmentPhoto> = emptyList(),
 )
