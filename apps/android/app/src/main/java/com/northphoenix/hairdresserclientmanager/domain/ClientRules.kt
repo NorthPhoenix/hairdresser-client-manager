@@ -1,6 +1,7 @@
 package com.northphoenix.hairdresserclientmanager.domain
 
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
+import com.northphoenix.hairdresserclientmanager.data.Language
 import java.text.BreakIterator
 import java.text.Normalizer
 
@@ -108,6 +109,14 @@ object ClientRules {
 
         return domain.size > 1 && domain.none(String::isEmpty)
     }
+
+    /**
+     * The language a Client's row names, when it names one: the Client's language when it is not
+     * [shown], the one the app is in, which follows the Stylist's. Every Client starts in the
+     * Stylist's language, so on most rows it would tell the Stylist nothing; it is named on the
+     * rows of the Clients whose Client Reminders go out in the other one.
+     */
+    fun rowLanguage(client: ClientProfile, shown: Language): Language? = client.language.takeIf { it != shown }
 
     /**
      * The initials of an avatar: the first character of each of the first two words, in upper case.
