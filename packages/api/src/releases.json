@@ -173,5 +173,18 @@
         "The visit history on a Client's profile shows each Appointment's note: a long one in two lines, and “More…” shows all of it"
       ]
     }
+  },
+  {
+    "versionCode": 14,
+    "versionName": "1.12.0",
+    "date": "2026-11-10",
+    "notes": {
+      "ru": [
+        "В списке клиентов и при выборе клиента для записи имя видно целиком, до трёх строк; язык клиента указан, только если он не тот, на котором работает приложение"
+      ],
+      "en": [
+        "The Clients list and the Client picker show a Client's whole name, on up to three lines; a Client's language is shown only when it is not the app's"
+      ]
+    }
   }
 ]

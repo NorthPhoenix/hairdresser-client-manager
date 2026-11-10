@@ -31,6 +31,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
@@ -47,6 +48,7 @@ import com.northphoenix.hairdresserclientmanager.domain.ClientRules
 import com.northphoenix.hairdresserclientmanager.domain.ClientVisits
 import com.northphoenix.hairdresserclientmanager.domain.PhoneFormat
 import com.northphoenix.hairdresserclientmanager.i18n.label
+import com.northphoenix.hairdresserclientmanager.i18n.shownLanguage
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
@@ -148,14 +150,27 @@ fun ClientRow(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             Avatar(client.name)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(client.name, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                // No line limit: where the phone and the language do not fit on one line, the language goes on
-                // the next one whole. The no-break space keeps it with its dot.
+                // The name on up to three lines: what follows the first name ("Наташа от Лены", "Оля из бассейна")
+                // is how the Stylist tells two Clients apart. Only a name that runs past three lines is cut.
                 Text(
-                    listOf(PhoneFormat.display(client.phone), stringResource(client.language.label)).filter { it.isNotBlank() }.joinToString(" ·\u00A0"),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    client.name,
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                val language = ClientRules.rowLanguage(client, LocalContext.current.shownLanguage())?.let { stringResource(it.label) }
+                val details = listOfNotNull(PhoneFormat.display(client.phone).takeIf { it.isNotBlank() }, language)
+
+                // No line limit: where the phone and the language do not fit on one line, the language goes on
+                // the next one whole. The no-break space keeps it with its dot. A Client with no phone whose language
+                // is the Stylist's has no line here.
+                if (details.isNotEmpty()) {
+                    Text(
+                        details.joinToString(" ·\u00A0"),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 visits?.let { VisitsLine(it) }
                 // Another Client has the same number: the profile offers to merge them.
                 if (possibleDuplicate) {
