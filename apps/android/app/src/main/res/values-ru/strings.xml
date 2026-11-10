@@ -660,7 +660,7 @@
     <string name="update_later">Позже</string>
     <string name="release_notes_more">ещё…</string>
     <string name="release_notes_less">Свернуть</string>
-    <string name="history_note_more">ещё…</string>
+    <string name="history_note_more">Ещё…</string>
     <string name="history_note_less">Свернуть</string>
     <string name="whats_new_title_one">Что нового в версии %1$s</string>
     <string name="whats_new_title_range">Что нового в версиях %1$s–%2$s</string>

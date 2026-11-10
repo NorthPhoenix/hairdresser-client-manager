@@ -9,6 +9,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,12 +18,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -64,6 +65,7 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.toClipEntry
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -799,14 +801,14 @@ private fun ClientHistoryRow(entry: ClientHistoryEntry, onOpen: () -> Unit) {
     }
 }
 
-/** How many lines of an Appointment note a history row shows before "more…". */
+/** How many lines of an Appointment note a history row shows before "Ещё…". */
 private const val CollapsedHistoryNoteLines = 2
 
 /**
  * The note of the whole visit, as written on the Appointment: a detail such as a guard size or a
  * shade, there to read before the next visit. A note can be a paragraph, which would push the
- * Services of the row a screen down: it shows two lines, and "more…" shows the rest in place,
- * without opening the Appointment. A note that fits in two lines has no "more…".
+ * Services of the row a screen down: it shows two lines, and a tap on it ("Ещё…") shows the rest
+ * in place, without opening the Appointment. A note that fits in two lines has no "Ещё…".
  */
 @Composable
 private fun HistoryNote(appointmentId: String, note: String) {
@@ -822,7 +824,22 @@ private fun HistoryNote(appointmentId: String, note: String) {
             modifier = Modifier.padding(top = 1.dp).size(18.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Column(Modifier.weight(1f)) {
+        val collapsible = expanded || cutOff
+
+        // A note cut off is one tap target with its "Ещё…": a tap anywhere on it shows the rest in
+        // place (and folds it again), so a slightly missed tap does not open the Appointment. A
+        // note that fits is part of the row, which opens the Appointment.
+        Column(
+            Modifier
+                .weight(1f)
+                .then(
+                    if (collapsible) {
+                        Modifier.clip(RoundedCornerShape(6.dp)).clickable(role = Role.Button) { expanded = !expanded }
+                    } else {
+                        Modifier
+                    },
+                ),
+        ) {
             Text(
                 note,
                 style = MaterialTheme.typography.bodyMedium,
@@ -831,13 +848,13 @@ private fun HistoryNote(appointmentId: String, note: String) {
                 overflow = TextOverflow.Ellipsis,
                 onTextLayout = { if (!expanded) cutOff = it.hasVisualOverflow },
             )
-            // Its own tap target: the rest of the row opens the Appointment. Moved left by the
-            // button's padding, so its word lines up with the note.
-            if (expanded || cutOff) {
-                TextAction(
+            // Right under the note, as a link, not a button with a button's height.
+            if (collapsible) {
+                Text(
                     stringResource(if (expanded) R.string.history_note_less else R.string.history_note_more),
-                    onClick = { expanded = !expanded },
-                    modifier = Modifier.offset(x = (-10).dp),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
                 )
             }
         }
