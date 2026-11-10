@@ -160,5 +160,18 @@
         "The big “Add Formula” button only on colour services; the rest get “+ formula”"
       ]
     }
+  },
+  {
+    "versionCode": 13,
+    "versionName": "1.11.0",
+    "date": "2026-11-09",
+    "notes": {
+      "ru": [
+        "В истории записей в профиле клиента видна заметка каждой записи: длинная — в две строки, «Ещё…» показывает её целиком"
+      ],
+      "en": [
+        "The visit history on a Client's profile shows each Appointment's note: a long one in two lines, and “More…” shows all of it"
+      ]
+    }
   }
 ]
