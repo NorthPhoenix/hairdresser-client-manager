@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
@@ -764,7 +765,7 @@ private fun ClientHistoryRow(entry: ClientHistoryEntry, onOpen: () -> Unit) {
             }
             // Above the Services, so it is not read as the last Service's note.
             if (entry.note.isNotBlank()) {
-                HistoryNote(entry.note.trim())
+                HistoryNote(entry.id, entry.note.trim())
             }
             // In the order they were added, as on the Appointment.
             entry.services.forEach { service ->
@@ -798,12 +799,21 @@ private fun ClientHistoryRow(entry: ClientHistoryEntry, onOpen: () -> Unit) {
     }
 }
 
+/** How many lines of an Appointment note a history row shows before "more…". */
+private const val CollapsedHistoryNoteLines = 2
+
 /**
  * The note of the whole visit, as written on the Appointment: a detail such as a guard size or a
- * shade, there to read before the next visit. Whole, as Service notes are.
+ * shade, there to read before the next visit. A note can be a paragraph, which would push the
+ * Services of the row a screen down: it shows two lines, and "more…" shows the rest in place,
+ * without opening the Appointment. A note that fits in two lines has no "more…".
  */
 @Composable
-private fun HistoryNote(note: String) {
+private fun HistoryNote(appointmentId: String, note: String) {
+    var expanded by rememberSaveable(appointmentId, note) { mutableStateOf(false) }
+    // Whether the collapsed note was cut off, as laid out: it depends on the width and the font size too.
+    var cutOff by remember(note) { mutableStateOf(false) }
+
     Row(Modifier.padding(horizontal = HistoryInset), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Icon(
             Icons.AutoMirrored.Rounded.StickyNote2,
@@ -812,7 +822,25 @@ private fun HistoryNote(note: String) {
             modifier = Modifier.padding(top = 1.dp).size(18.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text(note, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(Modifier.weight(1f)) {
+            Text(
+                note,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = if (expanded) Int.MAX_VALUE else CollapsedHistoryNoteLines,
+                overflow = TextOverflow.Ellipsis,
+                onTextLayout = { if (!expanded) cutOff = it.hasVisualOverflow },
+            )
+            // Its own tap target: the rest of the row opens the Appointment. Moved left by the
+            // button's padding, so its word lines up with the note.
+            if (expanded || cutOff) {
+                TextAction(
+                    stringResource(if (expanded) R.string.history_note_less else R.string.history_note_more),
+                    onClick = { expanded = !expanded },
+                    modifier = Modifier.offset(x = (-10).dp),
+                )
+            }
+        }
     }
 }
 
