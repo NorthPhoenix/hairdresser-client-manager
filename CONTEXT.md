@@ -29,7 +29,7 @@ The Stylist's default working view, focused on unresolved past Appointments and 
 _Avoid_: Dashboard, landing page, overview
 
 **Clients View**:
-The Stylist's list and search view for finding, creating, importing, and opening Client Profiles. Each Client's row says, as the Client Profile counts them, when their next Appointment is ("Запись: завтра, 10:00"), or else how long ago their last visit was ("Последний визит: 3 недели назад"), or that they have had no visit yet.
+The Stylist's list and search view for finding, creating, importing, and opening Client Profiles. Each Client's row, here and wherever a Client is picked from a list, shows the whole name on as many lines as it takes, since what follows the first name ("Наташа от Лены") is how the Stylist tells Clients apart, then the phone number and the Client's language, which it names only when it is not the Stylist's. Each Client's row here also says, as the Client Profile counts them, when their next Appointment is ("Запись: завтра, 10:00"), or else how long ago their last visit was ("Последний визит: 3 недели назад"), or that they have had no visit yet.
 _Avoid_: Contacts view, customer list, address book
 
 **Client**:

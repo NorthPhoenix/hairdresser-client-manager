@@ -248,6 +248,18 @@ class DomainTest {
     }
 
     @Test
+    fun `a Client's row names their language only when it is not the one the app is in`() {
+        val russian = client("1", "Наташа от Лены")
+        val english = russian.copy(id = "2", name = "Jessica", language = Language.EN)
+
+        assertNull(ClientRules.rowLanguage(russian, shown = Language.RU))
+        assertEquals(Language.EN, ClientRules.rowLanguage(english, shown = Language.RU))
+        // The app in English: now the Russian-speaking Clients are the ones it names.
+        assertEquals(Language.RU, ClientRules.rowLanguage(russian, shown = Language.EN))
+        assertNull(ClientRules.rowLanguage(english, shown = Language.EN))
+    }
+
+    @Test
     fun `avatar initials are the first letters of the first two words`() {
         assertEquals("АП", ClientRules.initials("анна петрова"))
         assertEquals("АП", ClientRules.initials("  Анна   Петрова Сергеевна "))
