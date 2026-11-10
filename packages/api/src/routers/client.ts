@@ -613,6 +613,8 @@ export const clientRouter = createTRPCRouter({
       participantClientIds: appointment.participants.map((participant) => participant.clientId),
       // The tip for the whole visit, also of a group Appointment, whose Services here are this Client's alone.
       tipCents: appointment.tipCents ?? null,
+      // The note of the whole visit, so a detail written on it (a guard size, a shade) is there at the next one.
+      note: appointment.note ?? "",
       services: appointment.services.map((service) => ({
         id: service.id,
         clientId: service.clientId,

@@ -26,6 +26,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.automirrored.rounded.StickyNote2
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
@@ -739,9 +740,9 @@ private val HistoryPhotoSize = 96.dp
 private val HistoryPhotoTagMargin = 6.dp
 
 /**
- * One Appointment of the history: when it was and how it ended, then what the Client had in it.
- * The Services and photos are this Client's alone, also in a group Appointment. The whole row
- * opens the Appointment.
+ * One Appointment of the history: when it was and how it ended, its note, then what the Client
+ * had in it. The Services and photos are this Client's alone, also in a group Appointment. The
+ * whole row opens the Appointment.
  */
 @Composable
 private fun ClientHistoryRow(entry: ClientHistoryEntry, onOpen: () -> Unit) {
@@ -760,6 +761,10 @@ private fun ClientHistoryRow(entry: ClientHistoryEntry, onOpen: () -> Unit) {
                     style = MaterialTheme.typography.titleSmall,
                 )
                 StatusChip(entry.status)
+            }
+            // Above the Services, so it is not read as the last Service's note.
+            if (entry.note.isNotBlank()) {
+                HistoryNote(entry.note.trim())
             }
             // In the order they were added, as on the Appointment.
             entry.services.forEach { service ->
@@ -790,6 +795,24 @@ private fun ClientHistoryRow(entry: ClientHistoryEntry, onOpen: () -> Unit) {
                 HistoryPhotos(entry.photos)
             }
         }
+    }
+}
+
+/**
+ * The note of the whole visit, as written on the Appointment: a detail such as a guard size or a
+ * shade, there to read before the next visit. Whole, as Service notes are.
+ */
+@Composable
+private fun HistoryNote(note: String) {
+    Row(Modifier.padding(horizontal = HistoryInset), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Icon(
+            Icons.AutoMirrored.Rounded.StickyNote2,
+            // Read out as "Note, …".
+            contentDescription = stringResource(R.string.appointment_note_title),
+            modifier = Modifier.padding(top = 1.dp).size(18.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(note, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
