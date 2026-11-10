@@ -36,6 +36,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -149,9 +150,14 @@ fun ClientRow(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             Avatar(client.name)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                // The whole name, on as many lines as it takes: what follows the first name ("Наташа от Лены",
-                // "Оля из бассейна") is how the Stylist tells two Clients apart.
-                Text(client.name, style = MaterialTheme.typography.titleLarge)
+                // The name on up to three lines: what follows the first name ("Наташа от Лены", "Оля из бассейна")
+                // is how the Stylist tells two Clients apart. Only a name that runs past three lines is cut.
+                Text(
+                    client.name,
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 val language = ClientRules.rowLanguage(client, LocalContext.current.shownLanguage())?.let { stringResource(it.label) }
                 val details = listOfNotNull(PhoneFormat.display(client.phone).takeIf { it.isNotBlank() }, language)
 
