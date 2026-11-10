@@ -624,6 +624,8 @@
     <string name="update_later">Later</string>
     <string name="release_notes_more">More…</string>
     <string name="release_notes_less">Less</string>
+    <string name="history_note_more">More…</string>
+    <string name="history_note_less">Less</string>
     <string name="whats_new_title_one">What\'s new in %1$s</string>
     <string name="whats_new_title_range">What\'s new in %1$s–%2$s</string>
     <string name="whats_new_got_it">Got it</string>

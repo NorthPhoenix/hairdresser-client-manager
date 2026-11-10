@@ -633,10 +633,10 @@ class ApiClientTest {
     }
 
     @Test
-    fun `a Client's history keeps each Service's price, note and Color Formulas, and the Client's photos`() = runTest {
+    fun `a Client's history keeps each Service's price, note and Color Formulas, the Client's photos and the Appointment note`() = runTest {
         // L22, L49: all of this was in the reply and dropped by the model.
         enqueue(
-            """{"result":{"data":[{"id":"a1","primaryClientId":"c1","primaryClientName":"Anna Avery","startsAt":"2026-10-10T12:17:00.000Z","status":"completed","participantClientIds":["c1","c2"],""" +
+            """{"result":{"data":[{"id":"a1","primaryClientId":"c1","primaryClientName":"Anna Avery","startsAt":"2026-10-10T12:17:00.000Z","status":"completed","participantClientIds":["c1","c2"],"note":"Guard 2 on the sides",""" +
                 """"services":[{"id":"s1","clientId":"c1","menuItemId":null,"name":"Old Trim","priceCents":3000,"note":"dry cut","colorFormulas":[{"id":"f1","formula":"5N + 20 vol","placement":"Ends"},{"id":"f2","formula":"Toner 9V","placement":""}]}],""" +
                 """"photos":[{"id":"p1","clientId":"c1","category":"before","url":"https://app.ufs.sh/f/k1","thumbnailUrl":"","width":null,"height":null,"createdAt":"2026-10-10T12:20:00.000Z"},""" +
                 """{"id":"p2","clientId":"c1","category":"after","url":"https://app.ufs.sh/f/k2","thumbnailUrl":"https://app.ufs.sh/f/k2","width":1200,"height":1600,"createdAt":"2026-10-10T13:20:00.000Z"}]},""" +
@@ -656,6 +656,8 @@ class ApiClientTest {
         assertEquals("https://app.ufs.sh/f/k1", history.first().photos.first().url)
         // An Appointment in which the Client has no Services and no photos is a row of the history all the same.
         assertTrue(history.last().services.isEmpty() && history.last().photos.isEmpty())
+        // The note of the whole visit; a server that does not send it (an older one) leaves none.
+        assertEquals(listOf("Guard 2 on the sides", ""), history.map { it.note })
     }
 
     @Test
