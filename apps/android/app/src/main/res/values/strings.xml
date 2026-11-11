@@ -550,8 +550,13 @@
     <string name="appointment_tip_suggestion_yes">Yes</string>
     <string name="appointment_tip_suggestion_no">No</string>
     <string name="appointment_tip_included">incl. %1$s tip</string>
-    <string name="history_tip">Tip</string>
-    <string name="history_tip_whole_visit">Tip for the whole visit</string>
+    <string name="history_discount">Discount</string>
+    <string name="history_surcharge">Surcharge</string>
+    <string name="history_no_services">No services chosen yet</string>
+    <plurals name="history_other_clients">
+        <item quantity="one">%d more Client</item>
+        <item quantity="other">%d more Clients</item>
+    </plurals>
 
     <!-- Family (CONTEXT.md: Family). Roles are the Stylist's own words. -->
     <string name="family_title">Family</string>

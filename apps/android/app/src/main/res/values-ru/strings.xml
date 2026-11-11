@@ -582,8 +582,15 @@
     <string name="appointment_tip_suggestion_yes">Да</string>
     <string name="appointment_tip_suggestion_no">Нет</string>
     <string name="appointment_tip_included">вкл. чаевые %1$s</string>
-    <string name="history_tip">Чаевые</string>
-    <string name="history_tip_whole_visit">Чаевые за всю запись</string>
+    <string name="history_discount">Скидка</string>
+    <string name="history_surcharge">Наценка</string>
+    <string name="history_no_services">Услуги пока не выбраны</string>
+    <plurals name="history_other_clients">
+        <item quantity="one">Ещё %d клиент</item>
+        <item quantity="few">Ещё %d клиента</item>
+        <item quantity="many">Ещё %d клиентов</item>
+        <item quantity="other">Ещё %d клиента</item>
+    </plurals>
 
     <!-- Семья (CONTEXT.md: Family). Роли пишет сам мастер. -->
     <string name="family_title">Семья</string>

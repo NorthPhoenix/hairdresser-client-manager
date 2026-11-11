@@ -336,6 +336,17 @@ data class ClientHistoryEntry(
     val customLocationAddress: String = "",
     /** Every Client of it, the primary one first. Empty from a server that does not say (an older one). */
     val participantClientIds: List<String> = emptyList(),
+    /**
+     * The sum of the prices of the Services of the whole visit, also of a group Appointment, whose
+     * [services] here are this Client's alone. Null from a server that does not say (an older one).
+     */
+    val serviceTotalCents: Long? = null,
+    /**
+     * The custom total: the price of the Services of the whole visit, also of a group Appointment,
+     * when the Stylist set one. Null when the Services are at their own prices, or from a server
+     * that does not say (an older one).
+     */
+    val finalTotalCentsOverride: Long? = null,
     /** The tip for the whole visit, also of a group Appointment. Null when none is recorded. */
     val tipCents: Long? = null,
     /** The note of the whole visit, also of a group Appointment. Empty when it has none, or from a server that does not say (an older one). */

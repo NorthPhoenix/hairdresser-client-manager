@@ -192,7 +192,7 @@ fun ClientProfileScreen(
 
             Referred(client, clients, onOpenClient)
 
-            ClientHistoryCard(history, onRetry = { viewModel.loadClientHistory(client.id) }, onOpenAppointment)
+            ClientHistorySection(history, onRetry = { viewModel.loadClientHistory(client.id) }, onOpenAppointment)
         }
     }
 
