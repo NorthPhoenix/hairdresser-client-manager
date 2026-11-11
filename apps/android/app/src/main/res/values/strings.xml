@@ -550,10 +550,20 @@
     <string name="appointment_tip_suggestion_yes">Yes</string>
     <string name="appointment_tip_suggestion_no">No</string>
     <string name="appointment_tip_included">incl. %1$s tip</string>
-    <string name="history_tip">Tip</string>
-    <string name="history_tip_whole_visit">Tip for the whole visit</string>
-    <string name="history_custom_price">Custom services price</string>
-    <string name="history_custom_price_whole_visit">Custom services price for the whole visit</string>
+    <string name="history_price_tip_only">%1$s\u00A0tip</string>
+    <string name="history_price_label">for services</string>
+    <string name="history_price_label_free">services</string>
+    <string name="history_price_label_whole_visit">for the whole visit</string>
+    <string name="history_price_discount">with\u00A0%1$s\u00A0off</string>
+    <string name="history_price_surcharge">with\u00A0%1$s\u00A0added</string>
+    <string name="history_price_tip">+ %1$s\u00A0tip</string>
+    <string name="history_price_not_charged">%1$s, not charged</string>
+    <string name="history_price_free">free</string>
+    <string name="history_no_services">No services chosen yet</string>
+    <plurals name="history_other_clients_services">
+        <item quantity="one">%d more Client in the visit</item>
+        <item quantity="other">%d more Clients in the visit</item>
+    </plurals>
 
     <!-- Family (CONTEXT.md: Family). Roles are the Stylist's own words. -->
     <string name="family_title">Family</string>

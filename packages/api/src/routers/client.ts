@@ -573,11 +573,9 @@ export const clientRouter = createTRPCRouter({
           }
         },
         // A Client Profile shows only this Client's part of a group Appointment: the Services
-        // and the stored Appointment Photos attached to this Client.
+        // and the stored Appointment Photos attached to this Client. Every Service is read, so the
+        // sum of the whole visit is known; only this Client's are sent (see below).
         services: {
-          where: {
-            clientId: input.id
-          },
           include: {
             colorFormulas: {
               orderBy: addedOrder
@@ -611,26 +609,30 @@ export const clientRouter = createTRPCRouter({
       locationAddress: appointment.locationAddress ?? "",
       customLocationAddress: hasCustomAddress(appointment) ? appointment.locationAddress ?? "" : "",
       participantClientIds: appointment.participants.map((participant) => participant.clientId),
-      // The custom total, the price of the Services of the whole visit when the Stylist set one, so the
-      // history says what the visit was charged rather than only each Service's own price. Null when none.
+      // What the visit's Services come to: the sum of their prices for the whole visit, also of a group
+      // Appointment, whose Services here are this Client's alone, and the custom total that replaces it
+      // when the Stylist set one (null when none). The history leads with what the visit was charged.
+      serviceTotalCents: appointment.services.reduce((sum, service) => sum + service.priceCents, 0),
       finalTotalCentsOverride: appointment.finalTotalCentsOverride ?? null,
       // The tip for the whole visit, also of a group Appointment, whose Services here are this Client's alone.
       tipCents: appointment.tipCents ?? null,
       // The note of the whole visit, so a detail written on it (a guard size, a shade) is there at the next one.
       note: appointment.note ?? "",
-      services: appointment.services.map((service) => ({
-        id: service.id,
-        clientId: service.clientId,
-        menuItemId: service.menuItemId,
-        name: service.name,
-        priceCents: service.priceCents,
-        note: service.note ?? "",
-        colorFormulas: service.colorFormulas.map((formula) => ({
-          id: formula.id,
-          formula: formula.formula,
-          placement: formula.placement ?? ""
-        }))
-      })),
+      services: appointment.services
+        .filter((service) => service.clientId === input.id)
+        .map((service) => ({
+          id: service.id,
+          clientId: service.clientId,
+          menuItemId: service.menuItemId,
+          name: service.name,
+          priceCents: service.priceCents,
+          note: service.note ?? "",
+          colorFormulas: service.colorFormulas.map((formula) => ({
+            id: formula.id,
+            formula: formula.formula,
+            placement: formula.placement ?? ""
+          }))
+        })),
       photos: appointment.photos.map((photo) => ({
         id: photo.id,
         clientId: photo.clientId,

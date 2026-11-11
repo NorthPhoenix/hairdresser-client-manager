@@ -337,6 +337,11 @@ data class ClientHistoryEntry(
     /** Every Client of it, the primary one first. Empty from a server that does not say (an older one). */
     val participantClientIds: List<String> = emptyList(),
     /**
+     * The sum of the prices of the Services of the whole visit, also of a group Appointment, whose
+     * [services] here are this Client's alone. Null from a server that does not say (an older one).
+     */
+    val serviceTotalCents: Long? = null,
+    /**
      * The custom total: the price of the Services of the whole visit, also of a group Appointment,
      * when the Stylist set one. Null when the Services are at their own prices, or from a server
      * that does not say (an older one).

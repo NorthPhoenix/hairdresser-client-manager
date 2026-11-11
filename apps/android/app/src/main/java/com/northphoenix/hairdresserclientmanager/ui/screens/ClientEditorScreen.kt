@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -66,13 +67,22 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.toClipEntry
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
@@ -103,6 +113,7 @@ import com.northphoenix.hairdresserclientmanager.domain.ContactImport
 import com.northphoenix.hairdresserclientmanager.domain.CopiedContact
 import com.northphoenix.hairdresserclientmanager.domain.ImportedContact
 import com.northphoenix.hairdresserclientmanager.domain.ChangedElsewhere
+import com.northphoenix.hairdresserclientmanager.domain.HistoryTotals
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.OneLine
 import com.northphoenix.hairdresserclientmanager.domain.ShareImageSize
@@ -746,71 +757,270 @@ private val HistoryPhotoTagMargin = 6.dp
  * One Appointment of the history: when it was and how it ended, its note, then what the Client
  * had in it. The Services and photos are this Client's alone, also in a group Appointment. The
  * whole row opens the Appointment.
+ *
+ * Its prices follow one order of importance, three steps down. First the price of the Services
+ * (see [HistoryTotals]), what the Client was charged and what the Stylist quotes again: the one
+ * large figure, labelled, at the top right of every visit that was or will be charged, so the eye
+ * runs down the history from one visit's price to the next. Right under it, in the small print,
+ * only what that figure does not say: the discount it is with, and the Tip on top of it. Last and
+ * smallest, each Service at its own price, which adds up to the price before the discount. A
+ * visit that was not charged has no figure, and its Services are quiet.
  */
 @Composable
 private fun ClientHistoryRow(entry: ClientHistoryEntry, onOpen: () -> Unit) {
     val format = LocalTimeFormat.current
+    val charged = HistoryTotals.wasCharged(entry)
+    val showsServicePrices = charged && !HistoryTotals.servicePriceRepeatsPrice(entry)
+    // Of a free visit the Services' own prices were not charged: struck through, and read out so.
+    val pricesCharged = !HistoryTotals.isFree(entry)
+    val serviceNameColor = if (charged) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
 
     Surface(onClick = onOpen, color = Color.Transparent) {
-        Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(
-                Modifier.padding(horizontal = HistoryInset),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text(
-                    format.mediumDate(format.zoned(entry.startsAt).toLocalDate()) + ", " + format.time(entry.startsAt),
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                StatusChip(entry.status)
-            }
+        Column(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            HistoryHeader(
+                date = {
+                    Text(
+                        format.mediumDate(format.zoned(entry.startsAt).toLocalDate()) + ", " + format.time(entry.startsAt),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                },
+                status = { StatusChip(entry.status) },
+                price = { HistoryPriceFigure(entry) },
+                breakdown = { HistoryPriceBreakdown(entry) },
+                // At a large font every row puts its price under the chip, so the prices keep to one place down the list.
+                stacked = LocalDensity.current.fontScale >= HistoryStackedFontScale,
+                // Apart from what follows, so the small print is read with the price, not with the Services.
+                modifier = Modifier.padding(start = HistoryInset, end = HistoryInset, bottom = 8.dp),
+            )
             // Above the Services, so it is not read as the last Service's note.
             if (entry.note.isNotBlank()) {
                 HistoryNote(entry.id, entry.note.trim())
             }
+            // A visit still to come with nothing chosen yet says so, rather than ending at its date.
+            if (entry.services.isEmpty() && HistoryTotals.isUpcoming(entry)) {
+                Text(
+                    stringResource(R.string.history_no_services),
+                    modifier = Modifier.padding(horizontal = HistoryInset),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             // In the order they were added, as on the Appointment.
             entry.services.forEach { service ->
                 Column(Modifier.padding(horizontal = HistoryInset), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(service.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-                        Text(Money.format(service.priceCents), style = MaterialTheme.typography.bodyLarge)
-                    }
+                    HistoryPriceLine(
+                        service.name,
+                        price = if (showsServicePrices) Money.formatShort(service.priceCents) else null,
+                        priceCharged = pricesCharged,
+                        nameStyle = MaterialTheme.typography.bodyLarge,
+                        nameColor = serviceNameColor,
+                    )
                     if (service.note.isNotBlank()) {
                         Text(service.note, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     service.colorFormulas.forEach { formula -> ColorFormulaCard(formula) }
                 }
             }
-            // The custom total is what the Services were charged, not their own prices above, so the
-            // history does not show a discount or a free visit at full price. It is of the whole
-            // visit: of a group Appointment, it says so.
-            entry.finalTotalCentsOverride?.let { price ->
-                Row(Modifier.padding(horizontal = HistoryInset), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        stringResource(if (entry.participantClientIds.size > 1) R.string.history_custom_price_whole_visit else R.string.history_custom_price),
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(Money.format(price), style = MaterialTheme.typography.bodyLarge)
-                }
-            }
-            // The Tip is for the whole visit: of a group Appointment, it says so.
-            entry.tipCents?.let { tip ->
-                Row(Modifier.padding(horizontal = HistoryInset), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        stringResource(if (entry.participantClientIds.size > 1) R.string.history_tip_whole_visit else R.string.history_tip),
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(Money.format(tip), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+            // Of a group Appointment, the other Clients' Services as one line, so this Client's and
+            // theirs add up to the whole visit the price at the top is of.
+            HistoryTotals.othersCents(entry)?.takeIf { charged }?.let { others ->
+                val count = HistoryTotals.otherClients(entry)
+
+                HistoryPriceLine(
+                    pluralStringResource(R.plurals.history_other_clients_services, count, count),
+                    price = Money.formatShort(others),
+                    priceCharged = pricesCharged,
+                    nameStyle = MaterialTheme.typography.bodyMedium,
+                    nameColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = HistoryInset),
+                )
             }
             if (entry.photos.isNotEmpty()) {
                 HistoryPhotos(entry.photos)
             }
+        }
+    }
+}
+
+/**
+ * A name at the start and its own price at the end, in the quietest step of a history row's
+ * prices; the name wraps, the price keeps to its first line, so the column holds at any font size.
+ * No [price] when the visit was not charged, or when it would only repeat the price at the top. A
+ * price that was not charged ([priceCharged] false: a free visit) is struck through, and read out so.
+ */
+@Composable
+private fun HistoryPriceLine(
+    name: String,
+    price: String?,
+    priceCharged: Boolean,
+    nameStyle: TextStyle,
+    modifier: Modifier = Modifier,
+    nameColor: Color = MaterialTheme.colorScheme.onSurface,
+) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(name, modifier = Modifier.weight(1f).alignByBaseline(), style = nameStyle, color = nameColor)
+        if (price != null) {
+            val notCharged = stringResource(R.string.history_price_not_charged, price)
+
+            Text(
+                price,
+                modifier = Modifier.alignByBaseline().then(if (priceCharged) Modifier else Modifier.semantics { contentDescription = notCharged }),
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = 13.sp,
+                    fontFeatureSettings = TabularFigures,
+                    textDecoration = if (priceCharged) null else TextDecoration.LineThrough,
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** Figures of one width, so the amounts down a history row line up at the right. */
+private const val TabularFigures = "lnum, tnum"
+
+/**
+ * The price of the Services (see [HistoryTotals]): the one large figure of the row, in the serif
+ * and the short amount of Итоги's total ("$190", "$220.50"), a step under the card's title. A
+ * quiet word before it says what it is for, the same on every row: "за услуги", or "за всю
+ * запись" in ink for the whole of a group visit; a free visit reads "услуги бесплатно". The two are read
+ * out together. A canceled or no-show visit was not charged, and one with no price for its
+ * Services has none, so neither has a figure.
+ */
+@Composable
+private fun HistoryPriceFigure(entry: ClientHistoryEntry) {
+    if (!HistoryTotals.showsPrice(entry)) return
+
+    val wholeVisit = HistoryTotals.priceIsWholeVisit(entry)
+    val free = HistoryTotals.isFree(entry)
+    val label = stringResource(
+        when {
+            wholeVisit -> R.string.history_price_label_whole_visit
+            free -> R.string.history_price_label_free
+            else -> R.string.history_price_label
+        },
+    )
+    val amount = if (free) stringResource(R.string.history_price_free) else Money.formatShort(HistoryTotals.servicesPriceCents(entry))
+
+    Row(Modifier.clearAndSetSemantics { contentDescription = "$label $amount" }, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        // Of a group visit the price is not this Client's alone: said in ink, where "за услуги" is quiet.
+        Text(
+            label,
+            modifier = Modifier.alignByBaseline(),
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (wholeVisit) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            amount,
+            modifier = Modifier.alignByBaseline(),
+            // Proportional figures: one large number has nothing to line up with, and tabular ones space it out.
+            style = MaterialTheme.typography.titleLarge.copy(fontSize = 19.sp, lineHeight = 25.sp, fontWeight = FontWeight.SemiBold, fontFeatureSettings = "lnum"),
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+/**
+ * The small print under the price: only what the figure does not say, one short line each. What
+ * the custom price took off the Services' own prices or added to them ("со скидкой $15", "с
+ * надбавкой $10"; a free visit says so in the figure), and the Tip on top of the price ("+ чаевые $20"), or
+ * the Tip alone when the Services have no price. In the size of the price's label, a step above
+ * the Services' own prices: it is read before them.
+ */
+@Composable
+private fun HistoryPriceBreakdown(entry: ClientHistoryEntry) {
+    if (!HistoryTotals.wasCharged(entry)) return
+
+    val showsPrice = HistoryTotals.showsPrice(entry)
+    val change = HistoryTotals.customPriceDifferenceCents(entry)?.takeIf { showsPrice && !HistoryTotals.isFree(entry) }?.let { difference ->
+        if (difference < 0) {
+            stringResource(R.string.history_price_discount, Money.formatShort(-difference))
+        } else {
+            stringResource(R.string.history_price_surcharge, Money.formatShort(difference))
+        }
+    }
+    val tip = HistoryTotals.tipCents(entry)?.let { tipCents ->
+        stringResource(if (showsPrice) R.string.history_price_tip else R.string.history_price_tip_only, Money.formatShort(tipCents))
+    }
+    val lines = listOfNotNull(change, tip)
+    if (lines.isEmpty()) return
+
+    Column(
+        Modifier.widthIn(max = HistoryBreakdownMaxWidth * LocalDensity.current.fontScale),
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        lines.forEach { line ->
+            Text(
+                line,
+                style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = TabularFigures),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.End,
+            )
+        }
+    }
+}
+
+/** How wide the lines under a history row's price may grow at the default font size (they grow with the font). */
+private val HistoryBreakdownMaxWidth = 220.dp
+
+/** From this font scale on, every history row puts its price under the status chip (see [HistoryHeader]). */
+private const val HistoryStackedFontScale = 1.3f
+
+/**
+ * The top of a history row, as the Appointment cards have it: the date on a line of its own, never
+ * squeezed; under it the status chip at the start and the price at the end, centred on each other;
+ * and under the price, at the end, its small print. With [stacked] (a large font) the price goes
+ * under the chip instead, the same in every row, so the prices keep to one edge down the history;
+ * so does a price that does not fit beside the chip.
+ */
+@Composable
+private fun HistoryHeader(
+    date: @Composable () -> Unit,
+    status: @Composable () -> Unit,
+    price: @Composable () -> Unit,
+    breakdown: @Composable () -> Unit,
+    stacked: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Layout(contents = listOf(date, status, price, breakdown), modifier = modifier) { measurables, constraints ->
+        val loose = constraints.copy(minWidth = 0, minHeight = 0)
+        val width = constraints.maxWidth
+        val gap = 12.dp.roundToPx()
+        val underDate = 8.dp.roundToPx()
+        val underPrice = 2.dp.roundToPx()
+
+        val datePlaceable = measurables[0].first().measure(loose)
+        val statusPlaceable = measurables[1].first().measure(loose)
+        val pricePlaceable = measurables[2].firstOrNull()?.measure(loose)
+        val breakdownPlaceable = measurables[3].firstOrNull()?.measure(loose)
+        val priceWidth = pricePlaceable?.width ?: 0
+        val priceHeight = pricePlaceable?.height ?: 0
+        val beside = !stacked && statusPlaceable.width + gap + priceWidth <= width
+
+        val lineY = datePlaceable.height + underDate
+        val statusY: Int
+        val priceY: Int
+        if (beside) {
+            val lineHeight = maxOf(statusPlaceable.height, priceHeight)
+            statusY = lineY + (lineHeight - statusPlaceable.height) / 2
+            priceY = lineY + (lineHeight - priceHeight) / 2
+        } else {
+            statusY = lineY
+            priceY = lineY + statusPlaceable.height + underDate
+        }
+        val breakdownY = maxOf(priceY + priceHeight, statusY + statusPlaceable.height) + underPrice
+        val height = maxOf(
+            statusY + statusPlaceable.height,
+            priceY + priceHeight,
+            if (breakdownPlaceable != null) breakdownY + breakdownPlaceable.height else 0,
+        )
+
+        layout(width, height) {
+            datePlaceable.placeRelative(0, 0)
+            statusPlaceable.placeRelative(0, statusY)
+            pricePlaceable?.placeRelative(width - priceWidth, priceY)
+            breakdownPlaceable?.placeRelative(width - (breakdownPlaceable.width), breakdownY)
         }
     }
 }

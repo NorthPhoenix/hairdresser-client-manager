@@ -582,10 +582,22 @@
     <string name="appointment_tip_suggestion_yes">Да</string>
     <string name="appointment_tip_suggestion_no">Нет</string>
     <string name="appointment_tip_included">вкл. чаевые %1$s</string>
-    <string name="history_tip">Чаевые</string>
-    <string name="history_tip_whole_visit">Чаевые за всю запись</string>
-    <string name="history_custom_price">Своя цена услуг</string>
-    <string name="history_custom_price_whole_visit">Своя цена услуг за всю запись</string>
+    <string name="history_price_tip_only">чаевые\u00A0%1$s</string>
+    <string name="history_price_label">за услуги</string>
+    <string name="history_price_label_free">услуги</string>
+    <string name="history_price_label_whole_visit">за всю запись</string>
+    <string name="history_price_discount">со\u00A0скидкой\u00A0%1$s</string>
+    <string name="history_price_surcharge">с\u00A0надбавкой\u00A0%1$s</string>
+    <string name="history_price_tip">+ чаевые\u00A0%1$s</string>
+    <string name="history_price_not_charged">%1$s, не взималось</string>
+    <string name="history_price_free">бесплатно</string>
+    <string name="history_no_services">Услуги пока не выбраны</string>
+    <plurals name="history_other_clients_services">
+        <item quantity="one">Ещё %d клиент в записи</item>
+        <item quantity="few">Ещё %d клиента в записи</item>
+        <item quantity="many">Ещё %d клиентов в записи</item>
+        <item quantity="other">Ещё %d клиента в записи</item>
+    </plurals>
 
     <!-- Семья (CONTEXT.md: Family). Роли пишет сам мастер. -->
     <string name="family_title">Семья</string>
