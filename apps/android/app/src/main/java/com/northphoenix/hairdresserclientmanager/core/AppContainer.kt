@@ -7,7 +7,6 @@ import com.northphoenix.hairdresserclientmanager.auth.ClerkAuthGateway
 import com.northphoenix.hairdresserclientmanager.auth.createDevAuthGateway
 import com.northphoenix.hairdresserclientmanager.data.AndroidPhoneCalendarStore
 import com.northphoenix.hairdresserclientmanager.data.AndroidSmsGateway
-import com.northphoenix.hairdresserclientmanager.data.GoogleCalendarMaker
 import com.northphoenix.hairdresserclientmanager.data.HcmApi
 import com.northphoenix.hairdresserclientmanager.data.SharedPreferencesAppUpdateStore
 import com.northphoenix.hairdresserclientmanager.data.SharedPreferencesCalendarConnectionStore
@@ -70,9 +69,6 @@ class AppContainer(context: Context) {
 
     /** Which calendar is connected on this phone, and what was written into it. */
     val calendarConnection by lazy { SharedPreferencesCalendarConnectionStore(appContext) }
-
-    /** Makes the Stylist's calendar of its own in her Google account. */
-    val googleCalendarMaker by lazy { GoogleCalendarMaker(http) }
 
     /** Client Reminders sent from this phone, and the device-local log of which Appointments were reminded. */
     val reminders by lazy { ReminderOutbox(AndroidSmsGateway(appContext), SharedPreferencesReminderStore(appContext), scope) }

@@ -1,7 +1,6 @@
 package com.northphoenix.hairdresserclientmanager.state
 
 import com.northphoenix.hairdresserclientmanager.data.Appointment
-import com.northphoenix.hairdresserclientmanager.data.GoogleCalendarException
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.Stylist
 import com.northphoenix.hairdresserclientmanager.domain.CalendarEventRow
@@ -10,7 +9,6 @@ import com.northphoenix.hairdresserclientmanager.domain.CalendarSetup
 import com.northphoenix.hairdresserclientmanager.domain.MirrorEvent
 import com.northphoenix.hairdresserclientmanager.domain.MirrorStep
 import com.northphoenix.hairdresserclientmanager.domain.MirrorWords
-import com.northphoenix.hairdresserclientmanager.domain.PendingCalendar
 import com.northphoenix.hairdresserclientmanager.domain.PhoneCalendar
 import com.northphoenix.hairdresserclientmanager.domain.PhoneSync
 import com.northphoenix.hairdresserclientmanager.domain.WrittenEvent
@@ -42,7 +40,7 @@ interface PhoneCalendarStore {
 
     fun sync(): PhoneSync
 
-    /** Asks Android to sync the calendars of these Google accounts now, so a calendar made in Google comes sooner. */
+    /** Asks Android to sync the calendars of these Google accounts now, so a calendar made on calendar.google.com comes sooner. */
     fun requestSync(accounts: Collection<String>)
 
     /** Makes the phone keep and sync the events of a calendar. */
@@ -77,8 +75,6 @@ interface CalendarConnectionStore {
     /** Which event the app wrote for which Appointment of [connection], and what it said then. */
     var written: Map<String, WrittenEvent>
 
-    var pending: PendingCalendar?
-
     /** When the last mirroring ended well, and how many Appointments it mirrored. */
     var lastSync: Pair<Instant, Int>?
 }
@@ -105,7 +101,6 @@ enum class CalendarProblem {
 data class CalendarMirrorState(
     /** The connection of the Stylist signed in now; null when she has none on this phone. */
     val connection: CalendarConnection? = null,
-    val pending: PendingCalendar? = null,
     val running: Boolean = false,
     val lastSyncedAt: Instant? = null,
     val mirrored: Int = 0,
@@ -132,7 +127,7 @@ class CalendarSync(
     private val quietMillis: Long = 1_500,
 ) {
     private var stylist: Stylist? = null
-    private val _state = MutableStateFlow(CalendarMirrorState(pending = store.pending))
+    private val _state = MutableStateFlow(CalendarMirrorState())
     val state: StateFlow<CalendarMirrorState> = _state.asStateFlow()
 
     // true: run at once ("Sync now"); false: after the changes that come together have come.
@@ -164,7 +159,7 @@ class CalendarSync(
             val connection = store.connection?.takeIf { it.stylistId == shown?.id }
             val last = store.lastSync.takeIf { connection != null }
 
-            _state.value = CalendarMirrorState(connection = connection, pending = store.pending, lastSyncedAt = last?.first, mirrored = last?.second ?: 0)
+            _state.value = CalendarMirrorState(connection = connection, lastSyncedAt = last?.first, mirrored = last?.second ?: 0)
         }
         if (shown != null && (shown.id != previous?.id || shown.timezone != previous.timezone || shown.language != previous.language)) {
             syncSoon()
@@ -201,50 +196,6 @@ class CalendarSync(
             }
         }
 
-    private val _creation = MutableStateFlow<CalendarCreation?>(null)
-
-    /** Making the calendar in Google: under way, or how it failed the last time. Null when nothing is being made. */
-    val creation: StateFlow<CalendarCreation?> = _creation.asStateFlow()
-
-    /** Google's screens are open: the calendar is on its way to being made. */
-    fun creating() {
-        _creation.value = CalendarCreation.CREATING
-    }
-
-    /** Google's screens were closed, with [failure] if Google refused (null when the Stylist closed them). */
-    fun creationEnded(failure: CalendarCreation?) {
-        _creation.value = failure
-    }
-
-    /**
-     * Makes the calendar with [make], which returns its address in Google, then waits for it to
-     * come to the phone. In the app's scope: leaving the screen meanwhile does not stop it.
-     */
-    fun create(accounts: Collection<String>, make: suspend () -> String) {
-        _creation.value = CalendarCreation.CREATING
-        scope.launch {
-            _creation.value = try {
-                created(make(), accounts)
-                null
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: GoogleCalendarException) {
-                if (error.isNetwork) CalendarCreation.NO_CONNECTION else CalendarCreation.FAILED
-            } catch (_: Exception) {
-                CalendarCreation.FAILED
-            }
-        }
-    }
-
-    /** Google has made the calendar [googleId]: wait for it to come to the phone. */
-    fun created(googleId: String, accounts: Collection<String>) {
-        val pending = PendingCalendar(googleId, clock())
-
-        store.pending = pending
-        _state.update { it.copy(pending = pending) }
-        askForSync(accounts)
-    }
-
     /** Asks Android to bring the calendars of [accounts] to the phone now. Quietly: it only makes it sooner. */
     fun askForSync(accounts: Collection<String>) {
         scope.launch {
@@ -258,12 +209,6 @@ class CalendarSync(
         }
     }
 
-    /** The Stylist gives up waiting for the calendar that was made, to make or pick another. */
-    fun forgetPending() {
-        store.pending = null
-        _state.update { it.copy(pending = null) }
-    }
-
     /**
      * Connects [calendar] for the Stylist signed in now: from now on her Appointments are mirrored
      * into it, starting with those that start from now. A new connection starts with no events written.
@@ -275,8 +220,6 @@ class CalendarSync(
         store.connection = connection
         store.written = emptyMap()
         store.lastSync = null
-        store.pending = null
-        _creation.value = null
         _state.value = CalendarMirrorState(connection = connection)
         scope.launch {
             withContext(io) {
@@ -297,7 +240,7 @@ class CalendarSync(
         store.connection = null
         store.written = emptyMap()
         store.lastSync = null
-        _state.value = CalendarMirrorState(pending = store.pending)
+        _state.value = CalendarMirrorState()
     }
 
     // --- mirroring ---
@@ -413,17 +356,6 @@ class CalendarSync(
         /** How far ahead Appointments are mirrored: all there are. */
         val HORIZON: Duration = Duration.ofDays(366L * 5)
     }
-}
-
-/** Making the Stylist's calendar in Google. */
-enum class CalendarCreation {
-    CREATING,
-
-    /** No connection to Google. Trying again may work. */
-    NO_CONNECTION,
-
-    /** Google refused, or the app is not set up for it: the calendar can be made on calendar.google.com. */
-    FAILED,
 }
 
 /** What the phone says, for the setup screen. Without [access] it says nothing more. */

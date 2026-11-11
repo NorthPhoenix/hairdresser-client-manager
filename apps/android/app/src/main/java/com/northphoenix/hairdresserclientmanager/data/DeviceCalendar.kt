@@ -15,7 +15,6 @@ import androidx.core.content.ContextCompat
 import com.northphoenix.hairdresserclientmanager.domain.CalendarEventRow
 import com.northphoenix.hairdresserclientmanager.domain.CalendarMirror
 import com.northphoenix.hairdresserclientmanager.domain.MirrorEvent
-import com.northphoenix.hairdresserclientmanager.domain.PendingCalendar
 import com.northphoenix.hairdresserclientmanager.domain.PhoneCalendar
 import com.northphoenix.hairdresserclientmanager.domain.PhoneSync
 import com.northphoenix.hairdresserclientmanager.domain.WrittenEvent
@@ -50,7 +49,9 @@ class AndroidPhoneCalendarStore(context: Context, private val alsoLocal: Boolean
 
     override fun hasAccess(): Boolean = DeviceCalendar.hasPermission(context)
 
-    override fun calendars(): List<PhoneCalendar> {
+    override fun calendars(): List<PhoneCalendar> = calendarsOf(listOfNotNull(GOOGLE, CalendarContract.ACCOUNT_TYPE_LOCAL.takeIf { alsoLocal }))
+
+    private fun calendarsOf(types: List<String>): List<PhoneCalendar> {
         val projection = arrayOf(
             Calendars._ID,
             Calendars.ACCOUNT_NAME,
@@ -59,7 +60,6 @@ class AndroidPhoneCalendarStore(context: Context, private val alsoLocal: Boolean
             Calendars.CALENDAR_ACCESS_LEVEL,
             Calendars.SYNC_EVENTS,
         )
-        val types = listOfNotNull(GOOGLE, CalendarContract.ACCOUNT_TYPE_LOCAL.takeIf { alsoLocal })
         val selection = types.joinToString(" OR ") { "${Calendars.ACCOUNT_TYPE} = ?" }
         val calendars = mutableListOf<PhoneCalendar>()
 
@@ -83,7 +83,8 @@ class AndroidPhoneCalendarStore(context: Context, private val alsoLocal: Boolean
 
     override fun sync(): PhoneSync =
         try {
-            val accounts = calendars().map { it.accountName }.toSet()
+            // Only Google accounts sync with Google: a local calendar of a debug build has no sync to be off.
+            val accounts = calendarsOf(listOf(GOOGLE)).map { it.accountName }.toSet()
 
             PhoneSync(
                 auto = ContentResolver.getMasterSyncAutomatically(),
@@ -170,10 +171,6 @@ class SharedPreferencesCalendarConnectionStore(context: Context) : CalendarConne
         get() = read<Map<String, StoredEvent>>(WRITTEN).orEmpty().mapValues { (_, event) -> WrittenEvent(event.eventId, event.fingerprint) }
         set(value) = write(WRITTEN, value.mapValues { (_, event) -> StoredEvent(event.eventId, event.fingerprint) }.takeIf { it.isNotEmpty() })
 
-    override var pending: PendingCalendar?
-        get() = read<StoredPending>(PENDING)?.let { PendingCalendar(it.googleId, Instant.ofEpochMilli(it.since)) }
-        set(value) = write(PENDING, value?.let { StoredPending(it.googleId, it.since.toEpochMilli()) })
-
     override var lastSync: Pair<Instant, Int>?
         get() = read<StoredSync>(LAST_SYNC)?.let { Instant.ofEpochMilli(it.at) to it.mirrored }
         set(value) = write(LAST_SYNC, value?.let { (at, mirrored) -> StoredSync(at.toEpochMilli(), mirrored) })
@@ -199,15 +196,11 @@ class SharedPreferencesCalendarConnectionStore(context: Context) : CalendarConne
     private data class StoredEvent(val eventId: Long, val fingerprint: String)
 
     @Serializable
-    private data class StoredPending(val googleId: String, val since: Long)
-
-    @Serializable
     private data class StoredSync(val at: Long, val mirrored: Int)
 
     private companion object {
         const val CONNECTION = "connection"
         const val WRITTEN = "written"
-        const val PENDING = "pending"
         const val LAST_SYNC = "last_sync"
     }
 }

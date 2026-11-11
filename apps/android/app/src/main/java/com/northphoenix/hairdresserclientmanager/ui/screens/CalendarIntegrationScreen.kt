@@ -55,14 +55,11 @@ import com.northphoenix.hairdresserclientmanager.domain.CalendarSetup
 import com.northphoenix.hairdresserclientmanager.domain.CalendarSetupStep
 import com.northphoenix.hairdresserclientmanager.domain.PhoneCalendar
 import com.northphoenix.hairdresserclientmanager.domain.PhoneSync
-import com.northphoenix.hairdresserclientmanager.domain.zoneOrSystem
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.CalendarConnection
-import com.northphoenix.hairdresserclientmanager.state.CalendarCreation
 import com.northphoenix.hairdresserclientmanager.state.CalendarMirrorState
 import com.northphoenix.hairdresserclientmanager.state.CalendarProblem
 import com.northphoenix.hairdresserclientmanager.state.PhoneFacts
-import com.northphoenix.hairdresserclientmanager.ui.GoogleCalendarAccess
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.ConfirmDialog
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmCard
@@ -73,15 +70,14 @@ import com.northphoenix.hairdresserclientmanager.ui.components.SecondaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.SubScreen
 import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
 import com.northphoenix.hairdresserclientmanager.ui.components.rememberNow
-import com.northphoenix.hairdresserclientmanager.ui.rememberGoogleCalendarAccess
-import java.time.Instant
 import kotlinx.coroutines.delay
 
 /**
  * Calendar Integration (ADR 0003): the setup, one step at a time, and once it is connected, how
  * the mirroring goes. The setup looks at the phone itself after each thing the Stylist does
- * there, and again every few seconds while it waits for something to happen on its own (a
- * calendar coming from Google), so it always shows the one step that is left and what to do for it.
+ * there, and again every few seconds while it waits for something to happen outside the app (a
+ * calendar made on calendar.google.com coming to the phone), so it always shows the one step that
+ * is left and what to do for it.
  */
 @Composable
 fun CalendarIntegrationScreen(viewModel: AppViewModel, onBack: () -> Unit) {
@@ -96,14 +92,11 @@ fun CalendarIntegrationScreen(viewModel: AppViewModel, onBack: () -> Unit) {
             if (connection != null) {
                 Connected(viewModel, state, connection)
             } else {
-                Setup(viewModel, state)
+                Setup(viewModel)
             }
         }
     }
 }
-
-/** One look at the phone. A new one each time, also when it says the same, so the step is worked out again with the time of the look. */
-private class Look(val facts: PhoneFacts, val at: Instant)
 
 /** Asks for calendar access and says, after Android has answered, when only Android's settings can give it now. */
 private class AccessAsk(val launch: () -> Unit, val blocked: Boolean)
@@ -124,37 +117,32 @@ private fun rememberAccessAsk(onAnswer: (Boolean) -> Unit): AccessAsk {
 }
 
 @Composable
-private fun Setup(viewModel: AppViewModel, state: CalendarMirrorState) {
+private fun Setup(viewModel: AppViewModel) {
     val sync = viewModel.calendarSync
     val context = LocalContext.current
-    val creation by sync.creation.collectAsStateWithLifecycle()
-    val stylist by viewModel.stylist.collectAsStateWithLifecycle()
-    var look by remember { mutableStateOf<Look?>(null) }
+    var facts by remember { mutableStateOf<PhoneFacts?>(null) }
     var looks by remember { mutableIntStateOf(0) }
     var choosing by rememberSaveable { mutableStateOf(false) }
     val access = rememberAccessAsk { looks++ }
 
-    // Back from Android's settings, or from adding an account: look again.
+    // Back from Android's settings, from adding an account, or from calendar.google.com: look again.
     LifecycleResumeEffect(Unit) {
         looks++
         onPauseOrDispose { }
     }
-    LaunchedEffect(looks) { look = Look(sync.phoneFacts(), Instant.now()) }
+    LaunchedEffect(looks) { facts = sync.phoneFacts() }
 
-    val current = look ?: return
-    val facts = current.facts
+    val phone = facts ?: return
     val accessState = when {
-        facts.access -> CalendarAccess.GRANTED
+        phone.access -> CalendarAccess.GRANTED
         access.blocked -> CalendarAccess.BLOCKED
         else -> CalendarAccess.ASKABLE
     }
-    val step = CalendarSetup.step(accessState, facts.calendars, state.pending, facts.sync, current.at)
-    val accounts = facts.calendars.map { it.accountName }.toSet()
-    // Waiting for something that can happen without the app: the calendar made in Google coming to the
-    // phone, a Google account being added, a calendar of the app's name made on calendar.google.com.
-    val watching = step is CalendarSetupStep.Waiting || step is CalendarSetupStep.NoGoogleAccount || (step is CalendarSetupStep.Calendar && step.existing == null)
-    // And when the app knows it is coming, Android is asked to sync now and then, so it comes sooner.
-    val coming = step is CalendarSetupStep.Waiting || step is CalendarSetupStep.NoGoogleAccount || (step is CalendarSetupStep.Calendar && creation == CalendarCreation.FAILED)
+    val step = CalendarSetup.step(accessState, phone.calendars, phone.sync)
+    val accounts = phone.calendars.map { it.accountName }.distinct()
+    // Waiting for what happens outside the app: a Google account added, the calendar made on
+    // calendar.google.com coming to the phone. Android is asked to sync now and then, so it comes sooner.
+    val watching = step is CalendarSetupStep.NoGoogleAccount || (step is CalendarSetupStep.Calendar && step.existing == null)
 
     LaunchedEffect(watching) {
         while (watching) {
@@ -162,32 +150,17 @@ private fun Setup(viewModel: AppViewModel, state: CalendarMirrorState) {
             looks++
         }
     }
-    LaunchedEffect(coming, accounts) {
-        while (coming) {
+    LaunchedEffect(watching, accounts) {
+        while (watching) {
             sync.askForSync(accounts)
             delay(20_000)
         }
     }
-    LaunchedEffect(step) {
-        if (step is CalendarSetupStep.Arrived) {
-            sync.connect(step.calendar)
-        }
-    }
 
     val ownName = stringResource(R.string.calendar_own_name)
-    val ownDescription = stringResource(R.string.calendar_own_description, stringResource(R.string.app_name))
-    val askGoogle = rememberGoogleCalendarAccess { answer ->
-        when (answer) {
-            is GoogleCalendarAccess.Granted -> sync.create(accounts) {
-                viewModel.googleCalendarMaker.create(answer.accessToken, ownName, zoneOrSystem(stylist?.timezone).id, ownDescription)
-            }
-            GoogleCalendarAccess.Canceled -> sync.creationEnded(null)
-            is GoogleCalendarAccess.Failed -> sync.creationEnded(if (answer.network) CalendarCreation.NO_CONNECTION else CalendarCreation.FAILED)
-        }
-    }
 
-    StepCard(number = 1, title = stringResource(if (facts.access) R.string.calendar_step_access_done else R.string.calendar_step_access_title), done = facts.access) {
-        if (!facts.access) {
+    StepCard(number = 1, title = stringResource(if (phone.access) R.string.calendar_step_access_done else R.string.calendar_step_access_title), done = phone.access) {
+        if (!phone.access) {
             Body(stringResource(R.string.calendar_step_access_body))
             if (accessState == CalendarAccess.BLOCKED) {
                 Body(stringResource(R.string.calendar_step_access_blocked))
@@ -198,7 +171,7 @@ private fun Setup(viewModel: AppViewModel, state: CalendarMirrorState) {
         }
     }
 
-    StepCard(number = 2, title = calendarStepTitle(step, ownName), done = step is CalendarSetupStep.Arrived, active = facts.access) {
+    StepCard(number = 2, title = calendarStepTitle(step, ownName), done = false, active = phone.access) {
         when (step) {
             is CalendarSetupStep.Access -> Body(stringResource(R.string.calendar_step_calendar_body))
             is CalendarSetupStep.NoGoogleAccount -> {
@@ -214,54 +187,30 @@ private fun Setup(viewModel: AppViewModel, state: CalendarMirrorState) {
                     PrimaryButton(stringResource(R.string.calendar_use_existing), onClick = { sync.connect(existing) }, modifier = Modifier.fillMaxWidth())
                 } else {
                     Body(stringResource(R.string.calendar_step_calendar_body))
-                    when (creation) {
-                        CalendarCreation.NO_CONNECTION -> Problem(stringResource(R.string.calendar_create_failed_network))
-                        CalendarCreation.FAILED -> {
-                            Problem(stringResource(R.string.calendar_create_failed))
-                            Body(stringResource(R.string.calendar_manual_steps, ownName))
-                        }
-                        else -> Unit
+                    Body(stringResource(R.string.calendar_create_where))
+                    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            stringResource(R.string.calendar_create_steps, accounts.joinToString(", "), ownName),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        )
                     }
-                    PrimaryButton(
-                        stringResource(if (creation == null || creation == CalendarCreation.CREATING) R.string.calendar_create_action else R.string.calendar_try_again),
-                        onClick = {
-                            sync.creating()
-                            askGoogle()
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        loading = creation == CalendarCreation.CREATING,
-                    )
-                    if (creation != CalendarCreation.FAILED) {
-                        Note(stringResource(R.string.calendar_create_note))
+                    if (step.sync.off) {
+                        SyncOff(step.sync)
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            CircularProgressIndicator(Modifier.padding(top = 2.dp).size(16.dp), strokeWidth = 2.dp)
+                            Body(stringResource(R.string.calendar_create_watching, ownName))
+                        }
                     }
                 }
                 TextAction(stringResource(R.string.calendar_choose_other), onClick = { choosing = true }, modifier = Modifier.align(Alignment.End))
             }
-            is CalendarSetupStep.Waiting -> {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    Text(stringResource(R.string.calendar_waiting_title), style = MaterialTheme.typography.titleSmall)
-                }
-                Body(stringResource(R.string.calendar_waiting_body, ownName))
-                if (step.slow) {
-                    val off = !step.sync.auto || step.sync.calendarOffFor.isNotEmpty()
-
-                    if (off) SyncOff(step.sync) else Problem(stringResource(R.string.calendar_waiting_slow))
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextAction(stringResource(R.string.calendar_start_over), onClick = sync::forgetPending)
-                    TextAction(stringResource(R.string.calendar_check_again), onClick = {
-                        sync.askForSync(accounts)
-                        looks++
-                    })
-                }
-            }
-            is CalendarSetupStep.Arrived -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
         }
     }
 
     if (choosing) {
-        val choices = remember(facts) { CalendarSetup.choices(facts.calendars) }
+        val choices = remember(phone) { CalendarSetup.choices(phone.calendars) }
 
         HcmListBottomSheet(
             title = stringResource(R.string.calendar_choose_title),
@@ -288,13 +237,13 @@ private fun calendarStepTitle(step: CalendarSetupStep, ownName: String): String 
         is CalendarSetupStep.NoGoogleAccount -> stringResource(R.string.calendar_step_account_title)
         // One that is there already is used, not made.
         is CalendarSetupStep.Calendar -> step.existing?.let { stringResource(R.string.calendar_step_calendar_found_title, it.name) } ?: stringResource(R.string.calendar_step_calendar_title, ownName)
-        else -> stringResource(R.string.calendar_step_calendar_title, ownName)
+        is CalendarSetupStep.Access -> stringResource(R.string.calendar_step_calendar_title, ownName)
     }
 
-/** Calendar sync is off on the phone, which keeps a calendar made in Google from coming to it. Nothing when it is on. */
+/** Calendar sync is off on the phone, which keeps a calendar made on calendar.google.com from coming to it. Nothing when it is on. */
 @Composable
 private fun SyncOff(sync: PhoneSync) {
-    if (sync.auto && sync.calendarOffFor.isEmpty()) {
+    if (!sync.off) {
         return
     }
 
@@ -445,11 +394,6 @@ private fun StepCard(number: Int, title: String, done: Boolean, active: Boolean 
 @Composable
 private fun Body(text: String) {
     Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-}
-
-@Composable
-private fun Note(text: String) {
-    Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 @Composable

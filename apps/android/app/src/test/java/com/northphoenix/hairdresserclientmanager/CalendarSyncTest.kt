@@ -4,7 +4,6 @@ import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.AppointmentParticipant
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
-import com.northphoenix.hairdresserclientmanager.data.GoogleCalendarException
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.data.Stylist
@@ -12,13 +11,11 @@ import com.northphoenix.hairdresserclientmanager.domain.CalendarEventRow
 import com.northphoenix.hairdresserclientmanager.domain.CalendarMirror
 import com.northphoenix.hairdresserclientmanager.domain.MirrorEvent
 import com.northphoenix.hairdresserclientmanager.domain.MirrorWords
-import com.northphoenix.hairdresserclientmanager.domain.PendingCalendar
 import com.northphoenix.hairdresserclientmanager.domain.PhoneCalendar
 import com.northphoenix.hairdresserclientmanager.domain.PhoneSync
 import com.northphoenix.hairdresserclientmanager.domain.WrittenEvent
 import com.northphoenix.hairdresserclientmanager.state.CalendarConnection
 import com.northphoenix.hairdresserclientmanager.state.CalendarConnectionStore
-import com.northphoenix.hairdresserclientmanager.state.CalendarCreation
 import com.northphoenix.hairdresserclientmanager.state.CalendarProblem
 import com.northphoenix.hairdresserclientmanager.state.CalendarSync
 import com.northphoenix.hairdresserclientmanager.state.PhoneCalendarStore
@@ -95,7 +92,6 @@ class CalendarSyncTest {
     private class MemoryStore : CalendarConnectionStore {
         override var connection: CalendarConnection? = null
         override var written: Map<String, WrittenEvent> = emptyMap()
-        override var pending: PendingCalendar? = null
         override var lastSync: Pair<Instant, Int>? = null
     }
 
@@ -368,34 +364,13 @@ class CalendarSyncTest {
     }
 
     @Test
-    fun `a calendar made in Google is waited for and Android is asked to sync`() = runTest {
+    fun `while the calendar made on calendar google com is waited for, Android is asked to sync`() = runTest {
         val f = fixture()
 
-        f.sync.follow(stylist)
-        f.sync.create(listOf("mom@gmail.com")) { "new@group.calendar.google.com" }
+        f.sync.askForSync(listOf("mom@gmail.com"))
         advanceUntilIdle()
 
-        assertNull(f.sync.creation.value)
-        assertEquals(PendingCalendar("new@group.calendar.google.com", now), f.sync.state.value.pending)
-        assertEquals(PendingCalendar("new@group.calendar.google.com", now), f.store.pending)
         assertEquals(listOf("mom@gmail.com"), f.phone.syncedAccounts)
-
-        f.sync.connect(f.phone.calendars.first())
-        assertNull(f.store.pending)
-    }
-
-    @Test
-    fun `a calendar Google would not make is said, and how`() = runTest {
-        val f = fixture()
-
-        f.sync.create(emptyList()) { throw GoogleCalendarException(403) }
-        advanceUntilIdle()
-        assertEquals(CalendarCreation.FAILED, f.sync.creation.value)
-
-        f.sync.create(emptyList()) { throw GoogleCalendarException(0) }
-        advanceUntilIdle()
-        assertEquals(CalendarCreation.NO_CONNECTION, f.sync.creation.value)
-        assertNull(f.store.pending)
     }
 
     @Test

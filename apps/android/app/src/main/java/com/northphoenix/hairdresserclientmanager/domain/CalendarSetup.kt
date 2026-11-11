@@ -1,8 +1,5 @@
 package com.northphoenix.hairdresserclientmanager.domain
 
-import java.time.Duration
-import java.time.Instant
-
 /** A Google calendar on the phone, as Calendar Integration sees it in Android's calendar store. */
 data class PhoneCalendar(
     /** Its row in the phone's calendar store. */
@@ -37,10 +34,10 @@ data class PhoneSync(
     val auto: Boolean = true,
     /** The Google accounts whose calendar sync is off. */
     val calendarOffFor: Set<String> = emptySet(),
-)
-
-/** The calendar the app has asked Google to create, from when, until it is on the phone. */
-data class PendingCalendar(val googleId: String, val since: Instant)
+) {
+    /** Whether a calendar made in Google can be kept from coming to the phone. */
+    val off: Boolean get() = !auto || calendarOffFor.isNotEmpty()
+}
 
 /** Where the setup of Calendar Integration is, and so what the screen asks the Stylist to do next. */
 sealed interface CalendarSetupStep {
@@ -50,52 +47,41 @@ sealed interface CalendarSetupStep {
     /** The phone has no Google calendar at all: no Google account on it, or one whose calendar does not sync. */
     data class NoGoogleAccount(val sync: PhoneSync) : CalendarSetupStep
 
-    /** Ready for a calendar: one is made, or [existing], a calendar of the app's name already on the phone, is used. */
-    data class Calendar(val existing: PhoneCalendar?) : CalendarSetupStep
-
     /**
-     * The calendar was made in Google and has not come to the phone yet. [slow]: longer than it
-     * usually takes, so the screen says what can hold it up, such as sync that is off.
+     * Ready for a calendar: [existing], a calendar of the app's name that is on the phone, is used.
+     * Without one, the Stylist makes it on calendar.google.com (Android cannot make one, and nor can
+     * the Google Calendar app), and the screen waits for it to come to the phone. [sync] says whether
+     * it can come.
      */
-    data class Waiting(val slow: Boolean, val sync: PhoneSync) : CalendarSetupStep
-
-    /** The calendar that was made is on the phone: the app connects to it. */
-    data class Arrived(val calendar: PhoneCalendar) : CalendarSetupStep
+    data class Calendar(val existing: PhoneCalendar?, val sync: PhoneSync) : CalendarSetupStep
 }
 
 object CalendarSetup {
-    /** A calendar made in Google usually reaches the phone well within this. */
-    val SLOW_AFTER: Duration = Duration.ofSeconds(60)
-
-    /** How the app names the calendar it makes, in both languages: a calendar named either is taken for it. */
+    /** What the app's calendar is named, in both languages: a calendar named either is taken for it. */
     val NAMES = listOf("Клиенты", "Clients")
 
     /** Whether [name] is the name of the app's calendar, without the difference of letter case, "ё" and "е", and spaces. */
     fun isOwnName(name: String): Boolean = ColorFormulaOffer.fold(name) in NAMES.map(ColorFormulaOffer::fold)
 
-    /** The calendar that Google made as [googleId], once it is on the phone. */
+    /** The calendar whose address in Google is [googleId], if it is on the phone. */
     fun find(calendars: List<PhoneCalendar>, googleId: String): PhoneCalendar? = calendars.firstOrNull { it.ownerAccount.equals(googleId, ignoreCase = true) }
 
     /**
-     * The calendars the Stylist can pick instead of making one: those she may add events to,
+     * The calendars the Stylist can pick instead of the app's own: those she may add events to,
      * one of the app's name first, then each account's main calendar, then the rest by name.
      */
     fun choices(calendars: List<PhoneCalendar>): List<PhoneCalendar> =
         calendars.filter { it.canWrite }.sortedWith(compareBy<PhoneCalendar>({ !isOwnName(it.name) }, { !it.isMain }, { it.name.lowercase() }, { it.accountName }))
 
     /** The next step, from what the phone says now. */
-    fun step(access: CalendarAccess, calendars: List<PhoneCalendar>, pending: PendingCalendar?, sync: PhoneSync, now: Instant): CalendarSetupStep {
+    fun step(access: CalendarAccess, calendars: List<PhoneCalendar>, sync: PhoneSync): CalendarSetupStep {
         if (access != CalendarAccess.GRANTED) {
             return CalendarSetupStep.Access(blocked = access == CalendarAccess.BLOCKED)
-        }
-        if (pending != null) {
-            return find(calendars, pending.googleId)?.let(CalendarSetupStep::Arrived)
-                ?: CalendarSetupStep.Waiting(slow = Duration.between(pending.since, now) >= SLOW_AFTER, sync = sync)
         }
         if (calendars.isEmpty()) {
             return CalendarSetupStep.NoGoogleAccount(sync)
         }
 
-        return CalendarSetupStep.Calendar(existing = calendars.firstOrNull { it.canWrite && isOwnName(it.name) })
+        return CalendarSetupStep.Calendar(existing = calendars.firstOrNull { it.canWrite && isOwnName(it.name) }, sync = sync)
     }
 }

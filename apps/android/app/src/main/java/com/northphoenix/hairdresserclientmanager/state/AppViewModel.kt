@@ -31,7 +31,6 @@ import com.northphoenix.hairdresserclientmanager.data.EarningsSummary
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.ClientVisitDates
 import com.northphoenix.hairdresserclientmanager.data.CreateAppointmentResult
-import com.northphoenix.hairdresserclientmanager.data.GoogleCalendarMaker
 import com.northphoenix.hairdresserclientmanager.data.JpegSize
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.LocationType
@@ -346,7 +345,6 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     )
 
     /** Makes the Stylist's calendar of its own in her Google account, for the Calendar Integration screen. */
-    val googleCalendarMaker: GoogleCalendarMaker get() = container.googleCalendarMaker
 
     // Values the Stylist can change again while they are still being saved, each kept in the order
     // of the taps (see saveLatest). Each target names the value and what it is of, such as `status:<appointment id>`.

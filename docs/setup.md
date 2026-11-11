@@ -106,23 +106,7 @@ Run these steps locally when you are ready to wire providers:
 
    Keep `UPLOADTHING_TOKEN` server-only. The API reads the UploadThing app id from the same token and accepts as an Appointment Photo only a file of that app (`https://<app id>.ufs.sh/f/<file key>`), so without the token no photo can be stored. `UPLOADTHING_CALLBACK_URL` is not secret; it is needed for local Android emulator testing because the device calls the web app through `10.0.2.2`, while UploadThing's local dev callback must reach the host Next.js server. The Android app uploads through the web app's `/api/uploadthing` endpoint, using the same base URL as `hcm.apiBaseUrl`. UploadThing has no Android SDK, so the app implements the upload protocol itself; keep `UploadThingClient.CLIENT_VERSION` in step with the `uploadthing` package version.
 
-10. Configure Google Calendar when the app should create the Stylist's «Клиенты» calendar in one tap.
-
-   Calendar Integration writes events through the phone's own calendar and needs no server setup (ADR 0003). Only creating the calendar of its own goes through the Google Calendar API, once, with access the app gets on the phone. Without this step the app says how to create the calendar on calendar.google.com instead, and everything else works the same.
-
-   In the [Google Cloud console](https://console.cloud.google.com/), in a project of your own:
-
-   1. **APIs & Services → Library**: enable the **Google Calendar API**.
-   2. **Google Auth Platform → Branding**: app name (the Stylist sees it on Google's consent screen), support email and developer contact email.
-   3. **Audience**: user type **External**. While the publishing status is **Testing**, add the Stylist's Google account under **Test users**; only those accounts can give access, and Google shows them an "unverified app" notice with a **Continue** link. The access expires after seven days, which does not matter here: the app uses it once, to create the calendar.
-   4. **Data Access → Add or remove scopes**: add `https://www.googleapis.com/auth/calendar.app.created` ("Make secondary Google calendars, and see, create, change, and delete events on them").
-   5. **Clients → Create client → Android**, once for each key the app is signed with, with package name `com.northphoenix.hairdresserclientmanager` and the key's SHA-1 fingerprint:
-      - release: `apksigner verify --print-certs <published release APK>` (the "SHA-1 digest" line), or `keytool -list -v -keystore <release keystore>`;
-      - debug: `keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android`.
-
-   The app passes no client ID: Google Play services matches the app to the Android client by its package name and signing key. A key that is not registered makes **Create calendar** fail, and the app falls back to the instructions for calendar.google.com.
-
-11. Run the apps:
+10. Run the apps:
 
    ```sh
    pnpm --filter @hcm/web dev
@@ -141,7 +125,7 @@ Every answer of the web app carries security headers and no `X-Powered-By` (`app
 
 Profile Share pages and Share Images name the Stylist with the first and last name of the Stylist's Clerk user. The app signs up with an email address and a password only, so a Clerk user has no name until it is given one (in the Clerk dashboard, or through Clerk's user API); until then, and whenever Clerk does not answer within three seconds, a share shows no Stylist name and still works. The name is read from Clerk with the server's `CLERK_SECRET_KEY`; public share pages and pictures reuse it for one minute, while a Share Image the signed-in Stylist generates asks Clerk every time, so a name that was just entered is on it. The share page does not link to photo storage: the server passes each shared photo on from storage under the share's own link, which stops with a revoke. A Share Image embeds the shared Appointment Photos: the server reads each from photo storage and shrinks it with `sharp` (a dependency of `apps/web`); a photo it cannot read is counted in the picture as not shown.
 
-UploadThing, the Google Calendar API client (step 10), and Stylist Reminder push notification credentials are optional provider setup points. Until those providers are configured, core Client, Appointment, Service, Color Formula, Contact Import, Profile Share, Share Image, and Client Reminder SMS compose flows should remain usable, while provider-specific controls should show clear setup or unavailable behavior.
+UploadThing and Stylist Reminder push notification credentials are optional provider setup points; Calendar Integration needs none (ADR 0003). Until those providers are configured, core Client, Appointment, Service, Color Formula, Contact Import, Profile Share, Share Image, and Client Reminder SMS compose flows should remain usable, while provider-specific controls should show clear setup or unavailable behavior.
 
 ## Verification
 
