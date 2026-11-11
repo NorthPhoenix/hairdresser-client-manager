@@ -1,5 +1,20 @@
 [
   {
+    "versionCode": 16,
+    "versionName": "1.14.0",
+    "date": "2026-11-11",
+    "notes": {
+      "ru": [
+        "В истории записей клиента каждый визит теперь отдельная карточка, как чек: услуги с ценами, скидка или наценка, чаевые и «Итого»",
+        "«Итого» — вся сумма визита: своя цена услуг, если она задана, и чаевые"
+      ],
+      "en": [
+        "In a Client's appointment history, each visit is now its own card, like a receipt: the Services with their prices, a discount or surcharge, the tip, and \"Total\"",
+        "\"Total\" is the whole visit: the custom price of the Services, when one is set, and the tip"
+      ]
+    }
+  },
+  {
     "versionCode": 15,
     "versionName": "1.13.0",
     "date": "2026-11-10",
