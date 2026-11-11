@@ -467,7 +467,7 @@ fun ClientEditorScreen(
                 )
                 val history by rememberClientHistory(viewModel, existing.id)
 
-                ClientHistoryCard(history, onRetry = { viewModel.loadClientHistory(existing.id) }, onOpenAppointment)
+                ClientHistorySection(history, onRetry = { viewModel.loadClientHistory(existing.id) }, onOpenAppointment)
                 TextAction(
                     stringResource(R.string.delete_client),
                     onClick = { dialog = ClientDialog.DELETE },
@@ -720,34 +720,28 @@ internal fun rememberClientHistory(viewModel: AppViewModel, clientId: String): S
 }
 
 /**
- * The Client's Appointment history ([rememberClientHistory]), newest first: each Appointment with
- * this Client's part of it, the Services with their prices, notes and Color Formulas, and the
- * Client's photos.
+ * The Client's Appointment history ([rememberClientHistory]), newest first, under its title as the
+ * lists of Home are: each Appointment a card of its own, as one receipt is one slip, with this
+ * Client's part of it, the Services with their prices, notes and Color Formulas, and the Client's
+ * photos. While it loads, fails or is empty, one card says so.
  */
 @Composable
-internal fun ClientHistoryCard(history: Read<List<ClientHistoryEntry>>, onRetry: () -> Unit, onOpenAppointment: (String) -> Unit) {
-    HcmCard(contentPadding = PaddingValues(vertical = 18.dp)) {
-        Text(stringResource(R.string.appointment_history_title), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(horizontal = 18.dp))
+internal fun ClientHistorySection(history: Read<List<ClientHistoryEntry>>, onRetry: () -> Unit, onOpenAppointment: (String) -> Unit) {
+    val entries = history.data.orEmpty()
+    val state = history.state
 
-        val entries = history.data.orEmpty()
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // No count beside it: the Profile's «Визитов» counts the visits that took place, and a second
+        // number for the same Client, with the canceled and the coming ones in it, would not match.
+        ListSectionLabel(stringResource(R.string.appointment_history_title), count = null)
 
-        when (val state = history.state) {
-            is LoadState.Failed -> InlineLoadFailed(
-                state.message,
-                onRetry = onRetry,
-                Modifier.padding(start = 18.dp, end = 18.dp, top = 10.dp),
-            )
-            LoadState.Loaded -> if (entries.isEmpty()) {
-                InlineEmpty(stringResource(R.string.appointment_history_empty), Modifier.padding(start = 18.dp, end = 18.dp, top = 10.dp))
-            } else {
-                entries.forEachIndexed { index, entry ->
-                    if (index > 0) {
-                        Hairline(Modifier.padding(horizontal = 18.dp))
-                    }
-                    ClientHistoryRow(entry, onOpen = { onOpenAppointment(entry.id) })
-                }
+        when {
+            state is LoadState.Failed -> HcmCard { InlineLoadFailed(state.message, onRetry = onRetry) }
+            state == LoadState.Loaded && entries.isEmpty() -> HcmCard { InlineEmpty(stringResource(R.string.appointment_history_empty)) }
+            state == LoadState.Loaded -> entries.forEach { entry ->
+                ClientHistoryRow(entry, onOpen = { onOpenAppointment(entry.id) })
             }
-            else -> LoadingRow(Modifier.heightIn(max = 96.dp))
+            else -> HcmCard { LoadingRow(Modifier.heightIn(max = 96.dp)) }
         }
     }
 }
@@ -763,7 +757,7 @@ private val HistoryPhotoTagMargin = 6.dp
  * Appointment, the discount or surcharge of a custom total, the Tip. Last, after a short rule
  * under that column, the total they all come to (see [HistoryTotals]): the one large figure of the
  * row. A canceled or no-show visit was not charged, so it has its Services and no amounts at all.
- * The Services and photos are this Client's alone, also in a group Appointment. The whole row
+ * The Services and photos are this Client's alone, also in a group Appointment. The whole card
  * opens the Appointment.
  */
 @Composable
@@ -771,8 +765,9 @@ private fun ClientHistoryRow(entry: ClientHistoryEntry, onOpen: () -> Unit) {
     val format = LocalTimeFormat.current
     val charged = HistoryTotals.wasCharged(entry)
 
-    Surface(onClick = onOpen, color = Color.Transparent) {
-        Column(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    // No side padding: the photos scroll to the card's edges; everything else keeps HistoryInset.
+    HcmCard(onClick = onOpen, contentPadding = PaddingValues(vertical = 16.dp)) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             // The date and the chip on one line, the chip at the end; when the two do not fit (a large
             // font), the chip goes under the date rather than the date breaking up beside it.
             FlowRow(
