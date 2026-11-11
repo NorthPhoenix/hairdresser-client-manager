@@ -782,6 +782,20 @@ private fun ClientHistoryRow(entry: ClientHistoryEntry, onOpen: () -> Unit) {
                     service.colorFormulas.forEach { formula -> ColorFormulaCard(formula) }
                 }
             }
+            // The custom total is what the Services were charged, not their own prices above, so the
+            // history does not show a discount or a free visit at full price. It is of the whole
+            // visit: of a group Appointment, it says so.
+            entry.finalTotalCentsOverride?.let { price ->
+                Row(Modifier.padding(horizontal = HistoryInset), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        stringResource(if (entry.participantClientIds.size > 1) R.string.history_custom_price_whole_visit else R.string.history_custom_price),
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(Money.format(price), style = MaterialTheme.typography.bodyLarge)
+                }
+            }
             // The Tip is for the whole visit: of a group Appointment, it says so.
             entry.tipCents?.let { tip ->
                 Row(Modifier.padding(horizontal = HistoryInset), horizontalArrangement = Arrangement.spacedBy(12.dp)) {

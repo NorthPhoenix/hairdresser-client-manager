@@ -552,6 +552,8 @@
     <string name="appointment_tip_included">incl. %1$s tip</string>
     <string name="history_tip">Tip</string>
     <string name="history_tip_whole_visit">Tip for the whole visit</string>
+    <string name="history_custom_price">Custom services price</string>
+    <string name="history_custom_price_whole_visit">Custom services price for the whole visit</string>
 
     <!-- Family (CONTEXT.md: Family). Roles are the Stylist's own words. -->
     <string name="family_title">Family</string>

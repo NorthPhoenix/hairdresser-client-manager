@@ -584,6 +584,8 @@
     <string name="appointment_tip_included">вкл. чаевые %1$s</string>
     <string name="history_tip">Чаевые</string>
     <string name="history_tip_whole_visit">Чаевые за всю запись</string>
+    <string name="history_custom_price">Своя цена услуг</string>
+    <string name="history_custom_price_whole_visit">Своя цена услуг за всю запись</string>
 
     <!-- Семья (CONTEXT.md: Family). Роли пишет сам мастер. -->
     <string name="family_title">Семья</string>

@@ -611,6 +611,9 @@ export const clientRouter = createTRPCRouter({
       locationAddress: appointment.locationAddress ?? "",
       customLocationAddress: hasCustomAddress(appointment) ? appointment.locationAddress ?? "" : "",
       participantClientIds: appointment.participants.map((participant) => participant.clientId),
+      // The custom total, the price of the Services of the whole visit when the Stylist set one, so the
+      // history says what the visit was charged rather than only each Service's own price. Null when none.
+      finalTotalCentsOverride: appointment.finalTotalCentsOverride ?? null,
       // The tip for the whole visit, also of a group Appointment, whose Services here are this Client's alone.
       tipCents: appointment.tipCents ?? null,
       // The note of the whole visit, so a detail written on it (a guard size, a shade) is there at the next one.
