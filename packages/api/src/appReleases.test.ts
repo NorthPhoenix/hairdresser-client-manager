@@ -6,8 +6,10 @@ import {
   appVersionSeenFor,
   readReleases,
   recordAppVersion,
+  releasesForApp,
   releasesSince,
-  shouldRecordAppVersion
+  shouldRecordAppVersion,
+  updateBeforeWhatsNewFrom
 } from "./appReleases";
 import type { TRPCContext } from "./context";
 import { appRouter } from "./root";
@@ -122,6 +124,47 @@ describe("releases.json", () => {
   });
 });
 
+describe("the releases an app is told of", () => {
+  const releases = readReleases([
+    { versionCode: 6, versionName: "1.4.0", date: "2026-10-20", notes: { ru: ["а"], en: ["a"] } },
+    { versionCode: 7, versionName: "1.5.0", date: "2026-10-27", notes: { ru: ["б"], en: ["b"] } },
+    { versionCode: 14, versionName: "1.12.0", date: "2026-11-10", notes: { ru: ["в"], en: ["c"] } },
+    { versionCode: 15, versionName: "1.13.0", date: "2026-11-10", notes: { ru: ["г"], en: ["d"] } },
+    { versionCode: 16, versionName: "1.14.0", date: "2026-11-11", notes: { ru: ["д"], en: ["e"] } }
+  ]);
+  const codes = (answer: ReturnType<typeof releasesForApp>) => answer.releases.map((release) => release.versionCode);
+
+  it("names 1.13.0 as the first version that offers the update before \"Что нового\"", () => {
+    expect(appReleases.find((release) => release.versionCode === updateBeforeWhatsNewFrom)?.versionName).toBe("1.13.0");
+  });
+
+  it("leaves an app before 1.13.0 that is behind without its own release or older ones", () => {
+    // 1.5.0 shows "Что нового" for the releases in (last seen, 7]: there are none, so Home offers 1.14.0.
+    const answer = releasesForApp(releases, { code: 7, name: "1.5.0" });
+
+    expect(answer.latest).toEqual({ versionCode: 16, versionName: "1.14.0", date: "2026-11-11" });
+    expect(codes(answer)).toEqual([16, 15, 14]);
+    expect(codes(releasesForApp(releases, { code: 14, name: "1.12.0" }))).toEqual([16, 15]);
+  });
+
+  it("counts only the published releases to tell whether the app is behind", () => {
+    expect(codes(releasesForApp(releases, { code: 7, name: "1.5.0" }, undefined, 14))).toEqual([14]);
+    // Nothing newer is published, so "Что нового" of 1.12.0 is shown as before.
+    expect(codes(releasesForApp(releases, { code: 14, name: "1.12.0" }, undefined, 14))).toEqual([14, 7, 6]);
+  });
+
+  it("tells everything to an app that is not behind, names no version, or offers the update first itself", () => {
+    expect(codes(releasesForApp(releases, { code: 16, name: "1.14.0" }))).toEqual([16, 15, 14, 7, 6]);
+    expect(codes(releasesForApp(releases, null))).toEqual([16, 15, 14, 7, 6]);
+    expect(codes(releasesForApp(releases, { code: 15, name: "1.13.0" }))).toEqual([16, 15, 14, 7, 6]);
+  });
+
+  it("still leaves out the releases up to sinceVersionCode", () => {
+    expect(codes(releasesForApp(releases, { code: 7, name: "1.5.0" }, 14))).toEqual([16, 15]);
+    expect(codes(releasesForApp(releases, { code: 15, name: "1.13.0" }, 6))).toEqual([16, 15, 14, 7]);
+  });
+});
+
 describe("app.releases", () => {
   it("is for a signed-in Stylist only", async () => {
     await expect(caller({ userId: null }).caller.app.releases()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
@@ -183,6 +226,22 @@ describe("app.releases", () => {
 
       expect(answer.latest.versionCode).toBe(newest?.versionCode);
       expect(answer.downloadUrl).toBe("https://example.com/hcm/client-manager-9.9.9.apk");
+    });
+
+    it("tells an app before 1.13.0 that is behind only of the releases newer than it", async () => {
+      const { caller: app } = caller({ appVersion: { code: 7, name: "1.5.0" }, publishedRelease: published(newest) });
+      const answer = await app.app.releases();
+
+      expect(answer.latest.versionCode).toBe(newest?.versionCode);
+      expect(answer.releases.map((release) => release.versionCode)).toEqual(
+        appReleases.filter((release) => release.versionCode > 7).map((release) => release.versionCode)
+      );
+    });
+
+    it("tells an app that offers the update first itself of every release", async () => {
+      const { caller: app } = caller({ appVersion: { code: updateBeforeWhatsNewFrom, name: "1.13.0" }, publishedRelease: published(newest) });
+
+      expect((await app.app.releases()).releases.map((release) => release.versionCode)).toEqual(appReleases.map((release) => release.versionCode));
     });
 
     it("offers nothing newer than the app that asks while it cannot tell what is published", async () => {

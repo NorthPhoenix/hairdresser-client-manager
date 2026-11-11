@@ -79,6 +79,31 @@ export type AppVersion = {
 };
 
 /**
+ * The first version of the app (1.13.0) whose Home offers a newer version before "Что нового".
+ * Every app before it shows "Что нового" first and keeps it until the Stylist taps "Понятно", and
+ * while it is there the card with "Обновить" never shows.
+ */
+export const updateBeforeWhatsNewFrom = 15;
+
+/**
+ * What `app.releases` tells the app that asks ([app]): `releasesSince`, except that an app before
+ * 1.13.0 that is behind the latest release is not told of its own release or older ones. Its
+ * "Что нового" then has nothing to show and counts as seen, and its Home shows the update offer
+ * in that place. The offer still lists every release newer than the app, and after the update the
+ * new app shows the notes of every release since this one. An app that is not behind, that names
+ * no version, or that puts the update first itself is told everything.
+ */
+export function releasesForApp(releases: AppRelease[], app: AppVersion | null, sinceVersionCode?: number, upTo?: number) {
+  const answer = releasesSince(releases, sinceVersionCode, upTo);
+
+  if (!app || app.code >= updateBeforeWhatsNewFrom || answer.latest.versionCode <= app.code) {
+    return answer;
+  }
+
+  return { ...answer, releases: answer.releases.filter((release) => release.versionCode > app.code) };
+}
+
+/**
  * The version the Android app names in the headers of a request (`X-App-Version-Code`,
  * `X-App-Version-Name`), or null when it names none or one that is not valid. Apps before 1.4.0
  * send no such header.
