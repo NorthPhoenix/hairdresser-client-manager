@@ -25,7 +25,7 @@ Android is the only device target: the Stylist app is the native Android app in 
 9. Profile Share creation, language toggle, Share Image generation, revocation, privacy exclusions, and group scoping.
 10. Client Reminder SMS compose behavior.
 11. Stylist Reminder push notifications after push notification credentials are configured.
-12. Google Calendar Integration after Google OAuth and Calendar credentials are configured.
+12. Calendar Integration: Appointments mirrored to the Stylist's «Клиенты» Google calendar through the phone's calendar (creating that calendar in one tap needs the Google Cloud setup in `docs/setup.md`).
 
 ## Public Profile Share privacy
 

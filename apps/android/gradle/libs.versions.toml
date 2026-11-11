@@ -14,6 +14,7 @@ clerk = "1.1.11"
 store = "5.1.0-beta01"
 exifinterface = "1.4.2"
 appcompat = "1.8.0"
+playServicesAuth = "22.0.0"
 junit = "4.13.2"
 
 [libraries]
@@ -41,6 +42,7 @@ coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version
 coil-svg = { module = "io.coil-kt.coil3:coil-svg", version.ref = "coil" }
 clerk-api = { module = "com.clerk:clerk-android-api", version.ref = "clerk" }
 store = { module = "org.mobilenativefoundation.store:store5", version.ref = "store" }
+play-services-auth = { module = "com.google.android.gms:play-services-auth", version.ref = "playServicesAuth" }
 junit = { module = "junit:junit", version.ref = "junit" }
 
 [plugins]

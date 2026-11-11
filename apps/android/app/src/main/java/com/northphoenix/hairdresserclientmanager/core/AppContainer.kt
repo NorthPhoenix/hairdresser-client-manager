@@ -5,9 +5,12 @@ import com.northphoenix.hairdresserclientmanager.BuildConfig
 import com.northphoenix.hairdresserclientmanager.auth.AuthGateway
 import com.northphoenix.hairdresserclientmanager.auth.ClerkAuthGateway
 import com.northphoenix.hairdresserclientmanager.auth.createDevAuthGateway
+import com.northphoenix.hairdresserclientmanager.data.AndroidPhoneCalendarStore
 import com.northphoenix.hairdresserclientmanager.data.AndroidSmsGateway
+import com.northphoenix.hairdresserclientmanager.data.GoogleCalendarMaker
 import com.northphoenix.hairdresserclientmanager.data.HcmApi
 import com.northphoenix.hairdresserclientmanager.data.SharedPreferencesAppUpdateStore
+import com.northphoenix.hairdresserclientmanager.data.SharedPreferencesCalendarConnectionStore
 import com.northphoenix.hairdresserclientmanager.data.SharedPreferencesReminderStore
 import com.northphoenix.hairdresserclientmanager.data.TrpcClient
 import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
@@ -61,6 +64,15 @@ class AppContainer(context: Context) {
      * Client. It waits here, in memory only, while the Stylist signs in or finishes onboarding.
      */
     val sharedContact = MutableStateFlow<ImportedContact?>(null)
+
+    /** The phone's calendar, which Calendar Integration writes the Appointments into (ADR 0003). A debug build takes local calendars too, for an emulator without a Google account. */
+    val phoneCalendar by lazy { AndroidPhoneCalendarStore(appContext, alsoLocal = BuildConfig.DEBUG) }
+
+    /** Which calendar is connected on this phone, and what was written into it. */
+    val calendarConnection by lazy { SharedPreferencesCalendarConnectionStore(appContext) }
+
+    /** Makes the Stylist's calendar of its own in her Google account. */
+    val googleCalendarMaker by lazy { GoogleCalendarMaker(http) }
 
     /** Client Reminders sent from this phone, and the device-local log of which Appointments were reminded. */
     val reminders by lazy { ReminderOutbox(AndroidSmsGateway(appContext), SharedPreferencesReminderStore(appContext), scope) }

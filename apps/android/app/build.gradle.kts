@@ -122,6 +122,8 @@ dependencies {
     implementation(libs.coil.svg)
     implementation(libs.clerk.api)
     implementation(libs.store)
+    // Google's Android authorization, once, to make the Stylist's calendar in her Google account (ADR 0003).
+    implementation(libs.play.services.auth)
 
     debugImplementation(libs.compose.ui.tooling)
 

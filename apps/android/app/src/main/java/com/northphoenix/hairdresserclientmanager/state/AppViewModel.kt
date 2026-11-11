@@ -31,6 +31,7 @@ import com.northphoenix.hairdresserclientmanager.data.EarningsSummary
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.ClientVisitDates
 import com.northphoenix.hairdresserclientmanager.data.CreateAppointmentResult
+import com.northphoenix.hairdresserclientmanager.data.GoogleCalendarMaker
 import com.northphoenix.hairdresserclientmanager.data.JpegSize
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.LocationType
@@ -68,6 +69,7 @@ import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
 import com.northphoenix.hairdresserclientmanager.domain.zoneOrNull
 import com.northphoenix.hairdresserclientmanager.domain.zoneOrSystem
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
+import com.northphoenix.hairdresserclientmanager.i18n.mirrorWords
 import com.northphoenix.hairdresserclientmanager.i18n.refusedSignInMessage
 import java.io.File
 import java.time.Instant
@@ -330,6 +332,22 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     /** True while any change is in flight, also one that is shown ahead of its answer: the thin progress line. Nothing is disabled by it. */
     val saving: StateFlow<Boolean> = actions.saving
 
+    /**
+     * Calendar Integration on this phone (ADR 0003). It mirrors the Appointments of the Stylist of
+     * the moment whenever a change has ended and when the app comes into view, so it follows every
+     * change without knowing which ones show in the calendar.
+     */
+    val calendarSync = CalendarSync(
+        container.phoneCalendar,
+        container.calendarConnection,
+        viewModelScope,
+        fetch = { start, end -> api.listAppointments(start, end) },
+        words = container.appContext::mirrorWords,
+    )
+
+    /** Makes the Stylist's calendar of its own in her Google account, for the Calendar Integration screen. */
+    val googleCalendarMaker: GoogleCalendarMaker get() = container.googleCalendarMaker
+
     // Values the Stylist can change again while they are still being saved, each kept in the order
     // of the taps (see saveLatest). Each target names the value and what it is of, such as `status:<appointment id>`.
     private val statusChanges = LatestWins<String, AppointmentStatus>()
@@ -370,6 +388,10 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     init {
         viewModelScope.launch(Dispatchers.IO) { captures.deleteStale() }
+        // The calendar is of the Stylist signed in now, and her timezone and language are in its events.
+        viewModelScope.launch { _stylist.collect(calendarSync::follow) }
+        // Each change that has ended, saved or not: the calendar is compared with what the server has then.
+        viewModelScope.launch { saving.collect { if (!it) calendarSync.syncSoon() } }
         // A picture left as failed because the reply was lost is done with once its Appointment is loaded with the photo.
         viewModelScope.launch { appointmentReads.shown.collect { photos.dropRecorded() } }
         // Today's list and the Calendar's day each watch the key of the moment. Another day or timezone is another key.
@@ -586,6 +608,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             // The day may have ended meanwhile. Now, so that the screen is on the new day before the reload has its turn.
             followDay()
             viewModelScope.launch { actions.reloadWithRetry(::loadEverything) }
+            // Something may have been changed on another device, or put right in Android's settings.
+            calendarSync.syncSoon()
         }
     }
 
