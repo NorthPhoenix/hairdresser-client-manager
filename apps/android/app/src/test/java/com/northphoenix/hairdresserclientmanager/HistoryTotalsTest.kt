@@ -30,18 +30,21 @@ class HistoryTotalsTest {
         services = prices.mapIndexed { index, price -> AppointmentService(id = "s$index", clientId = "c1", name = "s$index", priceCents = price) },
     )
 
-    /** The column of the row: this Client's Services, the other Clients' line and the custom price's difference. */
-    private fun column(entry: ClientHistoryEntry): Long =
-        entry.services.sumOf { it.priceCents } + (HistoryTotals.othersCents(entry) ?: 0L) + (HistoryTotals.customPriceDifferenceCents(entry) ?: 0L)
+    /** The receipt's lines above the total: this Client's Services, the other Clients', the discount or surcharge, the Tip. */
+    private fun lines(entry: ClientHistoryEntry): Long =
+        entry.services.sumOf { it.priceCents } +
+            (HistoryTotals.othersCents(entry) ?: 0L) +
+            (HistoryTotals.customPriceDifferenceCents(entry) ?: 0L) +
+            (HistoryTotals.tipCents(entry) ?: 0L)
 
     @Test
-    fun `the visit comes to the sum of its Services and the Tip`() {
+    fun `the total is the Services and the Tip`() {
         assertEquals(20500L, HistoryTotals.totalCents(entry()))
         assertEquals(22500L, HistoryTotals.totalCents(entry(tip = 2000)))
     }
 
     @Test
-    fun `a custom total replaces the sum, and the Tip is on top of it`() {
+    fun `a custom total replaces the sum, and the Tip is added to it`() {
         val discounted = entry(override = 19000, tip = 2000)
 
         assertEquals(19000L, HistoryTotals.servicesPriceCents(discounted))
@@ -50,32 +53,40 @@ class HistoryTotalsTest {
     }
 
     @Test
-    fun `a custom total above the sum adds to it`() {
+    fun `a custom total above the sum is a surcharge`() {
         assertEquals(1000L, HistoryTotals.customPriceDifferenceCents(entry(override = 21500)))
     }
 
     @Test
-    fun `a free visit takes the whole sum off and still leads with its price`() {
-        val free = entry(override = 0)
+    fun `a free visit with a Tip comes to the Tip`() {
+        val free = entry(override = 0, tip = 1000)
 
-        assertEquals(0L, HistoryTotals.servicesPriceCents(free))
-        assertTrue(HistoryTotals.showsPrice(free))
         assertEquals(-20500L, HistoryTotals.customPriceDifferenceCents(free))
+        assertEquals(1000L, HistoryTotals.totalCents(free))
+        assertTrue(HistoryTotals.showsTotal(free))
     }
 
     @Test
-    fun `no difference without a custom total, or with one equal to the sum`() {
+    fun `no discount line without a custom total, with one equal to the sum, or with no Services to compare it with`() {
         assertNull(HistoryTotals.customPriceDifferenceCents(entry()))
         assertNull(HistoryTotals.customPriceDifferenceCents(entry(override = 20500)))
+        assertNull(HistoryTotals.customPriceDifferenceCents(entry(prices = emptyList(), override = 5000)))
+        assertEquals(5000L, HistoryTotals.totalCents(entry(prices = emptyList(), override = 5000)))
     }
 
     @Test
-    fun `the column adds up to the price of the Services, also of a group visit`() {
-        val single = entry(override = 19000)
-        val group = entry(prices = listOf(22050), serviceTotal = 26550, override = 25000, clients = listOf("c1", "c2"))
+    fun `the receipt adds up to the total`() {
+        val cases = listOf(
+            entry(),
+            entry(tip = 2000),
+            entry(override = 19000, tip = 2000),
+            entry(override = 21500),
+            entry(override = 0, tip = 1000),
+            entry(prices = listOf(22050), serviceTotal = 26550, override = 25000, tip = 2000, clients = listOf("c1", "c2")),
+            entry(prices = listOf(22050), serviceTotal = 26550, clients = listOf("c1", "c2")),
+        )
 
-        assertEquals(HistoryTotals.servicesPriceCents(single), column(single))
-        assertEquals(HistoryTotals.servicesPriceCents(group), column(group))
+        cases.forEach { assertEquals(HistoryTotals.totalCents(it), lines(it)) }
     }
 
     @Test
@@ -99,8 +110,9 @@ class HistoryTotalsTest {
     fun `a Client of a group visit with no Services of their own still sees what it came to`() {
         val onlyOthers = entry(prices = emptyList(), serviceTotal = 4500, clients = listOf("c1", "c2"))
 
-        assertTrue(HistoryTotals.showsPrice(onlyOthers))
+        assertTrue(HistoryTotals.showsTotal(onlyOthers))
         assertEquals(4500L, HistoryTotals.totalCents(onlyOthers))
+        assertEquals(4500L, HistoryTotals.othersCents(onlyOthers))
     }
 
     @Test
@@ -113,65 +125,19 @@ class HistoryTotalsTest {
     }
 
     @Test
-    fun `Services all at no price and a Tip alone have no price at the top`() {
-        assertFalse(HistoryTotals.showsPrice(entry(prices = listOf(0, 0))))
-        assertFalse(HistoryTotals.showsPrice(entry(prices = emptyList(), tip = 2000)))
-        assertTrue(HistoryTotals.showsPrice(entry(prices = listOf(0), override = 3000)))
+    fun `a Tip alone has a total, Services all at no price with nothing set have none`() {
+        assertTrue(HistoryTotals.showsTotal(entry(prices = emptyList(), tip = 2000)))
+        assertEquals(2000L, HistoryTotals.totalCents(entry(prices = emptyList(), tip = 2000)))
+        assertFalse(HistoryTotals.showsTotal(entry(prices = listOf(0, 0))))
+        assertFalse(HistoryTotals.showsTotal(entry(prices = emptyList())))
     }
 
     @Test
-    fun `only Services with a price made free are free`() {
-        assertTrue(HistoryTotals.isFree(entry(override = 0)))
-        assertFalse(HistoryTotals.isFree(entry(override = 19000)))
-        assertFalse(HistoryTotals.isFree(entry()))
-        assertFalse(HistoryTotals.isFree(entry(prices = emptyList(), override = 0)))
-    }
-
-    @Test
-    fun `a canceled or no-show visit, or one with nothing to pay, has no amount at the top`() {
-        assertTrue(HistoryTotals.showsPrice(entry()))
-        assertTrue(HistoryTotals.showsPrice(entry(status = AppointmentStatus.SCHEDULED)))
-        assertFalse(HistoryTotals.showsPrice(entry(status = AppointmentStatus.CANCELED)))
-        assertFalse(HistoryTotals.showsPrice(entry(status = AppointmentStatus.NO_SHOW)))
-        assertFalse(HistoryTotals.showsPrice(entry(prices = emptyList())))
-    }
-
-    @Test
-    fun `the lines of a row add up to the amount at the top, Tip included`() {
-        val discounted = entry(override = 19000, tip = 2000)
-        val group = entry(prices = listOf(22050), serviceTotal = 26550, override = 25000, tip = 1000, clients = listOf("c1", "c2"))
-
-        assertEquals(HistoryTotals.totalCents(discounted), column(discounted) + 2000)
-        assertEquals(HistoryTotals.totalCents(group), column(group) + 1000)
-    }
-
-    @Test
-    fun `a custom price with no Services to compare it with has no difference`() {
-        assertNull(HistoryTotals.customPriceDifferenceCents(entry(prices = emptyList(), override = 5000)))
-        assertEquals(5000L, HistoryTotals.servicesPriceCents(entry(prices = emptyList(), override = 5000)))
-    }
-
-    @Test
-    fun `a lone Service at its own price is not repeated under the price at the top`() {
-        assertTrue(HistoryTotals.servicePriceRepeatsPrice(entry(prices = listOf(8500))))
-        // A Tip is on top of the price, so the price at the top is still the Service's own.
-        assertTrue(HistoryTotals.servicePriceRepeatsPrice(entry(prices = listOf(8500), tip = 1000)))
-        assertFalse(HistoryTotals.servicePriceRepeatsPrice(entry(prices = listOf(8500), override = 8000)))
-        assertFalse(HistoryTotals.servicePriceRepeatsPrice(entry(prices = listOf(8500), serviceTotal = 13000, clients = listOf("c1", "c2"))))
-        assertFalse(HistoryTotals.servicePriceRepeatsPrice(entry()))
-        // Without a price at the top, the Service's is the only place it is said.
-        assertFalse(HistoryTotals.servicePriceRepeatsPrice(entry(prices = listOf(8500), status = AppointmentStatus.CANCELED)))
-    }
-
-    @Test
-    fun `the price is of the whole of a group visit only when the whole visit is known`() {
-        val group = listOf("c1", "c2")
-
-        assertTrue(HistoryTotals.priceIsWholeVisit(entry(prices = listOf(22050), serviceTotal = 26550, clients = group)))
-        // An older server sends this Client's Services alone: their sum is not the whole visit's, a custom total is.
-        assertFalse(HistoryTotals.priceIsWholeVisit(entry(prices = listOf(22050), serviceTotal = null, clients = group)))
-        assertTrue(HistoryTotals.priceIsWholeVisit(entry(prices = listOf(22050), serviceTotal = null, override = 25000, clients = group)))
-        assertFalse(HistoryTotals.priceIsWholeVisit(entry()))
+    fun `a canceled or no-show visit was not charged and has no total`() {
+        assertTrue(HistoryTotals.showsTotal(entry(status = AppointmentStatus.SCHEDULED)))
+        assertFalse(HistoryTotals.showsTotal(entry(status = AppointmentStatus.CANCELED)))
+        assertFalse(HistoryTotals.showsTotal(entry(status = AppointmentStatus.NO_SHOW)))
+        assertFalse(HistoryTotals.wasCharged(entry(status = AppointmentStatus.NO_SHOW)))
     }
 
     @Test
