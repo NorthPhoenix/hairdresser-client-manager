@@ -46,11 +46,9 @@ export const statsRouter = createTRPCRouter({
     const inPeriod = { gte: bounds.startsAt, lt: bounds.endsAt };
     const stylistId = ctx.stylist.id;
     const current = bounds.startsAt <= now && now < bounds.endsAt;
-    // Scheduled Appointments from now to the end of the period; none once the period is over.
-    const bookedFrom = bounds.startsAt > now ? bounds.startsAt : now;
     const serviceColumns = { menuItemId: true, name: true, priceCents: true } as const;
 
-    const [completed, otherOutcomes, booked] = await Promise.all([
+    const [completed, otherOutcomes, scheduled] = await Promise.all([
       ctx.db.appointment.findMany({
         where: { stylistId, status: "completed", startsAt: inPeriod },
         select: {
@@ -65,17 +63,22 @@ export const statsRouter = createTRPCRouter({
         where: { stylistId, status: { in: ["canceled", "noShow"] }, startsAt: inPeriod },
         _count: { _all: true }
       }),
-      bookedFrom < bounds.endsAt
-        ? ctx.db.appointment.findMany({
-            where: { stylistId, status: "scheduled", startsAt: { gte: bookedFrom, lt: bounds.endsAt } },
-            select: {
-              finalTotalCentsOverride: true,
-              tipCents: true,
-              services: { select: { priceCents: true } }
-            }
-          })
-        : Promise.resolve([])
+      ctx.db.appointment.findMany({
+        where: { stylistId, status: "scheduled", startsAt: inPeriod },
+        select: {
+          startsAt: true,
+          finalTotalCentsOverride: true,
+          tipCents: true,
+          services: { select: { priceCents: true } }
+        }
+      })
     ]);
+    // A scheduled Appointment from now on is booked. One whose start time has passed is waiting for
+    // an outcome: it is neither earned nor booked, and is counted apart until the Stylist marks it.
+    const booked = scheduled.filter((appointment) => appointment.startsAt >= now);
+    const unresolved = scheduled.filter((appointment) => appointment.startsAt < now);
+    const amountOf = (appointments: typeof scheduled) =>
+      appointments.reduce((sum, appointment) => sum + appointmentAmount(appointment).totalCents, 0);
 
     let servicesCents = 0;
     let tipsCents = 0;
@@ -110,7 +113,7 @@ export const statsRouter = createTRPCRouter({
     const upcoming = bounds.endsAt > now
       ? {
           count: booked.length,
-          totalCents: booked.reduce((sum, appointment) => sum + appointmentAmount(appointment).totalCents, 0)
+          totalCents: amountOf(booked)
         }
       : null;
 
@@ -135,6 +138,9 @@ export const statsRouter = createTRPCRouter({
       noShow: countOf("noShow"),
       // Null once the period is over.
       upcoming,
+      // Scheduled Appointments of the period whose start time has passed, waiting for an outcome
+      // (Home's "Needs an outcome"). Apps before 1.15.0 do not read it.
+      unresolved: { count: unresolved.length, totalCents: amountOf(unresolved) },
       topServices: topServices(lines, groupOfItem).map((service) => ({
         name: service.name,
         revenueCents: service.revenueCents,

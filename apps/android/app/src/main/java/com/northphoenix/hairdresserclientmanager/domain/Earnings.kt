@@ -105,7 +105,11 @@ object Earnings {
 
     private const val MIN_BAR = 0.04f
 
-    /** Whether the period holds nothing at all: no outcome of any kind, and nothing booked. */
+    /** Whether the period holds nothing at all: no outcome of any kind, nothing waiting for one, and nothing booked. */
     fun isEmpty(summary: EarningsSummary): Boolean =
-        summary.visits == 0 && summary.canceled == 0 && summary.noShow == 0 && (summary.upcoming?.count ?: 0) == 0
+        summary.visits == 0 && summary.canceled == 0 && summary.noShow == 0 && unresolvedCount(summary) == 0 &&
+            (summary.upcoming?.count ?: 0) == 0
+
+    /** How many Appointments of the period are waiting for an outcome; 0 from a server that does not say. */
+    fun unresolvedCount(summary: EarningsSummary): Int = summary.unresolved?.count ?: 0
 }

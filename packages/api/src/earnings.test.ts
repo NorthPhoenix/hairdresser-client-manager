@@ -186,6 +186,7 @@ function createStatsDb(stored: Stored[], menuItems: { id: string; group: string 
     appointment: {
       findMany: vi.fn(async ({ where }: { where: Parameters<typeof matching>[0] }) =>
         matching(where).map((appointment) => ({
+          startsAt: new Date(appointment.startsAt),
           locationType: appointment.locationType ?? "inSalon",
           finalTotalCentsOverride: appointment.finalTotalCentsOverride ?? null,
           tipCents: appointment.tipCents ?? null,
@@ -249,7 +250,7 @@ describe("stats.summary", () => {
     { status: "canceled", startsAt: "2026-10-08T20:00:00.000Z", services: [{ name: "Стрижка", priceCents: 1 }] },
     { status: "noShow", startsAt: "2026-10-09T20:00:00.000Z" },
     { status: "noShow", startsAt: "2026-10-10T20:00:00.000Z" },
-    // Not completed, not future: neither earned nor booked.
+    // Scheduled, and its start time has passed: neither earned nor booked, but waiting for an outcome.
     { status: "scheduled", startsAt: "2026-10-20T20:00:00.000Z", services: [{ name: "X", priceCents: 999 }] },
     { status: "scheduled", startsAt: "2026-10-23T20:00:00.000Z", tipCents: 500, services: [{ name: "Y", priceCents: 4000 }] },
     { status: "scheduled", startsAt: "2026-10-30T20:00:00.000Z", services: [{ name: "Z", priceCents: 6000 }] },
@@ -283,6 +284,7 @@ describe("stats.summary", () => {
       canceled: 1,
       noShow: 2,
       upcoming: { count: 2, totalCents: 10500 },
+      unresolved: { count: 1, totalCents: 999 },
       // Покраска counts its custom total, so the lines add up to the Services: 9000 + 5000 + 2000.
       topServices: [
         { name: "Покраска", revenueCents: 9000, count: 1 },
@@ -303,7 +305,29 @@ describe("stats.summary", () => {
       isCurrent: false,
       visits: 1,
       earned: { totalCents: 7700, servicesCents: 7700, tipsCents: 0 },
-      upcoming: null
+      upcoming: null,
+      unresolved: { count: 0, totalCents: 0 }
+    });
+  });
+
+  it("counts a past period's visits still waiting for an outcome", async () => {
+    vi.useFakeTimers({ now, toFake: ["Date"] });
+
+    const { caller } = createStatsDb(
+      [
+        { status: "completed", startsAt: "2026-09-10T20:00:00.000Z", services: [{ name: "A", priceCents: 5000 }] },
+        // Never marked: the Services and the Tip, as Earned would count them once completed.
+        { status: "scheduled", startsAt: "2026-09-12T20:00:00.000Z", tipCents: 500, services: [{ name: "B", priceCents: 12000 }] },
+        { status: "scheduled", startsAt: "2026-09-29T20:00:00.000Z", finalTotalCentsOverride: 7000, services: [{ name: "C", priceCents: 8000 }] }
+      ],
+      []
+    );
+
+    await expect(caller.stats.summary({ period: "month", date: "2026-09-15" })).resolves.toMatchObject({
+      visits: 1,
+      earned: { totalCents: 5000 },
+      upcoming: null,
+      unresolved: { count: 2, totalCents: 19500 }
     });
   });
 
@@ -318,19 +342,42 @@ describe("stats.summary", () => {
       earned: { totalCents: 0 },
       averageCents: 0,
       upcoming: { count: 1, totalCents: 1234 },
+      unresolved: { count: 0, totalCents: 0 },
       topServices: []
     });
   });
 
-  it("starts the booked part at now, not at the start of the week", async () => {
+  it("starts the booked part at now, and counts the week's earlier ones as waiting for an outcome", async () => {
     // Wednesday 21 Oct 12:00; the Appointment on Tuesday 20th is before now.
     vi.useFakeTimers({ now, toFake: ["Date"] });
 
-    const { caller, db } = createStatsDb(october, items);
+    const { caller } = createStatsDb(october, items);
     const week = await caller.stats.summary({ period: "week" });
 
-    expect(week).toMatchObject({ firstDay: "2026-10-19", lastDay: "2026-10-25", visits: 0, upcoming: { count: 1, totalCents: 4500 } });
-    expect(db.appointment.findMany.mock.calls.at(-1)?.[0].where.startsAt.gte).toEqual(now);
+    expect(week).toMatchObject({
+      firstDay: "2026-10-19",
+      lastDay: "2026-10-25",
+      visits: 0,
+      upcoming: { count: 1, totalCents: 4500 },
+      unresolved: { count: 1, totalCents: 999 }
+    });
+  });
+
+  it("counts an Appointment that starts right now as booked, not yet waiting", async () => {
+    vi.useFakeTimers({ now, toFake: ["Date"] });
+
+    const { caller } = createStatsDb(
+      [
+        { status: "scheduled", startsAt: now.toISOString(), services: [{ name: "Now", priceCents: 3000 }] },
+        { status: "scheduled", startsAt: "2026-10-21T16:59:00.000Z", services: [{ name: "A minute ago", priceCents: 2000 }] }
+      ],
+      []
+    );
+
+    await expect(caller.stats.summary({ period: "week" })).resolves.toMatchObject({
+      upcoming: { count: 1, totalCents: 3000 },
+      unresolved: { count: 1, totalCents: 2000 }
+    });
   });
 
   it("counts a discounted visit's Services at their share of its custom total", async () => {
@@ -396,6 +443,7 @@ describe("stats.summary", () => {
       canceled: 0,
       noShow: 0,
       upcoming: null,
+      unresolved: { count: 0, totalCents: 0 },
       topServices: []
     });
     // No Service, so no menu lookup.

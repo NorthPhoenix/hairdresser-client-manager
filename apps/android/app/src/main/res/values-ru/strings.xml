@@ -649,6 +649,8 @@
     <string name="earnings_booked_month">Уже записано до конца месяца</string>
     <string name="earnings_booked_year">Уже записано до конца года</string>
     <string name="earnings_booked_none">Пока ничего не записано</string>
+    <string name="earnings_unresolved">Нужно закрыть</string>
+    <string name="earnings_unresolved_hint">Не учтено в «Заработано», пока не закрыто на вкладке «Сегодня»</string>
     <string name="earnings_canceled">Отменены: %d</string>
     <string name="earnings_no_show">Неявки: %d</string>
     <string name="earnings_top_services">Выручка по услугам</string>

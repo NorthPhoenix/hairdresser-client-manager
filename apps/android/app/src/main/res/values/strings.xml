@@ -613,6 +613,8 @@
     <string name="earnings_booked_month">Already booked until the end of the month</string>
     <string name="earnings_booked_year">Already booked until the end of the year</string>
     <string name="earnings_booked_none">Nothing booked yet</string>
+    <string name="earnings_unresolved">Needs an outcome</string>
+    <string name="earnings_unresolved_hint">Not counted in Earned until marked on the Today tab</string>
     <string name="earnings_canceled">Canceled: %d</string>
     <string name="earnings_no_show">No-shows: %d</string>
     <string name="earnings_top_services">Revenue by service</string>

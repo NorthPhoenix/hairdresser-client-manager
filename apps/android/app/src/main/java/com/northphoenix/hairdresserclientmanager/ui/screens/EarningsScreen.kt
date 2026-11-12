@@ -15,6 +15,7 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -55,15 +56,17 @@ import com.northphoenix.hairdresserclientmanager.ui.components.SegmentedControl
 import com.northphoenix.hairdresserclientmanager.ui.components.SideBySideOrStacked
 import com.northphoenix.hairdresserclientmanager.ui.components.SubScreen
 import com.northphoenix.hairdresserclientmanager.ui.components.collectWhileOpen
+import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 import java.time.LocalDate
 
 /**
  * Итоги: what a week, month or year came to. Period chips and arrows pick the period; the numbers
  * are added up by the server (`stats.summary`) from completed Appointments: the price of their
- * Services (a custom total replaces the sum) and their tips.
+ * Services (a custom total replaces the sum) and their tips. Scheduled ones whose time has passed
+ * are shown apart, and lead to the Today tab, where they are marked: [onOpenToday].
  */
 @Composable
-fun EarningsScreen(viewModel: AppViewModel, onBack: () -> Unit) {
+fun EarningsScreen(viewModel: AppViewModel, onBack: () -> Unit, onOpenToday: () -> Unit) {
     val today by viewModel.today.collectAsStateWithLifecycle()
     var period by rememberSaveable { mutableStateOf(EarningsPeriod.MONTH) }
     // Any day of the period shown: changing the period keeps the day, so Месяц after a week is that week's month.
@@ -115,7 +118,7 @@ fun EarningsScreen(viewModel: AppViewModel, onBack: () -> Unit) {
             val summary = read.data
 
             when {
-                summary != null -> Summary(summary, period)
+                summary != null -> Summary(summary, period, onOpenToday)
                 read.state is LoadState.Failed -> LoadFailed((read.state as LoadState.Failed).message, onRetry = { viewModel.loadEarnings(period, date) })
                 else -> Box(Modifier.fillMaxWidth().padding(vertical = 40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             }
@@ -138,7 +141,7 @@ private fun rememberEarnings(viewModel: AppViewModel, period: EarningsPeriod, da
 }
 
 @Composable
-private fun Summary(summary: EarningsSummary, period: EarningsPeriod) {
+private fun Summary(summary: EarningsSummary, period: EarningsPeriod, onOpenToday: () -> Unit) {
     if (Earnings.isEmpty(summary)) {
         EmptyState(
             Icons.Rounded.Insights,
@@ -149,6 +152,7 @@ private fun Summary(summary: EarningsSummary, period: EarningsPeriod) {
     }
 
     EarnedCard(summary)
+    summary.unresolved?.takeIf { it.count > 0 }?.let { UnresolvedCard(it, onOpenToday) }
     summary.upcoming?.let { UpcomingCard(it, period, summary.isCurrent) }
     Outcomes(summary)
 
@@ -196,6 +200,28 @@ private fun StatTile(label: String, value: String, modifier: Modifier = Modifier
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(value, style = MaterialTheme.typography.titleLarge)
+        }
+    }
+}
+
+/**
+ * Scheduled Appointments of the period whose start time has passed: what they come to is not in
+ * Earned until they are marked, which the Today tab does in one tap, so the card opens it.
+ */
+@Composable
+private fun UnresolvedCard(unresolved: EarningsSummary.Unresolved, onOpenToday: () -> Unit) {
+    HcmCard(onClick = onOpenToday) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(stringResource(R.string.earnings_unresolved), style = MaterialTheme.typography.bodyMedium, color = HcmColors.Warning)
+                Text(
+                    Money.formatShort(unresolved.totalCents) + " · " +
+                        pluralStringResource(R.plurals.earnings_booked_count, unresolved.count, unresolved.count),
+                    style = MaterialTheme.typography.headlineMedium,
+                )
+                Text(stringResource(R.string.earnings_unresolved_hint), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
