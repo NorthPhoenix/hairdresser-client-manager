@@ -125,4 +125,45 @@ class AppointmentTotalsTest {
 
         assertSame(below, AppointmentTotals.withSuggestedTip(below))
     }
+
+    @Test
+    fun `a discount takes a round amount off the sum of the Services`() {
+        val visit = appointment(prices = listOf(12000, 8500))
+
+        assertEquals(listOf(500L, 1000L, 1500L, 2000L), AppointmentTotals.discountChoices(visit))
+        assertEquals(18500, AppointmentTotals.discountedPriceCents(visit, 2000))
+        // Off the sum of the Services, not off a custom total already set.
+        assertEquals(19500, AppointmentTotals.discountedPriceCents(appointment(prices = listOf(12000, 8500), override = 15000), 1000))
+    }
+
+    @Test
+    fun `a discount always leaves a price to pay`() {
+        assertEquals(listOf(500L, 1000L), AppointmentTotals.discountChoices(appointment(prices = listOf(1500))))
+        assertEquals(listOf(500L, 1000L, 1500L), AppointmentTotals.discountChoices(appointment(prices = listOf(1501))))
+        assertEquals(emptyList<Long>(), AppointmentTotals.discountChoices(appointment(prices = listOf(500))))
+        assertEquals(emptyList<Long>(), AppointmentTotals.discountChoices(appointment(prices = listOf(0))))
+        assertEquals(emptyList<Long>(), AppointmentTotals.discountChoices(appointment(prices = emptyList())))
+    }
+
+    @Test
+    fun `the chip of a custom total that is one of the discounts shows chosen`() {
+        assertEquals(1500L, AppointmentTotals.discountChoice(appointment(prices = listOf(6000), override = 4500)))
+        assertEquals(500L, AppointmentTotals.discountChoice(appointment(prices = listOf(5000, 4500), override = 9000)))
+        // No custom total, or one that is not a discount offered: no chip is chosen.
+        assertNull(AppointmentTotals.discountChoice(appointment(prices = listOf(6000))))
+        assertNull(AppointmentTotals.discountChoice(appointment(prices = listOf(6000), override = 6000)))
+        assertNull(AppointmentTotals.discountChoice(appointment(prices = listOf(6000), override = 7000)))
+        assertNull(AppointmentTotals.discountChoice(appointment(prices = listOf(6000), override = 5300)))
+        assertNull(AppointmentTotals.discountChoice(appointment(prices = listOf(6000), override = 0)))
+        // A $10 Service set to $0 is a free visit, not a $10 discount: that chip is not offered.
+        assertNull(AppointmentTotals.discountChoice(appointment(prices = listOf(1000), override = 0)))
+    }
+
+    @Test
+    fun `a Service added after a discount leaves the custom total, and the chip goes with the difference`() {
+        // $60 less $10 is a custom total of $50; with a $15 Service more the difference is $25, no chip.
+        assertNull(AppointmentTotals.discountChoice(appointment(prices = listOf(6000, 1500), override = 5000)))
+        // and with a $5 one, $15: that chip.
+        assertEquals(1500L, AppointmentTotals.discountChoice(appointment(prices = listOf(6000, 500), override = 5000)))
+    }
 }

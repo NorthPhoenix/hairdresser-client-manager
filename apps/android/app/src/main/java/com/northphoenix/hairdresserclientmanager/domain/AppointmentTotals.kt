@@ -28,6 +28,32 @@ object AppointmentTotals {
     fun isTipChoice(tipCents: Long?): Boolean = tipCents != null && tipCents in TIP_CHOICES
 
     /**
+     * The discounts offered as one tap off the sum of the Service prices, in cents: $5, $10, $15,
+     * $20, the round amounts the Stylist takes off. A tap sets the custom total to the sum less the
+     * discount; the custom total is what is kept, so it stays that amount when Services change.
+     */
+    val DISCOUNT_CHOICES: List<Long> = listOf(500L, 1000L, 1500L, 2000L)
+
+    /**
+     * The [DISCOUNT_CHOICES] this Appointment can take: those smaller than the sum of its Service
+     * prices, so a discount leaves a price to pay (a free visit is typed). None without Services.
+     */
+    fun discountChoices(appointment: Appointment): List<Long> = DISCOUNT_CHOICES.filter { it < appointment.serviceTotalCents }
+
+    /** The custom total [discountCents] off the sum of the Service prices comes to. */
+    fun discountedPriceCents(appointment: Appointment, discountCents: Long): Long = appointment.serviceTotalCents - discountCents
+
+    /**
+     * Which of the [discountChoices] the custom total is, so its chip shows chosen: null for no
+     * custom total, one at or above the sum, or any other amount below it.
+     */
+    fun discountChoice(appointment: Appointment): Long? {
+        val override = appointment.finalTotalCentsOverride ?: return null
+
+        return (appointment.serviceTotalCents - override).takeIf { it in discountChoices(appointment) }
+    }
+
+    /**
      * The Appointment with [tipCents] as its Tip; null or 0 records none, so "no tip" is one value
      * on every screen and in the database.
      */

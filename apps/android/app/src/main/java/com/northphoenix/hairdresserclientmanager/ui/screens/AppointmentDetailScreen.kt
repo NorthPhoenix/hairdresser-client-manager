@@ -76,6 +76,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -1304,6 +1305,32 @@ private fun TotalsCard(
             }
             tipSuggestionCents?.let { difference ->
                 TipSuggestion(difference, onYes = { onTakeTipSuggestion(difference) }, onNo = onRefuseTipSuggestion)
+            }
+            val discounts = AppointmentTotals.discountChoices(appointment)
+            if (discounts.isNotEmpty()) {
+                // A round discount off the sum of the Services in one tap: the custom total it comes to
+                // is saved at once and shows in the field below, as if typed there and saved.
+                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text(stringResource(R.string.appointment_discount), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val chosen = AppointmentTotals.discountChoice(appointment)
+                    val focus = LocalFocusManager.current
+                    FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        discounts.forEach { discount ->
+                            ChoiceChip(
+                                "−" + Money.formatShort(discount),
+                                selected = discount == chosen,
+                                onClick = {
+                                    val price = AppointmentTotals.discountedPriceCents(appointment, discount)
+
+                                    // Saved already: the keyboard of a field typed into before has nothing left to do.
+                                    focus.clearFocus()
+                                    onOverrideText(Money.centsToPrice(price))
+                                    onSaveOverride(price)
+                                },
+                            )
+                        }
+                    }
+                }
             }
             AmountField(
                 value = overrideText,

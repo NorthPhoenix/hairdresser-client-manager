@@ -542,6 +542,7 @@
         <item quantity="other">Appointments: %d → go to “%s”</item>
     </plurals>
     <string name="appointment_tip">Tip</string>
+    <string name="appointment_discount">Discount</string>
     <string name="appointment_tip_none">None</string>
     <string name="appointment_tip_other">Other…</string>
     <string name="appointment_tip_amount">Tip amount</string>
