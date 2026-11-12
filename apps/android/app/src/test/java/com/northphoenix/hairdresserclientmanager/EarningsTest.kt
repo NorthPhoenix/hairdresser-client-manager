@@ -100,6 +100,17 @@ class EarningsTest {
     }
 
     @Test
+    fun aPeriodWithOnlyAVisitWaitingForAnOutcomeIsNotEmpty() {
+        val waiting = EarningsSummary(firstDay = "a", lastDay = "b", unresolved = EarningsSummary.Unresolved(1, 12_000))
+
+        assertFalse(Earnings.isEmpty(waiting))
+        assertEquals(1, Earnings.unresolvedCount(waiting))
+        assertTrue(Earnings.isEmpty(EarningsSummary(firstDay = "a", lastDay = "b", unresolved = EarningsSummary.Unresolved(0, 0))))
+        // A server before it was sent: none known.
+        assertEquals(0, Earnings.unresolvedCount(EarningsSummary(firstDay = "a", lastDay = "b")))
+    }
+
+    @Test
     fun theServerAnswerIsReadWithItsExtraFieldsIgnored() {
         val json = hcmJson
         val summary = json.decodeFromString<EarningsSummary>(
@@ -107,14 +118,17 @@ class EarningsTest {
             "endsAt":"2026-11-01T05:00:00.000Z","today":"2026-10-21","isCurrent":true,
             "earned":{"totalCents":37000,"servicesCents":33500,"tipsCents":3500},"visits":4,"averageCents":9250,
             "atHomeVisits":3,"canceled":0,"noShow":1,"upcoming":{"count":8,"totalCents":64500},
-            "topServices":[{"name":"Стрижки","revenueCents":19000,"count":4}]}""",
+            "unresolved":{"count":2,"totalCents":20500},"topServices":[{"name":"Стрижки","revenueCents":19000,"count":4}]}""",
         )
 
         assertEquals(37_000L, summary.earned.totalCents)
         assertEquals(3_500L, summary.earned.tipsCents)
         assertEquals(8, summary.upcoming?.count)
+        assertEquals(EarningsSummary.Unresolved(2, 20_500), summary.unresolved)
         assertEquals("Стрижки", summary.topServices.single().name)
         // Over: no `upcoming`.
         assertEquals(null, json.decodeFromString<EarningsSummary>("""{"firstDay":"a","lastDay":"b","upcoming":null}""").upcoming)
+        // From a server before `unresolved` was sent.
+        assertEquals(null, json.decodeFromString<EarningsSummary>("""{"firstDay":"a","lastDay":"b"}""").unresolved)
     }
 }

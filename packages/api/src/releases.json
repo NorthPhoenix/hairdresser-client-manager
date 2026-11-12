@@ -1,5 +1,18 @@
 [
   {
+    "versionCode": 17,
+    "versionName": "1.15.0",
+    "date": "2026-11-12",
+    "notes": {
+      "ru": [
+        "В «Итогах» видны записи, время которых прошло, но которые ещё не закрыты: «Нужно закрыть» с их суммой; нажатие открывает вкладку «Сегодня», где их можно закрыть"
+      ],
+      "en": [
+        "Earnings shows the Appointments whose time has passed but that have no outcome yet: \"Needs an outcome\" with their amount; a tap opens the Today tab, where they are marked"
+      ]
+    }
+  },
+  {
     "versionCode": 16,
     "versionName": "1.14.0",
     "date": "2026-11-11",
