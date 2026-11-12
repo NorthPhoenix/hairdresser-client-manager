@@ -387,6 +387,11 @@ data class EarningsSummary(
     val noShow: Int = 0,
     /** Scheduled from now to the end of the period. Null once the period is over. */
     val upcoming: Upcoming? = null,
+    /**
+     * Scheduled Appointments of the period whose start time has passed: waiting for an outcome, so
+     * neither earned nor booked. Null from a server before it was sent.
+     */
+    val unresolved: Unresolved? = null,
     val topServices: List<TopService> = emptyList(),
 ) {
     @Serializable
@@ -394,6 +399,9 @@ data class EarningsSummary(
 
     @Serializable
     data class Upcoming(val count: Int = 0, val totalCents: Long = 0)
+
+    @Serializable
+    data class Unresolved(val count: Int = 0, val totalCents: Long = 0)
 
     /** A Service, or the group of Service Menu Items it was started from, with what it brought in. */
     @Serializable
