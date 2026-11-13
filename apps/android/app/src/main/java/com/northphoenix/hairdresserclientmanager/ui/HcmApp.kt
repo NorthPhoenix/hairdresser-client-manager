@@ -50,6 +50,9 @@ import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
 import com.northphoenix.hairdresserclientmanager.ui.screens.MainNavigation
 import com.northphoenix.hairdresserclientmanager.ui.screens.OnboardingScreen
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmTheme
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.YearMonth
 import kotlinx.coroutines.launch
 
 @Composable
@@ -102,9 +105,18 @@ fun HcmApp(container: AppContainer) {
             // while the app is open or on the way back to it, and the view model saves it as the Stylist's choice.
             LaunchedEffect(viewModel, locale) { viewModel.followLanguage() }
 
+            val bookings = remember(viewModel) {
+                object : Bookings {
+                    override fun markedDays(month: YearMonth, firstDayOfWeek: DayOfWeek) = viewModel.calendarMonthMarks(month, firstDayOfWeek)
+
+                    override fun on(day: LocalDate) = viewModel.appointmentsOn(day)
+                }
+            }
+
             CompositionLocalProvider(
                 LocalTimeFormat provides timeFormat,
                 LocalSnackbarHostState provides snackbarHostState,
+                LocalBookings provides bookings,
             ) {
                 val authState by viewModel.authState.collectAsStateWithLifecycle()
 

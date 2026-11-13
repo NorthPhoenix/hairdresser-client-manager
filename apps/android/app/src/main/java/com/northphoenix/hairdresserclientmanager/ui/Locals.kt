@@ -21,14 +21,41 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
+import com.northphoenix.hairdresserclientmanager.state.Read
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 import java.util.Locale
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 val LocalTimeFormat = staticCompositionLocalOf { TimeFormat(Locale.getDefault(), ZoneId.systemDefault()) }
 
 val LocalSnackbarHostState = staticCompositionLocalOf { SnackbarHostState() }
+
+/**
+ * What is booked, for where a day is picked for an Appointment: the date picker marks the days of
+ * its month that have an Appointment, and the form that books or moves one lists what the chosen
+ * day already has. The app reads both as the Calendar does ([com.northphoenix.hairdresserclientmanager.state.AppViewModel.calendarMonthMarks],
+ * [com.northphoenix.hairdresserclientmanager.state.AppViewModel.appointmentsOn]); outside it nothing is booked.
+ */
+interface Bookings {
+    fun markedDays(month: YearMonth, firstDayOfWeek: DayOfWeek): Flow<Set<LocalDate>>
+
+    fun on(day: LocalDate): Flow<Read<List<Appointment>>>
+
+    object None : Bookings {
+        override fun markedDays(month: YearMonth, firstDayOfWeek: DayOfWeek): Flow<Set<LocalDate>> = flowOf(emptySet())
+
+        override fun on(day: LocalDate): Flow<Read<List<Appointment>>> = flowOf(Read())
+    }
+}
+
+val LocalBookings = staticCompositionLocalOf<Bookings> { Bookings.None }
 
 /**
  * [message] is the text when the notice appeared. On screen it is [messageRes] filled with [args], so a notice follows a change of the app language.

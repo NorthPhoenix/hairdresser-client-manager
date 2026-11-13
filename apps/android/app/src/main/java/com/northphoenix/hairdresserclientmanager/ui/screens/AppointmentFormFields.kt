@@ -2,11 +2,14 @@ package com.northphoenix.hairdresserclientmanager.ui.screens
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Close
@@ -19,29 +22,42 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
+import com.northphoenix.hairdresserclientmanager.domain.CalendarWeek
 import com.northphoenix.hairdresserclientmanager.domain.NightStart
 import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.Notice
+import com.northphoenix.hairdresserclientmanager.state.Read
+import com.northphoenix.hairdresserclientmanager.ui.LocalBookings
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmTextField
 import com.northphoenix.hairdresserclientmanager.ui.components.PickerField
 import com.northphoenix.hairdresserclientmanager.ui.components.SegmentedControl
 import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
+import com.northphoenix.hairdresserclientmanager.ui.components.icon
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 import java.time.Instant
 import java.time.LocalDate
@@ -58,7 +74,8 @@ enum class AppointmentTimeField { DATE, START, END }
  * the times were cut on narrow screens and at large font sizes. [endDate] is the day the end time
  * falls on, which is said under the field when it is another day than [date]. A start at night is
  * said under its field too (see [NightStart]), with [onDayTime] to move it to the same time on the
- * other half of the day.
+ * other half of the day. Under the date are the other Appointments of that day ([DayBookings]),
+ * without [movingAppointmentId], the one whose time is being edited.
  */
 @Composable
 fun AppointmentTimeFields(
@@ -69,17 +86,21 @@ fun AppointmentTimeFields(
     onOpen: (AppointmentTimeField) -> Unit,
     onClearEnd: () -> Unit,
     onDayTime: () -> Unit,
+    movingAppointmentId: String? = null,
 ) {
     val format = LocalTimeFormat.current
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        PickerField(
-            label = stringResource(R.string.appointment_date_label),
-            value = format.longDay(date),
-            icon = Icons.Rounded.CalendarMonth,
-            onClick = { onOpen(AppointmentTimeField.DATE) },
-            wraps = true,
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            PickerField(
+                label = stringResource(R.string.appointment_date_label),
+                value = format.longDay(date),
+                icon = Icons.Rounded.CalendarMonth,
+                onClick = { onOpen(AppointmentTimeField.DATE) },
+                wraps = true,
+            )
+            DayBookings(date, excluding = movingAppointmentId)
+        }
         Column {
             PickerField(
                 label = stringResource(R.string.appointment_start_label),
@@ -112,6 +133,68 @@ fun AppointmentTimeFields(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+        }
+    }
+}
+
+/**
+ * What [date] already has, under its field, so that a time is picked knowing it: each Appointment
+ * that is not canceled ([CalendarWeek.bookedOn]) with its time, its primary Client, how many more
+ * Clients it has and a house when it is at home. The day is read as the Calendar reads it
+ * ([LocalBookings]); "No appointments on this day" once it is known to have none, and nothing while
+ * it is loading or could not be loaded, where the form is no place to say so.
+ */
+@Composable
+private fun DayBookings(date: LocalDate, excluding: String?) {
+    val format = LocalTimeFormat.current
+    val bookings = LocalBookings.current
+    val read by remember(bookings, date) { bookings.on(date) }.collectAsStateWithLifecycle(Read())
+    val booked = read.data?.let { CalendarWeek.bookedOn(it, excluding) } ?: return
+    val times = booked.map { appointment -> listOfNotNull(format.time(appointment.startsAt), appointment.endsAt?.let { format.time(it) }).joinToString("–") }
+    val timeStyle = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+    // The names start in one column: as wide as the widest of the day's times.
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val timeWidth = remember(times, timeStyle, density) { with(density) { times.maxOfOrNull { measurer.measure(it, timeStyle).size.width }?.toDp() ?: 0.dp } }
+
+    Column(
+        Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (booked.isEmpty()) {
+            Text(stringResource(R.string.appointment_day_free), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            return@Column
+        }
+
+        Text(stringResource(R.string.appointment_day_booked), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        booked.forEachIndexed { index, appointment ->
+            val others = appointment.participants.size - 1
+            val name = appointment.primaryClientName + if (others > 0) " +$others" else ""
+            val place = stringResource(appointment.locationType.label)
+
+            // A long name takes a second line rather than being cut to its first word; the time and the house stay on its first line.
+            Row(
+                Modifier.fillMaxWidth().semantics(mergeDescendants = true) { contentDescription = "${times[index]}, $name, $place" },
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(times[index], modifier = Modifier.width(timeWidth).alignByBaseline(), style = timeStyle, maxLines = 1, softWrap = false)
+                Text(
+                    name,
+                    modifier = Modifier.weight(1f, fill = false).alignByBaseline(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (appointment.locationType == LocationType.AT_HOME) {
+                    Icon(
+                        appointment.locationType.icon,
+                        contentDescription = null,
+                        // Its foot on the line the letters stand on.
+                        modifier = Modifier.size(16.dp).alignBy { it.measuredHeight * 7 / 8 },
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }

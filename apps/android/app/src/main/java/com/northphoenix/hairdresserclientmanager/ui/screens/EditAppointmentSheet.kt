@@ -91,6 +91,7 @@ internal fun EditAppointmentSheet(
                     endTime = it.end
                 }
             },
+            movingAppointmentId = appointment.id,
         )
         Hairline()
         AppointmentLocationFields(

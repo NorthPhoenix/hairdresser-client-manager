@@ -1,6 +1,7 @@
 package com.northphoenix.hairdresserclientmanager.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,16 +39,20 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.domain.weeksOf
+import com.northphoenix.hairdresserclientmanager.ui.LocalBookings
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.CircleIconButton
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
@@ -65,12 +70,17 @@ private val WeekdayRowHeight = 32.dp
 // A day is a 40 dp circle; the row gives it the 48 dp of a touch target.
 private val WeekRowHeight = 48.dp
 
+// The dot of a day that has Appointments, as on the Calendar's week strip.
+private val DayDotSize = 5.dp
+
 // A month takes up to six weeks. Always that tall, so the dialog keeps its size from month to month.
 private val MonthHeight = WeekdayRowHeight + WeekRowHeight * 6
 
 /**
  * Picks a day. The month is drawn by the app itself: the Material date picker marks as today the
- * day it is on the device, and [today] is the day it is in the Stylist's timezone.
+ * day it is on the device, and [today] is the day it is in the Stylist's timezone. A dot under a
+ * day's number says it has an Appointment that is not canceled, as on the Calendar's week strip
+ * ([LocalBookings]), so a day for an Appointment is picked knowing which days are booked.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -145,6 +155,10 @@ private fun PickerMonth(month: YearMonth, selected: LocalDate, today: LocalDate,
     val weeks = remember(month, format.firstDayOfWeek) { weeksOf(month, format.firstDayOfWeek) }
     val firstWeekday = today.with(TemporalAdjusters.previousOrSame(format.firstDayOfWeek))
     val swipe by rememberUpdatedState(onSwipe)
+    val bookings = LocalBookings.current
+    // None are marked while the month loads: the dots come when they are known.
+    val marked by remember(bookings, month, format.firstDayOfWeek) { bookings.markedDays(month, format.firstDayOfWeek) }
+        .collectAsStateWithLifecycle(emptySet())
 
     Column(
         Modifier.fillMaxSize().pointerInput(Unit) {
@@ -179,7 +193,7 @@ private fun PickerMonth(month: YearMonth, selected: LocalDate, today: LocalDate,
                 week.forEach { day ->
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                         if (day != null) {
-                            PickerDay(day, selected = day == selected, today = day == today, onClick = { onSelect(day) })
+                            PickerDay(day, selected = day == selected, today = day == today, marked = day in marked, onClick = { onSelect(day) })
                         }
                     }
                 }
@@ -189,29 +203,47 @@ private fun PickerMonth(month: YearMonth, selected: LocalDate, today: LocalDate,
 }
 
 @Composable
-private fun PickerDay(day: LocalDate, selected: Boolean, today: Boolean, onClick: () -> Unit) {
+private fun PickerDay(day: LocalDate, selected: Boolean, today: Boolean, marked: Boolean, onClick: () -> Unit) {
     val date = LocalTimeFormat.current.fullDate(day)
-    val description = if (today) stringResource(R.string.date_picker_today, date) else date
+    val description = (if (today) stringResource(R.string.date_picker_today, date) else date) +
+        if (marked) ", " + stringResource(R.string.calendar_day_has_appointments) else ""
 
-    Surface(
-        selected = selected,
-        onClick = onClick,
-        modifier = Modifier.size(40.dp).semantics { contentDescription = description },
-        shape = CircleShape,
-        color = if (selected) HcmColors.Ink else Color.Transparent,
-        border = if (today && !selected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(
-                day.dayOfMonth.toString(),
-                // The description above already names the day.
-                modifier = Modifier.clearAndSetSemantics {},
-                style = MaterialTheme.typography.bodyLarge,
-                color = when {
-                    selected -> HcmColors.Surface
-                    today -> MaterialTheme.colorScheme.primary
-                    else -> MaterialTheme.colorScheme.onSurface
-                },
+    // The dot is drawn over the circle, not in it: the circle clips what it holds, and at a large font size the number fills it.
+    Box {
+        Surface(
+            selected = selected,
+            onClick = onClick,
+            modifier = Modifier.size(40.dp).semantics { contentDescription = description },
+            shape = CircleShape,
+            color = if (selected) HcmColors.Ink else Color.Transparent,
+            border = if (today && !selected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    day.dayOfMonth.toString(),
+                    // The description above already names the day.
+                    modifier = Modifier.clearAndSetSemantics {},
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = when {
+                        selected -> HcmColors.Surface
+                        today -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.onSurface
+                    },
+                )
+            }
+        }
+        if (marked) {
+            // Just under the digits, which stay in the middle of the circle on every day: half of them is about a third
+            // of the font size, so at a large font size the dot goes lower, to the circle's edge and past it.
+            val digitsHalf = with(LocalDensity.current) { (MaterialTheme.typography.bodyLarge.fontSize * 0.42f).toDp() }
+
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 20.dp + digitsHalf + 3.dp)
+                    .size(DayDotSize)
+                    .clip(CircleShape)
+                    .background(if (selected) HcmColors.Surface else MaterialTheme.colorScheme.primary),
             )
         }
     }
