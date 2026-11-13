@@ -325,6 +325,15 @@ class AppointmentDraftTest {
     }
 
     @Test
+    fun `a new Appointment opens with the sheet that adds Services, unless it overlaps another`() {
+        assertTrue(AppointmentDraft.opensAddingServices(justCreated = true, overlapping = false))
+        // The warning at the top of the screen comes first.
+        assertFalse(AppointmentDraft.opensAddingServices(justCreated = true, overlapping = true))
+        // Opened from a list, or once again after the first time.
+        assertFalse(AppointmentDraft.opensAddingServices(justCreated = false, overlapping = false))
+    }
+
+    @Test
     fun `a Scheduled Appointment sends its place with every save`() {
         val start = "2026-10-24T10:00:00.000Z"
         val inSalon = AppointmentDraft.saved(appointment(start), utc)

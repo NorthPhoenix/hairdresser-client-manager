@@ -120,6 +120,12 @@ private object Routes {
     }
 
     fun clientProfile(id: String) = "client-profile/$id"
+
+    /**
+     * Set on an Appointment's entry by the form that has just created it: its screen opens with the
+     * sheet that adds Services (see AppointmentDraft.opensAddingServices), once.
+     */
+    const val ADD_SERVICES = "addServices"
 }
 
 private enum class MainTab(@StringRes val label: Int, val icon: ImageVector) {
@@ -214,11 +220,15 @@ fun MainNavigation(viewModel: AppViewModel) {
             Routes.APPOINTMENT,
             arguments = listOf(navArgument("id") { type = NavType.StringType }),
         ) { entry ->
+            val justCreated by entry.savedStateHandle.getStateFlow(Routes.ADD_SERVICES, false).collectAsStateWithLifecycle()
+
             AppointmentDetailScreen(
                 viewModel = viewModel,
                 appointmentId = entry.arguments?.getString("id").orEmpty(),
                 onBack = { navController.from(entry) { popBackStack() } },
                 onOpenClient = { navController.from(entry) { navigate(Routes.clientProfile(it)) } },
+                justCreated = justCreated,
+                onOpened = { entry.savedStateHandle[Routes.ADD_SERVICES] = false },
             )
         }
         composable(
@@ -238,6 +248,7 @@ fun MainNavigation(viewModel: AppViewModel) {
                     navController.from(entry) {
                         popBackStack()
                         navigate(Routes.appointment(appointment.id))
+                        currentBackStackEntry?.savedStateHandle?.set(Routes.ADD_SERVICES, true)
                     }
                 },
             )

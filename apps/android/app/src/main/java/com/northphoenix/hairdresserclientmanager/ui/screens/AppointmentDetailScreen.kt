@@ -108,6 +108,7 @@ import com.northphoenix.hairdresserclientmanager.domain.PhoneFormat
 import com.northphoenix.hairdresserclientmanager.domain.Amount
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentCopying
+import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentTotals
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.ColorFormulaOffer
@@ -236,13 +237,20 @@ internal sealed interface DetailSheet {
     }
 }
 
-/** Everything about one Appointment: outcome, Clients, Services with Color Formulas, totals, photos and note. */
+/**
+ * Everything about one Appointment: outcome, Clients, Services with Color Formulas, totals, photos and note.
+ * [justCreated]: the form has just created it, so the screen opens with the sheet that adds Services
+ * ([AppointmentDraft.opensAddingServices]). [onOpened] is called once the screen has opened with or without it,
+ * so that it is not opened again.
+ */
 @Composable
 fun AppointmentDetailScreen(
     viewModel: AppViewModel,
     appointmentId: String,
     onBack: () -> Unit,
     onOpenClient: (String) -> Unit,
+    justCreated: Boolean = false,
+    onOpened: () -> Unit = {},
 ) {
     // Read through the cache for as long as the screen is open, also behind the camera or a locked phone (see
     // `collectWhileOpen`). A copy that a list on screen has is there in the first frame. What the cache has follows
@@ -279,7 +287,7 @@ fun AppointmentDetailScreen(
         return
     }
 
-    AppointmentDetail(viewModel, appointment, saved = shown?.saved ?: appointment, busy, saving, onBack, onOpenClient)
+    AppointmentDetail(viewModel, appointment, saved = shown?.saved ?: appointment, busy, saving, onBack, onOpenClient, justCreated, onOpened)
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -296,6 +304,8 @@ private fun AppointmentDetail(
     saving: Boolean,
     onBack: () -> Unit,
     onOpenClient: (String) -> Unit,
+    justCreated: Boolean,
+    onOpened: () -> Unit,
 ) {
     val context = LocalContext.current
     val format = LocalTimeFormat.current
@@ -320,7 +330,10 @@ private fun AppointmentDetail(
     val overlapping = viewModel.overlapWarnings.collectAsStateWithLifecycle().value[appointment.id].orEmpty()
     val scroll = rememberScrollState()
     val isGroup = appointment.participants.size > 1
-    var sheet by rememberSaveable(stateSaver = DetailSheet.Saver) { mutableStateOf<DetailSheet?>(null) }
+    var sheet by rememberSaveable(stateSaver = DetailSheet.Saver) {
+        mutableStateOf<DetailSheet?>(DetailSheet.AddService().takeIf { AppointmentDraft.opensAddingServices(justCreated, overlapping.isNotEmpty()) })
+    }
+    LaunchedEffect(Unit) { onOpened() }
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
     // The Service whose delete is being asked about. By id, like an open sheet: it is looked up again on every composition.
     var deletingServiceId by rememberSaveable { mutableStateOf<String?>(null) }

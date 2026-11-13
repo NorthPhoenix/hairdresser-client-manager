@@ -104,6 +104,15 @@ object AppointmentDraft {
         locationType == LocationType.AT_HOME && ownAddress != null && primaryClientAddress?.isBlank() == true
 
     /**
+     * Whether the screen of an Appointment opens with the sheet that adds Services: when the form
+     * has [justCreated] it, since the form takes no Services and they are what a new Appointment
+     * gets next (a Travel Fee added by itself is not one she picked). Not while it is [overlapping]
+     * another Appointment: the warning at the top of the screen is to be read first, and the sheet
+     * would cover it.
+     */
+    fun opensAddingServices(justCreated: Boolean, overlapping: Boolean): Boolean = justCreated && !overlapping
+
+    /**
      * The time and place an Appointment has, as the edit form opens with them: its day and times in
      * the Stylist's timezone. [ownAddress] is the at-home address the Stylist typed, null when the
      * Appointment is at its primary Client's address or in the salon. [hasOutcome] is true for an
