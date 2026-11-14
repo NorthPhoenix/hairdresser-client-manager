@@ -6,6 +6,10 @@
 //   - UploadThing's storage service is replaced by a local emulator under /_ut.
 //
 // Never deploy this. It binds to loopback only and trusts the caller's identity.
+//
+// Each request prints one `hcm.request` wide event to stdout, as on Vercel (docs/observability.md).
+// It must be the first import: see telemetry.ts.
+import "./telemetry.ts";
 import { createHash, createHmac } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -19,9 +23,11 @@ import {
   authorizePhotoUpload,
   createPublishedReleaseReader,
   createTRPCContext,
-  manifestUrlFor
+  manifestUrlFor,
+  recordProcedureError
 } from "@hcm/api";
 import { db } from "@hcm/db";
+import { annotate, requestFields, traceRequest } from "@hcm/telemetry";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { createRouteHandler, createUploadthing, UploadThingError, type FileRouter } from "uploadthing/server";
 import { z } from "zod";
@@ -52,7 +58,14 @@ const uploadRouter = {
         category: z.enum(["before", "after", "other"])
       })
     )
-    .middleware(async ({ req, input }) => {
+    .middleware(async ({ req, input, files }) => {
+      annotate({
+        "upload.file_count": files.length,
+        "upload.total_bytes": files.reduce((sum, file) => sum + file.size, 0),
+        "upload.largest_bytes": files.reduce((largest, file) => Math.max(largest, file.size), 0),
+        "upload.file_type": files[0]?.type
+      });
+
       const upload = await authorizePhotoUpload(db, getDevUserId(req.headers.get("authorization")), input);
 
       if ("refusal" in upload) {
@@ -61,14 +74,25 @@ const uploadRouter = {
 
       return upload.metadata;
     })
-    .onUploadComplete(({ metadata, file }) => ({
-      appointmentId: metadata.appointmentId,
-      clientId: metadata.clientId,
-      category: metadata.category,
-      fileKey: file.key,
-      url: file.ufsUrl,
-      thumbnailUrl: file.ufsUrl
-    }))
+    .onUploadComplete(({ metadata, file }) => {
+      annotate({
+        "upload.completed": true,
+        "appointment.id": metadata.appointmentId,
+        "client.id": metadata.clientId,
+        "photo.category": metadata.category,
+        "upload.file_size_bytes": file.size,
+        "upload.file_type": file.type
+      });
+
+      return {
+        appointmentId: metadata.appointmentId,
+        clientId: metadata.clientId,
+        category: metadata.category,
+        fileKey: file.key,
+        url: file.ufsUrl,
+        thumbnailUrl: file.ufsUrl
+      };
+    })
 } satisfies FileRouter;
 
 const uploadThingHandler = createRouteHandler({
@@ -223,8 +247,28 @@ async function handleUploadThingEmulator(request: Request, url: URL): Promise<Re
   return json({ error: "Unsupported" }, 405);
 }
 
+// The route pattern of a path, as the web app's routes name it: an event never carries the path
+// itself, which can hold a file key.
+function routeOf(pathname: string) {
+  if (pathname.startsWith("/api/trpc")) {
+    return "/api/trpc/[trpc]";
+  }
+
+  if (pathname.startsWith("/_ut/f/")) {
+    return "/_ut/f/[key]";
+  }
+
+  if (pathname.startsWith("/_ut/")) {
+    return "/_ut/[action]";
+  }
+
+  return pathname === "/" || pathname === "/api/uploadthing" ? pathname : "unmatched";
+}
+
 async function handle(request: Request): Promise<Response> {
   const url = new URL(request.url);
+
+  annotate(requestFields(request.headers));
 
   if (url.pathname.startsWith("/api/trpc")) {
     return fetchRequestHandler({
@@ -242,16 +286,19 @@ async function handle(request: Request): Promise<Response> {
           appDownloadUrl: process.env.APP_DOWNLOAD_URL,
           publishedRelease
         }),
-      // The reply to an unexpected failure says nothing about it, so the log has to.
-      onError: ({ error, path }) => {
-        if (error.code === "INTERNAL_SERVER_ERROR") {
-          console.error(`tRPC ${path ?? "request"} failed:`, error.cause ?? error);
-        }
-      }
+      // The reply to an unexpected failure says nothing about it, so the request's event has to.
+      onError: recordProcedureError
     });
   }
 
   if (url.pathname === "/api/uploadthing") {
+    // As apps/web/app/api/uploadthing/route.ts does.
+    annotate({
+      "upload.action_type": url.searchParams.get("actionType") ?? "none",
+      "upload.slug": url.searchParams.get("slug") ?? "none",
+      "upload.is_callback": request.headers.get("uploadthing-hook") === "callback"
+    });
+
     return uploadThingHandler(request);
   }
 
@@ -290,17 +337,13 @@ async function respond(outgoing: ServerResponse, response: Response) {
 }
 
 createServer((incoming, outgoing) => {
-  const startedAt = Date.now();
+  const request = toRequest(incoming);
 
-  handle(toRequest(incoming))
-    .catch((error: unknown) => {
-      console.error(error);
-      return json({ error: "Internal dev backend error" }, 500);
-    })
-    .then((response) => {
-      console.log(`${incoming.method} ${incoming.url?.split("?")[0]} -> ${response.status} (${Date.now() - startedAt}ms)`);
-      return respond(outgoing, response);
-    });
+  // The request's wide event replaces the access log line this server used to print: it has the
+  // method, route, status and duration, and the error with its stack when one was thrown.
+  traceRequest({ method: request.method, route: routeOf(new URL(request.url).pathname), headers: request.headers }, () => handle(request))
+    .catch(() => json({ error: "Internal dev backend error" }, 500))
+    .then((response) => respond(outgoing, response));
 }).listen(port, "127.0.0.1", () => {
   console.log(`HCM dev backend listening on ${origin} (uploads in ${storageDir})`);
 });

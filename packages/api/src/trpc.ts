@@ -1,3 +1,4 @@
+import { annotate, recordError, traced } from "@hcm/telemetry";
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { recordAppVersion } from "./appReleases";
@@ -45,8 +46,73 @@ function getDatabaseFailure(error: TRPCError) {
     : undefined;
 }
 
+/**
+ * What the request's wide event says about a procedure's input: how big it is and which fields it
+ * has, never what they hold (docs/observability.md).
+ */
+export function inputShape(rawInput: unknown) {
+  if (rawInput === undefined) {
+    return { "trpc.input_bytes": 0 };
+  }
+
+  const bytes = JSON.stringify(rawInput)?.length ?? 0;
+
+  return rawInput && typeof rawInput === "object" && !Array.isArray(rawInput)
+    ? { "trpc.input_bytes": bytes, "trpc.input_fields": Object.keys(rawInput).slice(0, 20) }
+    : { "trpc.input_bytes": bytes };
+}
+
+// The outermost step of every procedure: it names the procedure in the request's wide event, and it
+// sees the result after every other step, refusals included. The error itself is recorded where
+// the route handler's `onError` sees it (`recordProcedureError`), which also covers a request that
+// names no procedure.
+const observedProcedure = t.procedure.use(async ({ path, type, ctx, getRawInput, next }) => {
+  annotate({
+    "trpc.procedure": path,
+    "trpc.type": type,
+    "auth.signed_in": ctx.clerkAuth.userId !== null,
+    "auth.user_id": ctx.clerkAuth.userId ?? undefined,
+    "app.version_code": ctx.appVersion?.code,
+    "app.version": ctx.appVersion?.name ?? undefined
+  });
+
+  try {
+    annotate(inputShape(await getRawInput()));
+  } catch {
+    // Input that cannot be read is refused by the procedure itself, as before.
+  }
+
+  const startedAt = performance.now();
+  const result = await next();
+
+  annotate({
+    "trpc.ok": result.ok,
+    "trpc.error_code": result.ok ? undefined : result.error.code,
+    "trpc.duration_ms": Math.round(performance.now() - startedAt)
+  });
+
+  return result;
+});
+
+/**
+ * Records a failed procedure call in the request's wide event, for the `onError` of the server that
+ * hosts the router. The reply to an unexpected failure says nothing about it, so the event keeps
+ * what was thrown, with its stack; a refusal on purpose is recorded as expected, with its code.
+ */
+export function recordProcedureError({ error, path }: { error: TRPCError; path?: string }) {
+  const unexpected = error.code === "INTERNAL_SERVER_ERROR";
+
+  annotate({
+    "trpc.procedure": path,
+    "trpc.ok": false,
+    "trpc.error_code": error.code
+  });
+  // A failure is described by what was thrown (a Prisma error and its code); a refusal by itself.
+  recordError(unexpected ? (error.cause ?? error) : error, { expected: !unexpected, code: unexpected ? undefined : error.code });
+}
+
 export const createTRPCRouter = t.router;
-export const publicProcedure = t.procedure.use(async ({ next }) => {
+export const publicProcedure = observedProcedure.use(async ({ next }) => {
   const result = await next();
 
   if (!result.ok) {
@@ -91,11 +157,23 @@ const deviceDefaultsInput = z.object({
   deviceTimezone: timezoneText.optional()
 });
 
+// Whether the upsert created the Stylist: the first request of a new account (docs/adr/0011).
+// Prisma Client sets `createdAt` (`@default(now())`) with this server's clock, so a Stylist created
+// by this upsert has a `createdAt` no earlier than the moment before it. Two first requests of the
+// same account that overlap both see a Stylist made after they started, and both say so: the
+// upsert's answer does not tell an insert from an update, and telling them apart for certain
+// would cost a query on every request.
+function wasCreatedSince(stylist: { createdAt?: unknown }, since: number) {
+  return stylist.createdAt instanceof Date && stylist.createdAt.getTime() >= since;
+}
+
 export const stylistProcedure = protectedProcedure.use(async ({ ctx, getRawInput, next }) => {
   const where = {
     clerkId: ctx.clerkAuth.userId
   };
   const rawInput = await getRawInput();
+  // Whole milliseconds, as the database keeps them.
+  const upsertStartedAt = Math.floor(Date.now());
   const deviceDefaults = deviceDefaultsInput.safeParse(
     rawInput && typeof rawInput === "object" && !Array.isArray(rawInput) ? rawInput : {}
   );
@@ -117,11 +195,18 @@ export const stylistProcedure = protectedProcedure.use(async ({ ctx, getRawInput
       });
 
   if (!stylist) {
+    annotate({ "stylist.device_defaults_valid": false });
     throw new TRPCError({
       code: "BAD_REQUEST",
       cause: deviceDefaults.error
     });
   }
+
+  annotate({
+    "stylist.id": stylist.id,
+    "stylist.just_created": wasCreatedSince(stylist, upsertStartedAt),
+    "stylist.device_defaults_valid": deviceDefaults.success
+  });
 
   // Which app the Stylist uses, for the maintainer; at most about once an hour per Stylist.
   await recordAppVersion(ctx.db, stylist, ctx.appVersion ?? null);
@@ -150,9 +235,22 @@ export const stylistProcedure = protectedProcedure.use(async ({ ctx, getRawInput
  */
 export const stylistTransactionProcedure = stylistProcedure.use(async ({ ctx, next }) => {
   const unusedFiles: string[] = [];
-  const committed = await ctx.db.$transaction(
+  // For the wide event: how long the transaction took to open, to get the lock, and in all.
+  const calledAt = performance.now();
+  const timing: { beganAt?: number; lockWaitMs?: number } = {};
+  const describeTransaction = (outcome: "committed" | "rolled_back") =>
+    annotate({
+      "tx.outcome": outcome,
+      "tx.begin_ms": timing.beganAt === undefined ? undefined : Math.round(timing.beganAt - calledAt),
+      "tx.lock_wait_ms": timing.lockWaitMs === undefined ? undefined : Math.round(timing.lockWaitMs),
+      "tx.duration_ms": Math.round(performance.now() - calledAt),
+      "tx.unused_file_count": unusedFiles.length
+    });
+  const transaction = ctx.db.$transaction(
     async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${ctx.stylist.id}, 0))`;
+      timing.beganAt = performance.now();
+      await traced("stylist.lock_wait", () => tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${ctx.stylist.id}, 0))`);
+      timing.lockWaitMs = performance.now() - timing.beganAt;
 
       const result = await next({
         ctx: {
@@ -176,7 +274,12 @@ export const stylistTransactionProcedure = stylistProcedure.use(async ({ ctx, ne
       timeout: 20_000
     }
   );
+  const committed = await transaction.catch((error: unknown) => {
+    describeTransaction("rolled_back");
+    throw error;
+  });
 
+  describeTransaction("committed");
   await deleteUnusedFiles(ctx.deleteStoredFiles, unusedFiles);
 
   return committed;

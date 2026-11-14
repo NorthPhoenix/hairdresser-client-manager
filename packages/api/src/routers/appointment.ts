@@ -1,4 +1,5 @@
 import type { Prisma } from "@hcm/db";
+import { annotate, recordError, traced } from "@hcm/telemetry";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { inAddedOrder } from "../addedOrder";
@@ -15,8 +16,77 @@ import {
   textLimits
 } from "../input";
 import { isStoredFileUrl, markFilesUnused } from "../photoStorage";
-import { addTravelFee, noTravelFeeChange, removeTravelFee } from "../travelFee";
+import { addTravelFee, noTravelFeeChange, removeTravelFee, type TravelFeeChange } from "../travelFee";
 import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from "../trpc";
+
+// What the procedures below tell the request's wide event (docs/observability.md): the ids of the
+// records a request is about, the size of what it read and wrote, and the branch it took, as
+// counts, amounts and enum values. Never a Client's name, an address, a note or a formula: only
+// their lengths, or whether there is one.
+
+/**
+ * A refusal on purpose, recorded on the request's wide event with the domain's reason for it, so
+ * a search can count each reason. The caller throws it; the reply is the same as before.
+ */
+function refusal(code: TRPCError["code"], message: string, reason: string) {
+  const error = new TRPCError({ code, message });
+
+  recordError(error, { expected: true, reason });
+  return error;
+}
+
+/** An enum value of the database as events write enum values: "noShow" is "no_show". */
+function snakeCase(value: string | undefined) {
+  return value?.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+}
+
+const dayMs = 24 * 60 * 60 * 1000;
+
+/** Days from one time to another, to a tenth: how far ahead an Appointment is, how long a range. */
+function daysBetween(from: Date, to: Date) {
+  return Math.round(((to.getTime() - from.getTime()) / dayMs) * 10) / 10;
+}
+
+/**
+ * The hour, 0 to 23, an Appointment starts at in the Stylist's timezone. Starts at night are most
+ * likely AM and PM mixed up (see Appointment Creation), so a search can count them.
+ */
+function localStartHour(startsAt: Date, timeZone: string) {
+  try {
+    const hour = Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hourCycle: "h23", timeZone }).format(startsAt));
+
+    return Number.isFinite(hour) ? hour : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** When an Appointment that is created or moved starts, as the event counts it. */
+function annotateStart(startsAt: Date, timeZone: string) {
+  annotate(() => ({
+    "appointment.start_local_hour": localStartHour(startsAt, timeZone),
+    // Negative for a visit written down after it happened.
+    "appointment.starts_in_days": daysBetween(new Date(), startsAt)
+  }));
+}
+
+/**
+ * What the Travel Fee did in a save. "not_applicable" when the save could not change it (created
+ * in the salon, an edit that keeps the place or of an Appointment with an outcome); "none" when it
+ * was looked at and nothing changed (no Travel Fee item, one already there, or the total too large).
+ */
+function annotateTravelFee(change: TravelFeeChange | null) {
+  annotate(() => {
+    const services = change ? [...change.added, ...change.removed] : [];
+
+    return {
+      "appointment.travel_fee_change":
+        change === null ? "not_applicable" : change.added.length > 0 ? "added" : change.removed.length > 0 ? "removed" : "none",
+      "appointment.travel_fee_service_count": services.length,
+      "appointment.travel_fee_minor": services.reduce((total, service) => total + service.priceCents, 0)
+    };
+  });
+}
 
 const dateRangeInput = z.object({
   start: z.string().datetime(),
@@ -224,11 +294,13 @@ const existingServices = {
 function refuseTotalAboveMaximum(services: { priceCents: number }[], raisedByCents: number) {
   const totalCents = services.reduce((total, service) => total + service.priceCents, 0);
 
+  annotate(() => ({
+    "appointment.service_total_before_minor": totalCents,
+    "appointment.service_total_change_minor": raisedByCents
+  }));
+
   if (raisedByCents > 0 && totalCents + raisedByCents > maxAmountCents) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "Appointment total is too large."
-    });
+    throw refusal("BAD_REQUEST", "Appointment total is too large.", "appointment_total_above_maximum");
   }
 }
 
@@ -461,6 +533,74 @@ function toAppointmentOutput(appointment: {
   };
 }
 
+type AppointmentRow = Parameters<typeof toAppointmentOutput>[0];
+
+/**
+ * The Appointment a request is about, as its reply shows it: its state, its size and what it
+ * comes to. Written by every procedure that answers with one Appointment, so its fields describe
+ * the Appointment after the change. Telemetry never fails a request: a row it cannot read is left out.
+ */
+function annotateAppointment(appointment: AppointmentRow) {
+  try {
+    const services = appointment.services ?? [];
+    const photos = appointment.photos;
+    const serviceTotalCents = services.reduce((total, service) => total + service.priceCents, 0);
+
+    annotate(() => ({
+      "appointment.id": appointment.id,
+      "appointment.primary_client_id": appointment.primaryClientId,
+      "appointment.status": snakeCase(appointment.status),
+      "appointment.location_type": snakeCase(appointment.locationType),
+      "appointment.has_custom_address": hasCustomAddress(appointment),
+      "appointment.has_end_time": appointment.endsAt !== null,
+      "appointment.duration_minutes": appointment.endsAt
+        ? Math.round((appointment.endsAt.getTime() - appointment.startsAt.getTime()) / 60_000)
+        : undefined,
+      "appointment.client_count": appointment.participants?.length ?? 1,
+      "appointment.service_count": services.length,
+      "appointment.menu_service_count": services.filter((service) => service.menuItemId !== null).length,
+      "appointment.color_formula_count": services.reduce((count, service) => count + (service.colorFormulas?.length ?? 0), 0),
+      // Only where the reply has photos.
+      "appointment.photo_count": photos?.length,
+      "appointment.pending_photo_count": photos?.filter((photo) => photo.status === "pendingUpload").length,
+      "appointment.failed_photo_count": photos?.filter((photo) => photo.status === "failed").length,
+      "appointment.service_total_minor": serviceTotalCents,
+      "appointment.has_total_override": appointment.finalTotalCentsOverride !== null,
+      "appointment.final_total_minor": appointment.finalTotalCentsOverride ?? serviceTotalCents,
+      "appointment.tip_minor": appointment.tipCents ?? undefined,
+      "appointment.note_length": appointment.note?.length ?? 0
+    }));
+  } catch {
+    // Left out of the event; the reply is built from the same row and says what is wrong with it.
+  }
+}
+
+/** toAppointmentOutput for the one Appointment a request is about, described on its event. */
+function toDescribedOutput(appointment: AppointmentRow) {
+  annotateAppointment(appointment);
+  return toAppointmentOutput(appointment);
+}
+
+/**
+ * Several Appointments a query read (list, home, completedSources): how many, and how much they
+ * hold, which is what the reply's size and the time to build it follow.
+ */
+function annotateAppointmentList(appointments: AppointmentRow[]) {
+  try {
+    const services = appointments.flatMap((appointment) => appointment.services ?? []);
+
+    annotate(() => ({
+      "appointment.count": appointments.length,
+      "appointment.listed_client_count": appointments.reduce((count, appointment) => count + (appointment.participants?.length ?? 1), 0),
+      "appointment.listed_service_count": services.length,
+      "appointment.listed_color_formula_count": services.reduce((count, service) => count + (service.colorFormulas?.length ?? 0), 0),
+      "appointment.listed_photo_count": appointments.reduce((count, appointment) => count + (appointment.photos?.length ?? 0), 0)
+    }));
+  } catch {
+    // As in annotateAppointment.
+  }
+}
+
 async function getAppointmentOutput(db: Db, appointmentId: string) {
   const appointment = await db.appointment.findUniqueOrThrow({
     where: {
@@ -512,7 +652,7 @@ async function getAppointmentOutput(db: Db, appointmentId: string) {
     }
   });
 
-  return toAppointmentOutput(appointment);
+  return toDescribedOutput(appointment);
 }
 
 // The Stylist's Scheduled Appointments whose time overlaps the given one. An Appointment without
@@ -564,11 +704,22 @@ async function findConflicts(
     orderBy: appointmentOrder
   });
 
-  return possibleConflicts.filter((appointment) => {
+  const conflicts = possibleConflicts.filter((appointment) => {
     const conflictWindow = getConflictWindow(appointment.startsAt, appointment.endsAt);
 
     return conflictWindow.end > window.start;
   });
+
+  annotate(() => ({
+    "appointment.overlap_check": conflicts.length === 0 ? "clear" : "overlaps",
+    // Every Scheduled Appointment that starts before this one ends is read, past unresolved ones
+    // included: the query's cost grows with them.
+    "appointment.conflict_candidate_count": possibleConflicts.length,
+    "appointment.conflict_count": conflicts.length,
+    "appointment.conflict_ids": conflicts.map((appointment) => appointment.id)
+  }));
+
+  return conflicts;
 }
 
 export const appointmentRouter = createTRPCRouter({
@@ -628,11 +779,16 @@ export const appointmentRouter = createTRPCRouter({
       orderBy: appointmentOrder
     });
 
+    annotate(() => ({ "appointment.range_days": daysBetween(new Date(input.start), new Date(input.end)) }));
+    annotateAppointmentList(appointments);
+
     return appointments.map(toAppointmentOutput);
   }),
   // One Appointment by its id. Its start time can change, so the app cannot find it again by the
   // time it had.
   get: stylistProcedure.input(appointmentGetInput).query(async ({ ctx, input }) => {
+    annotate(() => ({ "appointment.id": input.id }));
+
     const appointment = await ctx.db.appointment.findFirst({
       where: {
         id: input.id,
@@ -644,10 +800,7 @@ export const appointmentRouter = createTRPCRouter({
     });
 
     if (!appointment) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Appointment not found."
-      });
+      throw refusal("NOT_FOUND", "Appointment not found.", "appointment_not_found");
     }
 
     return getAppointmentOutput(ctx.db, appointment.id);
@@ -719,12 +872,21 @@ export const appointmentRouter = createTRPCRouter({
       orderBy: appointmentOrder
     });
 
+    annotate(() => ({
+      "appointment.range_days": daysBetween(new Date(input.start), new Date(input.end)),
+      // Past Appointments still Scheduled, which Home lists until the Stylist marks an outcome.
+      "appointment.unresolved_count": appointments.filter((appointment) => appointment.status === "scheduled" && appointment.startsAt < now).length
+    }));
+    annotateAppointmentList(appointments);
+
     return appointments.map(toAppointmentOutput);
   }),
   // What Appointment Copying can copy from, newest first. For a target: only the Appointments
   // with something to copy into it, the first one being the source that copyServices takes when
   // none is named.
   completedSources: stylistProcedure.input(completedSourcesInput).query(async ({ ctx, input }) => {
+    annotate(() => ({ "appointment.id": input?.targetAppointmentId, "appointment.has_copy_target": Boolean(input?.targetAppointmentId) }));
+
     const targetAppointment = input?.targetAppointmentId
       ? await ctx.db.appointment.findFirst({
           where: {
@@ -738,10 +900,7 @@ export const appointmentRouter = createTRPCRouter({
       : null;
 
     if (input?.targetAppointmentId && !targetAppointment) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Target Appointment not found."
-      });
+      throw refusal("NOT_FOUND", "Target Appointment not found.", "copy_target_not_found");
     }
 
     const appointments = await ctx.db.appointment.findMany({
@@ -789,6 +948,10 @@ export const appointmentRouter = createTRPCRouter({
       orderBy: appointmentOrderNewestFirst
     });
 
+    annotateAppointmentList(appointments);
+    // The source copyServices takes when none is named.
+    annotate(() => ({ "appointment.copy_default_source_id": targetAppointment ? appointments[0]?.id : undefined }));
+
     return appointments.map((appointment) => {
       const output = toAppointmentOutput(appointment);
 
@@ -812,14 +975,20 @@ export const appointmentRouter = createTRPCRouter({
     const startsAt = new Date(input.startsAt);
     const endsAt = input.endsAt ? new Date(input.endsAt) : null;
 
+    annotate(() => ({
+      "appointment.primary_client_source": input.primaryClientId ? "existing" : "inline"
+    }));
+    annotateStart(startsAt, ctx.stylist.timezone);
+
     if (endsAt && endsAt <= startsAt) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "End time must be after start time."
-      });
+      throw refusal("BAD_REQUEST", "End time must be after start time.", "end_not_after_start");
     }
 
     const additionalClientIds = [...new Set(input.additionalClientIds.filter((clientId) => clientId !== input.primaryClientId))];
+
+    // Ids the app sent twice, or the primary Client again among the others: dropped, as before.
+    annotate(() => ({ "appointment.dropped_client_id_count": input.additionalClientIds.length - additionalClientIds.length }));
+
     const repeatedAppointment = input.requestKey
       ? await ctx.db.appointment.findFirst({
           where: {
@@ -840,6 +1009,8 @@ export const appointmentRouter = createTRPCRouter({
           }
         })
       : null;
+
+    annotate(() => ({ "appointment.is_repeat": input.requestKey ? Boolean(repeatedAppointment) : undefined }));
 
     if (repeatedAppointment) {
       const atCustomAddress = input.locationType === "atHome" && Boolean(input.customLocationAddress);
@@ -864,7 +1035,8 @@ export const appointmentRouter = createTRPCRouter({
           // The Client the first call created inline is recognised by the name it was given.
           inlineClientName: input.primaryClientId ? undefined : input.inlineClientName,
           clientIds: [input.primaryClientId ?? repeatedAppointment.primaryClientId, ...additionalClientIds].sort().join()
-        }
+        },
+        "appointment"
       );
 
       // The Appointment the first call created, with the overlap warning that call answered with.
@@ -907,11 +1079,11 @@ export const appointmentRouter = createTRPCRouter({
         });
 
     if (!primaryClient) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Primary Client not found."
-      });
+      throw refusal("NOT_FOUND", "Primary Client not found.", "primary_client_not_found");
     }
+
+    // The id of a Client created inline too.
+    annotate(() => ({ "appointment.primary_client_id": primaryClient.id }));
 
     const additionalClients =
       additionalClientIds.length > 0
@@ -926,10 +1098,7 @@ export const appointmentRouter = createTRPCRouter({
         : [];
 
     if (additionalClients.length !== additionalClientIds.length) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "One or more group Clients were not found."
-      });
+      throw refusal("NOT_FOUND", "One or more group Clients were not found.", "group_client_not_found");
     }
 
     const typedAddress = input.locationType === "atHome" ? input.customLocationAddress ?? "" : "";
@@ -940,6 +1109,16 @@ export const appointmentRouter = createTRPCRouter({
       input.locationType === "atHome"
         ? typedAddress || primaryClient.address || ""
         : await getSalonAddress(ctx.db, ctx.stylist.id);
+
+    annotate(() => ({
+      // Where the address of the new Appointment came from.
+      "appointment.location_source":
+        input.locationType === "inSalon" ? "salon" : typedAddress ? (addressSavedToClient ? "typed_saved_to_client" : "typed") : "client",
+      // Asked for: whether the primary Client had no address and so took the typed one.
+      "appointment.is_address_saved_to_client": input.saveAddressToClient === true ? addressSavedToClient : undefined,
+      "appointment.has_location_address": locationAddress.length > 0
+    }));
+
     const conflicts = await findConflicts(ctx.db, ctx.stylist.id, startsAt, endsAt);
     const addedAt = Date.now();
     const appointment = await ctx.db.appointment.create({
@@ -1009,14 +1188,18 @@ export const appointmentRouter = createTRPCRouter({
         ? await addTravelFee(ctx.db, ctx.stylist.id, appointment.id, primaryClient.id)
         : noTravelFeeChange;
 
+    annotateTravelFee(input.locationType === "atHome" ? travelFee : null);
+
     return {
-      appointment: travelFee.added.length > 0 ? await getAppointmentOutput(ctx.db, appointment.id) : toAppointmentOutput(appointment),
+      appointment: travelFee.added.length > 0 ? await getAppointmentOutput(ctx.db, appointment.id) : toDescribedOutput(appointment),
       conflicts: conflicts.map(toAppointmentOutput),
       // The Services the Travel Fee added, for the app to say so and offer to remove them.
       travelFee
     };
   }),
   update: stylistTransactionProcedure.input(appointmentUpdateInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({ "appointment.id": input.id }));
+
     const appointment = await ctx.db.appointment.findFirst({
       where: {
         id: input.id,
@@ -1032,20 +1215,16 @@ export const appointmentRouter = createTRPCRouter({
     });
 
     if (!appointment) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Appointment not found."
-      });
+      throw refusal("NOT_FOUND", "Appointment not found.", "appointment_not_found");
     }
+
+    annotate(() => ({ "appointment.previous_status": snakeCase(appointment.status) }));
 
     const startsAt = input.startsAt ? new Date(input.startsAt) : appointment.startsAt;
     const endsAt = input.endsAt === undefined ? appointment.endsAt : input.endsAt ? new Date(input.endsAt) : null;
 
     if ((input.startsAt || input.endsAt) && endsAt && endsAt <= startsAt) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "End time must be after start time."
-      });
+      throw refusal("BAD_REQUEST", "End time must be after start time.", "end_not_after_start");
     }
 
     if (input.primaryClientId) {
@@ -1057,10 +1236,7 @@ export const appointmentRouter = createTRPCRouter({
       });
 
       if (!participant) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Primary Client must be attached to the Appointment."
-        });
+        throw refusal("BAD_REQUEST", "Primary Client must be attached to the Appointment.", "primary_client_not_attached");
       }
     }
 
@@ -1073,6 +1249,9 @@ export const appointmentRouter = createTRPCRouter({
     // can be older than the salon's.
     const savedAsInSalon = input.locationType === "inSalon" && status === "scheduled";
     let location: { locationAddress: string; locationAddressIsCustom: boolean } | undefined;
+    // Where the saved address came from, for the event; "unchanged" when the save keeps it.
+    let locationSource = "unchanged";
+    let addressSavedToClient: boolean | undefined;
 
     if (locationType === "inSalon") {
       // A Scheduled in-salon Appointment shows the salon's current address; one with an outcome
@@ -1082,9 +1261,10 @@ export const appointmentRouter = createTRPCRouter({
           locationAddress: await getSalonAddress(ctx.db, ctx.stylist.id),
           locationAddressIsCustom: false
         };
+        locationSource = "salon";
       }
     } else if (input.customLocationAddress) {
-      const addressSavedToClient =
+      addressSavedToClient =
         input.saveAddressToClient === true &&
         (await saveAddressToClient(ctx.db, ctx.stylist.id, primaryClientId, input.customLocationAddress));
 
@@ -1092,6 +1272,7 @@ export const appointmentRouter = createTRPCRouter({
         locationAddress: input.customLocationAddress,
         locationAddressIsCustom: !addressSavedToClient
       };
+      locationSource = addressSavedToClient ? "typed_saved_to_client" : "typed";
     } else if (
       input.customLocationAddress !== undefined ||
       locationTypeChanges ||
@@ -1103,6 +1284,38 @@ export const appointmentRouter = createTRPCRouter({
         locationAddress: await getClientAddress(ctx.db, primaryClientId),
         locationAddressIsCustom: false
       };
+      locationSource = "client";
+    }
+
+    // Which of the fields the save sent change the Appointment. A save that changes none is a
+    // no-op, such as the same form saved twice; it still writes the row.
+    annotate(() => {
+      const changedFields = [
+        input.primaryClientId !== undefined && primaryClientId !== appointment.primaryClientId && "primary_client",
+        input.status !== undefined && status !== appointment.status && "status",
+        input.startsAt !== undefined && startsAt.getTime() !== appointment.startsAt.getTime() && "starts_at",
+        input.endsAt !== undefined && endsAt?.getTime() !== appointment.endsAt?.getTime() && "ends_at",
+        locationTypeChanges && "location_type",
+        location !== undefined && location.locationAddress !== (appointment.locationAddress ?? "") && "location_address",
+        input.note !== undefined && input.note !== (appointment.note ?? "") && "note",
+        input.finalTotalCentsOverride !== undefined &&
+          input.finalTotalCentsOverride !== (appointment.finalTotalCentsOverride ?? null) &&
+          "total_override",
+        input.tipCents !== undefined && input.tipCents !== (appointment.tipCents ?? null) && "tip"
+      ].filter((field): field is string => typeof field === "string");
+
+      return {
+        "appointment.changed_fields": changedFields,
+        "appointment.changed_field_count": changedFields.length,
+        "appointment.is_noop_save": changedFields.length === 0,
+        "appointment.is_back_to_scheduled": becomesScheduled,
+        "appointment.location_source": locationSource,
+        "appointment.is_address_saved_to_client": input.saveAddressToClient === true ? addressSavedToClient : undefined
+      };
+    });
+
+    if (input.startsAt !== undefined) {
+      annotateStart(startsAt, ctx.stylist.timezone);
     }
 
     // The Travel Fee follows a Scheduled Appointment that changes place: to at home it is added
@@ -1114,6 +1327,9 @@ export const appointmentRouter = createTRPCRouter({
           ? await addTravelFee(ctx.db, ctx.stylist.id, appointment.id, primaryClientId)
           : await removeTravelFee(ctx.db, ctx.stylist.id, appointment.id)
         : noTravelFeeChange;
+
+    annotateTravelFee(status === "scheduled" && locationTypeChanges ? travelFee : null);
+
     const updatedAppointment = await ctx.db.appointment.update({
       where: {
         id: appointment.id
@@ -1178,14 +1394,27 @@ export const appointmentRouter = createTRPCRouter({
         ? await findConflicts(ctx.db, ctx.stylist.id, startsAt, endsAt, appointment.id)
         : [];
 
+    if (!(status === "scheduled" && (timeChanges || becomesScheduled))) {
+      annotate(() => ({ "appointment.overlap_check": "skipped" }));
+    }
+
     return {
-      ...toAppointmentOutput(updatedAppointment),
+      ...toDescribedOutput(updatedAppointment),
       conflicts: conflicts.map(toAppointmentOutput),
       // The Services the Travel Fee added or removed, for the app to say so and offer to undo it.
       travelFee
     };
   }),
   addService: stylistTransactionProcedure.input(appointmentServiceInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({
+      "appointment.id": input.appointmentId,
+      "appointment_service.client_id": input.clientId,
+      "appointment_service.menu_item_id": input.menuItemId,
+      "appointment_service.source": input.menuItemId ? "menu" : "ad_hoc",
+      "appointment_service.name_length": input.name?.length,
+      "appointment_service.note_length": input.note?.length ?? 0
+    }));
+
     const appointment = await ctx.db.appointment.findFirst({
       where: {
         id: input.appointmentId,
@@ -1198,15 +1427,14 @@ export const appointmentRouter = createTRPCRouter({
     });
 
     if (!appointment) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Appointment not found."
-      });
+      throw refusal("NOT_FOUND", "Appointment not found.", "appointment_not_found");
     }
 
     const repeatedService = input.requestKey
       ? appointment.services.find((service) => service.requestKey === input.requestKey)
       : undefined;
+
+    annotate(() => ({ "appointment_service.is_repeat": input.requestKey ? Boolean(repeatedService) : undefined }));
 
     if (repeatedService) {
       // A name or price left out came from the Service Menu Item: there is nothing to compare.
@@ -1216,16 +1444,13 @@ export const appointmentRouter = createTRPCRouter({
         name: input.name,
         priceCents: input.priceCents,
         note: input.note ?? ""
-      });
+      }, "appointment_service");
 
       return getAppointmentOutput(ctx.db, appointment.id);
     }
 
     if (!appointment.participants.some((participant) => participant.clientId === input.clientId)) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "Service Client must be attached to the Appointment."
-      });
+      throw refusal("BAD_REQUEST", "Service Client must be attached to the Appointment.", "service_client_not_attached");
     }
 
     const menuItem = input.menuItemId
@@ -1238,24 +1463,27 @@ export const appointmentRouter = createTRPCRouter({
       : null;
 
     if (input.menuItemId && !menuItem) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Service Menu Item not found."
-      });
+      throw refusal("NOT_FOUND", "Service Menu Item not found.", "menu_item_not_found");
     }
 
     if (!menuItem && !input.name) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "Service name is required."
-      });
+      throw refusal("BAD_REQUEST", "Service name is required.", "service_name_missing");
     }
 
     const priceCents = input.priceCents ?? menuItem?.defaultPriceCents ?? 0;
 
+    annotate(() => ({
+      "appointment_service.price_minor": priceCents,
+      // "sent" with a menu item: the Stylist typed a price of her own, or kept the default.
+      "appointment_service.price_source": input.priceCents !== undefined ? "sent" : menuItem ? "menu_default" : "none",
+      "appointment_service.is_menu_price_changed": menuItem && input.priceCents !== undefined ? input.priceCents !== menuItem.defaultPriceCents : undefined,
+      "appointment_service.is_menu_name_changed": menuItem && input.name !== undefined ? input.name !== menuItem.name : undefined,
+      "appointment_service.is_travel_fee": menuItem ? menuItem.travelFee : undefined
+    }));
+
     refuseTotalAboveMaximum(appointment.services, priceCents);
 
-    await ctx.db.appointmentService.create({
+    const createdService = await ctx.db.appointmentService.create({
       data: {
         appointmentId: appointment.id,
         clientId: input.clientId,
@@ -1266,6 +1494,8 @@ export const appointmentRouter = createTRPCRouter({
         requestKey: input.requestKey
       }
     });
+
+    annotate(() => ({ "appointment_service.id": createdService?.id }));
 
     const updatedAppointment = await ctx.db.appointment.findUniqueOrThrow({
       where: {
@@ -1312,13 +1542,24 @@ export const appointmentRouter = createTRPCRouter({
       }
     });
 
-    return toAppointmentOutput(updatedAppointment);
+    return toDescribedOutput(updatedAppointment);
   }),
   // Several Services from the Service Menu at once, each at its item's default price, for one
   // Client in the order of menuItemIds, or for several Clients (clients) one after another. All
   // are added or none.
   addMenuServices: stylistTransactionProcedure.input(appointmentMenuServicesInput).mutation(async ({ ctx, input }) => {
     const picks = menuServicePicks(input);
+    const pickedItemIds = [...new Set(picks.map((pick) => pick.menuItemId))];
+
+    annotate(() => ({
+      "appointment.id": input.appointmentId,
+      // The input's two forms: one Client with menuItemIds, or several Clients at once.
+      "appointment_service.picks_kind": input.clients ? "clients" : "one_client",
+      "appointment_service.pick_count": picks.length,
+      "appointment_service.pick_client_count": new Set(picks.map((pick) => pick.clientId)).size,
+      "appointment_service.menu_item_count": pickedItemIds.length,
+      "appointment_service.menu_item_ids": pickedItemIds
+    }));
 
     const appointment = await ctx.db.appointment.findFirst({
       where: {
@@ -1338,37 +1579,34 @@ export const appointmentRouter = createTRPCRouter({
     });
 
     if (!appointment) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Appointment not found."
-      });
+      throw refusal("NOT_FOUND", "Appointment not found.", "appointment_not_found");
     }
 
     const repeatedServices = input.requestKey
       ? inAddedOrder(appointment.services.filter((service) => service.requestKey === input.requestKey))
       : [];
 
+    annotate(() => ({ "appointment_service.is_repeat": input.requestKey ? repeatedServices.length > 0 : undefined }));
+
     if (repeatedServices.length > 0) {
       // The prices came from the menu: there is nothing to compare but whose and which items.
       refuseChangedRepeat(
         { services: repeatedServices.map((service) => `${service.clientId}:${service.menuItemId}`).join(" ") },
-        { services: picks.map((pick) => `${pick.clientId}:${pick.menuItemId}`).join(" ") }
+        { services: picks.map((pick) => `${pick.clientId}:${pick.menuItemId}`).join(" ") },
+        "appointment_service"
       );
 
       return getAppointmentOutput(ctx.db, appointment.id);
     }
 
     if (!picks.every((pick) => appointment.participants.some((participant) => participant.clientId === pick.clientId))) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "Service Client must be attached to the Appointment."
-      });
+      throw refusal("BAD_REQUEST", "Service Client must be attached to the Appointment.", "service_client_not_attached");
     }
 
     const menuItems = await ctx.db.serviceMenuItem.findMany({
       where: {
         id: {
-          in: [...new Set(picks.map((pick) => pick.menuItemId))]
+          in: pickedItemIds
         },
         stylistId: ctx.stylist.id
       }
@@ -1376,40 +1614,49 @@ export const appointmentRouter = createTRPCRouter({
     const picked = picks.map((pick) => ({ clientId: pick.clientId, item: menuItems.find((item) => item.id === pick.menuItemId) }));
 
     if (picked.some((pick) => !pick.item)) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Service Menu Item not found."
-      });
+      throw refusal("NOT_FOUND", "Service Menu Item not found.", "menu_item_not_found");
     }
 
     const items = picked.flatMap(({ clientId, item }) => (item ? [{ clientId, item }] : []));
+    const addedCents = items.reduce((total, { item }) => total + item.defaultPriceCents, 0);
 
-    refuseTotalAboveMaximum(
-      appointment.services,
-      items.reduce((total, { item }) => total + item.defaultPriceCents, 0)
-    );
+    annotate(() => ({
+      "appointment_service.added_minor": addedCents,
+      "appointment_service.travel_fee_count": items.filter(({ item }) => item.travelFee).length
+    }));
+
+    refuseTotalAboveMaximum(appointment.services, addedCents);
 
     // Dated one millisecond apart, as Appointment Copying does: they keep the order they were picked in.
     const addedAt = Date.now();
 
-    for (const [index, { clientId, item }] of items.entries()) {
-      await ctx.db.appointmentService.create({
-        data: {
-          appointmentId: appointment.id,
-          clientId,
-          menuItemId: item.id,
-          name: item.name,
-          priceCents: item.defaultPriceCents,
-          note: "",
-          requestKey: input.requestKey,
-          createdAt: new Date(addedAt + index)
+    // One insert per Service, up to a hundred: a unit of work of its own in the trace.
+    await traced(
+      "appointment.add_menu_services",
+      async () => {
+        for (const [index, { clientId, item }] of items.entries()) {
+          await ctx.db.appointmentService.create({
+            data: {
+              appointmentId: appointment.id,
+              clientId,
+              menuItemId: item.id,
+              name: item.name,
+              priceCents: item.defaultPriceCents,
+              note: "",
+              requestKey: input.requestKey,
+              createdAt: new Date(addedAt + index)
+            }
+          });
         }
-      });
-    }
+      },
+      { "appointment_service.count": items.length }
+    );
 
     return getAppointmentOutput(ctx.db, appointment.id);
   }),
   updateService: stylistTransactionProcedure.input(appointmentServiceUpdateInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({ "appointment_service.id": input.id }));
+
     const service = await ctx.db.appointmentService.findFirst({
       where: {
         id: input.id,
@@ -1427,11 +1674,28 @@ export const appointmentRouter = createTRPCRouter({
     });
 
     if (!service) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Appointment Service not found."
-      });
+      throw refusal("NOT_FOUND", "Appointment Service not found.", "service_not_found");
     }
+
+    annotate(() => {
+      const changedFields = [
+        input.name !== service.name && "name",
+        input.priceCents !== service.priceCents && "price",
+        (input.note ?? "") !== (service.note ?? "") && "note"
+      ].filter((field): field is string => typeof field === "string");
+
+      return {
+        "appointment.id": service.appointmentId,
+        "appointment_service.client_id": service.clientId,
+        "appointment_service.menu_item_id": service.menuItemId ?? undefined,
+        "appointment_service.previous_price_minor": service.priceCents,
+        "appointment_service.price_minor": input.priceCents,
+        "appointment_service.name_length": input.name.length,
+        "appointment_service.note_length": input.note?.length ?? 0,
+        "appointment_service.changed_fields": changedFields,
+        "appointment_service.is_noop_save": changedFields.length === 0
+      };
+    });
 
     refuseTotalAboveMaximum(service.appointment.services, input.priceCents - service.priceCents);
 
@@ -1450,6 +1714,8 @@ export const appointmentRouter = createTRPCRouter({
     return getAppointmentOutput(ctx.db, service.appointmentId);
   }),
   deleteService: stylistProcedure.input(appointmentServiceDeleteInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({ "appointment_service.id": input.id }));
+
     const service = await ctx.db.appointmentService.findFirst({
       where: {
         id: input.id,
@@ -1460,11 +1726,16 @@ export const appointmentRouter = createTRPCRouter({
     });
 
     if (!service) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Appointment Service not found."
-      });
+      throw refusal("NOT_FOUND", "Appointment Service not found.", "service_not_found");
     }
+
+    annotate(() => ({
+      "appointment.id": service.appointmentId,
+      "appointment_service.client_id": service.clientId,
+      "appointment_service.menu_item_id": service.menuItemId ?? undefined,
+      "appointment_service.source": service.menuItemId ? "menu" : "ad_hoc",
+      "appointment_service.price_minor": service.priceCents
+    }));
 
     await ctx.db.appointmentService.delete({
       where: {
@@ -1517,9 +1788,22 @@ export const appointmentRouter = createTRPCRouter({
       }
     });
 
-    return toAppointmentOutput(updatedAppointment);
+    return toDescribedOutput(updatedAppointment);
   }),
   addPhoto: stylistTransactionProcedure.input(appointmentPhotoInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({
+      "appointment.id": input.appointmentId,
+      "photo.client_id": input.clientId,
+      "photo.category": input.category,
+      "photo.status": snakeCase(input.status),
+      // Whether the app sent the stored file's details, never the details themselves.
+      "photo.has_file_key": Boolean(input.fileKey),
+      "photo.has_url": Boolean(input.url),
+      "photo.has_thumbnail_url": Boolean(input.thumbnailUrl),
+      "photo.width": input.width,
+      "photo.height": input.height
+    }));
+
     const appointment = await ctx.db.appointment.findFirst({
       where: {
         id: input.appointmentId,
@@ -1539,10 +1823,7 @@ export const appointmentRouter = createTRPCRouter({
     });
 
     if (!appointment) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Appointment not found."
-      });
+      throw refusal("NOT_FOUND", "Appointment not found.", "appointment_not_found");
     }
 
     // A request that is sent again, recognised by its key or by the stored file: one file is one
@@ -1553,36 +1834,36 @@ export const appointmentRouter = createTRPCRouter({
         (input.fileKey && photo.fileKey === input.fileKey)
     );
 
+    annotate(() => ({
+      "photo.is_repeat": repeatedPhoto !== undefined,
+      "photo.repeat_kind": repeatedPhoto
+        ? input.requestKey && repeatedPhoto.requestKey === input.requestKey
+          ? "request_key"
+          : "file"
+        : undefined
+    }));
+
     if (repeatedPhoto) {
       // Not the file: a picture that is uploaded again for the same key is a new file each time.
       refuseChangedRepeat(repeatedPhoto, {
         clientId: input.clientId,
         category: input.category
-      });
+      }, "photo");
 
       return getAppointmentOutput(ctx.db, appointment.id);
     }
 
     if (!appointment.participants.some((participant) => participant.clientId === input.clientId)) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "Photo Client must be attached to the Appointment."
-      });
+      throw refusal("BAD_REQUEST", "Photo Client must be attached to the Appointment.", "photo_client_not_attached");
     }
 
     if (input.status === "stored" && (!input.fileKey || !input.url)) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "Stored Appointment Photos require UploadThing file metadata."
-      });
+      throw refusal("BAD_REQUEST", "Stored Appointment Photos require UploadThing file metadata.", "stored_photo_without_file");
     }
 
     // The app loads both URLs as images: each has to be the stored file this photo names.
     if ([input.url, input.thumbnailUrl].some((url) => url && !isStoredFileUrl(url, input.fileKey ?? "", ctx.photoOrigins))) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "Appointment Photo URLs must point at UploadThing storage."
-      });
+      throw refusal("BAD_REQUEST", "Appointment Photo URLs must point at UploadThing storage.", "photo_not_in_storage");
     }
 
     // One stored file is one Appointment Photo, of any Stylist: deleting a photo may then delete
@@ -1598,13 +1879,10 @@ export const appointmentRouter = createTRPCRouter({
         }
       }))
     ) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "This file already belongs to another Appointment Photo."
-      });
+      throw refusal("BAD_REQUEST", "This file already belongs to another Appointment Photo.", "photo_file_taken");
     }
 
-    await ctx.db.appointmentPhoto.create({
+    const createdPhoto = await ctx.db.appointmentPhoto.create({
       data: {
         appointmentId: appointment.id,
         clientId: input.clientId,
@@ -1620,9 +1898,13 @@ export const appointmentRouter = createTRPCRouter({
       }
     });
 
+    annotate(() => ({ "photo.id": createdPhoto?.id }));
+
     return getAppointmentOutput(ctx.db, appointment.id);
   }),
   updatePhoto: stylistProcedure.input(appointmentPhotoUpdateInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({ "photo.id": input.id }));
+
     const photo = await ctx.db.appointmentPhoto.findFirst({
       where: {
         id: input.id,
@@ -1633,11 +1915,27 @@ export const appointmentRouter = createTRPCRouter({
     });
 
     if (!photo) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Appointment Photo not found."
-      });
+      throw refusal("NOT_FOUND", "Appointment Photo not found.", "photo_not_found");
     }
+
+    // The status moves of a photo (pending_upload to stored or failed) say how uploads go.
+    annotate(() => {
+      const changedFields = [
+        input.category !== undefined && input.category !== photo.category && "category",
+        input.status !== undefined && input.status !== photo.status && "status"
+      ].filter((field): field is string => typeof field === "string");
+
+      return {
+        "appointment.id": photo.appointmentId,
+        "photo.client_id": photo.clientId,
+        "photo.previous_category": photo.category,
+        "photo.category": input.category ?? photo.category,
+        "photo.previous_status": snakeCase(photo.status),
+        "photo.status": snakeCase(input.status ?? photo.status),
+        "photo.changed_fields": changedFields,
+        "photo.is_noop_save": changedFields.length === 0
+      };
+    });
 
     await ctx.db.appointmentPhoto.update({
       where: {
@@ -1652,6 +1950,8 @@ export const appointmentRouter = createTRPCRouter({
     return getAppointmentOutput(ctx.db, photo.appointmentId);
   }),
   deletePhoto: stylistTransactionProcedure.input(appointmentPhotoDeleteInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({ "photo.id": input.id }));
+
     const photo = await ctx.db.appointmentPhoto.findFirst({
       where: {
         id: input.id,
@@ -1662,11 +1962,17 @@ export const appointmentRouter = createTRPCRouter({
     });
 
     if (!photo) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Appointment Photo not found."
-      });
+      throw refusal("NOT_FOUND", "Appointment Photo not found.", "photo_not_found");
     }
+
+    annotate(() => ({
+      "appointment.id": photo.appointmentId,
+      "photo.client_id": photo.clientId,
+      "photo.category": photo.category,
+      "photo.status": snakeCase(photo.status),
+      // Whether a stored file goes with it, to delete after the commit (tx.unused_file_count).
+      "photo.has_file_key": Boolean(photo.fileKey)
+    }));
 
     await ctx.db.appointmentPhoto.delete({
       where: {
@@ -1678,6 +1984,12 @@ export const appointmentRouter = createTRPCRouter({
     return getAppointmentOutput(ctx.db, photo.appointmentId);
   }),
   addColorFormula: stylistTransactionProcedure.input(colorFormulaInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({
+      "appointment_service.id": input.appointmentServiceId,
+      "color_formula.formula_length": input.formula.length,
+      "color_formula.has_placement": Boolean(input.placement)
+    }));
+
     const service = await ctx.db.appointmentService.findFirst({
       where: {
         id: input.appointmentServiceId,
@@ -1697,26 +2009,31 @@ export const appointmentRouter = createTRPCRouter({
     });
 
     if (!service) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Appointment Service not found."
-      });
+      throw refusal("NOT_FOUND", "Appointment Service not found.", "service_not_found");
     }
 
     const repeatedFormula = input.requestKey
       ? service.colorFormulas.find((formula) => formula.requestKey === input.requestKey)
       : undefined;
 
+    annotate(() => ({
+      "appointment.id": service.appointmentId,
+      "appointment_service.menu_item_id": service.menuItemId ?? undefined,
+      // Formulas the Service had before: a second one is the exception.
+      "appointment_service.color_formula_count": service.colorFormulas.length,
+      "color_formula.is_repeat": input.requestKey ? Boolean(repeatedFormula) : undefined
+    }));
+
     if (repeatedFormula) {
       refuseChangedRepeat(repeatedFormula, {
         formula: input.formula,
         placement: input.placement ?? ""
-      });
+      }, "color_formula");
 
       return getAppointmentOutput(ctx.db, service.appointmentId);
     }
 
-    await ctx.db.colorFormula.create({
+    const createdFormula = await ctx.db.colorFormula.create({
       data: {
         appointmentServiceId: service.id,
         formula: input.formula,
@@ -1724,6 +2041,8 @@ export const appointmentRouter = createTRPCRouter({
         requestKey: input.requestKey
       }
     });
+
+    annotate(() => ({ "color_formula.id": createdFormula?.id }));
 
     const updatedAppointment = await ctx.db.appointment.findUniqueOrThrow({
       where: {
@@ -1770,9 +2089,15 @@ export const appointmentRouter = createTRPCRouter({
       }
     });
 
-    return toAppointmentOutput(updatedAppointment);
+    return toDescribedOutput(updatedAppointment);
   }),
   updateColorFormula: stylistProcedure.input(colorFormulaUpdateInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({
+      "color_formula.id": input.id,
+      "color_formula.formula_length": input.formula.length,
+      "color_formula.has_placement": Boolean(input.placement)
+    }));
+
     const colorFormula = await ctx.db.colorFormula.findFirst({
       where: {
         id: input.id,
@@ -1788,11 +2113,22 @@ export const appointmentRouter = createTRPCRouter({
     });
 
     if (!colorFormula) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Color Formula not found."
-      });
+      throw refusal("NOT_FOUND", "Color Formula not found.", "color_formula_not_found");
     }
+
+    annotate(() => {
+      const changedFields = [
+        input.formula !== colorFormula.formula && "formula",
+        (input.placement ?? "") !== (colorFormula.placement ?? "") && "placement"
+      ].filter((field): field is string => typeof field === "string");
+
+      return {
+        "appointment.id": colorFormula.appointmentService.appointmentId,
+        "appointment_service.id": colorFormula.appointmentServiceId,
+        "color_formula.changed_fields": changedFields,
+        "color_formula.is_noop_save": changedFields.length === 0
+      };
+    });
 
     await ctx.db.colorFormula.update({
       where: {
@@ -1849,9 +2185,11 @@ export const appointmentRouter = createTRPCRouter({
       }
     });
 
-    return toAppointmentOutput(updatedAppointment);
+    return toDescribedOutput(updatedAppointment);
   }),
   deleteColorFormula: stylistProcedure.input(colorFormulaDeleteInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({ "color_formula.id": input.id }));
+
     const colorFormula = await ctx.db.colorFormula.findFirst({
       where: {
         id: input.id,
@@ -1867,11 +2205,13 @@ export const appointmentRouter = createTRPCRouter({
     });
 
     if (!colorFormula) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Color Formula not found."
-      });
+      throw refusal("NOT_FOUND", "Color Formula not found.", "color_formula_not_found");
     }
+
+    annotate(() => ({
+      "appointment.id": colorFormula.appointmentService.appointmentId,
+      "appointment_service.id": colorFormula.appointmentServiceId
+    }));
 
     await ctx.db.colorFormula.delete({
       where: {
@@ -1924,9 +2264,16 @@ export const appointmentRouter = createTRPCRouter({
       }
     });
 
-    return toAppointmentOutput(updatedAppointment);
+    return toDescribedOutput(updatedAppointment);
   }),
   copyServices: stylistTransactionProcedure.input(appointmentCopyServicesInput).mutation(async ({ ctx, input }) => {
+    // The Appointment copied into is the one the request is about.
+    annotate(() => ({
+      "appointment.id": input.targetAppointmentId,
+      "appointment.copy_source_id": input.sourceAppointmentId,
+      "appointment.copy_source_choice": input.sourceAppointmentId ? "named" : "latest"
+    }));
+
     const targetAppointment = await ctx.db.appointment.findFirst({
       where: {
         id: input.targetAppointmentId,
@@ -1939,17 +2286,18 @@ export const appointmentRouter = createTRPCRouter({
     });
 
     if (!targetAppointment) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Target Appointment not found."
-      });
+      throw refusal("NOT_FOUND", "Target Appointment not found.", "copy_target_not_found");
     }
 
     const repeatedServiceCount = input.requestKey
       ? targetAppointment.services.filter((service) => service.requestKey === input.requestKey).length
       : 0;
 
+    annotate(() => ({ "appointment_service.is_repeat": input.requestKey ? repeatedServiceCount > 0 : undefined }));
+
     if (repeatedServiceCount > 0) {
+      annotate(() => ({ "appointment_service.copied_count": repeatedServiceCount }));
+
       return {
         ...(await getAppointmentOutput(ctx.db, targetAppointment.id)),
         copiedServiceCount: repeatedServiceCount
@@ -1976,59 +2324,74 @@ export const appointmentRouter = createTRPCRouter({
     });
 
     if (!sourceAppointment) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: input.sourceAppointmentId ? "Source Appointment not found." : "Completed source Appointment not found."
-      });
+      throw input.sourceAppointmentId
+        ? refusal("NOT_FOUND", "Source Appointment not found.", "copy_source_not_found")
+        : refusal("NOT_FOUND", "Completed source Appointment not found.", "no_completed_copy_source");
     }
 
+    annotate(() => ({
+      "appointment.copy_source_id": sourceAppointment.id,
+      "appointment.copy_source_status": snakeCase(sourceAppointment.status),
+      "appointment.copy_source_service_count": sourceAppointment.services.length,
+      // How old what is copied is: the Stylist's usual time between two visits of a Client.
+      "appointment.copy_source_age_days": daysBetween(sourceAppointment.startsAt, new Date())
+    }));
+
     if (sourceAppointment.status !== "completed") {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Source Appointment is no longer Completed."
-      });
+      throw refusal("NOT_FOUND", "Source Appointment is no longer Completed.", "copy_source_not_completed");
     }
 
     const servicesToCopy = inAddedOrder(getServicesToCopy(sourceAppointment, targetAppointment));
+    const copiedCents = servicesToCopy.reduce((total, service) => total + service.priceCents, 0);
+    // For the event only, so it reads nothing that could be missing.
+    const copiedFormulaCount = servicesToCopy.reduce((count, service) => count + (service.colorFormulas?.length ?? 0), 0);
+
+    annotate(() => ({
+      "appointment_service.copied_count": servicesToCopy.length,
+      "appointment_service.copied_minor": copiedCents,
+      "appointment_service.copied_client_count": new Set(servicesToCopy.map((service) => service.clientId)).size,
+      "color_formula.copied_count": copiedFormulaCount
+    }));
 
     if (servicesToCopy.length === 0) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "Source Appointment has no Services to copy."
-      });
+      throw refusal("BAD_REQUEST", "Source Appointment has no Services to copy.", "nothing_to_copy");
     }
 
-    refuseTotalAboveMaximum(
-      targetAppointment.services,
-      servicesToCopy.reduce((total, service) => total + service.priceCents, 0)
-    );
+    refuseTotalAboveMaximum(targetAppointment.services, copiedCents);
 
     // Rows written together would share a timestamp, and the timestamp is their order. The copies
     // are dated one millisecond apart instead, so they keep the order of the source for good.
     // Writing them takes longer than the milliseconds they span, so what is added next comes after.
     const copiedAt = Date.now();
 
-    for (const [index, service] of servicesToCopy.entries()) {
-      await ctx.db.appointmentService.create({
-        data: {
-          appointmentId: targetAppointment.id,
-          clientId: service.clientId,
-          menuItemId: service.menuItemId,
-          name: service.name,
-          priceCents: service.priceCents,
-          note: service.note ?? "",
-          requestKey: input.requestKey,
-          createdAt: new Date(copiedAt + index),
-          colorFormulas: {
-            create: inAddedOrder(service.colorFormulas).map((formula, formulaIndex) => ({
-              formula: formula.formula,
-              placement: formula.placement ?? "",
-              createdAt: new Date(copiedAt + formulaIndex)
-            }))
-          }
+    // One insert per Service with its Color Formulas: a unit of work of its own in the trace.
+    await traced(
+      "appointment.copy_services",
+      async () => {
+        for (const [index, service] of servicesToCopy.entries()) {
+          await ctx.db.appointmentService.create({
+            data: {
+              appointmentId: targetAppointment.id,
+              clientId: service.clientId,
+              menuItemId: service.menuItemId,
+              name: service.name,
+              priceCents: service.priceCents,
+              note: service.note ?? "",
+              requestKey: input.requestKey,
+              createdAt: new Date(copiedAt + index),
+              colorFormulas: {
+                create: inAddedOrder(service.colorFormulas).map((formula, formulaIndex) => ({
+                  formula: formula.formula,
+                  placement: formula.placement ?? "",
+                  createdAt: new Date(copiedAt + formulaIndex)
+                }))
+              }
+            }
+          });
         }
-      });
-    }
+      },
+      { "appointment_service.count": servicesToCopy.length, "color_formula.count": copiedFormulaCount }
+    );
 
     return {
       ...(await getAppointmentOutput(ctx.db, targetAppointment.id)),
@@ -2036,6 +2399,8 @@ export const appointmentRouter = createTRPCRouter({
     };
   }),
   addParticipant: stylistTransactionProcedure.input(appointmentParticipantInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({ "appointment.id": input.appointmentId, "client.id": input.clientId }));
+
     const appointment = await ctx.db.appointment.findFirst({
       where: {
         id: input.appointmentId,
@@ -2050,10 +2415,7 @@ export const appointmentRouter = createTRPCRouter({
     });
 
     if (!appointment || !client) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Appointment or Client not found."
-      });
+      throw refusal("NOT_FOUND", "Appointment or Client not found.", appointment ? "client_not_found" : "appointment_not_found");
     }
 
     await ctx.db.appointmentParticipant.upsert({
@@ -2076,6 +2438,8 @@ export const appointmentRouter = createTRPCRouter({
     };
   }),
   removeParticipant: stylistTransactionProcedure.input(appointmentParticipantInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({ "appointment.id": input.appointmentId, "client.id": input.clientId }));
+
     const appointment = await ctx.db.appointment.findFirst({
       where: {
         id: input.appointmentId,
@@ -2094,27 +2458,21 @@ export const appointmentRouter = createTRPCRouter({
     });
 
     if (!appointment) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Appointment not found."
-      });
+      throw refusal("NOT_FOUND", "Appointment not found.", "appointment_not_found");
     }
 
+    // The Clients before the removal.
+    annotate(() => ({ "appointment.client_count": appointment.participants.length }));
+
     if (!appointment.participants.some((participant) => participant.clientId === input.clientId)) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "Client must be attached to the Appointment."
-      });
+      throw refusal("BAD_REQUEST", "Client must be attached to the Appointment.", "client_not_attached");
     }
 
     const remainingParticipants = appointment.participants.filter((participant) => participant.clientId !== input.clientId);
     const nextPrimaryParticipant = remainingParticipants[0];
 
     if (!nextPrimaryParticipant) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "Appointment must keep at least one Client."
-      });
+      throw refusal("BAD_REQUEST", "Appointment must keep at least one Client.", "last_client");
     }
 
     const serviceCount = await ctx.db.appointmentService.count({
@@ -2124,11 +2482,10 @@ export const appointmentRouter = createTRPCRouter({
       }
     });
 
+    annotate(() => ({ "client.appointment_service_count": serviceCount }));
+
     if (serviceCount > 0) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "Client has Services attached to this Appointment."
-      });
+      throw refusal("BAD_REQUEST", "Client has Services attached to this Appointment.", "client_has_services");
     }
 
     const photoCount = await ctx.db.appointmentPhoto.count({
@@ -2138,15 +2495,21 @@ export const appointmentRouter = createTRPCRouter({
       }
     });
 
+    annotate(() => ({ "client.appointment_photo_count": photoCount }));
+
     if (photoCount > 0) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "Client has Appointment Photos attached to this Appointment."
-      });
+      throw refusal("BAD_REQUEST", "Client has Appointment Photos attached to this Appointment.", "client_has_photos");
     }
 
+    const primaryClientChanges = !remainingParticipants.some((participant) => participant.clientId === appointment.primaryClientId);
+
+    annotate(() => ({
+      "appointment.is_primary_client_changed": primaryClientChanges,
+      "appointment.primary_client_id": primaryClientChanges ? nextPrimaryParticipant.clientId : appointment.primaryClientId
+    }));
+
     // The primary Client is always one of the Appointment's Clients.
-    if (!remainingParticipants.some((participant) => participant.clientId === appointment.primaryClientId)) {
+    if (primaryClientChanges) {
       await ctx.db.appointment.update({
         where: {
           id: appointment.id
@@ -2168,6 +2531,8 @@ export const appointmentRouter = createTRPCRouter({
     };
   }),
   delete: stylistTransactionProcedure.input(appointmentDeleteInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({ "appointment.id": input.id }));
+
     // The Appointment Photos go with the Appointment, and their stored files with them.
     const photos = await ctx.db.appointmentPhoto.findMany({
       where: {
@@ -2181,12 +2546,20 @@ export const appointmentRouter = createTRPCRouter({
       }
     });
 
-    await ctx.db.appointment.deleteMany({
+    const deleted = await ctx.db.appointment.deleteMany({
       where: {
         id: input.id,
         stylistId: ctx.stylist.id
       }
     });
+
+    annotate(() => ({
+      // "not_found": already deleted, such as a delete sent again, or not the Stylist's. The reply is the same.
+      "appointment.delete_result": deleted?.count ? "deleted" : "not_found",
+      "appointment.photo_count": photos.length,
+      "appointment.stored_photo_count": photos.filter((photo) => photo.fileKey).length
+    }));
+
     await markFilesUnused(ctx, photos);
 
     return {

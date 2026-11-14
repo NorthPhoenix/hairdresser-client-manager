@@ -14,6 +14,15 @@ Use the default mattpocock/skills triage label vocabulary. See `docs/agents/tria
 
 Use a single-context domain docs layout. See `docs/agents/domain.md`.
 
+## Production server logs
+
+Vercel's Hobby plan keeps runtime logs for about one hour, so `vercel logs` only reaches back that far. Older logs are archived on the maintainer's server in `~/hcm-logs` (see its `README.md`), copied by a cron job every 15 minutes:
+
+- `~/hcm-logs/runtime/YYYY-MM-DD.jsonl` holds one Vercel runtime log record per line, filed by US Central day, with timestamps in UTC. It holds only what the app prints with `console.*`; there is no status line per request.
+- `~/hcm-logs/gaps.jsonl` lists time ranges whose logs were lost, and `~/hcm-logs/pull.log` shows each run. Check both before concluding that something never happened.
+
+When investigating a production problem from the past, read the archive instead of `vercel logs`. The archive is read-only for agents; do not edit or delete its files.
+
 ## Temporary artifacts
 
 When creating local artifacts for the maintainer, such as testing guides or scratch documents, place them under `/temp` at the repository root. `/temp/**` is intentionally gitignored and should not be committed.

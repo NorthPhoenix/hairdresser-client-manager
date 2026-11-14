@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { createPublishedReleaseReader, manifestUrlFor, parseManifest } from "./publishedRelease";
 
+// Without a running request an error that was recorded is printed on a line of its own, which is
+// where these tests read it.
+function recordedErrors(printed: { mock: { calls: unknown[][] } }) {
+  return printed.mock.calls
+    .map(([line]) => (typeof line === "string" && line.startsWith('{"event":"hcm.error"') ? (JSON.parse(line) as Record<string, unknown>) : null))
+    .filter((event) => event !== null);
+}
+
 const manifestUrl = "https://downloads.example.com/hcm/latest.json";
 const manifest = { versionCode: 9, versionName: "1.7.0", file: "client-manager-1.7.0.apk", sha256: "ab12" };
 
@@ -87,7 +95,7 @@ describe("reading the published release", () => {
   });
 
   it("keeps the release read last while the manifest cannot be read, for a while", async () => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const printed = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const fetch = vi.fn().mockResolvedValueOnce(answer(manifest)).mockRejectedValue(new Error("offline"));
     const { read, later } = reader(fetch);
 
@@ -97,16 +105,17 @@ describe("reading the published release", () => {
     // Past the stale time the server no longer claims to know what is published.
     later(600_000);
     expect(await read()).toBeNull();
-    expect(error).toHaveBeenCalled();
-    error.mockRestore();
+    expect(recordedErrors(printed)).toMatchObject([{ "error.reason": "manifest_unreadable", "error.handled": true }, { "error.reason": "manifest_unreadable" }]);
+    printed.mockRestore();
   });
 
-  it("knows nothing when the manifest is missing or breaks a rule", async () => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  it("knows nothing when the manifest is missing or breaks a rule, and says which", async () => {
+    const printed = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     expect(await reader(vi.fn().mockResolvedValue(answer({ error: "not found" }, 404))).read()).toBeNull();
     expect(await reader(vi.fn().mockResolvedValue(answer({ versionCode: 9 }))).read()).toBeNull();
     expect(await reader(vi.fn().mockResolvedValue(new Response("<html>", { status: 200 }))).read()).toBeNull();
-    error.mockRestore();
+    expect(recordedErrors(printed).map((event) => event["error.reason"])).toEqual(["manifest_http_error", "manifest_invalid", "manifest_unreadable"]);
+    printed.mockRestore();
   });
 });

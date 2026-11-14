@@ -1,3 +1,4 @@
+import { annotate, increment, recordError, traced } from "@hcm/telemetry";
 import type { Db } from "./context";
 
 /**
@@ -65,7 +66,13 @@ export async function markFilesUnused(ctx: { db: Db; unusedFiles: string[] }, ph
     }
   });
 
-  ctx.unusedFiles.push(...fileKeys.filter((fileKey) => !stillNamed.some((photo) => photo.fileKey === fileKey)));
+  const unused = fileKeys.filter((fileKey) => !stillNamed.some((photo) => photo.fileKey === fileKey));
+
+  ctx.unusedFiles.push(...unused);
+  // Added up, as a request may delete several Appointments. A kept file is one that another
+  // Appointment Photo still names, which only a photo from before one file was one photo can do.
+  increment("photo.unused_file_count", unused.length);
+  increment("photo.kept_file_count", fileKeys.length - unused.length);
 }
 
 // How long the Stylist's action waits for photo storage before it answers without it.
@@ -73,8 +80,8 @@ const storageDeleteTimeoutMs = 5_000;
 
 /**
  * Deletes files that no Appointment Photo names any more from photo storage. The photos are
- * already gone for the Stylist, so a storage failure does not fail the action: it is logged with
- * the file keys, and those files stay in storage until someone deletes them there.
+ * already gone for the Stylist, so a storage failure does not fail the action: it is recorded in
+ * the request's event, and those files stay in storage until someone deletes them there.
  */
 export async function deleteUnusedFiles(deleteStoredFiles: (fileKeys: string[]) => Promise<unknown>, fileKeys: string[]) {
   if (fileKeys.length === 0) {
@@ -82,17 +89,30 @@ export async function deleteUnusedFiles(deleteStoredFiles: (fileKeys: string[]) 
   }
 
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
 
-  try {
-    await Promise.race([
-      deleteStoredFiles(fileKeys),
-      new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error("Photo storage did not answer in time.")), storageDeleteTimeoutMs);
-      })
-    ]);
-  } catch (error) {
-    console.error(`Photo storage still holds the files of deleted Appointment Photos: ${fileKeys.join(", ")}`, error);
-  } finally {
-    clearTimeout(timer);
-  }
+  annotate({ "photo_storage.delete_file_count": fileKeys.length });
+
+  // A span of its own: the Stylist's action waits for this call, up to the timeout.
+  await traced("photo_storage.delete_files", async () => {
+    try {
+      await Promise.race([
+        deleteStoredFiles(fileKeys),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => {
+            timedOut = true;
+            reject(new Error("Photo storage did not answer in time."));
+          }, storageDeleteTimeoutMs);
+        })
+      ]);
+      annotate({ "photo_storage.delete_result": "deleted" });
+    } catch (error) {
+      // The file keys are not recorded: a key is the address of a Client's photo, and events are
+      // kept for good. The count says how many files stay behind in storage.
+      annotate({ "photo_storage.delete_result": timedOut ? "timed_out" : "failed" });
+      recordError(error, { handled: true, reason: timedOut ? "photo_storage_delete_timed_out" : "photo_storage_delete_failed" });
+    } finally {
+      clearTimeout(timer);
+    }
+  });
 }

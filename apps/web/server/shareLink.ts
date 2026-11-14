@@ -1,5 +1,6 @@
 import { db } from "@hcm/db";
 import { isProfileShareToken } from "@hcm/shared";
+import { annotate, hashPrefix, recordError } from "@hcm/telemetry";
 
 // Kept free of everything a page needs to show a share: proxy.ts loads this for every request.
 
@@ -21,13 +22,19 @@ export const unknownAddress = "/_unavailable";
  * Whoever shows something of it has to look at `revokedAt` first: see loadProfileShare.
  */
 export async function findShareLink(token: string) {
+  // The token is the link: it is never recorded, only a short hash of it, which tells the
+  // requests for one link apart.
+  annotate({ "profile_share.token_hash": hashPrefix(token) });
+
   // Only a token is looked up. A link that was cut short or changed by hand ends here, and so
   // does a character the database refuses, such as a NUL.
   if (!isProfileShareToken(token)) {
+    annotate({ "profile_share.link_state": "malformed_token" });
+
     return null;
   }
 
-  return db.profileShare.findUnique({
+  const share = await db.profileShare.findUnique({
     where: {
       token
     },
@@ -39,6 +46,16 @@ export async function findShareLink(token: string) {
       }
     }
   });
+
+  annotate({
+    "profile_share.link_state": !share ? "unknown" : share.revokedAt !== null ? "revoked" : "working",
+    "profile_share.id": share?.id,
+    "client.id": share?.clientId,
+    "stylist.id": share?.client.stylistId,
+    "profile_share.language": share?.language
+  });
+
+  return share;
 }
 
 /**
@@ -58,7 +75,8 @@ export async function lookUpSharePage(token: string) {
       language: link?.client.language
     };
   } catch (error) {
-    console.error("A Profile Share link could not be looked up before its page:", error);
+    annotate({ "profile_share.link_state": "lookup_failed" });
+    recordError(error, { handled: true, reason: "share_lookup_failed" });
 
     return {
       showsNothing: false,

@@ -8,6 +8,7 @@ import {
 } from "@hcm/api";
 import { db } from "@hcm/db";
 import { defaultLocale, requestedLocale, t } from "@hcm/shared";
+import { annotate, increment, recordError, traced } from "@hcm/telemetry";
 import { findShareLink } from "./shareLink";
 
 // Appointment Photos are stored by /api/uploadthing, in the UploadThing app of the same token.
@@ -29,6 +30,8 @@ export async function accountName(clerkId: string, { fresh = false } = {}) {
   const known = accountNames.get(clerkId);
 
   if (!fresh && known && known.until > Date.now()) {
+    annotate({ "profile_share.account_lookup": "cache", "profile_share.has_account_name": known.name !== null });
+
     return known.name;
   }
 
@@ -49,14 +52,19 @@ export async function accountName(clerkId: string, { fresh = false } = {}) {
     }
 
     accountNames.set(clerkId, { name, until: Date.now() + accountNameLifetimeMs });
+    annotate({ "profile_share.account_lookup": "provider", "profile_share.has_account_name": name !== null });
 
     return name;
   } catch (error) {
     // Asked afresh and not answered: the name that would have been reused is better than none.
     if (known && known.until > Date.now()) {
+      annotate({ "profile_share.account_lookup": "stale_cache" });
+      recordError(error, { handled: true, reason: "account_lookup_failed_used_cache" });
+
       return known.name;
     }
 
+    // The caller decides what a missing name means, and records the failure.
     throw error;
   } finally {
     clearTimeout(timer);
@@ -82,43 +90,62 @@ export async function readSharePhoto(url: string): Promise<SharePhotoImage | nul
   const known = readPhotos.get(url);
 
   if (known) {
+    increment("share_image.photo_cache_hit_count");
+
     return known;
   }
 
-  try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(photoReadTimeoutMs) });
+  increment("share_image.photo_read_count");
 
-    if (!response.ok || Number(response.headers.get("content-length") ?? 0) > photoMaxBytes) {
+  // Reading, turning and shrinking a photo is the costly part of a Share Image: a span of its own.
+  return traced("share_image.read_photo", async (span) => {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(photoReadTimeoutMs) });
+
+      span.annotate({ "photo.storage_status": response.status });
+
+      if (!response.ok || Number(response.headers.get("content-length") ?? 0) > photoMaxBytes) {
+        increment("share_image.photo_skipped_count");
+        annotate({ "share_image.photo_skip_reason": !response.ok ? "storage_status" : "too_large" });
+
+        return null;
+      }
+
+      // Loaded here, so that a server without this image library still serves everything else.
+      const { default: sharp } = await import("sharp");
+      const source = Buffer.from(await response.arrayBuffer());
+      const { data, info } = await sharp(source)
+        .rotate()
+        .resize({ width: photoMaxSide, height: photoMaxSide, fit: "inside", withoutEnlargement: true })
+        .jpeg({ quality: 78 })
+        .toBuffer({ resolveWithObject: true });
+
+      const photo = {
+        dataUri: `data:image/jpeg;base64,${data.toString("base64")}`,
+        width: info.width,
+        height: info.height
+      };
+
+      span.annotate({ "photo.source_bytes": source.length, "photo.output_bytes": data.length });
+      increment("share_image.photo_source_bytes", source.length);
+      increment("share_image.photo_output_bytes", data.length);
+
+      if (readPhotos.size >= readPhotosKept) {
+        // The one that was read first.
+        readPhotos.delete(readPhotos.keys().next().value ?? "");
+      }
+
+      readPhotos.set(url, photo);
+
+      return photo;
+    } catch (error) {
+      increment("share_image.photo_skipped_count");
+      annotate({ "share_image.photo_skip_reason": "read_failed" });
+      recordError(error, { handled: true, reason: "share_photo_read_failed" });
+
       return null;
     }
-
-    // Loaded here, so that a server without this image library still serves everything else.
-    const { default: sharp } = await import("sharp");
-    const { data, info } = await sharp(Buffer.from(await response.arrayBuffer()))
-      .rotate()
-      .resize({ width: photoMaxSide, height: photoMaxSide, fit: "inside", withoutEnlargement: true })
-      .jpeg({ quality: 78 })
-      .toBuffer({ resolveWithObject: true });
-
-    const photo = {
-      dataUri: `data:image/jpeg;base64,${data.toString("base64")}`,
-      width: info.width,
-      height: info.height
-    };
-
-    if (readPhotos.size >= readPhotosKept) {
-      // The one that was read first.
-      readPhotos.delete(readPhotos.keys().next().value ?? "");
-    }
-
-    readPhotos.set(url, photo);
-
-    return photo;
-  } catch (error) {
-    console.error("A photo could not be read for a Share Image:", error);
-
-    return null;
-  }
+  });
 }
 
 // What a browser shows as a picture and as nothing else: an answer of this server is never a
@@ -138,16 +165,27 @@ export async function openSharePhoto(url: string) {
   try {
     const response = await fetch(url, { signal: waiting.signal });
     const type = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ?? "";
+    const length = Number(response.headers.get("content-length"));
+
+    annotate({
+      "profile_share.photo_storage_status": response.status,
+      "profile_share.photo_media_type": photoTypes.has(type) ? type : "other",
+      "profile_share.photo_bytes": Number.isFinite(length) && response.headers.has("content-length") ? length : undefined
+    });
 
     if (!response.ok || !response.body || !photoTypes.has(type)) {
+      annotate({ "profile_share.photo_open": !response.ok || !response.body ? "storage_refused" : "not_a_picture" });
       await response.body?.cancel();
 
       return null;
     }
 
+    annotate({ "profile_share.photo_open": "opened" });
+
     return { body: response.body, type };
   } catch (error) {
-    console.error("A photo could not be read for a Profile Share page:", error);
+    annotate({ "profile_share.photo_open": "failed" });
+    recordError(error, { handled: true, reason: error instanceof Error && error.name === "AbortError" ? "share_photo_open_timed_out" : "share_photo_open_failed" });
 
     return null;
   } finally {
@@ -178,7 +216,15 @@ export const loadProfileShare = cache(async (token: string) => {
  * (proxy.ts chooses the same way for the page).
  */
 export async function unavailableShareResponse(token: string, lang?: string | null) {
-  const locale = requestedLocale(lang) ?? (await findShareLink(token))?.client.language ?? defaultLocale;
+  const asked = requestedLocale(lang);
+  const found = asked ? undefined : (await findShareLink(token))?.client.language;
+  const locale = asked ?? found ?? defaultLocale;
+
+  annotate({
+    "profile_share.unavailable_response": true,
+    "profile_share.language": locale,
+    "profile_share.language_source": asked ? "query" : found ? "client" : "default"
+  });
 
   return new Response(t(locale, "profileShareUnavailableTitle"), {
     status: 404,

@@ -1,3 +1,4 @@
+import { annotate, recordError, traced } from "@hcm/telemetry";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import {
@@ -39,13 +40,25 @@ export const statsRouter = createTRPCRouter({
     const date = input.date ? parseLocalDate(input.date) : today;
 
     if (!date) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: "Date is not valid." });
+      const refusal = new TRPCError({ code: "BAD_REQUEST", message: "Date is not valid." });
+
+      recordError(refusal, { expected: true, reason: "stats_date_not_valid" });
+      throw refusal;
     }
 
     const bounds = periodBounds(input.period, date, timezone);
     const inPeriod = { gte: bounds.startsAt, lt: bounds.endsAt };
     const stylistId = ctx.stylist.id;
     const current = bounds.startsAt <= now && now < bounds.endsAt;
+    annotate(() => ({
+      "stats.period": input.period,
+      // Left out: today's period.
+      "stats.has_date": input.date !== undefined,
+      "stats.range_days": Math.round((bounds.endsAt.getTime() - bounds.startsAt.getTime()) / 86_400_000),
+      "stats.is_current_period": current,
+      "stats.period_offset_days": Math.round((bounds.startsAt.getTime() - now.getTime()) / 86_400_000)
+    }));
+
     const serviceColumns = { menuItemId: true, name: true, priceCents: true } as const;
 
     const [completed, otherOutcomes, scheduled] = await Promise.all([
@@ -80,24 +93,43 @@ export const statsRouter = createTRPCRouter({
     const amountOf = (appointments: typeof scheduled) =>
       appointments.reduce((sum, appointment) => sum + appointmentAmount(appointment).totalCents, 0);
 
-    let servicesCents = 0;
-    let tipsCents = 0;
-    let atHome = 0;
-    const lines: RevenueLine[] = [];
+    // The loop over the period's completed Appointments: its own unit of work, as a year has hundreds.
+    const { servicesCents, tipsCents, atHome, lines, customTotalCount, tipCount } = await traced(
+      "stats.aggregate_period",
+      async (span) => {
+        let servicesCents = 0;
+        let tipsCents = 0;
+        let atHome = 0;
+        let customTotalCount = 0;
+        let tipCount = 0;
+        const lines: RevenueLine[] = [];
 
-    for (const appointment of completed) {
-      const amount = appointmentAmount(appointment);
+        for (const appointment of completed) {
+          const amount = appointmentAmount(appointment);
 
-      servicesCents += amount.servicesCents;
-      tipsCents += amount.tipCents;
+          servicesCents += amount.servicesCents;
+          tipsCents += amount.tipCents;
 
-      if (appointment.locationType === "atHome") {
-        atHome += 1;
+          if (appointment.locationType === "atHome") {
+            atHome += 1;
+          }
+
+          if (appointment.finalTotalCentsOverride !== null) {
+            customTotalCount += 1;
+          }
+
+          if (amount.tipCents > 0) {
+            tipCount += 1;
+          }
+
+          // Under a custom total each Service counts its share of it, so the lines add up to Earned's Services.
+          lines.push(...serviceRevenue(appointment));
+        }
+
+        span.annotate({ "stats.appointment_count": completed.length, "stats.service_line_count": lines.length });
+        return { servicesCents, tipsCents, atHome, lines, customTotalCount, tipCount };
       }
-
-      // Under a custom total each Service counts its share of it, so the lines add up to Earned's Services.
-      lines.push(...serviceRevenue(appointment));
-    }
+    );
 
     const itemIds = [...new Set(lines.flatMap((line) => (line.menuItemId ? [line.menuItemId] : [])))];
     const items = itemIds.length
@@ -110,6 +142,31 @@ export const statsRouter = createTRPCRouter({
     const totalCents = servicesCents + tipsCents;
     const countOf = (status: "canceled" | "noShow") =>
       otherOutcomes.find((outcome) => outcome.status === status)?._count._all ?? 0;
+    const ranked = topServices(lines, groupOfItem);
+
+    annotate(() => ({
+      "stats.completed_count": completed.length,
+      "stats.canceled_count": countOf("canceled"),
+      "stats.no_show_count": countOf("noShow"),
+      "stats.scheduled_count": scheduled.length,
+      "stats.booked_count": booked.length,
+      "stats.unresolved_count": unresolved.length,
+      "stats.at_home_count": atHome,
+      "stats.custom_total_count": customTotalCount,
+      "stats.tip_count": tipCount,
+      "stats.service_line_count": lines.length,
+      "stats.menu_item_count": itemIds.length,
+      "stats.grouped_item_count": items.length,
+      "stats.top_service_count": ranked.length,
+      "stats.earned_minor": totalCents,
+      "stats.services_minor": servicesCents,
+      "stats.tips_minor": tipsCents,
+      "stats.booked_minor": amountOf(booked),
+      "stats.unresolved_minor": amountOf(unresolved),
+      // Nothing happened in the period: the app shows its empty state.
+      "stats.is_empty": completed.length + scheduled.length + countOf("canceled") + countOf("noShow") === 0
+    }));
+
     const upcoming = bounds.endsAt > now
       ? {
           count: booked.length,
@@ -141,7 +198,7 @@ export const statsRouter = createTRPCRouter({
       // Scheduled Appointments of the period whose start time has passed, waiting for an outcome
       // (Home's "Needs an outcome"). Apps before 1.15.0 do not read it.
       unresolved: { count: unresolved.length, totalCents: amountOf(unresolved) },
-      topServices: topServices(lines, groupOfItem).map((service) => ({
+      topServices: ranked.map((service) => ({
         name: service.name,
         revenueCents: service.revenueCents,
         count: service.count

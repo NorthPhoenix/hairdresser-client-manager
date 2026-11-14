@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { deleteUnusedFiles, getUploadThingOrigins, isStoredFileUrl } from "./photoStorage";
 
+// Without a running request an error that was recorded is printed on a line of its own, which is
+// where these tests read it.
+function recordedErrors(printed: { mock: { calls: unknown[][] } }) {
+  return printed.mock.calls
+    .map(([line]) => (typeof line === "string" && line.startsWith('{"event":"hcm.error"') ? (JSON.parse(line) as Record<string, unknown>) : null))
+    .filter((event) => event !== null);
+}
+
 // A token as UploadThing issues it, with a made-up key.
 const tokenOf = (content: unknown) => btoa(JSON.stringify(content));
 
@@ -77,24 +85,28 @@ describe("deleting files from photo storage", () => {
     expect(deleteStoredFiles).not.toHaveBeenCalled();
   });
 
-  it("logs a storage failure with the file keys and does not fail", async () => {
-    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  it("records a storage failure, without the file keys, and does not fail", async () => {
+    const printed = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const failure = new Error("UploadThing is down.");
 
     await expect(deleteUnusedFiles(vi.fn().mockRejectedValue(failure), ["file_1", "file_2"])).resolves.toBeUndefined();
 
-    expect(logged).toHaveBeenCalledWith(expect.stringContaining("file_1, file_2"), failure);
+    const [recorded, ...others] = recordedErrors(printed);
+
+    expect(others).toEqual([]);
+    expect(recorded).toMatchObject({ "error.message": "UploadThing is down.", "error.reason": "photo_storage_delete_failed", "error.handled": true });
+    expect(JSON.stringify(recorded)).not.toContain("file_1");
   });
 
-  it("stops waiting for a storage that does not answer, and logs that", async () => {
+  it("stops waiting for a storage that does not answer, and records that", async () => {
     vi.useFakeTimers();
 
-    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const printed = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const done = deleteUnusedFiles(() => new Promise(() => undefined), ["file_1"]);
 
     await vi.advanceTimersByTimeAsync(5_000);
     await expect(done).resolves.toBeUndefined();
 
-    expect(logged).toHaveBeenCalledWith(expect.stringContaining("file_1"), expect.any(Error));
+    expect(recordedErrors(printed)).toMatchObject([{ "error.reason": "photo_storage_delete_timed_out", "error.handled": true }]);
   });
 });

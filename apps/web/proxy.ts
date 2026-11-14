@@ -1,7 +1,16 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse, type NextFetchEvent } from "next/server";
 import { defaultLocale, requestedLocale } from "@hcm/shared";
+import { annotate, recordError } from "@hcm/telemetry";
 import { lookUpSharePage, unavailableLanguageHeader, unknownAddress } from "./server/shareLink";
+
+// The status of what the proxy answers, for the request's event: Next.js reports 200 for the
+// proxy whatever it answers (docs/observability.md, `http.status_code`).
+function answering<T extends Response>(response: T, status: number = response.status): T {
+  annotate({ "http.status_code": status });
+
+  return response;
+}
 
 // What is done with a request once Clerk has read who sent it.
 async function passOn(request: NextRequest) {
@@ -11,28 +20,48 @@ async function passOn(request: NextRequest) {
   const sharePage = token === undefined ? null : await lookUpSharePage(token);
   const headers = new Headers(request.headers);
 
+  annotate({ "proxy.is_share_page": token !== undefined });
+
   // The language in which a Client is told that a link shows nothing: the one the address asks
   // for, else the language of the Client the link was made for (a revoked link is still known),
   // else the primary language.
-  headers.set(unavailableLanguageHeader, requestedLocale(searchParams.getAll("lang")) ?? sharePage?.language ?? defaultLocale);
+  const asked = requestedLocale(searchParams.getAll("lang"));
+  const language = asked ?? sharePage?.language ?? defaultLocale;
+
+  headers.set(unavailableLanguageHeader, language);
+  annotate({
+    "proxy.language": language,
+    "proxy.language_source": asked ? "query" : sharePage?.language ? "client" : "default",
+    "proxy.share_shows_nothing": sharePage?.showsNothing
+  });
 
   // A link that is unknown or revoked is passed on as an address without a page. Only so is its
   // page (app/not-found.tsx) whole in the answer, with status 404: when the share page finds out
   // by itself (it still does, see loadProfileShare) the framework answers 404 with an empty
   // document and leaves it to the browser to draw the page.
   if (sharePage?.showsNothing) {
-    return NextResponse.rewrite(new URL(unknownAddress, request.url), {
+    annotate({ "proxy.decision": "rewrite_to_unavailable" });
+
+    // The address it is passed on as has no page, which is answered with 404.
+    return answering(
+      NextResponse.rewrite(new URL(unknownAddress, request.url), {
+        request: {
+          headers
+        }
+      }),
+      404
+    );
+  }
+
+  annotate({ "proxy.decision": "passed_on" });
+
+  return answering(
+    NextResponse.next({
       request: {
         headers
       }
-    });
-  }
-
-  return NextResponse.next({
-    request: {
-      headers
-    }
-  });
+    })
+  );
 }
 
 // The request headers in which a sign-in arrives: the app's token, and a browser's session.
@@ -42,16 +71,28 @@ export default async function proxy(request: NextRequest, event: NextFetchEvent)
   // Only the API takes anything but reading. Without this the framework draws a page for any
   // method. (TRACE never gets here: see instrumentation.ts.)
   if (!request.nextUrl.pathname.startsWith("/api/") && request.method !== "GET" && request.method !== "HEAD") {
-    return new NextResponse(null, {
-      status: 405,
-      headers: {
-        Allow: "GET, HEAD"
-      }
-    });
+    annotate({ "proxy.decision": "method_refused", "proxy.refused_method": request.method });
+    recordError(new Error("Only the API takes anything but reading."), { expected: true, code: "METHOD_NOT_ALLOWED", reason: "method_not_allowed" });
+
+    return answering(
+      new NextResponse(null, {
+        status: 405,
+        headers: {
+          Allow: "GET, HEAD"
+        }
+      })
+    );
   }
 
   // Made for this request, so that `read` is its own.
   let read = false;
+
+  // Whether a sign-in came with the request, never what it says.
+  annotate({
+    "proxy.has_authorization_header": request.headers.has("authorization"),
+    "proxy.has_cookie_header": request.headers.has("cookie")
+  });
+
   const answer = clerkMiddleware((_auth, request) => {
     read = true;
 
@@ -59,7 +100,14 @@ export default async function proxy(request: NextRequest, event: NextFetchEvent)
   });
 
   try {
-    return await answer(request, event);
+    const response = await answer(request, event);
+
+    // Clerk answers some requests itself (a redirect to sign in) without passing them on.
+    if (!read && response instanceof Response) {
+      answering(response);
+    }
+
+    return response;
   } catch (error) {
     // Clerk refuses a sign-in token that is wrong, but fails on one it cannot decode at all (three
     // parts that are not what a token is made of, as in `Bearer a.b.c`), and the request would end
@@ -69,6 +117,11 @@ export default async function proxy(request: NextRequest, event: NextFetchEvent)
     if (read || !signInHeaders.some((name) => request.headers.has(name))) {
       throw error;
     }
+
+    // Recorded, so that how often a token Clerk cannot decode arrives (and from whom: its headers
+    // are named in `proxy.has_*`) can be counted.
+    annotate({ "proxy.sign_in_fallback": true });
+    recordError(error, { handled: true, reason: "clerk_token_undecodable" });
 
     const headers = new Headers(request.headers);
 

@@ -284,12 +284,14 @@ describe("recording the app version a Stylist uses", () => {
   });
 
   it("does not fail the request when the write fails", async () => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const printed = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const { caller: app } = caller({ appVersion: version, executeRaw: vi.fn().mockRejectedValue(new Error("database down")) });
 
     await expect(app.stylist.bootstrap()).resolves.toMatchObject({ id: "stylist_1" });
-    expect(error).toHaveBeenCalled();
-    error.mockRestore();
+    expect(
+      printed.mock.calls.some(([line]) => typeof line === "string" && line.includes('"error.reason":"app_version_write_failed"') && line.includes('"error.handled":true'))
+    ).toBe(true);
+    printed.mockRestore();
   });
 
   it("writes without a Stylist lock or a transaction", async () => {
