@@ -28,12 +28,13 @@ object NameSpelling {
     /**
      * The spellings made one, replaced in this order in the name in Latin letters: a sound written
      * with one letter in one way and two in another ("x" and "ks", "ph" and "f") is written one way;
-     * "c" is "s" before "e", "i" or "y" ("Cindy") and "k" otherwise (but "ch" stays); an "h" after a
-     * vowel and not before one is silent ("John", "Sarah"), and any other "h" that is not the second
-     * letter of "ch", "sh", "zh" or "kh" is «х», "kh" ("Hannah" and «Ханна»); "ye" and "yo" before
+     * "c" is "s" before "e", "i" or "y" ("Cindy") and "k" otherwise (but "ch" stays); the "h" of
+     * "John" and one ending a word after a vowel are silent ("Sarah"), and any other "h" that is not
+     * the second letter of "ch", "sh", "zh" or "kh" is «х», "kh" ("Hannah", "Ahmed"); "ye" and "yo" before
      * a letter are "e", as they write «е» and «ё» ("Yelena", "Alyona", "Vasilyeva"), and so are "je"
      * and "jo" inside a word, but "Jo" starting a word stays ("John"); "y" and "j" are "i", and a run
-     * of "i" is one ("iya" is "ia"). An "ie" stays: in "Daniel" or "Natalie" it is not «е».
+     * of "i" is one ("iya" is "ia"), and "iu" after a consonant is "u", as «ю» is in "Ludmila". An
+     * "ie" stays: in "Daniel" or "Natalie" it is not «е».
      */
     private val spellings: List<Pair<Regex, String>> = listOf(
         "dzh" to "j",
@@ -48,11 +49,13 @@ object NameSpelling {
         "tz" to "ts",
         "c(?=[eiy])" to "s",
         "c(?!h)" to "k",
-        "(?<=[aeiouy])h(?![aeiouy])" to "",
+        "ohn" to "on",
+        "(?<=[aeiouy])h(?!\\p{L})" to "",
         "(?<![cszk])h" to "kh",
         "(?<=\\p{L})[yj][eo](?=\\p{L})|(?<!\\p{L})y[eo](?=\\p{L})" to "e",
         "[yj]" to "i",
         "i+" to "i",
+        "(?<=[bcdfghklmnprstvz])iu" to "u",
     ).map { (from, to) -> Regex(from) to to }
 
     private val apostrophes = Regex("['’ʼ`´]")
@@ -92,8 +95,10 @@ object NameSpelling {
      * A search as it looks for names in the other alphabet: one typed with a Cyrillic letter in the
      * names with a Latin one, and the other way round, by their spellings ([of]). It never finds a
      * name in its own alphabet that it does not hold as typed: «Илья» does not find «Лилия», though
-     * "ilia" is in "lilia". A search without a letter (a number), or spelled shorter than two letters
-     * («Дж» is "i"), looks for nothing.
+     * "ilia" is in "lilia". In the other alphabet it is looked for from the start of a word of the
+     * name, as names are typed: «Яна» finds "Yana Lee" but not "Diana", whose spelling holds "iana".
+     * A search without a letter (a number), or spelled shorter than two letters («Дж» is "i"), looks
+     * for nothing.
      */
     class Search(text: String) {
         private val spelled: String? = of(text).takeIf { it.length >= 2 && text.any(Char::isLetter) }
@@ -102,7 +107,9 @@ object NameSpelling {
 
         /** Whether [name], written in the other alphabet (or partly), holds this search by its spelling. */
         fun finds(name: String): Boolean =
-            spelled != null && ((cyrillic && name.any(::isLatin)) || (latin && name.any(::isCyrillic))) && of(name).contains(spelled)
+            spelled != null &&
+                ((cyrillic && name.any(::isLatin)) || (latin && name.any(::isCyrillic))) &&
+                " ${of(name)}".contains(" $spelled")
     }
 }
 

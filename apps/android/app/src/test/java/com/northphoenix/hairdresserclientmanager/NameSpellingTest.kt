@@ -58,6 +58,12 @@ class NameSpellingTest {
         assertOneSpelling("Hannah", "Ханна")
         assertOneSpelling("Cindy", "Синди")
         assertOneSpelling("Cecilia", "Сесилия")
+        assertOneSpelling("Людмила", "Lyudmila", "Liudmila", "Ludmila")
+        assertOneSpelling("Любовь", "Lyubov", "Lubov")
+        // An "h" inside a name is «х», as in names from Central Asia.
+        assertOneSpelling("Ахмед", "Ahmed", "Akhmed")
+        assertOneSpelling("Зухра", "Zuhra", "Zukhra")
+        assertOneSpelling("Шахноза", "Shahnoza")
         assertOneSpelling("Ukrainian Ігор", "Ukrainian Игор")
     }
 
@@ -165,6 +171,30 @@ class NameSpellingTest {
         listOf("Дмитр", "Дмитри", "Дмитриев").forEach { assertEquals(it, listOf("2"), found(clients, it)) }
         listOf("Габри", "Габриэла").forEach { assertEquals(it, listOf("3"), found(clients, it)) }
         listOf("Ал", "Алё", "Алён", "Алёна", "Алена").forEach { assertEquals(it, listOf("4"), found(clients, it)) }
+    }
+
+    @Test
+    fun `a search in the other alphabet starts at a word of the name`() {
+        val clients = listOf(
+            client("1", "Diana Lopez"),
+            client("2", "Juliana Brown"),
+            client("3", "Tatiana Lee"),
+            client("4", "Brian Smith"),
+            client("5", "Tanya Smith"),
+            client("6", "Emilia Stone"),
+            client("7", "Yana Lee"),
+            client("8", "Kate (Лилия)"),
+            client("9", "Ahmed Karimov"),
+        )
+
+        assertEquals(listOf("7"), found(clients, "Яна"))
+        assertEquals(listOf("7"), found(clients, "Ян"))
+        assertTrue(found(clients, "Илья").isEmpty())
+        assertTrue(found(clients, "Аня").isEmpty())
+        // A word after the first one is found from its start too.
+        assertEquals(listOf("4", "5"), found(clients, "Смит"))
+        assertEquals(listOf("9"), found(clients, "Ахм"))
+        assertEquals(listOf("9"), found(clients, "Карим"))
     }
 
     @Test
