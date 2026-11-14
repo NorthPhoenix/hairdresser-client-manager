@@ -1,6 +1,7 @@
 package com.northphoenix.hairdresserclientmanager.domain
 
 import com.northphoenix.hairdresserclientmanager.data.Appointment
+import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 
 /**
  * What an Appointment comes to, with its Tip. The price of the Services is the custom total when
@@ -23,6 +24,15 @@ object AppointmentTotals {
 
     /** Whether a list shows an amount for it: once it has a Service, a price or a Tip. */
     fun hasAmount(appointment: Appointment): Boolean = appointment.services.isNotEmpty() || totalCents(appointment) > 0
+
+    /**
+     * Whether a tap on the [tapped] status of an Appointment that is [shown] brings its price and
+     * Tip into view on its screen: when it makes the Appointment Completed. Nearly every visit gets
+     * a Tip or a custom total when it is completed, and on the screen they are under its Clients
+     * and Services. A tap on the status it has already changes nothing, so it moves nothing.
+     */
+    fun showsTotalsOn(shown: AppointmentStatus, tapped: AppointmentStatus): Boolean =
+        tapped == AppointmentStatus.COMPLETED && shown != AppointmentStatus.COMPLETED
 
     /** Whether [tipCents] is one of the [TIP_CHOICES]. No tip is not: it has a chip of its own. */
     fun isTipChoice(tipCents: Long?): Boolean = tipCents != null && tipCents in TIP_CHOICES
