@@ -77,6 +77,8 @@ describe("the wide event", () => {
     });
     expect(event?.trace_id).toMatch(/^[0-9a-f]{32}$/);
     expect(event?.["db.query_ms"]).toBe(45);
+    // Prisma 7 never marks a query's span as failed, so a count of failed queries would always be 0.
+    expect(event).not.toHaveProperty("db.error_count");
     expect(JSON.stringify(event)).not.toContain("secret");
     expect(event).not.toHaveProperty("error.type");
   });
@@ -255,5 +257,75 @@ describe("the wide event", () => {
 
     expect(events()[0]).toMatchObject({ event: "hcm.task", name: "release_manifest.refresh", "release.version_code": 18 });
     expect(events()[0]).not.toHaveProperty("instance.request_seq");
+  });
+
+  it("counts the proxy's own root span on Vercel as a request, with the status the proxy answered", async () => {
+    const { events } = setUpTelemetry();
+    // On Vercel, proxy.ts runs in a function of its own, under a root span of kind INTERNAL.
+    const nextTracer = trace.getTracer("next.js");
+
+    nextTracer.startActiveSpan("middleware POST", { attributes: { "next.span_type": "Middleware.execute", "http.method": "POST", "http.target": "/profile-shares/abc" } }, (root) => {
+      annotate({ "proxy.decision": "method_refused", "http.status_code": 405 });
+      root.end();
+    });
+
+    expect(events()).toHaveLength(1);
+    expect(events()[0]).toMatchObject({
+      event: "hcm.request",
+      name: "POST",
+      "http.method": "POST",
+      "http.route": "proxy",
+      "http.status_code": 405,
+      outcome: "refused",
+      "next.proxy": true,
+      "instance.request_seq": 1,
+      "instance.cold_start": true
+    });
+    expect(JSON.stringify(events()[0])).not.toContain("/profile-shares/abc");
+  });
+
+  it("gives up work that goes on after its request, and everything that work starts", async () => {
+    const { events, tracer } = setUpTelemetry();
+    let late: ReturnType<typeof tracer.startSpan> | undefined;
+
+    tracer.startActiveSpan("GET /", { kind: SpanKind.SERVER }, (root) => {
+      root.end();
+      // A promise left running starts a span after the request ended, and that span starts more.
+      late = tracer.startSpan("hcm.late_work", {}, trace.setSpan(context.active(), root));
+    });
+
+    const lateContext = trace.setSpan(context.active(), late!);
+    const call = tracer.startSpan("fetch GET https://webfixture.ufs.sh/f/fileKeyOfAPhoto", { kind: SpanKind.CLIENT, attributes: { "http.method": "GET", "http.url": "https://webfixture.ufs.sh/f/fileKeyOfAPhoto" } }, lateContext);
+    const query = tracer.startSpan("prisma:client:operation", {}, trace.setSpan(context.active(), call));
+
+    query.end();
+    call.end();
+    late!.end();
+
+    expect(events()).toHaveLength(1);
+    expect(events()[0]).toMatchObject({ event: "hcm.request", name: "GET /" });
+  });
+
+  it("never names an event after the address of an outgoing call", async () => {
+    const { events, tracer } = setUpTelemetry();
+
+    // A call made outside any request, such as at start-up.
+    tracer.startSpan("fetch GET https://webfixture.ufs.sh/f/fileKeyOfAPhoto", { kind: SpanKind.CLIENT, attributes: { "http.method": "GET", "http.url": "https://webfixture.ufs.sh/f/fileKeyOfAPhoto" } }).end();
+
+    expect(events()[0]).toMatchObject({ event: "hcm.task", name: "fetch GET webfixture.ufs.sh" });
+    expect(JSON.stringify(events())).not.toContain("fileKeyOfAPhoto");
+  });
+
+  it("opens no event for the framework's own work outside any request", async () => {
+    const { events } = setUpTelemetry();
+    const nextTracer = trace.getTracer("next.js");
+
+    // Next.js starts some responses after the request's span ended.
+    nextTracer.startActiveSpan("start response", { attributes: { "next.span_type": "NextNodeServer.startResponse" } }, (span) => {
+      nextTracer.startSpan("render", { attributes: { "next.span_type": "AppRender.getBodyResult" } }).end();
+      span.end();
+    });
+
+    expect(events()).toHaveLength(0);
   });
 });

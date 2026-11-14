@@ -83,10 +83,65 @@ const reservedKeys = new Set(["event", "schema_version", "timestamp", "trace_id"
 const reservedPrefixes = ["sample.", "telemetry.", "deployment.", "service.", "instance.", "runtime.", "db.", "external.", "slowest_span.", "error.", "process."];
 
 const emailPattern = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
-// A phone number as people type it: a plus or a long run of digits with the usual separators.
-const phonePattern = /(?:\+\d[\d\s().-]{7,}\d)|(?:\b\d[\d\s().-]{9,}\d\b)/g;
+// What might be a phone number: digits with the separators people type between them (spaces,
+// hyphens, brackets, dots), with or without a plus. `looksLikePhone` decides which of these are.
+// Only a space, never a line break, separates digits: the lines of a stack end in numbers.
+const phoneCandidate = /\+?\(?\d[\d ().\u00a0-]*\d\)?/g;
 const hexHashPattern = /^[0-9a-f]{6,64}$/;
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}(?:[T ][\d:.]+(?:Z|[+-]\d{2}:?\d{2})?)?$/;
+const wordCharacter = /[A-Za-z0-9_]/;
+
+// Whether the digits at `text[start, end)` are joined to a word around them, as the parts of an
+// id or a version are (`8k2xz-1731590000000-3f8a`, `Chrome/131.0.6778.135`): directly, or across
+// one hyphen, dot, underscore or slash. A phone number stands apart from the words around it.
+function isJoinedToWord(text: string, start: number, end: number) {
+  const before = text[start - 1] ?? "";
+  const after = text[end] ?? "";
+
+  if (wordCharacter.test(before) || wordCharacter.test(after)) {
+    return true;
+  }
+
+  return ("-._/".includes(before) && before !== "" && wordCharacter.test(text[start - 2] ?? "")) || ("-._/".includes(after) && after !== "" && wordCharacter.test(text[end + 1] ?? ""));
+}
+
+/**
+ * Whether `match`, found at `start` in `text`, is a phone number as people write it:
+ * `+7 (912) 345-67-89`, `8 912 345 67 89`, `89123456789`, `(415) 555-0123`, `415.555.0123`,
+ * `+1 415 555 0123`. Not an id, a timestamp or a version: those are joined to the words around
+ * them, have more digits than a phone number has, or are dotted groups of a version's shape.
+ */
+function looksLikePhone(text: string, match: string, start: number) {
+  if (isJoinedToWord(text, start, start + match.length) || isoDatePattern.test(match.trim())) {
+    return false;
+  }
+
+  const digits = match.replace(/\D/g, "");
+  const groups = match.split(/[^\d]+/).filter((group) => group.length > 0);
+  const hasPlus = match.startsWith("+");
+
+  if (match.includes(".")) {
+    // A dotted number is a version or an address unless it is grouped as a phone number is.
+    return /^[\d.]+$/.test(match) && groups.length >= 3 && groups.every((group) => group.length >= 2 && group.length <= 4) && digits.length >= 10 && digits.length <= 15;
+  }
+
+  if (hasPlus) {
+    return digits.length >= 8;
+  }
+
+  // Digits without any separator: a phone number has 10 to 12 (a Russian one 11, an American 10);
+  // longer runs are timestamps and ids.
+  if (groups.length === 1) {
+    return digits.length >= 10 && digits.length <= 12;
+  }
+
+  return digits.length >= 10;
+}
+
+// Keys whose values come from request headers and name software or the platform, never a person:
+// Vercel's request id and the User-Agent. Their values are not searched for phone numbers or
+// email addresses (an id and a version look like long numbers), only capped.
+const technicalKeys = new Set(["request.id", "http.user_agent"]);
 
 /** Turns `appointmentId` and `Client-Count` into `appointment_id` and `client_count`. */
 export function normalizeKey(key: string): string {
@@ -142,9 +197,13 @@ export function cleanString(value: string, max = maxStringLength): string {
     return value.slice(0, max);
   }
 
-  const cleaned = value.replace(emailPattern, "[email]").replace(phonePattern, (match) => (isoDatePattern.test(match.trim()) ? match : "[phone]"));
+  const cleaned = value.replace(emailPattern, "[email]").replace(phoneCandidate, (match, offset: number, text: string) => (looksLikePhone(text, match, offset) ? "[phone]" : match));
 
-  return cleaned.length > max ? `${cleaned.slice(0, max - 1)}…` : cleaned;
+  return cap(cleaned, max);
+}
+
+function cap(value: string, max: number) {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 }
 
 function cleanScalar(value: unknown, key: string): string | number | boolean | undefined {
@@ -170,7 +229,7 @@ function cleanScalar(value: unknown, key: string): string | number | boolean | u
       return key.endsWith("hash") && hexHashPattern.test(value) ? value : key.endsWith("kind") || key.endsWith("type") ? cleanString(value, 64) : undefined;
     }
 
-    return cleanString(value);
+    return technicalKeys.has(key) ? cap(value, maxStringLength) : cleanString(value);
   }
 
   return undefined;

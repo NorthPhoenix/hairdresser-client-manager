@@ -72,6 +72,9 @@ export function registerTelemetry(options: RegisterOptions): void {
       // `traceparent` says its caller did not sample it. What is printed is decided at the end by
       // the tail sampler; what Vercel keeps, by its own sampling rules.
       traceSampler: "always_on",
+      // The wide event processor cleans every span in `onEnding` (spans.ts). @vercel/otel calls
+      // `onEnding` of all processors, in this order, before any `onEnd`, and its exporting
+      // processors only take a span in `onEnd`, so they export it cleaned.
       spanProcessors: [new WideEventProcessor({ serviceName: options.serviceName, config }), ...(exportsSpans ? (["auto"] as const) : [])],
       instrumentations: [
         // Outgoing fetch: UploadThing, Clerk, the release manifest. The trace is passed on only

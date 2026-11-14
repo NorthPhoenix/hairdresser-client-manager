@@ -100,4 +100,36 @@ describe("the privacy guard", () => {
     expect(normalizeKey("stylistTransaction.lockWaitMs")).toBe("stylist_transaction.lock_wait_ms");
     expect(normalizeKey("  Weird Key!! ")).toBe("weird_key");
   });
+
+  it("blanks phone numbers as people write them", () => {
+    for (const phone of ["+7 (912) 345-67-89", "+7 912 345 67 89", "+79123456789", "89123456789", "8 (912) 345-67-89", "8-912-345-67-89", "(415) 555-0123", "415-555-0123", "415.555.0123", "+1 415 555 0123", "4155550123", "+44 20 7946 0958"]) {
+      expect(cleanString(`call ${phone} today`), phone).toBe("call [phone] today");
+      expect(cleanString(phone), phone).toBe("[phone]");
+    }
+  });
+
+  it("leaves ids, versions, timestamps and stack positions alone", () => {
+    for (const technical of [
+      "iad1::iad1::8k2xz-1731590000000-3f8a2b1c9d0e",
+      "fra1::iad1::abcde-1700000000000-0123",
+      "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.135 Mobile Safari/537.36",
+      "okhttp/4.12.0",
+      "Build/UP1A.231005.007",
+      "550e8400-e29b-41d4-a716-446655440000",
+      "at zr.request (/app/node_modules/@prisma/client/runtime/client.js:65:7288)",
+      "1731590000000",
+      "120.0.6099.230"
+    ]) {
+      expect(cleanString(technical), technical).toBe(technical);
+    }
+  });
+
+  it("records the request id and the User-Agent as they are", () => {
+    const fields = {
+      "request.id": "iad1::iad1::8k2xz-1731590000000-3f8a2b1c9d0e",
+      "http.user_agent": "Mozilla/5.0 (Linux; Android 14) Chrome/131.0.6778.135 Mobile Safari/537.36"
+    };
+
+    expect(guardFields(fields).fields).toEqual(fields);
+  });
 });

@@ -92,6 +92,11 @@ describe("the processor", () => {
     await traceRequest({ method: "GET", route: "/" }, async () => new Response("ok"));
 
     expect(JSON.parse(lines[0]!)).toMatchObject({ "telemetry.internal_errors": 1 });
+
+    // Only the failures since the previous event are reported.
+    await traceRequest({ method: "GET", route: "/" }, async () => new Response("ok"));
+
+    expect(JSON.parse(lines[1]!)).not.toHaveProperty("telemetry.internal_errors");
   });
 
   it("survives spans it cannot make sense of", () => {

@@ -2,7 +2,9 @@
 // only gets its sums: how many database queries and how long they took, which Prisma operations
 // ran, how many calls left the server, and the slowest piece of work.
 import { SpanKind, SpanStatusCode, type Attributes, type HrTime } from "@opentelemetry/api";
+import { cleanErrorText } from "./errors";
 import { cleanString } from "./guard";
+import { hostOf } from "./spans";
 import type { ErrorInfo, EventState } from "./state";
 
 /** What the processor needs of an ended span (the SDK's ReadableSpan). */
@@ -61,23 +63,6 @@ function numberAttribute(attributes: Attributes, ...names: string[]) {
   return undefined;
 }
 
-/** The host of an outgoing HTTP call, never its path or query, which can carry file keys. */
-function hostOf(attributes: Attributes) {
-  const host = stringAttribute(attributes, "server.address", "net.peer.name", "http.host");
-
-  if (host) {
-    return host.split(":")[0];
-  }
-
-  const url = stringAttribute(attributes, "url.full", "http.url");
-
-  try {
-    return url ? new URL(url).hostname : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function isOutgoingHttp(span: EndedSpan) {
   return span.kind === SpanKind.CLIENT && stringAttribute(span.attributes, "http.request.method", "http.method") !== undefined;
 }
@@ -96,8 +81,8 @@ export function exceptionOf(span: EndedSpan): ErrorInfo | undefined {
 
   return {
     type: cleanString(type, 100),
-    message: cleanString(message.trim(), 1000),
-    stack: stack ? cleanString(stack, 4000) : undefined,
+    message: cleanErrorText(message.trim(), 1000),
+    stack: stack ? cleanErrorText(stack, 4000) : undefined,
     expected: false,
     fromSpan: true
   };
@@ -131,7 +116,6 @@ export function addChild(state: EventState, span: EndedSpan) {
     rollup.dbQueryCount += 1;
     rollup.dbQueryMs += ms;
     rollup.dbSlowestQueryMs = Math.max(rollup.dbSlowestQueryMs, ms);
-    rollup.dbErrorCount += failed ? 1 : 0;
     const parentId = span.parentSpanContext?.spanId;
     slowestName = `db:${(parentId && rollup.operationNames.get(parentId)) || "query"}`;
   } else if (span.name === prismaOperation) {

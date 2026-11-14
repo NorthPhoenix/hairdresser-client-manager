@@ -8,11 +8,24 @@ This document is the contract for everyone who adds to the event: how to add fie
 
 The server is traced with OpenTelemetry. The request's **root span is the event**: Next.js opens a root span for every request it handles (`BaseServer.handleRequest`), and the dev backend opens one with `traceRequest`. An incoming `traceparent` header continues the caller's trace.
 
-`@hcm/telemetry` installs a span processor (`WideEventProcessor`) next to the SDK. It sees every span start and end. A span with no parent in this process opens an event; every span below it belongs to that event. Code anywhere in the call stack adds fields to the current request's event with `annotate`, which finds the event through the active OpenTelemetry context (AsyncLocalStorage), so nothing is passed around. Child spans (Prisma's queries, outgoing `fetch` calls, units of work wrapped in `traced`) are added up into the event: query count and time, operations by model, external calls, the slowest piece of work. When the root span ends, the event is built, the tail sampler decides whether to keep it, and it is printed with `console.log` as one line.
+`@hcm/telemetry` installs a span processor (`WideEventProcessor`) next to the SDK. It sees every span start and end. A span with no parent in this process opens an event; every span below it belongs to that event. Which event a root span opens:
+
+- `hcm.request`: a span of kind SERVER (Next.js's `BaseServer.handleRequest`, the dev backend's `traceRequest`), and the span in which Next.js runs proxy.ts (`next.span_type` `Middleware.execute`), which on Vercel is the root of a function of its own and of kind INTERNAL.
+- None: any other span of Next.js's own (tracer `next.js`, or with a `next.span_type`), such as the `start response` that Next.js sometimes begins after the request's span ended. It is the framework's work outside any request and says nothing about one; the spans under it open no event either.
+- `hcm.task`: anything else, such as work this app started with `traced` outside any request.
+
+A span started under a request that already ended (a promise left running) adds nothing and opens nothing, and neither does any span started under it. Code anywhere in the call stack adds fields to the current request's event with `annotate`, which finds the event through the active OpenTelemetry context (AsyncLocalStorage), so nothing is passed around. Child spans (Prisma's queries, outgoing `fetch` calls, units of work wrapped in `traced`) are added up into the event: query count and time, operations by model, external calls, the slowest piece of work. When the root span ends, the event is built, the tail sampler decides whether to keep it, and it is printed with `console.log` as one line.
 
 The same spans are exported where an exporter is set up: on Vercel through `@vercel/otel` to Vercel's own trace collection (Vercel Tracing, which the Hobby plan has, once a sampling rule is added under Settings → Tracing), and to any OTLP endpoint named in `OTEL_EXPORTER_OTLP_ENDPOINT`. With neither, nothing is exported and nothing breaks. The annotated fields are also set on the root span, so a trace viewer can search them.
 
-Nothing in telemetry throws into a request. Every function swallows its own failures; `traced` runs its work exactly once even when tracing around it breaks; a failure inside telemetry is counted and reported in the next event as `telemetry.internal_errors`.
+The frameworks write attributes of their own that the privacy guard never sees, so the processor cleans **every** span as it ends (`packages/telemetry/src/spans.ts`), in `onEnding`, while the span can still be changed. The exporting processors of `@vercel/otel` only take spans in `onEnd`, which the SDK calls after every processor's `onEnding`, so an exporter always sees the cleaned span, whatever the order of the processors:
+
+- The path of the request (`http.target`, `url.path`, `vercel.matched_path`) becomes the route pattern (`http.route`/`next.route`), or is removed when there is none (Next.js's proxy span); `url.query` is removed. Next.js puts the path with its query there (`/profile-shares/<token>?lang=en`).
+- A whole address (`http.url`, `url.full`, `http.referer`, `resource.name`, and any other attribute whose value is an address) keeps only its scheme and host. The fetch instrumentations put the address of a stored photo there.
+- An outgoing HTTP call (kind CLIENT with a method) is named `fetch <METHOD> <host>` (or `http …`), never `fetch GET <address>`; an address in any other span's name is cut to scheme and host. An event never shows the raw name of such a span.
+- The message and stack of a recorded exception and the status message go through the same cleaning as `error.message` and `error.stack` (below), also when the framework recorded them.
+
+Nothing in telemetry throws into a request. Every function swallows its own failures; `traced` runs its work exactly once even when tracing around it breaks; a failure inside telemetry is counted and reported in the next printed event as `telemetry.internal_errors`.
 
 Where it is wired:
 
@@ -94,7 +107,7 @@ Prisma queries and outgoing `fetch` calls already have spans; do not wrap a sing
 - `traced` returns a plain Promise for async work. Never wrap a Prisma query that is passed to the array form of `$transaction([...])`, which needs Prisma's own lazy promises.
 - Inside `$transaction(async (tx) => …)` the context carries on: `annotate`, `traced` and Prisma's spans all work, and Prisma's spans sit under `prisma:client:transaction`. A field annotated inside a transaction that rolls back stays in the event: it describes what was tried. `stylistTransactionProcedure` records `tx.outcome`.
 - A later value for the same key replaces the earlier one; use `increment` to add up.
-- Work that goes on after the response (a promise left running) adds nothing: the event was already printed.
+- Work that goes on after the response (a promise left running) adds nothing: the event was already printed. Spans it starts, and spans they start, are left out too.
 - `annotate` before telemetry is set up, in a unit test or a script does nothing. Tests need no mocks.
 - Never pass a whole input object or database row to `annotate`. Name the fields.
 
@@ -121,7 +134,8 @@ The privacy guard in `@hcm/telemetry` enforces what a machine can check, so that
 
 - A key that contains a word naming personal data or contents is dropped: `name`, `phone`, `email`, `note(s)`, `comment`, `text`, `description`, `address`, `street`, `birthday`, `instagram`, `telegram`, `token`, `cookie`, `authorization`, `password`, `secret`, `key(s)`, `url(s)`, `uri`, `href`, `body`, `content`, `query`, `sql`, `header(s)`, and a few more (see `deniedWords` in `packages/telemetry/src/guard.ts`).
 - Unless the key is a measure: it ends in `_count`, `_length`, `_size`, `_bytes`, `_ms`, `_total`, `_present`, `_changed`, `_valid` or starts its last part with `has_`/`is_`. Such a key only takes a number or a boolean. `_hash` takes a short hex string, `_kind`/`_type` a short string.
-- Strings are cut to 200 characters (error messages 1000, stacks 6000), and anything that looks like an email address or a phone number is replaced with `[email]` or `[phone]`, also in error messages and stacks.
+- Strings are cut to 200 characters (error messages 1000, stacks 6000), and anything that looks like an email address or a phone number is replaced with `[email]` or `[phone]`, also in error messages and stacks. A phone number is digits that stand apart from the words around them: with a `+` at least 8 digits; with spaces, hyphens or brackets at least 10; a bare run 10 to 12 (`89123456789`, `4155550123`); dotted only when grouped like `415.555.0123`. Digits joined to a word (`8k2xz-1731590000000-3f8a`, `Chrome/131.0.6778.135`), longer bare runs (millisecond timestamps) and versions are left alone. `request.id` and `http.user_agent`, which name the platform and the software, are only cut, never searched.
+- Prisma prints the arguments of a call it refused in the error's message (a Client's name, phone, notes): between ``Invalid `prisma.client.create()` invocation:`` and the explanation at the end. In `error.message`, `error.stack`, `error.cause_message` and on exported spans that part is replaced with `[arguments removed]`; the call and the explanation are kept.
 - What the guard drops is named in `telemetry.blocked_keys` (the key and why, never the value). An event with blocked keys is a bug to fix where the annotation is.
 
 ## Seeing the events
@@ -173,7 +187,7 @@ Timestamps in events are UTC. On Vercel the spans are in the project's Traces pa
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `event` | string | `hcm.request` (an HTTP request), `hcm.task` (work with a root span of its own outside a request), `hcm.process` (the server process: start, failures), `hcm.error` (an error recorded where no event was running). Always the first field, so `message` starts with `{"event":"hcm.`. |
+| `event` | string | `hcm.request` (an HTTP request, also Next.js's run of proxy.ts), `hcm.task` (work with a root span of its own outside a request that is not the framework's; see "How it works"), `hcm.process` (the server process: start, failures), `hcm.error` (an error recorded where no event was running). Always the first field, so `message` starts with `{"event":"hcm.`. |
 | `schema_version` | int | Version of this catalog. Now 1. |
 | `timestamp` | string | When the request started (ISO 8601, UTC). For `hcm.process` and `hcm.error`, when it was printed. |
 | `service.name` | string | `hcm-web` or `hcm-dev-backend`. |
@@ -189,12 +203,12 @@ Timestamps in events are UTC. On Vercel the spans are in the project's Traces pa
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `name` | string | The root span's name: `POST /api/trpc/[trpc]`, `GET` for Next.js's proxy span, the `traced` name for a task. |
+| `name` | string | The root span's name: `POST /api/trpc/[trpc]`, the method (`GET`) for Next.js's proxy span (on Vercel too, where the span is named `middleware GET`), the `traced` name for a task. An outgoing call is named by its host (`fetch GET webfixture.ufs.sh`), never by its address. |
 | `outcome` | string | `success`; `refused` (a 4xx or an expected error); `error` (a 5xx, an unexpected error, or a failed root span). |
 | `duration_ms` | number | Time from the root span's start to its end. |
 | `http.method` | string | Request method. |
 | `http.route` | string | Route pattern (`/api/trpc/[trpc]`, `/profile-shares/[token]`), `proxy` for Next.js's proxy span. Never the path. |
-| `http.status_code` | int | Status of the response. |
+| `http.status_code` | int | Status of the response. For proxy.ts, the status of what it answers (`405` for a refused method, `404` for a link that shows nothing, `200` when it passes the request on), which proxy.ts annotates: Next.js reports 200 for the proxy whatever it answers. A status that code annotates replaces the framework's, in the event and on the exported span. |
 | `next.span_type` | string | Next.js's type of the root span, usually `BaseServer.handleRequest`. Web only. |
 | `next.proxy` | bool | The event is Next.js's run of proxy.ts, which has a root span (a trace) of its own apart from the route's. |
 | `trace_id` | string | OpenTelemetry trace id (32 hex): the same in Vercel's trace view and in an incoming `traceparent`. |
@@ -211,7 +225,6 @@ Timestamps in events are UTC. On Vercel the spans are in the project's Traces pa
 | `db.operation_count` | int | Prisma Client operations (`prisma:client:operation`), such as one `findMany`. |
 | `db.operations` | object | Operations by name: `{"Client.findMany": 2, "Stylist.upsert": 1, "executeRaw": 1}` (at most 40 names). |
 | `db.transaction_count` | int | Prisma transactions. |
-| `db.error_count` | int | Queries whose span failed. |
 | `external.call_count` | int | Outgoing HTTP calls (`fetch` spans): UploadThing, Clerk, the release manifest. |
 | `external.call_ms` | number | Their total time. |
 | `external.slowest_ms` | number | The slowest one. |
@@ -222,22 +235,24 @@ Timestamps in events are UTC. On Vercel the spans are in the project's Traces pa
 | `sample.reason` | string | Why the event was kept: `error`, `refused`, `slow`, `stylist`, `rate`. |
 | `sample.rate` | number | The chance it had to be kept: 1 except for `rate`, where it is `HCM_TELEMETRY_SAMPLE_RATE`. Weigh a count by `1 / sample.rate`. |
 | `telemetry.blocked_keys` | string[] | Fields the privacy guard dropped, as `key:why` (`personal`, `reserved`, `value`, `too_deep`). |
-| `telemetry.internal_errors` | int | Failures inside telemetry in this instance so far (swallowed). |
+| `telemetry.internal_errors` | int | Failures inside telemetry (swallowed) since the previous printed event of this instance. A failure in an event that the sampler dropped is reported in the next one that is printed. |
 | `telemetry.truncated` | bool | The line was over 16,000 characters and was shortened (stack first, then the largest fields). |
 
 ### Errors (any event)
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `error.type` | string | The error's class or name: `TRPCError`, `PrismaClientKnownRequestError`, `TypeError`. |
-| `error.message` | string | Its message, guarded and cut to 1000 characters. Never sent to the client. |
-| `error.code` | string | Its code: a tRPC code for a refusal (`CONFLICT`), Prisma's for a database failure (`P2002`), Node's for a network failure (`ECONNRESET`). |
+| `error.type` | string | The error's name or class: `TRPCError`, `PrismaClientKnownRequestError`, `TypeError`, `ClerkAPIResponseError`. Its `name` when that says more than `Error`, else the name a class keeps in a static `kind` (Clerk's), else the class's name; a name the production build shortened (`a`, `e`) is never used, which leaves `Error`. |
+| `error.message` | string | Its message, guarded and cut to 1000 characters, with the arguments Prisma prints removed. Never sent to the client. |
+| `error.code` | string | Its code: a tRPC code for a refusal (`CONFLICT`), Prisma's for a database failure (`P2002`, or `errorCode` of a failure to connect, `P1001`), Clerk's (`api_response_error`, or the reason of a refused token, `token-expired`), Node's for a network failure (`ECONNRESET`). Else the cause's code. |
+| `error.api_code` | string | The code of the first error in an API's answer, as Clerk's errors carry it (`errors[0].code`, such as `authentication_invalid`). |
+| `error.http_status` | int | The HTTP status of the answer the error reports, as Clerk's errors carry it (`status`, such as `401`). |
 | `error.reason` | string | The domain's reason, from `recordError(…, { reason })`. |
 | `error.retriable` | bool | Whether sending the request again could pass; set for known connection, timeout and conflict codes. |
 | `error.expected` | bool | A refusal on purpose (`true`) or a failure (`false`). |
 | `error.handled` | bool | A failure the code got over; the outcome did not change. |
-| `error.cause_type`, `error.cause_message` | string | The error's `cause`. |
-| `error.stack` | string | Stack of the error, then `Caused by:` and the cause's stack. Not kept for refusals. |
+| `error.cause_type`, `error.cause_message` | string | The error's `cause`, named and cleaned like the error. |
+| `error.stack` | string | Stack of the error, then `Caused by:` and the cause's stack, with the arguments Prisma prints removed. Not kept for refusals. |
 | `error.count` | int | Errors recorded during the request. The fields above describe the first failure, else the first refusal. |
 
 ### Process events (`hcm.process`)
@@ -254,8 +269,8 @@ Timestamps in events are UTC. On Vercel the spans are in the project's Traces pa
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `request.id` | string | Vercel's request id (`x-vercel-id`), as in Vercel's logs. |
-| `http.user_agent` | string | The `User-Agent`, cut to 120 characters. |
+| `request.id` | string | Vercel's request id (`x-vercel-id`), as in Vercel's logs. Recorded as it is (not searched for phone numbers). |
+| `http.user_agent` | string | The `User-Agent`, cut to 120 characters. Recorded as it is (not searched for phone numbers). |
 | `http.request_bytes` | int | `Content-Length` of the request. |
 | `next.route_path`, `next.route_type`, `next.router_kind`, `next.render_source` | string | From Next.js's `onRequestError`: the route pattern and what failed (`render`, `route`, `action`, `proxy`). |
 | `next.error_digest` | string | The digest Next.js shows in place of the error in a page. |
@@ -276,7 +291,7 @@ Timestamps in events are UTC. On Vercel the spans are in the project's Traces pa
 | `app.version_code` | int | `X-App-Version-Code` of the Android app. |
 | `app.version` | string | `X-App-Version-Name`: `1.16.0`. |
 | `stylist.id` | string | The Stylist of the request (`stylistProcedure` and below). |
-| `stylist.just_created` | bool | The request created the Stylist (the first request of a new account). |
+| `stylist.just_created` | bool | The request created the Stylist (the first request of a new account). Two first requests of a new account that overlap are both `true`: the upsert's answer does not tell an insert from an update. |
 | `stylist.device_defaults_valid` | bool | Whether the device's language and timezone in the input were valid. |
 | `tx.outcome` | string | `committed` or `rolled_back` (`stylistTransactionProcedure`). |
 | `tx.begin_ms` | int | Time until the transaction had begun (waiting for a connection). |
@@ -317,7 +332,7 @@ What the code adds to the event for each part of the domain. Rows are sorted by 
 | `appointment.has_total_override` | bool | A custom total replaces the sum. The Appointment as the reply shows it. |
 | `appointment.id` | string | The Appointment the request is about: from the input as soon as the procedure starts (so a refusal has it), else from the row read. For `copyServices` and `completedSources`, the Appointment copied into. Every procedure except `list` and `home`. Also written by `authorizePhotoUpload`, `onUploadComplete` (Profile Shares). |
 | `appointment.is_address_saved_to_client` | bool | When saving the typed address to the primary Client was asked: whether it was (false: that Client already had an address). `create`, `update`. |
-| `appointment.address_save_result` | string | Why the typed address was or was not saved to the primary Client: `saved`, `no_address`, `client_has_address`, `client_not_found` (`saveAddressToClient`). `create`, `update`. |
+| `appointment.location_save_result` | string | Why the typed address was or was not saved to the primary Client: `saved`, `no_address`, `client_has_address`, `client_not_found` (`saveAddressToClient`). `create`, `update`. |
 | `appointment.is_back_to_scheduled` | bool | An Appointment with an outcome was set back to Scheduled. `update`. |
 | `appointment.is_noop_save` | bool | The save changed nothing (such as the same form saved twice); the row is still written. `update`. |
 | `appointment.is_primary_client_changed` | bool | Removing the Client made another Client primary. `removeParticipant`. |

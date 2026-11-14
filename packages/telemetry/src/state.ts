@@ -11,6 +11,10 @@ export type ErrorInfo = {
   message: string;
   stack?: string;
   code?: string;
+  /** The code of the first error in an API's answer (Clerk's `errors[0].code`). */
+  apiCode?: string;
+  /** The HTTP status of the answer the error reports (Clerk's, UploadThing's `status`). */
+  httpStatus?: number;
   reason?: string;
   retriable?: boolean;
   /** A refusal on purpose (a tRPC BAD_REQUEST, a NOT_FOUND) rather than a failure. */
@@ -33,7 +37,6 @@ export type Rollup = {
   dbOperationCount: number;
   dbOperations: Map<string, number>;
   dbTransactionCount: number;
-  dbErrorCount: number;
   externalCallCount: number;
   externalCallMs: number;
   externalSlowestMs: number;
@@ -49,7 +52,7 @@ export type Rollup = {
 /** One wide event while its request runs: the root span and everything said about it. */
 export type EventState = {
   root: Span;
-  /** "request" for a span of kind SERVER (an HTTP request), "task" for other work. */
+  /** "request" for an HTTP request (see `rootKind` in processor.ts), "task" for other work. */
   kind: "request" | "task";
   fields: Map<string, FieldValue>;
   counters: Map<string, number>;
@@ -62,6 +65,11 @@ export type EventState = {
 type Registry = {
   /** Every recording span of a running event, root or child, to the event it belongs to. */
   states: WeakMap<object, EventState>;
+  /**
+   * Spans that belong to no event, and so neither do the spans started under them: work that
+   * went on after its request ended, and the framework's own spans outside any request.
+   */
+  skipped: WeakSet<object>;
   /** Whether a processor is installed, so that `recordError` knows whether an event will be printed. */
   processorInstalled: boolean;
   /** `service.name` of events printed outside a request. Set when the processor is created. */
@@ -71,7 +79,10 @@ type Registry = {
     id: string;
     startedAt: number;
     requestCount: number;
-    /** Failures inside telemetry, swallowed so they never fail a request, and reported in the next event. */
+    /**
+     * Failures inside telemetry since the last request or task event was built, swallowed so they
+     * never fail a request. The next event reports them and sets this back to 0.
+     */
     internalErrors: number;
   };
 };
@@ -83,6 +94,7 @@ export function registry(): Registry {
 
   holder[registryKey] ??= {
     states: new WeakMap(),
+    skipped: new WeakSet(),
     processorInstalled: false,
     serviceName: "hcm",
     config: readConfig(),
@@ -93,6 +105,9 @@ export function registry(): Registry {
       internalErrors: 0
     }
   };
+
+  // A registry made by an older copy of this module (a reload in development) may lack it.
+  holder[registryKey].skipped ??= new WeakSet();
 
   return holder[registryKey];
 }
@@ -106,7 +121,6 @@ export function newRollup(): Rollup {
     dbOperationCount: 0,
     dbOperations: new Map(),
     dbTransactionCount: 0,
-    dbErrorCount: 0,
     externalCallCount: 0,
     externalCallMs: 0,
     externalSlowestMs: 0,

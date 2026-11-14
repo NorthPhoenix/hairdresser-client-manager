@@ -159,7 +159,10 @@ const deviceDefaultsInput = z.object({
 
 // Whether the upsert created the Stylist: the first request of a new account (docs/adr/0011).
 // Prisma Client sets `createdAt` (`@default(now())`) with this server's clock, so a Stylist created
-// by this upsert has a `createdAt` no earlier than the moment before it.
+// by this upsert has a `createdAt` no earlier than the moment before it. Two first requests of the
+// same account that overlap both see a Stylist made after they started, and both say so: the
+// upsert's answer does not tell an insert from an update, and telling them apart for certain
+// would cost a query on every request.
 function wasCreatedSince(stylist: { createdAt?: unknown }, since: number) {
   return stylist.createdAt instanceof Date && stylist.createdAt.getTime() >= since;
 }

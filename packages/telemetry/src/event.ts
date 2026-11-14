@@ -6,6 +6,7 @@ import { SpanStatusCode, type Attributes, type HrTime } from "@opentelemetry/api
 import { readDeployment, type TelemetryConfig } from "./config";
 import { cleanString, type FieldValue } from "./guard";
 import { durationMs, type EndedSpan } from "./rollup";
+import { safeSpanName } from "./spans";
 import { decideSample, type SampleDecision } from "./sampler";
 import { noteInternalError, registry, type ErrorInfo, type EventState } from "./state";
 
@@ -82,6 +83,8 @@ export function errorFields(error: ErrorInfo, count: number): Record<string, Fie
     "error.type": error.type,
     "error.message": error.message,
     "error.code": error.code,
+    "error.api_code": error.apiCode,
+    "error.http_status": error.httpStatus,
     "error.reason": error.reason,
     "error.retriable": error.retriable,
     "error.expected": error.expected,
@@ -113,7 +116,10 @@ export type BuiltEvent = {
 export function buildEvent(state: EventState, span: RootSpan, serviceName: string, config: TelemetryConfig, random?: () => number): BuiltEvent {
   const attributes = span.attributes;
   const rollup = state.rollup;
-  const statusCode = frameworkAttribute(attributes, "http.status_code", "http.response.status_code");
+  // A status that code annotated is the one it answered with; the framework's may not be (for
+  // proxy.ts, Next.js reports 200 whatever it answers).
+  const annotatedStatus = state.fields.get("http.status_code");
+  const statusCode = typeof annotatedStatus === "number" ? annotatedStatus : frameworkAttribute(attributes, "http.status_code", "http.response.status_code");
   const status = typeof statusCode === "string" ? Number(statusCode) || undefined : statusCode;
   const duration = durationMs(span.duration);
   const outcome = outcomeOf(status, span.status.code === SpanStatusCode.ERROR, state.errors);
@@ -124,18 +130,23 @@ export function buildEvent(state: EventState, span: RootSpan, serviceName: strin
     random
   );
   const error = primaryError(state.errors);
-  const { instance } = registry();
   // Next.js runs proxy.ts under a root span of its own, apart from the route's (on Vercel, in a
   // function of its own), and that span names no route.
-  const proxy = rollup.proxy || attributes["next.span_type"] === "Middleware.execute";
+  const proxyRoot = attributes["next.span_type"] === "Middleware.execute";
+  const proxy = rollup.proxy || proxyRoot;
+  const method = frameworkAttribute(attributes, "http.method", "http.request.method");
+  const internalErrors = registry().instance.internalErrors;
   const event: Record<string, unknown> = {
     event: state.kind === "request" ? eventNames.request : eventNames.task,
     schema_version: schemaVersion,
     timestamp: hrTimeToIso(span.startTime),
-    name: cleanString(span.name, 120),
+    // Next.js names the span of proxy.ts `middleware GET` where it is a root of its own (on
+    // Vercel); the event names it as `next start` does, by its method. An outgoing call never
+    // gives its address.
+    name: proxyRoot && typeof method === "string" ? method : cleanString(safeSpanName(span.name, span.kind, attributes), 120),
     outcome,
     duration_ms: duration,
-    "http.method": frameworkAttribute(attributes, "http.method", "http.request.method"),
+    "http.method": method,
     "http.route": frameworkAttribute(attributes, "http.route", "next.route") ?? (proxy ? "proxy" : undefined),
     "http.status_code": status,
     "next.span_type": frameworkAttribute(attributes, "next.span_type"),
@@ -163,7 +174,6 @@ export function buildEvent(state: EventState, span: RootSpan, serviceName: strin
     "db.operation_count": rollup.dbOperationCount,
     "db.operations": rollup.dbOperations.size > 0 ? Object.fromEntries(rollup.dbOperations) : undefined,
     "db.transaction_count": rollup.dbTransactionCount,
-    "db.error_count": rollup.dbErrorCount,
     "external.call_count": rollup.externalCallCount,
     "external.call_ms": Math.round(rollup.externalCallMs * 100) / 100,
     "external.slowest_ms": rollup.externalSlowestMs,
@@ -175,7 +185,8 @@ export function buildEvent(state: EventState, span: RootSpan, serviceName: strin
     "sample.reason": sample.reason,
     "sample.rate": sample.rate,
     "telemetry.blocked_keys": state.blocked.size > 0 ? [...state.blocked].slice(0, 20) : undefined,
-    "telemetry.internal_errors": instance.internalErrors > 0 ? instance.internalErrors : undefined
+    // Failures since the previous event was printed; the processor sets the count back.
+    "telemetry.internal_errors": internalErrors > 0 ? internalErrors : undefined
   });
 
   return { event, sample };

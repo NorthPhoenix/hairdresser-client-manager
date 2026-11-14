@@ -58,7 +58,7 @@ export async function getClientAddress(db: Db, clientId: string) {
  */
 export async function saveAddressToClient(db: Db, stylistId: string, clientId: string, address: string) {
   if (!address) {
-    annotate({ "appointment.address_save_result": "no_address" });
+    annotate({ "appointment.location_save_result": "no_address" });
     return false;
   }
 
@@ -73,7 +73,7 @@ export async function saveAddressToClient(db: Db, stylistId: string, clientId: s
   });
 
   if (!client || client.address?.trim()) {
-    annotate({ "appointment.address_save_result": client ? "client_has_address" : "client_not_found" });
+    annotate({ "appointment.location_save_result": client ? "client_has_address" : "client_not_found" });
     return false;
   }
 
@@ -87,7 +87,7 @@ export async function saveAddressToClient(db: Db, stylistId: string, clientId: s
     }
   });
 
-  annotate({ "appointment.address_save_result": "saved" });
+  annotate({ "appointment.location_save_result": "saved" });
 
   return true;
 }

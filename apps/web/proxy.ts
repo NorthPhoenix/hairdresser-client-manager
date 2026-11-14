@@ -4,6 +4,14 @@ import { defaultLocale, requestedLocale } from "@hcm/shared";
 import { annotate, recordError } from "@hcm/telemetry";
 import { lookUpSharePage, unavailableLanguageHeader, unknownAddress } from "./server/shareLink";
 
+// The status of what the proxy answers, for the request's event: Next.js reports 200 for the
+// proxy whatever it answers (docs/observability.md, `http.status_code`).
+function answering<T extends Response>(response: T, status: number = response.status): T {
+  annotate({ "http.status_code": status });
+
+  return response;
+}
+
 // What is done with a request once Clerk has read who sent it.
 async function passOn(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl;
@@ -34,20 +42,26 @@ async function passOn(request: NextRequest) {
   if (sharePage?.showsNothing) {
     annotate({ "proxy.decision": "rewrite_to_unavailable" });
 
-    return NextResponse.rewrite(new URL(unknownAddress, request.url), {
-      request: {
-        headers
-      }
-    });
+    // The address it is passed on as has no page, which is answered with 404.
+    return answering(
+      NextResponse.rewrite(new URL(unknownAddress, request.url), {
+        request: {
+          headers
+        }
+      }),
+      404
+    );
   }
 
   annotate({ "proxy.decision": "passed_on" });
 
-  return NextResponse.next({
-    request: {
-      headers
-    }
-  });
+  return answering(
+    NextResponse.next({
+      request: {
+        headers
+      }
+    })
+  );
 }
 
 // The request headers in which a sign-in arrives: the app's token, and a browser's session.
@@ -60,12 +74,14 @@ export default async function proxy(request: NextRequest, event: NextFetchEvent)
     annotate({ "proxy.decision": "method_refused", "proxy.refused_method": request.method });
     recordError(new Error("Only the API takes anything but reading."), { expected: true, code: "METHOD_NOT_ALLOWED", reason: "method_not_allowed" });
 
-    return new NextResponse(null, {
-      status: 405,
-      headers: {
-        Allow: "GET, HEAD"
-      }
-    });
+    return answering(
+      new NextResponse(null, {
+        status: 405,
+        headers: {
+          Allow: "GET, HEAD"
+        }
+      })
+    );
   }
 
   // Made for this request, so that `read` is its own.
@@ -84,7 +100,14 @@ export default async function proxy(request: NextRequest, event: NextFetchEvent)
   });
 
   try {
-    return await answer(request, event);
+    const response = await answer(request, event);
+
+    // Clerk answers some requests itself (a redirect to sign in) without passing them on.
+    if (!read && response instanceof Response) {
+      answering(response);
+    }
+
+    return response;
   } catch (error) {
     // Clerk refuses a sign-in token that is wrong, but fails on one it cannot decode at all (three
     // parts that are not what a token is made of, as in `Bearer a.b.c`), and the request would end
