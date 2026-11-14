@@ -148,7 +148,7 @@ An optional connection that lets a Stylist mirror Appointments from the app to a
 _Avoid_: Calendar source, imported calendar, external schedule
 
 **Calendar View**:
-An in-app way for the Stylist to browse Appointments by date using simple calendar navigation and agenda lists. Its week strip marks each day that has an Appointment that is not canceled. Drag-and-drop calendar editing is not a v1 concept.
+An in-app way for the Stylist to browse Appointments by date using simple calendar navigation and agenda lists. Its week strip marks each day that has an Appointment that is not canceled, and so does the date picker wherever a day is picked for an Appointment: here, in Appointment Creation and when an Appointment's time is edited. Under the date, the form of Appointment Creation and of that edit lists what the chosen day already has: each other Appointment that is not canceled, with its time, its primary Client (and how many more Clients) and whether it is at home, or says the day has none. Drag-and-drop calendar editing is not a v1 concept.
 _Avoid_: Scheduler, calendar editor, booking calendar
 
 **Stylist Reminder**:

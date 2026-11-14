@@ -2,11 +2,14 @@ package com.northphoenix.hairdresserclientmanager.ui.screens
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Close
@@ -19,18 +22,28 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.LocationType
+import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
+import com.northphoenix.hairdresserclientmanager.domain.CalendarWeek
 import com.northphoenix.hairdresserclientmanager.domain.NightStart
 import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
@@ -42,10 +55,12 @@ import com.northphoenix.hairdresserclientmanager.ui.components.HcmTextField
 import com.northphoenix.hairdresserclientmanager.ui.components.PickerField
 import com.northphoenix.hairdresserclientmanager.ui.components.SegmentedControl
 import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
+import com.northphoenix.hairdresserclientmanager.ui.components.icon
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.YearMonth
 
 // The fields for the time and the place of an Appointment. Appointment Creation and the edit of an
 // Appointment show the same ones, so that both ask the same way. Each form holds its own values.
@@ -58,7 +73,8 @@ enum class AppointmentTimeField { DATE, START, END }
  * the times were cut on narrow screens and at large font sizes. [endDate] is the day the end time
  * falls on, which is said under the field when it is another day than [date]. A start at night is
  * said under its field too (see [NightStart]), with [onDayTime] to move it to the same time on the
- * other half of the day.
+ * other half of the day. Under the date are the other Appointments of that day ([DayAppointments]),
+ * without [movingAppointmentId], the one whose time is being edited.
  */
 @Composable
 fun AppointmentTimeFields(
@@ -69,17 +85,25 @@ fun AppointmentTimeFields(
     onOpen: (AppointmentTimeField) -> Unit,
     onClearEnd: () -> Unit,
     onDayTime: () -> Unit,
+    movingAppointmentId: String? = null,
 ) {
     val format = LocalTimeFormat.current
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        PickerField(
-            label = stringResource(R.string.appointment_date_label),
-            value = format.longDay(date),
-            icon = Icons.Rounded.CalendarMonth,
-            onClick = { onOpen(AppointmentTimeField.DATE) },
-            wraps = true,
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            PickerField(
+                label = stringResource(R.string.appointment_date_label),
+                value = format.longDay(date),
+                icon = Icons.Rounded.CalendarMonth,
+                onClick = { onOpen(AppointmentTimeField.DATE) },
+                wraps = true,
+            )
+            // The date picker is opened for nearly every new Appointment. Its month is loaded with the form, as the list under
+            // the date reads it, and so is the next one: the picker opens with its days marked, and a day picked in
+            // either month is listed at once.
+            PreloadAppointmentMonths(YearMonth.from(date).plusMonths(1))
+            DayAppointments(date, excluding = movingAppointmentId)
+        }
         Column {
             PickerField(
                 label = stringResource(R.string.appointment_start_label),
@@ -117,6 +141,72 @@ fun AppointmentTimeFields(
     }
 }
 
+/**
+ * What [date] already has, under its field, so that a time is picked knowing it: each Appointment
+ * that is not canceled ([CalendarWeek.bookedOn]) with its time, its primary Client, how many more
+ * Clients it has and a house when it is at home. It comes from the day's month as the date picker
+ * reads it ([monthAppointmentsState]); "No Appointments on this day" ("No other Appointments" on the
+ * day of the one being moved) once it is known to have none, and nothing while it is loading or
+ * could not be loaded, where the form is no place to say so.
+ */
+@Composable
+private fun DayAppointments(date: LocalDate, excluding: String?) {
+    val format = LocalTimeFormat.current
+    val read by monthAppointmentsState(YearMonth.from(date))
+    val month = read.data ?: return
+    val booked = CalendarWeek.bookedOn(month, date, format.zone, excluding)
+    // "No other Appointments" only on the day the moved one is on now: any other day has none at all.
+    val movedIsHere = excluding != null && CalendarWeek.bookedOn(month, date, format.zone).any { it.id == excluding }
+    val times = booked.map { appointment -> listOfNotNull(format.time(appointment.startsAt), appointment.endsAt?.let { format.time(it) }).joinToString("–") }
+    val timeStyle = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+    // The names start in one column: as wide as the widest of the day's times.
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val timeWidth = remember(times, timeStyle, density) { with(density) { times.maxOfOrNull { measurer.measure(it, timeStyle).size.width }?.toDp() ?: 0.dp } }
+
+    Column(
+        Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (booked.isEmpty()) {
+            Text(stringResource(if (movedIsHere) R.string.appointment_day_free_of_others else R.string.appointment_day_free), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            return@Column
+        }
+
+        Text(stringResource(R.string.appointment_day_booked), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        booked.forEachIndexed { index, appointment ->
+            // Named as its card names it: by a Client who is in it, also when its primary Client is not (AppointmentClients.Fault).
+            val others = AppointmentClients.othersCount(appointment)
+            val name = AppointmentClients.leadName(appointment) + if (others > 0) " +$others" else ""
+            val place = stringResource(appointment.locationType.label)
+
+            // A long name takes a second line rather than being cut to its first word; the time and the house stay on its first line.
+            Row(
+                Modifier.fillMaxWidth().semantics(mergeDescendants = true) { contentDescription = "${times[index]}, $name, $place" },
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(times[index], modifier = Modifier.width(timeWidth).alignByBaseline(), style = timeStyle, maxLines = 1, softWrap = false)
+                Text(
+                    name,
+                    modifier = Modifier.weight(1f, fill = false).alignByBaseline(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (appointment.locationType == LocationType.AT_HOME) {
+                    Icon(
+                        appointment.locationType.icon,
+                        contentDescription = null,
+                        // Its foot on the line the letters stand on.
+                        modifier = Modifier.size(16.dp).alignBy { it.measuredHeight * 7 / 8 },
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
 /** "Starts at 11:00 PM. Did you mean 11:00 AM?" under a start at night, and the button that changes it. */
 @Composable
 private fun NightStartHint(start: String, dayTime: String, onDayTime: () -> Unit) {
@@ -129,7 +219,7 @@ private fun NightStartHint(start: String, dayTime: String, onDayTime: () -> Unit
     }
 }
 
-/** The picker of the field that is [open]. Picking a value closes it. */
+/** The picker of the field that is [open]. Picking a value closes it. [movingAppointmentId]: see [HcmDatePickerDialog]. */
 @Composable
 fun AppointmentTimePicker(
     open: AppointmentTimeField?,
@@ -141,6 +231,7 @@ fun AppointmentTimePicker(
     onDate: (LocalDate) -> Unit,
     onStartTime: (LocalTime) -> Unit,
     onEndTime: (LocalTime) -> Unit,
+    movingAppointmentId: String? = null,
 ) {
     when (open) {
         AppointmentTimeField.DATE -> HcmDatePickerDialog(
@@ -151,6 +242,7 @@ fun AppointmentTimePicker(
                 onDate(it)
                 onDismiss()
             },
+            movingAppointmentId = movingAppointmentId,
         )
         AppointmentTimeField.START -> HcmTimePickerDialog(
             title = stringResource(R.string.appointment_start_label),
