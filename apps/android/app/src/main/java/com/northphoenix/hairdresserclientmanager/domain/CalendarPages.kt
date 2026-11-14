@@ -12,8 +12,8 @@ import java.time.temporal.TemporalAdjusters
  * of [LAST_MONTH], the years the date picker offers.
  *
  * Swiping to another page selects a day on it: the same weekday of another week, the same day of
- * another month (or its last day, for a month that is shorter). The day the Stylist has selected
- * stays selected on its own page, so swiping back and forth does not move it.
+ * another month, or the last day of a month that is shorter (from 31 January, February selects
+ * the 28th, and March then the 28th as well).
  */
 class CalendarPages(val firstDayOfWeek: DayOfWeek) {
     private val firstWeek = FIRST_MONTH.atDay(1).with(TemporalAdjusters.previousOrSame(firstDayOfWeek))
@@ -59,6 +59,26 @@ class CalendarPages(val firstDayOfWeek: DayOfWeek) {
 
     /** Which week of its month's view [day] is in, from 0. */
     fun weekOfMonth(day: LocalDate): Int = ChronoUnit.WEEKS.between(weekStart(YearMonth.from(day).atDay(1)), weekStart(day)).toInt()
+
+    /**
+     * The months whose Appointments mark the days the calendar shows on [page] and the pages it can
+     * be swiped to next. Of a week ([inMonth] false): the months of it and of the weeks on both
+     * sides, and the month of [selected] with the months its view reaches into, so that the week
+     * opens into a month already marked. Of a month: the months on both sides, and the months whose
+     * days their weeks show, two before and two after.
+     */
+    fun monthsToMark(page: Int, inMonth: Boolean, selected: LocalDate): List<YearMonth> {
+        if (inMonth) {
+            return (-2L..2L).map { monthOf(page).plusMonths(it) }
+        }
+        val weeks = YearMonth.from(weekOf(page - 1))..YearMonth.from(weekOf(page + 1).plusDays(CalendarWeek.LENGTH - 1))
+        val opens = YearMonth.from(selected).let { it.minusMonths(1)..it.plusMonths(1) }
+
+        return (monthsIn(weeks) + monthsIn(opens)).distinct().sorted()
+    }
+
+    private fun monthsIn(range: ClosedRange<YearMonth>): List<YearMonth> =
+        generateSequence(range.start) { it.plusMonths(1) }.takeWhile { it <= range.endInclusive }.toList()
 
     companion object {
         val FIRST_MONTH: YearMonth = YearMonth.of(1900, 1)

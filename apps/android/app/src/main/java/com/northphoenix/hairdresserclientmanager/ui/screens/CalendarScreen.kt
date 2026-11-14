@@ -13,10 +13,12 @@ import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitVerticalTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.verticalDrag
 import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -66,6 +68,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -213,7 +219,8 @@ private fun SwipeCalendar(selected: LocalDate, today: LocalDate, latest: () -> L
     val format = LocalTimeFormat.current
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
-    val pages = remember(format.firstDayOfWeek) { CalendarPages(format.firstDayOfWeek) }
+    val firstDayOfWeek = format.firstDayOfWeek
+    val pages = remember(firstDayOfWeek) { CalendarPages(firstDayOfWeek) }
     val latestDay by rememberUpdatedState(latest)
     val select by rememberUpdatedState(onSelect)
 
@@ -228,32 +235,45 @@ private fun SwipeCalendar(selected: LocalDate, today: LocalDate, latest: () -> L
     // Weeks while the week is shown, months as soon as it opens. The month's view of the selected week is the week itself, so
     // the change from one to the other does not show. The pages, their effects and their layout all take it from this composition.
     val inMonth = opening
-    val pager = key(inMonth, pages) {
+    // Keyed by plain values: the keys name the pager's saved state, which is found again only under the same name.
+    val pager = key(inMonth, firstDayOfWeek.value) {
         rememberPagerState(initialPage = if (inMonth) pages.monthPage(selected) else pages.weekPage(selected)) {
             if (inMonth) pages.monthCount else pages.weekCount
         }
     }
+    val currentPager by rememberUpdatedState(pager)
+    // Whether a finger has moved the pager since it was last at rest: where it comes to rest then is the Stylist's choice.
+    var swiped by remember(pager) { mutableStateOf(false) }
 
-    // A swipe that has come to rest selects the day on the page it has brought into view.
+    LaunchedEffect(pager) {
+        pager.interactionSource.interactions.collect { if (it is DragInteraction.Start) swiped = true }
+    }
+    // A swipe that has come to rest selects the day on the page it has brought into view, also when it came back to the page it
+    // started on while the arrows had moved the selected day to the next one.
     LaunchedEffect(pager, inMonth) {
-        snapshotFlow { pager.settledPage }.collect { page ->
-            val now = latestDay()
-            val day = if (inMonth) pages.dayOnMonthPage(now, page) else pages.dayOnWeekPage(now, page)
+        snapshotFlow { pager.isScrollInProgress }.collect { moving ->
+            if (!moving && swiped) {
+                swiped = false
+                val now = latestDay()
+                val day = if (inMonth) pages.dayOnMonthPage(now, pager.currentPage) else pages.dayOnWeekPage(now, pager.currentPage)
 
-            if (day != now) {
-                select(day)
+                if (day != now) {
+                    select(day)
+                }
             }
         }
     }
     // A day selected otherwise, with the arrows, a tap on a day of the month next to this one, or by the clock, brings its
-    // page into view: the page next to this one slides in, one further away is there at once.
-    LaunchedEffect(pager, inMonth, selected) {
-        val page = latestDay().let { if (inMonth) pages.monthPage(it) else pages.weekPage(it) }
-
-        if (page != pager.currentPage && !pager.isScrollInProgress) {
-            if (abs(page - pager.currentPage) == 1) pager.animateScrollToPage(page) else pager.scrollToPage(page)
+    // page into view: the page next to this one slides in, one further away is there at once. A day selected again before the
+    // page is in place moves it on from where it is. A finger on the pager has the last word.
+    val selectedPage = if (inMonth) pages.monthPage(selected) else pages.weekPage(selected)
+    LaunchedEffect(pager, selectedPage) {
+        if (!swiped && (pager.currentPage != selectedPage || pager.currentPageOffsetFraction != 0f)) {
+            if (abs(selectedPage - pager.currentPage) <= 1) pager.animateScrollToPage(selectedPage) else pager.scrollToPage(selectedPage)
         }
     }
+    // The days are marked from the months of the pages in view, of the pages on both sides and of the month the week opens into.
+    val marked = markedDays(remember(pages, inMonth, pager.currentPage, selected) { pages.monthsToMark(pager.currentPage, inMonth, selected) })
 
     BoxWithConstraints(modifier.widenedTo(DayCellMinWidth * 7, into = ScreenPadding)) {
         val weekdays = remember(pages, format) { CalendarWeek.days(pages.weekStart(today)).map(format::shortWeekday) }
@@ -265,7 +285,6 @@ private fun SwipeCalendar(selected: LocalDate, today: LocalDate, latest: () -> L
         val rowPx = with(density) { rowHeight.toPx() }
         // How far a pull goes: from the selected week alone to every week of its month.
         val travel by rememberUpdatedState((pages.weeksIn(YearMonth.from(selected)) - 1) * rowPx)
-        val flingVelocity = with(density) { OpenVelocity.toPx() }
 
         fun settle(toMonth: Boolean, velocity: Float = 0f) {
             monthShown = toMonth
@@ -275,32 +294,55 @@ private fun SwipeCalendar(selected: LocalDate, today: LocalDate, latest: () -> L
             }
         }
 
-        val drag = rememberDraggableState { delta -> opened = (opened + delta / travel).coerceIn(0f, 1f) }
-
         Column(
-            Modifier.draggable(
-                drag,
-                Orientation.Vertical,
-                // While a week or a month slides in, it is not pulled open or closed under it.
-                enabled = !pager.isScrollInProgress,
-                // A month that is opening or closing is caught by the finger where it is.
-                startDragImmediately = !atRest,
-                onDragStarted = {
-                    settling?.cancel()
+            Modifier.pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    // A month that is opening or closing is caught by the finger where it is.
+                    val caught = !atRest
+                    if (caught) {
+                        settling?.cancel()
+                    } else if (currentPager.isScrollInProgress) {
+                        // While a week or a month slides in, it is not pulled open or closed under it.
+                        return@awaitEachGesture
+                    }
+                    // Only a pull that has somewhere to go is the calendar's: up on the week and down on the open month, the list
+                    // scrolls and is pulled to refresh as before.
+                    val start = if (caught) {
+                        down
+                    } else {
+                        awaitVerticalTouchSlopOrCancellation(down.id) { change, over ->
+                            if ((over > 0f && opened < 1f) || (over < 0f && opened > 0f)) {
+                                change.consume()
+                                opened = (opened + over / travel).coerceIn(0f, 1f)
+                            }
+                        }
+                    } ?: return@awaitEachGesture
+                    val velocity = VelocityTracker().apply { addPointerInputChange(start) }
+
                     pulling = true
-                },
-                onDragStopped = { velocity ->
-                    pulling = false
-                    settle(
-                        toMonth = when {
-                            velocity > flingVelocity -> true
-                            velocity < -flingVelocity -> false
-                            else -> opened > 0.5f
-                        },
-                        velocity = velocity,
-                    )
-                },
-            ),
+                    try {
+                        verticalDrag(start.id) { change ->
+                            velocity.addPointerInputChange(change)
+                            opened = (opened + change.positionChange().y / travel).coerceIn(0f, 1f)
+                            change.consume()
+                        }
+                    } finally {
+                        pulling = false
+                        val speed = velocity.calculateVelocity().y
+                        val fast = OpenVelocity.toPx()
+
+                        settle(
+                            toMonth = when {
+                                speed > fast -> true
+                                speed < -fast -> false
+                                else -> opened > 0.5f
+                            },
+                            velocity = speed,
+                        )
+                    }
+                }
+            },
         ) {
             // The weekdays are named once, above every week. Each day says its own weekday to TalkBack.
             Row(Modifier.fillMaxWidth().padding(bottom = 4.dp).clearAndSetSemantics {}) {
@@ -329,9 +371,9 @@ private fun SwipeCalendar(selected: LocalDate, today: LocalDate, latest: () -> L
                             return@layout layout(placeable.width, placeable.height) { placeable.place(0, 0) }
                         }
                         // Between two months of different lengths, the height follows the swipe from the one to the other.
-                        val swiped = pager.currentPageOffsetFraction
-                        val next = (pager.currentPage + sign(swiped).toInt()).coerceIn(0, pages.monthCount - 1)
-                        val weeks = lerp(pages.weeksIn(pages.monthOf(pager.currentPage)).toFloat(), pages.weeksIn(pages.monthOf(next)).toFloat(), abs(swiped))
+                        val swipedBy = pager.currentPageOffsetFraction
+                        val next = (pager.currentPage + sign(swipedBy).toInt()).coerceIn(0, pages.monthCount - 1)
+                        val weeks = lerp(pages.weeksIn(pages.monthOf(pager.currentPage)).toFloat(), pages.weeksIn(pages.monthOf(next)).toFloat(), abs(swipedBy))
                         val height = lerp(rowPx, weeks * rowPx, opened)
                         // The selected week stays under the finger: the weeks before it come in from above as the month opens.
                         val offset = -pages.weekOfMonth(selected) * rowPx * (1f - opened)
@@ -340,9 +382,9 @@ private fun SwipeCalendar(selected: LocalDate, today: LocalDate, latest: () -> L
                     },
             ) {
                 if (inMonth) {
-                    MonthPager(pager, pages, selected, today, rowHeight, numberStyle, atRest, opened = { opened }, onSelect = select)
+                    MonthPager(pager, pages, selected, today, marked, rowHeight, numberStyle, atRest, opened = { opened }, onSelect = select)
                 } else {
-                    WeekPager(pager, pages, selected, today, rowHeight, numberStyle, atRest, onSelect = select)
+                    WeekPager(pager, pages, selected, today, marked, rowHeight, numberStyle, atRest, onSelect = select)
                 }
             }
 
@@ -364,16 +406,17 @@ private fun WeekPager(
     pages: CalendarPages,
     selected: LocalDate,
     today: LocalDate,
+    marked: Set<LocalDate>,
     rowHeight: Dp,
     numberStyle: TextStyle,
     atRest: Boolean,
     onSelect: (LocalDate) -> Unit,
 ) {
-    // The weeks on both sides are there before they are swiped to, their days marked.
+    // The weeks on both sides are there before they are swiped to.
     HorizontalPager(pager, beyondViewportPageCount = 1, userScrollEnabled = atRest) { page ->
         val days = remember(pages, page) { CalendarWeek.days(pages.weekOf(page)) }
 
-        WeekRow(days, pages.dayOnWeekPage(selected, page), today, markedDays(days), rowHeight, numberStyle, onSelect)
+        WeekRow(days, pages.dayOnWeekPage(selected, page), today, marked, rowHeight, numberStyle, onSelect)
     }
 }
 
@@ -383,6 +426,7 @@ private fun MonthPager(
     pages: CalendarPages,
     selected: LocalDate,
     today: LocalDate,
+    marked: Set<LocalDate>,
     rowHeight: Dp,
     numberStyle: TextStyle,
     atRest: Boolean,
@@ -392,11 +436,9 @@ private fun MonthPager(
     HorizontalPager(pager, beyondViewportPageCount = 1, userScrollEnabled = atRest, verticalAlignment = Alignment.Top) { page ->
         val month = pages.monthOf(page)
         val weeks = remember(pages, month) { pages.monthGrid(month) }
-        val days = remember(weeks) { weeks.flatten() }
-        val marked = markedDays(days)
         val ownMonth = YearMonth.from(selected) == month
         // A day of the month next to this one that was tapped here is selected here too, while its own month slides in.
-        val highlighted = if (ownMonth || (page == pager.settledPage && selected in days)) selected else pages.dayOnMonthPage(selected, page)
+        val highlighted = if (ownMonth || (page == pager.settledPage && weeks.any { selected in it })) selected else pages.dayOnMonthPage(selected, page)
         val selectedWeek = if (ownMonth) pages.weekOfMonth(selected) else -1
 
         // As tall as the longest month, so that every page measures the same; the calendar shows as much of it as the month has weeks.
@@ -454,14 +496,13 @@ private fun WeekRow(
 }
 
 /**
- * The days among [days] that have an Appointment that is not canceled, from the Appointments of
- * the months they are in ([monthAppointmentsState]). The week and its month read the same months,
- * so a day is marked alike in both, and a month read before is marked from the first frame.
+ * The days of [months] that have an Appointment that is not canceled ([monthAppointmentsState]), read
+ * once for every page of the calendar: the week and its month mark a day alike, and a month read
+ * before is marked from the first frame. A month that stays in [months] is not read again.
  */
 @Composable
-private fun markedDays(days: List<LocalDate>): Set<LocalDate> {
+private fun markedDays(months: List<YearMonth>): Set<LocalDate> {
     val zone = LocalTimeFormat.current.zone
-    val months = remember(days) { days.map(YearMonth::from).distinct() }
     val reads = months.map { month -> key(month) { monthAppointmentsState(month) } }
     val appointments = reads.flatMap { it.value.data.orEmpty() }
 
@@ -502,7 +543,7 @@ private val DayCellPadding = 8.dp
 
 private val DayDotGap = 4.dp
 
-private val HandleHeight = 20.dp
+private val HandleHeight = 28.dp
 
 /** The most weeks a month view has. */
 private const val MaxWeeks = 6
