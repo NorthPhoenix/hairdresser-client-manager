@@ -65,6 +65,8 @@ export default async function ProfileSharePage({ params, searchParams }: Profile
   const locale = asked ?? share.language;
 
   annotate({
+    "page.kind": "profile_share",
+    "page.language": locale,
     "profile_share.page_result": "shown",
     "profile_share.language": locale,
     "profile_share.language_source": asked ? "query" : "client"

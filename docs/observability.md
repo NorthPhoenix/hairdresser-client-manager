@@ -550,7 +550,7 @@ What the code adds to the event for each part of the domain. Rows are sorted by 
 | `app.version_state` | string | `valid`, `absent` (app before 1.4.0) or `invalid` header. Written by `appVersionFromHeaders`. |
 | `app.version_write` | string | `written`, `skipped_no_version`, `skipped_seen_within_hour`, `failed` (handled error `app_version_write_failed`). Written by `recordAppVersion`. |
 | `auth.signed_in`, `auth.user_id` | bool, string | As for tRPC; the upload route has no procedure chain. Written by `authorizePhotoUpload`. |
-| `page.kind` | string | `home` (the index) or `unavailable` (not-found page). Written by `app/page.tsx`, `app/not-found.tsx`. |
+| `page.kind` | string | `home` (the index), `profile_share` (a Profile Share page that is shown) or `unavailable` (not-found page). Written by `app/page.tsx`, `app/profile-shares/[token]/page.tsx`, `app/not-found.tsx`. |
 | `page.language` | string | Language the page was drawn in. Written by same. |
 | `photo.kept_file_count` | int | Files kept because another Appointment Photo still names them. Written by `markFilesUnused`. |
 | `photo.unused_file_count` | int | Stored files that no Appointment Photo names any more (to delete after the commit). Written by `markFilesUnused`. |
