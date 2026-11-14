@@ -8,6 +8,11 @@
     <uses-permission android:name="android.permission.SEND_SMS" />
     <!-- Not required: a tablet without a mobile radio installs the app too, and its reminders open in the SMS app. -->
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
+    <!-- Calendar Integration writes the Appointments into a Google calendar on the phone (ADR 0003). Asked for when the Stylist sets it up. -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+    <!-- Whether sync is on, so the setup can say why a calendar made in Google has not come to the phone yet. -->
+    <uses-permission android:name="android.permission.READ_SYNC_SETTINGS" />
 
     <application
         android:name=".HcmApplication"

@@ -80,7 +80,7 @@ import java.time.Instant
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit) {
+fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit, onOpenCalendarIntegration: () -> Unit) {
     val format = LocalTimeFormat.current
     val home by viewModel.home.collectAsStateWithLifecycle()
     val appointments = home.data.orEmpty()
@@ -113,6 +113,8 @@ fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit) {
     // A newer version she put off: a small download button in the corner instead of the card.
     val newerApp by viewModel.newerApp.collectAsStateWithLifecycle()
     val cornerUpdate = AppUpdates.cornerUpdate(newerApp, updateCard)
+    // Google Calendar stopped being updated for a reason only she can put right: a card says so, until it is.
+    val calendar by viewModel.calendarSync.state.collectAsStateWithLifecycle()
 
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -130,6 +132,10 @@ fun TodayScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit) {
 
             updateCard?.let { card ->
                 item(key = "app-update") { AppUpdateHomeCard(card, viewModel, Modifier.animateItem()) }
+            }
+
+            if (calendar.connection != null && calendar.problem?.needsStylist == true) {
+                item(key = "calendar-problem") { CalendarProblemHomeCard(calendar, onFix = onOpenCalendarIntegration, modifier = Modifier.animateItem()) }
             }
 
             when (val state = load) {

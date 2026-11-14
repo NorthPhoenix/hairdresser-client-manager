@@ -242,9 +242,15 @@ fun OnboardingScreen(viewModel: AppViewModel, stylist: Stylist) {
     }
 }
 
-/** Profile tab: account, Stylist settings, the Service Menu entry point, and the app's version with what changed in it. */
+/** Profile tab: account, Stylist settings, the Service Menu and Calendar Integration entry points, and the app's version with what changed in it. */
 @Composable
-fun ProfileScreen(viewModel: AppViewModel, onOpenServiceMenu: () -> Unit, onOpenEarnings: () -> Unit, onOpenReleases: () -> Unit) {
+fun ProfileScreen(
+    viewModel: AppViewModel,
+    onOpenServiceMenu: () -> Unit,
+    onOpenEarnings: () -> Unit,
+    onOpenReleases: () -> Unit,
+    onOpenCalendarIntegration: () -> Unit,
+) {
     val stylist by viewModel.stylist.collectAsStateWithLifecycle()
     val authState by viewModel.authState.collectAsStateWithLifecycle()
     val menu by viewModel.serviceMenu.collectAsStateWithLifecycle()
@@ -253,6 +259,7 @@ fun ProfileScreen(viewModel: AppViewModel, onOpenServiceMenu: () -> Unit, onOpen
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val accountName by viewModel.accountName.collectAsStateWithLifecycle()
     val newerApp by viewModel.newerApp.collectAsStateWithLifecycle()
+    val calendar by viewModel.calendarSync.state.collectAsStateWithLifecycle()
     val current = stylist ?: return
     val draft = rememberSettingsDraft(viewModel, current)
     val email = (authState as? AuthState.SignedIn)?.email.orEmpty()
@@ -360,6 +367,8 @@ fun ProfileScreen(viewModel: AppViewModel, onOpenServiceMenu: () -> Unit, onOpen
                 Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
             }
         }
+
+        CalendarIntegrationEntry(calendar, onClick = onOpenCalendarIntegration)
 
         HcmCard { LanguageField(viewModel) }
 
