@@ -27,12 +27,13 @@ object NameSpelling {
 
     /**
      * The spellings made one, replaced in this order in the name in Latin letters: a sound written
-     * with one letter in one way and two in another ("x" and "ks", "ph" and "f") is written one way,
-     * "c" is "k" (but "ch" stays), an "h" that is not the second letter of "ch", "sh", "zh" or "kh"
-     * is «х», "kh" ("Hannah" and «Ханна»), "e" or "o" after "y", "j" or "i" inside a word is "e" (as "ye"
-     * and "yo" write «е» and «ё» in "Alyona" and "Vasilyeva"), "y" and "j" are "i", and a run of
-     * "i" is one ("iya" is "ia"). At the start of a word "Ye", "Yo" or "Jo" keeps its first letter,
-     * so a search "Jo" is not "e", which nearly every name has; at its end "ie" stays ("Natalie").
+     * with one letter in one way and two in another ("x" and "ks", "ph" and "f") is written one way;
+     * "c" is "s" before "e", "i" or "y" ("Cindy") and "k" otherwise (but "ch" stays); an "h" after a
+     * vowel and not before one is silent ("John", "Sarah"), and any other "h" that is not the second
+     * letter of "ch", "sh", "zh" or "kh" is «х», "kh" ("Hannah" and «Ханна»); "ye" and "yo" before
+     * a letter are "e", as they write «е» and «ё» ("Yelena", "Alyona", "Vasilyeva"), and so are "je"
+     * and "jo" inside a word, but "Jo" starting a word stays ("John"); "y" and "j" are "i", and a run
+     * of "i" is one ("iya" is "ia"). An "ie" stays: in "Daniel" or "Natalie" it is not «е».
      */
     private val spellings: List<Pair<Regex, String>> = listOf(
         "dzh" to "j",
@@ -45,9 +46,11 @@ object NameSpelling {
         "w" to "v",
         "q" to "k",
         "tz" to "ts",
+        "c(?=[eiy])" to "s",
         "c(?!h)" to "k",
+        "(?<=[aeiouy])h(?![aeiouy])" to "",
         "(?<![cszk])h" to "kh",
-        "(?<=\\p{L})(?:[yji]e|[yj]o)(?=\\p{L})" to "e",
+        "(?<=\\p{L})[yj][eo](?=\\p{L})|(?<!\\p{L})y[eo](?=\\p{L})" to "e",
         "[yj]" to "i",
         "i+" to "i",
     ).map { (from, to) -> Regex(from) to to }

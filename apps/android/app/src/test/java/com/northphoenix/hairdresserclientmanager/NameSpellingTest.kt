@@ -32,8 +32,8 @@ class NameSpellingTest {
         assertOneSpelling("Наталья", "Natalia", "Natalya", "Natalja", "Natal'ya")
         assertOneSpelling("Татьяна", "Tatiana", "Tatyana")
         assertOneSpelling("Мария", "Maria", "Mariya")
-        assertOneSpelling("Елена", "Elena")
-        assertOneSpelling("Евгения", "Evgenia", "Evgeniya")
+        assertOneSpelling("Елена", "Elena", "Yelena")
+        assertOneSpelling("Евгения", "Evgenia", "Evgeniya", "Yevgeniya")
         assertOneSpelling("Виктория", "Victoria", "Viktoriya")
         assertOneSpelling("Кристина", "Kristina", "Christina")
         assertOneSpelling("Софья", "София", "Sofia", "Sophia", "Sofya")
@@ -47,12 +47,17 @@ class NameSpellingTest {
         assertOneSpelling("Кузнецова", "Kuznetsova")
         assertOneSpelling("Щербакова", "Shcherbakova", "Scherbakova")
         assertOneSpelling("Хачатурян", "Khachaturyan")
-        assertOneSpelling("Васильева", "Vasilyeva", "Vasilieva", "Vasileva")
+        assertOneSpelling("Васильева", "Vasilyeva", "Vasileva")
         assertOneSpelling("Соловьёва", "Solovyova", "Soloveva")
         assertOneSpelling("Иванова", "Ivanova", "Iwanowa")
         // The same goes for an English name written in Cyrillic.
         assertOneSpelling("Emily Carter", "Эмили Картер")
         assertOneSpelling("Jessica Smith", "Джессика Смит")
+        assertOneSpelling("John Johnson", "Джон Джонсон")
+        assertOneSpelling("Sarah", "Сара")
+        assertOneSpelling("Hannah", "Ханна")
+        assertOneSpelling("Cindy", "Синди")
+        assertOneSpelling("Cecilia", "Сесилия")
         assertOneSpelling("Ukrainian Ігор", "Ukrainian Игор")
     }
 
@@ -150,6 +155,26 @@ class NameSpellingTest {
         assertEquals(listOf("3"), found(clients, "Натали"))
         assertEquals(listOf("4"), found(clients, "Софи"))
         assertEquals(listOf("5"), found(clients, "Мари"))
+    }
+
+    @Test
+    fun `a Russian search finds a Latin name as it is being typed`() {
+        val clients = listOf(client("1", "Daniel Brown"), client("2", "Ivan Dmitriev"), client("3", "Gabriela Lopez"), client("4", "Alyona Lee"))
+
+        listOf("Дан", "Дани", "Даниэ", "Даниэл").forEach { assertEquals(it, listOf("1"), found(clients, it)) }
+        listOf("Дмитр", "Дмитри", "Дмитриев").forEach { assertEquals(it, listOf("2"), found(clients, it)) }
+        listOf("Габри", "Габриэла").forEach { assertEquals(it, listOf("3"), found(clients, it)) }
+        listOf("Ал", "Алё", "Алён", "Алёна", "Алена").forEach { assertEquals(it, listOf("4"), found(clients, it)) }
+    }
+
+    @Test
+    fun `a Latin search finds a Russian name written with Ye or Yo`() {
+        val clients = listOf(client("1", "Елена Белова"), client("2", "Егор"), client("3", "Ёлкина"), client("4", "Пётр"))
+
+        assertEquals(listOf("1"), found(clients, "Yelena"))
+        assertEquals(listOf("2"), found(clients, "Yegor"))
+        assertEquals(listOf("3"), found(clients, "Yolkina"))
+        assertEquals(listOf("4"), found(clients, "Pyotr"))
     }
 
     @Test

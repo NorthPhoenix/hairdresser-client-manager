@@ -173,6 +173,7 @@ class ContactImportListTest {
     fun `a search finds a name in the other alphabet too`() {
         assertEquals(listOf(1L), ContactImportList.filter(rows, "Petrova").map { it.candidate.id })
         assertEquals(listOf(1L), ContactImportList.filter(rows, "Elka").map { it.candidate.id })
+        assertEquals(listOf(1L), ContactImportList.filter(rows, "Yolka").map { it.candidate.id })
         assertEquals(listOf(2L), ContactImportList.filter(rows, "Боб").map { it.candidate.id })
     }
 
