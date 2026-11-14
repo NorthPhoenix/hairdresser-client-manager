@@ -65,6 +65,7 @@ import com.northphoenix.hairdresserclientmanager.domain.ContactImportList
 import com.northphoenix.hairdresserclientmanager.domain.ImportCandidate
 import com.northphoenix.hairdresserclientmanager.domain.ImportItem
 import com.northphoenix.hairdresserclientmanager.domain.ImportRow
+import com.northphoenix.hairdresserclientmanager.domain.NameSpelling
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.ui.components.Avatar
 import com.northphoenix.hairdresserclientmanager.ui.components.BottomActionBar
@@ -74,6 +75,8 @@ import com.northphoenix.hairdresserclientmanager.ui.components.PrimaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.ScreenPadding
 import com.northphoenix.hairdresserclientmanager.ui.components.SecondaryButton
 import com.northphoenix.hairdresserclientmanager.ui.components.SubScreen
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** What the screen has of the device's contacts: still being read, or read (null: Android refused). */
 private sealed interface ContactsRead {
@@ -125,7 +128,12 @@ fun ContactImportScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     LaunchedEffect(granted) {
         if (granted) {
             read = ContactsRead.Loading
-            read = ContactsRead.Done(DeviceContacts.readAll(context)?.let(ContactImportList::candidates))
+            val candidates = DeviceContacts.readAll(context)?.let(ContactImportList::candidates)
+
+            read = ContactsRead.Done(candidates)
+            // Each name spelled for the search in the other alphabet now, away from the screen, so the
+            // first letter typed does not stop a list of thousands of contacts to spell them all.
+            candidates?.let { withContext(Dispatchers.Default) { it.forEach { candidate -> NameSpelling.of(candidate.name) } } }
         }
     }
 
