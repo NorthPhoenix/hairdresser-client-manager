@@ -1,4 +1,5 @@
 import type { Db } from "./context";
+import { annotateSafely } from "./input";
 
 type AppointmentLocation = {
   locationType: "inSalon" | "atHome";
@@ -57,6 +58,7 @@ export async function getClientAddress(db: Db, clientId: string) {
  */
 export async function saveAddressToClient(db: Db, stylistId: string, clientId: string, address: string) {
   if (!address) {
+    annotateSafely(() => ({ "appointment.address_saved_to_client": "no_address" }));
     return false;
   }
 
@@ -71,6 +73,7 @@ export async function saveAddressToClient(db: Db, stylistId: string, clientId: s
   });
 
   if (!client || client.address?.trim()) {
+    annotateSafely(() => ({ "appointment.address_saved_to_client": !client ? "client_not_found" : "client_has_address" }));
     return false;
   }
 
@@ -83,6 +86,8 @@ export async function saveAddressToClient(db: Db, stylistId: string, clientId: s
       address
     }
   });
+
+  annotateSafely(() => ({ "appointment.address_saved_to_client": "saved" }));
 
   return true;
 }

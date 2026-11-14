@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { appReleases, releasesSince } from "../appReleases";
+import { annotateSafely } from "../input";
 import { createTRPCRouter, stylistProcedure } from "../trpc";
 
 const releasesInput = z
@@ -24,9 +25,17 @@ export const appReleaseRouter = createTRPCRouter({
     const published = ctx.publishedRelease ? await ctx.publishedRelease() : undefined;
     const upTo = published === undefined ? undefined : (published?.versionCode ?? ctx.appVersion?.code);
 
-    return {
-      ...releasesSince(appReleases, input?.sinceVersionCode, upTo),
-      downloadUrl: published?.downloadUrl ?? ctx.appDownloadUrl ?? null
-    };
+    const result = releasesSince(appReleases, input?.sinceVersionCode, upTo);
+    const downloadUrl = published?.downloadUrl ?? ctx.appDownloadUrl ?? null;
+
+    // releasesSince records what it listed (release.*); this is what is decided here.
+    annotateSafely(() => ({
+      // "unknown": the server could not tell what is published, so nothing newer than the app is offered.
+      "release_list.published_source": !ctx.publishedRelease ? "not_configured" : published === undefined ? "unknown" : published === null ? "none" : "published",
+      "release_list.up_to_version_code": upTo,
+      "release_list.has_download_url": downloadUrl !== null
+    }));
+
+    return { ...result, downloadUrl };
   })
 });

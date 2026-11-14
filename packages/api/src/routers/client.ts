@@ -1,3 +1,4 @@
+import { annotate as annotateEvent, increment, recordError, traced, type Fields } from "@hcm/telemetry";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { addedOrder } from "../addedOrder";
@@ -19,6 +20,61 @@ import { markFilesUnused } from "../photoStorage";
 import { loadProfileShareContent, resolveProfileShareOptions } from "../profileShare";
 import { buildShareImage } from "../shareImage";
 import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from "../trpc";
+
+// What the procedures below tell the request's wide event (docs/observability.md). A Client's record
+// is the most personal data of the app, so the event has only ids, counts, lengths, whether a detail
+// is there, and the branch a request took: never a name, a phone number, an email, an address, a
+// Client Note, a Family role or a formula.
+
+/**
+ * Adds the fields `describe` works out to the request's wide event. They are worked out inside,
+ * so that a row without a field they read leaves them out of the event instead of failing the
+ * request: telemetry never fails a request.
+ */
+function annotate(describe: () => Fields) {
+  try {
+    annotateEvent(describe());
+  } catch {
+    // Left out of the event.
+  }
+}
+
+/**
+ * A refusal on purpose, recorded on the request's wide event with the domain's reason for it, so
+ * a search can count each reason. The caller throws it; the reply is the same as before.
+ */
+function refusal(code: TRPCError["code"], message: string, reason: string) {
+  const error = new TRPCError({ code, message });
+
+  recordError(error, { expected: true, reason });
+  return error;
+}
+
+/** How many rows an `updateMany` or `deleteMany` changed, as the event counts them. */
+function countOf(result: unknown) {
+  const count = (result as { count?: unknown } | null | undefined)?.count;
+
+  return typeof count === "number" ? count : undefined;
+}
+
+/** The details of a Client a save writes, as the event tells them: whether each is there, and lengths. */
+function annotateClientDetails(client: {
+  name: string;
+  language: string;
+  phone: string;
+  email: string;
+  address: string;
+  note: string;
+}) {
+  annotate(() => ({
+    "client.language": client.language,
+    "client.name_length": client.name.length,
+    "client.has_phone": client.phone.trim() !== "",
+    "client.has_email": client.email.trim() !== "",
+    "client.has_address": client.address.trim() !== "",
+    "client.note_length": client.note.length
+  }));
+}
 
 const clientListInput = z.object({
   search: text(textLimits.name).optional()
@@ -150,6 +206,29 @@ function toProfileShareOutput(share: ProfileShareRow) {
   };
 }
 
+/** How many of the choices of what a Profile Share shows a request states; the rest are kept or default. */
+function statedOptionCount(input: Partial<Record<"includeColorFormulas" | "includeAfterPhotos" | "includeOtherPhotos", boolean>>) {
+  return [input.includeColorFormulas, input.includeAfterPhotos, input.includeOtherPhotos].filter((value) => typeof value === "boolean").length;
+}
+
+/** A choice of what a Profile Share shows, as the event names it: "includeAfterPhotos" is "include_after_photos". */
+function optionField(option: string) {
+  return option.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
+}
+
+/** What a Profile Share shows after the request, so a search can count each choice. */
+function annotateShareOptions(share: ProfileShareRow) {
+  annotate(() => {
+    const options = resolveProfileShareOptions(share);
+
+    return {
+      "profile_share.include_color_formulas": options.includeColorFormulas,
+      "profile_share.include_after_photos": options.includeAfterPhotos,
+      "profile_share.include_other_photos": options.includeOtherPhotos
+    };
+  });
+}
+
 // The pairs a Client is in that the Stylist said are different people, from either side.
 const distinctPairs = {
   distinctPairsAsFirst: {
@@ -244,10 +323,7 @@ async function checkReferrer(db: Db, stylistId: string, clientId: string | undef
   }
 
   if (referredById === clientId) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "A Client cannot be recommended by themselves."
-    });
+    throw refusal("BAD_REQUEST", "A Client cannot be recommended by themselves.", "client_referred_by_self");
   }
 
   const referrer = await db.client.findFirst({
@@ -261,10 +337,7 @@ async function checkReferrer(db: Db, stylistId: string, clientId: string | undef
   });
 
   if (!referrer) {
-    throw new TRPCError({
-      code: "NOT_FOUND",
-      message: "Client not found."
-    });
+    throw refusal("NOT_FOUND", "Client not found.", "referrer_not_found");
   }
 }
 
@@ -309,23 +382,30 @@ async function getMergedPrimaryChange(
   appointment: Parameters<typeof getPrimaryClientChange>[1] & { status: string },
   clientId: string
 ) {
+  // Added up over the Appointments of one merge: how often each rule applied.
   if (appointment.status === "scheduled") {
+    increment("client_merge.primary_scheduled_count");
     return getPrimaryClientChange(db, appointment, clientId);
   }
 
   if (appointment.locationType !== "atHome" || hasCustomAddress(appointment)) {
+    increment("client_merge.primary_past_kept_place_count");
     return {
       primaryClientId: clientId
     };
   }
 
+  increment("client_merge.primary_past_at_home_count");
   return {
     primaryClientId: clientId,
     locationAddressIsCustom: (appointment.locationAddress ?? "") !== (await getClientAddress(db, clientId))
   };
 }
 
-/** Records that two Clients of a Stylist are different people, once per pair. */
+/**
+ * Records that two Clients of a Stylist are different people, once per pair. Answers whether the
+ * pair is new, so that the event can tell a pair recorded from one that was there already.
+ */
 async function addDistinctPair(db: Db, stylistId: string, clientId: string, otherClientId: string) {
   const [firstClientId, secondClientId] = clientId < otherClientId ? [clientId, otherClientId] : [otherClientId, clientId];
   const existing = await db.clientDistinctPair.findFirst({
@@ -335,15 +415,19 @@ async function addDistinctPair(db: Db, stylistId: string, clientId: string, othe
     }
   });
 
-  if (!existing) {
-    await db.clientDistinctPair.create({
-      data: {
-        stylistId,
-        firstClientId,
-        secondClientId
-      }
-    });
+  if (existing) {
+    return false;
   }
+
+  await db.clientDistinctPair.create({
+    data: {
+      stylistId,
+      firstClientId,
+      secondClientId
+    }
+  });
+
+  return true;
 }
 
 /** What the list states of a Client, also with what a save does not answer. */
@@ -385,14 +469,19 @@ async function familyChange(db: Db, stylistId: string, clientId: string, changed
     include: listedClient
   });
 
+  annotate(() => ({ "family.reply_client_count": clients.length }));
+
   return {
     familyId: clients.find((client) => client.id === clientId)?.familyId ?? null,
     clients: clients.map(toClientOutput)
   };
 }
 
-/** A Client of the Stylist with their Family, or NOT_FOUND. */
-async function findFamilyClient(db: Db, stylistId: string, id: string) {
+/**
+ * A Client of the Stylist with their Family, or NOT_FOUND. [reason] tells the event which of the
+ * Clients of a request was not found.
+ */
+async function findFamilyClient(db: Db, stylistId: string, id: string, reason = "client_not_found") {
   const client = await db.client.findFirst({
     where: {
       id,
@@ -406,10 +495,7 @@ async function findFamilyClient(db: Db, stylistId: string, id: string) {
   });
 
   if (!client) {
-    throw new TRPCError({
-      code: "NOT_FOUND",
-      message: "Client not found."
-    });
+    throw refusal("NOT_FOUND", "Client not found.", reason);
   }
 
   return client;
@@ -445,12 +531,29 @@ export const clientRouter = createTRPCRouter({
       include: listedClient
     });
 
+    // The size of the Clients View, and how many Clients have what the list shows of them.
+    annotate(() => ({
+      "client.has_search": Boolean(search),
+      "client.search_length": search ? search.length : undefined,
+      "client.count": clients.length,
+      "client.with_profile_share_count": clients.filter((client) => client.profileShares.length > 0).length,
+      "client.with_family_count": clients.filter((client) => client.familyId).length,
+      "client.with_referrer_count": clients.filter((client) => client.referredById).length,
+      "client.with_distinct_pairs_count": clients.filter(
+        (client) => client.distinctPairsAsFirst.length + client.distinctPairsAsSecond.length > 0
+      ).length
+    }));
+
     return clients.map(toClientOutput);
   }),
   // The Family of a Client, every Client in it with their role and their number of visits
   // (Completed Appointments), the Client themselves too, oldest Client first. No Family: no one.
   family: stylistProcedure.input(clientFamilyInput).query(async ({ ctx, input }) => {
+    annotate(() => ({ "client.id": input.clientId }));
+
     const client = await findFamilyClient(ctx.db, ctx.stylist.id, input.clientId);
+
+    annotate(() => ({ "client.has_family": Boolean(client.familyId), "family.id": client.familyId ?? undefined }));
 
     if (!client.familyId) {
       return {
@@ -486,6 +589,12 @@ export const clientRouter = createTRPCRouter({
         _all: true
       }
     });
+
+    annotate(() => ({
+      "family.member_count": members.length,
+      "family.with_role_count": members.filter((member) => storedRole(member.familyRole)).length,
+      "family.visit_count": visits.reduce((sum, row) => sum + row._count._all, 0)
+    }));
 
     return {
       familyId: client.familyId,
@@ -534,6 +643,18 @@ export const clientRouter = createTRPCRouter({
       byClient.set(clientId, dates);
     }
 
+    // Every row of every visit is read to answer one date per Client: the row count is the cost.
+    annotate(() => {
+      const dates = [...byClient.values()];
+
+      return {
+        "client.visit_row_count": rows.length,
+        "client.count": byClient.size,
+        "client.with_last_visit_count": dates.filter((date) => date.last).length,
+        "client.with_next_appointment_count": dates.filter((date) => date.next).length
+      };
+    });
+
     return [...byClient].map(([clientId, dates]) => ({
       clientId,
       lastVisitAt: dates.last?.toISOString() ?? null,
@@ -541,6 +662,8 @@ export const clientRouter = createTRPCRouter({
     }));
   }),
   appointmentHistory: stylistProcedure.input(clientAppointmentHistoryInput).query(async ({ ctx, input }) => {
+    annotate(() => ({ "client.id": input.id }));
+
     const appointments = await ctx.db.appointment.findMany({
       where: {
         stylistId: ctx.stylist.id,
@@ -596,6 +719,22 @@ export const clientRouter = createTRPCRouter({
       orderBy: {
         startsAt: "desc"
       }
+    });
+
+    // The size of a Client Profile's history: what was read, and how much of it is this Client's.
+    annotate(() => {
+      const ownServices = appointments.flatMap((appointment) => appointment.services.filter((service) => service.clientId === input.id));
+
+      return {
+        "client.history_appointment_count": appointments.length,
+        "client.history_completed_count": appointments.filter((appointment) => appointment.status === "completed").length,
+        "client.history_scheduled_count": appointments.filter((appointment) => appointment.status === "scheduled").length,
+        "client.history_group_count": appointments.filter((appointment) => appointment.participants.length > 1).length,
+        "client.history_service_read_count": appointments.reduce((sum, appointment) => sum + appointment.services.length, 0),
+        "client.history_service_count": ownServices.length,
+        "client.history_color_formula_count": ownServices.reduce((sum, service) => sum + service.colorFormulas.length, 0),
+        "client.history_photo_count": appointments.reduce((sum, appointment) => sum + appointment.photos.length, 0)
+      };
     });
 
     return appointments.map((appointment) => ({
@@ -658,6 +797,16 @@ export const clientRouter = createTRPCRouter({
     // Not stated is not the same as none: a save that does not mention it leaves it as it is.
     const referredById = input.referredById === undefined ? undefined : input.referredById || null;
 
+    annotate(() => ({
+      "client.id": input.id,
+      "client.save_kind": input.id ? "update" : "create",
+      "client.language_source": input.language ? "sent" : "stylist",
+      "client.has_request_key": Boolean(input.requestKey),
+      "client.has_expected_updated_at": Boolean(input.expectedUpdatedAt),
+      "client.referred_by_id": referredById ?? undefined
+    }));
+    annotateClientDetails(data);
+
     if (!input.id) {
       const repeatedClient = input.requestKey
         ? await ctx.db.client.findFirst({
@@ -668,15 +817,23 @@ export const clientRouter = createTRPCRouter({
           })
         : null;
 
+      annotate(() => ({ "client.is_repeat": input.requestKey ? Boolean(repeatedClient) : undefined }));
+
       if (repeatedClient) {
-        refuseChangedRepeat(repeatedClient, {
-          ...data,
-          language: input.language
-        });
+        annotate(() => ({ "client.id": repeatedClient.id, "client.save_result": "repeat" }));
+        refuseChangedRepeat(
+          repeatedClient,
+          {
+            ...data,
+            language: input.language
+          },
+          "client"
+        );
 
         return toClientOutput(await withReferrer(ctx.db, repeatedClient));
       }
 
+      annotate(() => ({ "client.referrer_change": referredById ? "set" : "none" }));
       await checkReferrer(ctx.db, ctx.stylist.id, undefined, referredById ?? null);
 
       const client = await ctx.db.client.create({
@@ -687,6 +844,8 @@ export const clientRouter = createTRPCRouter({
           requestKey: input.requestKey
         }
       });
+
+      annotate(() => ({ "client.id": client.id, "client.save_result": "created" }));
 
       return toClientOutput(await withReferrer(ctx.db, client));
     }
@@ -699,19 +858,30 @@ export const clientRouter = createTRPCRouter({
     });
 
     if (!existingClient) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Client not found."
-      });
+      throw refusal("NOT_FOUND", "Client not found.", "client_not_found");
     }
 
     const referrerChanges = referredById !== undefined && (existingClient.referredById ?? null) !== referredById;
+    const changedFields = (Object.keys(data) as (keyof typeof data)[]).filter((field) => (existingClient[field] ?? "") !== data[field]);
 
-    refuseOutdatedSave(
-      existingClient,
-      input.expectedUpdatedAt,
-      (Object.keys(data) as (keyof typeof data)[]).some((field) => (existingClient[field] ?? "") !== data[field]) || referrerChanges
-    );
+    // Which details the save changes, by name only: a no-op save is the same form saved again.
+    annotate(() => ({
+      "client.changed_fields": [...changedFields, ...(referrerChanges ? ["referrer"] : [])],
+      "client.changed_field_count": changedFields.length + (referrerChanges ? 1 : 0),
+      "client.referrer_change":
+        referredById === undefined
+          ? "not_stated"
+          : !referrerChanges
+            ? "unchanged"
+            : referredById === null
+              ? "cleared"
+              : existingClient.referredById
+                ? "changed"
+                : "set",
+      "client.save_result": changedFields.length > 0 || referrerChanges ? "updated" : "noop"
+    }));
+
+    refuseOutdatedSave(existingClient, input.expectedUpdatedAt, changedFields.length > 0 || referrerChanges);
 
     // A referrer that is already set stays valid without a look; a new one is checked.
     if (referrerChanges) {
@@ -734,6 +904,8 @@ export const clientRouter = createTRPCRouter({
   // each create one. A request sent again gets the Profile Share the first one created, as it is
   // now: what an existing Profile Share shows is changed with updateProfileShare.
   createProfileShare: stylistTransactionProcedure.input(clientProfileShareOptionsInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({ "client.id": input.clientId }));
+
     const client = await ctx.db.client.findFirst({
       where: {
         id: input.clientId,
@@ -745,15 +917,15 @@ export const clientRouter = createTRPCRouter({
     });
 
     if (!client) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Client not found."
-      });
+      throw refusal("NOT_FOUND", "Client not found.", "client_not_found");
     }
 
     const existingShare = client.profileShares[0];
 
     if (existingShare) {
+      // The request sent again, or the app did not know of the active Profile Share: answered with it as it is.
+      annotate(() => ({ "profile_share.id": existingShare.id, "profile_share.create_result": "existing" }));
+      annotateShareOptions(existingShare);
       return toProfileShareOutput(existingShare);
     }
 
@@ -766,11 +938,21 @@ export const clientRouter = createTRPCRouter({
       }
     });
 
+    annotate(() => ({
+      "profile_share.id": share.id,
+      "profile_share.create_result": "created",
+      "profile_share.language": share.language,
+      "profile_share.stated_option_count": statedOptionCount(input)
+    }));
+    annotateShareOptions(share);
+
     return toProfileShareOutput(share);
   }),
   // Changes what the Client's Profile Share shows. Its link stays the same. Only the choices that
   // are stated change.
   updateProfileShare: stylistTransactionProcedure.input(clientProfileShareOptionsInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({ "client.id": input.clientId }));
+
     const client = await ctx.db.client.findFirst({
       where: {
         id: input.clientId,
@@ -782,20 +964,29 @@ export const clientRouter = createTRPCRouter({
     });
 
     if (!client) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Client not found."
-      });
+      throw refusal("NOT_FOUND", "Client not found.", "client_not_found");
     }
 
     const existingShare = client.profileShares[0];
 
     if (!existingShare) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Profile Share not found."
-      });
+      throw refusal("NOT_FOUND", "Profile Share not found.", "profile_share_not_found");
     }
+
+    // Which choices the update changes, by name: none is the same choice sent again.
+    annotate(() => {
+      const before = resolveProfileShareOptions(existingShare);
+      const changed = (Object.keys(before) as (keyof typeof before)[]).filter(
+        (option) => typeof input[option] === "boolean" && input[option] !== before[option]
+      );
+
+      return {
+        "profile_share.id": existingShare.id,
+        "profile_share.stated_option_count": statedOptionCount(input),
+        "profile_share.changed_options": changed.map(optionField),
+        "profile_share.changed_option_count": changed.length
+      };
+    });
 
     const share = await ctx.db.profileShare.update({
       where: {
@@ -808,9 +999,13 @@ export const clientRouter = createTRPCRouter({
       }
     });
 
+    annotateShareOptions(share);
+
     return toProfileShareOutput(share);
   }),
   revokeProfileShare: stylistProcedure.input(clientProfileShareInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({ "client.id": input.clientId }));
+
     const client = await ctx.db.client.findFirst({
       where: {
         id: input.clientId,
@@ -819,13 +1014,10 @@ export const clientRouter = createTRPCRouter({
     });
 
     if (!client) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Client not found."
-      });
+      throw refusal("NOT_FOUND", "Client not found.", "client_not_found");
     }
 
-    await ctx.db.profileShare.updateMany({
+    const revoked = await ctx.db.profileShare.updateMany({
       where: {
         clientId: client.id,
         revokedAt: null
@@ -835,11 +1027,16 @@ export const clientRouter = createTRPCRouter({
       }
     });
 
+    // None revoked: the link was revoked already, such as a revoke sent again.
+    annotate(() => ({ "profile_share.revoked_count": countOf(revoked) }));
+
     return {
       clientId: client.id
     };
   }),
   buildProfileShareImage: stylistProcedure.input(clientProfileShareImageInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({ "client.id": input.clientId, "profile_share.stated_option_count": statedOptionCount(input) }));
+
     const client = await ctx.db.client.findFirst({
       where: {
         id: input.clientId,
@@ -851,11 +1048,14 @@ export const clientRouter = createTRPCRouter({
     });
 
     if (!client) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Client not found."
-      });
+      throw refusal("NOT_FOUND", "Client not found.", "client_not_found");
     }
+
+    // A Share Image is also made for a Client without an active Profile Share; its choices are then the defaults.
+    annotate(() => ({
+      "profile_share.id": client.profileShares[0]?.id,
+      "share_image.has_profile_share": client.profileShares.length > 0
+    }));
 
     // A choice that is not stated follows the Client's Profile Share, so that the picture shows
     // what the page shows.
@@ -876,18 +1076,37 @@ export const clientRouter = createTRPCRouter({
   // one [memberId] is in, or else in a new one. A member who was in another Family leaves it (and
   // a Family that would keep one Client is deleted). The same call sent again changes nothing.
   addFamilyMember: stylistTransactionProcedure.input(addFamilyMemberInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({
+      "client.id": input.clientId,
+      "family.added_client_id": input.memberId,
+      "family.is_role_stated": input.role !== undefined
+    }));
+
     if (input.clientId === input.memberId) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "A Client cannot be in a family with themselves."
-      });
+      throw refusal("BAD_REQUEST", "A Client cannot be in a family with themselves.", "family_with_self");
     }
 
     const stylistId = ctx.stylist.id;
     const client = await findFamilyClient(ctx.db, stylistId, input.clientId);
-    const member = await findFamilyClient(ctx.db, stylistId, input.memberId);
+    const member = await findFamilyClient(ctx.db, stylistId, input.memberId, "family_member_not_found");
     const role = input.role === undefined ? undefined : storedRole(input.role);
     const changed: string[] = [];
+
+    // Which Family the two end up in: the Client's, the member's, a new one, or the one they share already.
+    annotate(() => ({
+      "family.add_path":
+        client.familyId && member.familyId === client.familyId
+          ? "same_family"
+          : client.familyId
+            ? "joined_client_family"
+            : member.familyId
+              ? "joined_member_family"
+              : "new_family",
+      // The member leaves another Family to join the Client's (and that Family may be deleted).
+      "family.member_previous_family_id":
+        client.familyId && member.familyId && member.familyId !== client.familyId ? member.familyId : undefined,
+      "family.is_role_changed": role !== undefined && storedRole(member.familyRole) !== role
+    }));
 
     if (client.familyId && member.familyId === client.familyId) {
       if (role !== undefined && storedRole(member.familyRole) !== role) {
@@ -964,22 +1183,38 @@ export const clientRouter = createTRPCRouter({
       changed.push(client.id, member.id);
     }
 
-    return familyChange(ctx.db, stylistId, input.clientId, [member.id, ...changed]);
+    const reply = await familyChange(ctx.db, stylistId, input.clientId, [member.id, ...changed]);
+
+    // After leaveFamily, which names the Family the member left: this is the one they are in now.
+    annotate(() => ({
+      "family.id": reply.familyId ?? undefined,
+      "family.changed_client_count": new Set(changed).size,
+      "family.is_noop": changed.length === 0
+    }));
+
+    return reply;
   }),
   // A Client's role in their Family ("сын", "мама"); empty for none.
   setFamilyRole: stylistTransactionProcedure.input(setFamilyRoleInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({ "client.id": input.clientId }));
+
     const client = await findFamilyClient(ctx.db, ctx.stylist.id, input.clientId);
 
     if (!client.familyId) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Family not found."
-      });
+      throw refusal("NOT_FOUND", "Family not found.", "family_not_found");
     }
 
     const role = storedRole(input.role);
+    const previousRole = storedRole(client.familyRole);
 
-    if (storedRole(client.familyRole) !== role) {
+    // What happened to the role, never the role itself: it is typed by the Stylist.
+    annotate(() => ({
+      "family.id": client.familyId ?? undefined,
+      "family.role_change": previousRole === role ? "unchanged" : role === null ? "cleared" : previousRole === null ? "set" : "changed",
+      "family.role_length": role?.length ?? 0
+    }));
+
+    if (previousRole !== role) {
       await ctx.db.client.update({
         where: {
           id: client.id
@@ -995,18 +1230,26 @@ export const clientRouter = createTRPCRouter({
   // Takes a Client out of their Family. When only one Client would be left in it, the Family is
   // deleted. A Client who is in no Family stays so.
   leaveFamily: stylistTransactionProcedure.input(clientFamilyInput).mutation(async ({ ctx, input }) => {
-    const client = await findFamilyClient(ctx.db, ctx.stylist.id, input.clientId);
+    annotate(() => ({ "client.id": input.clientId }));
 
-    return familyChange(ctx.db, ctx.stylist.id, client.id, await leaveFamily(ctx.db, ctx.stylist.id, client));
+    const client = await findFamilyClient(ctx.db, ctx.stylist.id, input.clientId);
+    const changed = await leaveFamily(ctx.db, ctx.stylist.id, client);
+
+    // leaveFamily names the Family and whether it was deleted; this is whether there was one to leave.
+    annotate(() => ({
+      "family.leave_result": client.familyId ? "left" : "not_in_family",
+      "family.changed_client_count": changed.length
+    }));
+
+    return familyChange(ctx.db, ctx.stylist.id, client.id, changed);
   }),
   // The Stylist says two Clients whose phone numbers match are different people: the app stops
   // offering to merge them. Saying it again changes nothing.
   markDistinct: stylistTransactionProcedure.input(clientDistinctInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({ "client.id": input.clientId, "client.other_client_id": input.otherClientId }));
+
     if (input.clientId === input.otherClientId) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "A Client is the same person as themselves."
-      });
+      throw refusal("BAD_REQUEST", "A Client is the same person as themselves.", "distinct_from_self");
     }
 
     const clients = await ctx.db.client.findMany({
@@ -1022,13 +1265,14 @@ export const clientRouter = createTRPCRouter({
     });
 
     if (clients.length !== 2) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Client not found."
-      });
+      annotate(() => ({ "client.found_count": clients.length }));
+      throw refusal("NOT_FOUND", "Client not found.", "client_not_found");
     }
 
-    await addDistinctPair(ctx.db, ctx.stylist.id, input.clientId, input.otherClientId);
+    const created = await addDistinctPair(ctx.db, ctx.stylist.id, input.clientId, input.otherClientId);
+
+    // "existing": said again, which changes nothing.
+    annotate(() => ({ "client.distinct_pair_result": created ? "created" : "existing" }));
 
     return {
       clientId: input.clientId,
@@ -1040,11 +1284,10 @@ export const clientRouter = createTRPCRouter({
   // nothing, under the Stylist lock (ADR 0014). The same merge sent again answers with the kept
   // Client as it is now (ADR 0015).
   merge: stylistTransactionProcedure.input(clientMergeInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({ "client.id": input.keepId, "client_merge.removed_client_id": input.removeId }));
+
     if (input.keepId === input.removeId) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "A Client cannot be merged into themselves."
-      });
+      throw refusal("BAD_REQUEST", "A Client cannot be merged into themselves.", "merge_into_self");
     }
 
     const kept = await ctx.db.client.findFirst({
@@ -1055,10 +1298,7 @@ export const clientRouter = createTRPCRouter({
     });
 
     if (!kept) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Client not found."
-      });
+      throw refusal("NOT_FOUND", "Client not found.", "client_not_found");
     }
 
     const removed = await ctx.db.client.findFirst({
@@ -1078,11 +1318,11 @@ export const clientRouter = createTRPCRouter({
       });
 
       if (!done) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Client not found."
-        });
+        throw refusal("NOT_FOUND", "Client not found.", "removed_client_not_found");
       }
+
+      // The same merge sent again (ADR 0015): answered with the kept Client as it is now.
+      annotate(() => ({ "client_merge.result": "repeat" }));
 
       return {
         client: await loadMergedClient(ctx.db, kept.id),
@@ -1093,11 +1333,37 @@ export const clientRouter = createTRPCRouter({
 
     const note = mergedNote(kept.note, removed.note);
 
+    // What the kept Client takes of the removed one, by name of the detail only.
+    annotate(() => {
+      const taken = (["phone", "email", "address"] as const).filter(
+        (field) => !(kept[field] ?? "").trim() && (removed[field] ?? "").trim()
+      );
+      const referrer = mergedReferrer(kept, removed);
+
+      return {
+        "client_merge.taken_fields": taken,
+        "client_merge.is_note_combined": (kept.note ?? "").trim() !== "" && note !== (kept.note ?? ""),
+        "client_merge.is_note_taken": !(kept.note ?? "").trim() && note !== (kept.note ?? ""),
+        "client.note_length": note.length,
+        "client_merge.referrer_source":
+          referrer === null ? "none" : referrer === kept.referredById ? "kept" : "removed",
+        "client_merge.family_merge":
+          !kept.familyId && !removed.familyId
+            ? "none"
+            : !removed.familyId
+              ? "kept_family"
+              : !kept.familyId
+                ? "joined_removed_family"
+                : kept.familyId === removed.familyId
+                  ? "same_family"
+                  : "families_combined",
+        "client_merge.kept_family_id": kept.familyId ?? undefined,
+        "client_merge.removed_family_id": removed.familyId ?? undefined
+      };
+    });
+
     if (note.length > textLimits.note) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "Text is too long."
-      });
+      throw refusal("BAD_REQUEST", "Text is too long.", "merged_note_too_long");
     }
 
     // The kept Client takes the details they do not have first: an Appointment at the removed
@@ -1122,7 +1388,7 @@ export const clientRouter = createTRPCRouter({
 
     // One person in two Families makes them one: the removed Client's goes into the kept Client's.
     if (kept.familyId && removed.familyId && kept.familyId !== removed.familyId) {
-      await ctx.db.client.updateMany({
+      const moved = await ctx.db.client.updateMany({
         where: {
           stylistId: ctx.stylist.id,
           familyId: removed.familyId
@@ -1131,11 +1397,13 @@ export const clientRouter = createTRPCRouter({
           familyId: kept.familyId
         }
       });
+
+      annotate(() => ({ "client_merge.family_moved_client_count": countOf(moved) }));
     }
 
     // Everyone the removed Client recommended is now recommended by the kept Client, who
     // is never recommended by themselves. Before the delete, which would clear these links.
-    await ctx.db.client.updateMany({
+    const referrals = await ctx.db.client.updateMany({
       where: {
         stylistId: ctx.stylist.id,
         referredById: removed.id,
@@ -1147,6 +1415,8 @@ export const clientRouter = createTRPCRouter({
         referredById: kept.id
       }
     });
+
+    annotate(() => ({ "client_merge.referral_moved_count": countOf(referrals) }));
 
     // Also Appointments that name the removed Client as primary without listing them.
     const appointments = await ctx.db.appointment.findMany({
@@ -1180,47 +1450,67 @@ export const clientRouter = createTRPCRouter({
       }
     });
 
-    for (const appointment of appointments) {
-      const removedRow = appointment.participants.find((participant) => participant.clientId === removed.id);
-      const keptRow = appointment.participants.find((participant) => participant.clientId === kept.id);
+    annotate(() => ({
+      "client_merge.appointment_count": appointments.length,
+      "client_merge.appointment_ids": appointments.slice(0, 20).map((appointment) => appointment.id)
+    }));
 
-      if (removedRow && keptRow) {
-        // Both in one Appointment: it has the kept Client once.
-        await ctx.db.appointmentParticipant.delete({
-          where: {
-            id: removedRow.id
-          }
-        });
-      } else if (removedRow) {
-        // In the removed Client's place among the Clients of the Appointment.
-        await ctx.db.appointmentParticipant.update({
-          where: {
-            id: removedRow.id
-          },
-          data: {
-            clientId: kept.id
-          }
-        });
-      } else if (!keptRow) {
-        await ctx.db.appointmentParticipant.create({
-          data: {
-            appointmentId: appointment.id,
-            clientId: kept.id
-          }
-        });
+    // One Appointment at a time: its own queries for each, so the time grows with the removed Client's visits.
+    await traced("client_merge.move_appointments", async () => {
+      const participants = { removed: 0, moved: 0, added: 0 };
+
+      for (const appointment of appointments) {
+        const removedRow = appointment.participants.find((participant) => participant.clientId === removed.id);
+        const keptRow = appointment.participants.find((participant) => participant.clientId === kept.id);
+
+        if (removedRow && keptRow) {
+          // Both in one Appointment: it has the kept Client once.
+          participants.removed += 1;
+          await ctx.db.appointmentParticipant.delete({
+            where: {
+              id: removedRow.id
+            }
+          });
+        } else if (removedRow) {
+          // In the removed Client's place among the Clients of the Appointment.
+          participants.moved += 1;
+          await ctx.db.appointmentParticipant.update({
+            where: {
+              id: removedRow.id
+            },
+            data: {
+              clientId: kept.id
+            }
+          });
+        } else if (!keptRow) {
+          participants.added += 1;
+          await ctx.db.appointmentParticipant.create({
+            data: {
+              appointmentId: appointment.id,
+              clientId: kept.id
+            }
+          });
+        }
+
+        if (appointment.primaryClientId === removed.id) {
+          await ctx.db.appointment.update({
+            where: {
+              id: appointment.id
+            },
+            data: await getMergedPrimaryChange(ctx.db, appointment, kept.id)
+          });
+        }
       }
 
-      if (appointment.primaryClientId === removed.id) {
-        await ctx.db.appointment.update({
-          where: {
-            id: appointment.id
-          },
-          data: await getMergedPrimaryChange(ctx.db, appointment, kept.id)
-        });
-      }
-    }
+      annotate(() => ({
+        "client_merge.shared_appointment_count": participants.removed,
+        "client_merge.participant_moved_count": participants.moved,
+        "client_merge.participant_added_count": participants.added,
+        "client_merge.primary_changed_count": appointments.filter((appointment) => appointment.primaryClientId === removed.id).length
+      }));
+    });
 
-    await ctx.db.appointmentService.updateMany({
+    const services = await ctx.db.appointmentService.updateMany({
       where: {
         clientId: removed.id,
         appointment: {
@@ -1231,7 +1521,7 @@ export const clientRouter = createTRPCRouter({
         clientId: kept.id
       }
     });
-    await ctx.db.appointmentPhoto.updateMany({
+    const photos = await ctx.db.appointmentPhoto.updateMany({
       where: {
         clientId: removed.id,
         appointment: {
@@ -1242,6 +1532,11 @@ export const clientRouter = createTRPCRouter({
         clientId: kept.id
       }
     });
+
+    annotate(() => ({
+      "client_merge.service_moved_count": countOf(services),
+      "client_merge.photo_moved_count": countOf(photos)
+    }));
 
     // A Client has at most one active Profile Share: the kept Client's stays, and the removed
     // Client's link says it is no longer available. When only the removed Client had one, its link
@@ -1256,19 +1551,19 @@ export const clientRouter = createTRPCRouter({
       }
     });
 
-    if (keptShare) {
-      await ctx.db.profileShare.updateMany({
-        where: {
-          clientId: removed.id,
-          revokedAt: null
-        },
-        data: {
-          revokedAt: new Date()
-        }
-      });
-    }
+    const revokedShares = keptShare
+      ? await ctx.db.profileShare.updateMany({
+          where: {
+            clientId: removed.id,
+            revokedAt: null
+          },
+          data: {
+            revokedAt: new Date()
+          }
+        })
+      : null;
 
-    await ctx.db.profileShare.updateMany({
+    const movedShares = await ctx.db.profileShare.updateMany({
       where: {
         clientId: removed.id
       },
@@ -1276,6 +1571,12 @@ export const clientRouter = createTRPCRouter({
         clientId: kept.id
       }
     });
+
+    annotate(() => ({
+      "client_merge.kept_has_profile_share": Boolean(keptShare),
+      "client_merge.profile_share_revoked_count": revokedShares ? countOf(revokedShares) : 0,
+      "client_merge.profile_share_moved_count": countOf(movedShares)
+    }));
 
     // Someone the removed Client is not is not the kept Client either.
     const pairs = await ctx.db.clientDistinctPair.findMany({
@@ -1299,16 +1600,24 @@ export const clientRouter = createTRPCRouter({
       }
     });
 
+    let pairsCreated = 0;
+
     for (const pair of pairs) {
       const otherId = pair.firstClientId === removed.id ? pair.secondClientId : pair.firstClientId;
 
-      if (otherId !== kept.id) {
-        await addDistinctPair(ctx.db, ctx.stylist.id, kept.id, otherId);
+      if (otherId !== kept.id && (await addDistinctPair(ctx.db, ctx.stylist.id, kept.id, otherId))) {
+        pairsCreated += 1;
       }
     }
 
+    // A pair of the two merged Clients is dropped; one the kept Client had already is not made twice.
+    annotate(() => ({
+      "client_merge.distinct_pair_count": pairs.length,
+      "client_merge.distinct_pair_moved_count": pairsCreated
+    }));
+
     // Merges into the removed Client are merges into the kept one from now on.
-    await ctx.db.clientMerge.updateMany({
+    const earlierMerges = await ctx.db.clientMerge.updateMany({
       where: {
         keptClientId: removed.id
       },
@@ -1316,6 +1625,9 @@ export const clientRouter = createTRPCRouter({
         keptClientId: kept.id
       }
     });
+
+    annotate(() => ({ "client_merge.earlier_merge_count": countOf(earlierMerges) }));
+
     await ctx.db.clientMerge.create({
       data: {
         stylistId: ctx.stylist.id,
@@ -1331,6 +1643,8 @@ export const clientRouter = createTRPCRouter({
     // A Family the removed Client leaves is never left with one Client, nor with none.
     await dissolveIfAlone(ctx.db, ctx.stylist.id, removed.familyId);
 
+    annotate(() => ({ "client_merge.result": "merged" }));
+
     return {
       client: await loadMergedClient(ctx.db, kept.id),
       removedId: removed.id,
@@ -1338,6 +1652,8 @@ export const clientRouter = createTRPCRouter({
     };
   }),
   delete: stylistTransactionProcedure.input(clientDeleteInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({ "client.id": input.id }));
+
     const deleted = await ctx.db.client.findFirst({
       where: {
         id: input.id,
@@ -1392,42 +1708,70 @@ export const clientRouter = createTRPCRouter({
       }
     });
 
-    for (const appointment of appointments) {
-      const remainingParticipants = appointment.participants.filter((participant) => participant.clientId !== input.id);
-      const nextPrimaryParticipant = remainingParticipants[0];
+    annotate(() => ({ "client.appointment_count": appointments.length }));
 
-      if (!nextPrimaryParticipant) {
-        await ctx.db.appointment.delete({
+    // One Appointment at a time: its own queries for each, so the time grows with the Client's visits.
+    await traced("client.delete_appointments", async () => {
+      const outcomes = { deleted: 0, left: 0, primaryChanged: 0 };
+
+      for (const appointment of appointments) {
+        const remainingParticipants = appointment.participants.filter((participant) => participant.clientId !== input.id);
+        const nextPrimaryParticipant = remainingParticipants[0];
+
+        if (!nextPrimaryParticipant) {
+          outcomes.deleted += 1;
+          await ctx.db.appointment.delete({
+            where: {
+              id: appointment.id
+            }
+          });
+          continue;
+        }
+
+        outcomes.left += 1;
+
+        if (appointment.primaryClientId === input.id) {
+          outcomes.primaryChanged += 1;
+          await ctx.db.appointment.update({
+            where: {
+              id: appointment.id
+            },
+            data: await getPrimaryClientChange(ctx.db, appointment, nextPrimaryParticipant.clientId)
+          });
+        }
+
+        await ctx.db.appointmentParticipant.deleteMany({
           where: {
-            id: appointment.id
+            appointmentId: appointment.id,
+            clientId: input.id
           }
         });
-        continue;
       }
 
-      if (appointment.primaryClientId === input.id) {
-        await ctx.db.appointment.update({
-          where: {
-            id: appointment.id
-          },
-          data: await getPrimaryClientChange(ctx.db, appointment, nextPrimaryParticipant.clientId)
-        });
-      }
+      // What became of the Client's Appointments: deleted along with the Client when they were its
+      // only Client, else kept for the others, with another primary Client where they were primary.
+      annotate(() => ({
+        "client.appointment_deleted_count": outcomes.deleted,
+        "client.appointment_kept_count": outcomes.left,
+        "client.appointment_primary_changed_count": outcomes.primaryChanged
+      }));
+    });
 
-      await ctx.db.appointmentParticipant.deleteMany({
-        where: {
-          appointmentId: appointment.id,
-          clientId: input.id
-        }
-      });
-    }
-
-    await ctx.db.client.deleteMany({
+    const removed = await ctx.db.client.deleteMany({
       where: {
         id: input.id,
         stylistId: ctx.stylist.id
       }
     });
+
+    // "not_found": already deleted (a delete sent again) or not the Stylist's; the reply is the same.
+    annotate(() => ({
+      "client.delete_result": deleted ? "deleted" : "not_found",
+      "client.deleted_count": countOf(removed),
+      "client.photo_count": photos.length,
+      "client.has_family": Boolean(deleted?.familyId)
+    }));
+
     // The Family of the deleted Client is never left with one Client.
     await dissolveIfAlone(ctx.db, ctx.stylist.id, deleted?.familyId);
     await markFilesUnused(ctx, photos);

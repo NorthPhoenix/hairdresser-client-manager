@@ -1,3 +1,4 @@
+import { annotate, recordError, type Fields } from "@hcm/telemetry";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
@@ -114,6 +115,19 @@ export const requestKey = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/, "Request ke
 const comparable = (value: unknown) => (value instanceof Date ? value.getTime() : (value ?? ""));
 
 /**
+ * Adds the fields `describe` works out to the request's wide event. They are worked out inside, so
+ * that a row without a field they read leaves them out of the event instead of failing the
+ * request: telemetry never fails a request.
+ */
+export function annotateSafely(describe: () => Fields) {
+  try {
+    annotate(describe());
+  } catch {
+    // Left out of the event.
+  }
+}
+
+/**
  * Refuses a request whose key was already carried out with other values: the form was corrected
  * after a reply was lost, and answering like the first call would drop the correction without a
  * word. `sent` holds what this request states (undefined: not stated) and `stored` the record the
@@ -121,13 +135,30 @@ const comparable = (value: unknown) => (value instanceof Date ? value.getTime() 
  */
 export function refuseChangedRepeat<Sent extends Record<string, unknown>>(
   stored: { [Field in keyof Sent]: unknown },
-  sent: Sent
+  sent: Sent,
+  /** The entity the key is on, as the event names it (`appointment_service`), when the caller knows. */
+  entity?: string
 ) {
-  if (Object.keys(sent).some((field) => sent[field] !== undefined && comparable(sent[field]) !== comparable(stored[field]))) {
-    throw new TRPCError({
+  const changed = Object.keys(sent).filter(
+    (field) => sent[field] !== undefined && comparable(sent[field]) !== comparable(stored[field])
+  );
+
+  annotateSafely(() => ({
+    // Whether the request was sent again with the same values (answered like the first) or changed.
+    "request.repeat": changed.length > 0 ? "changed" : "same",
+    "request.repeat_entity": entity,
+    "request.repeat_changed_fields": changed.slice(0, 20),
+    "request.repeat_changed_field_count": changed.length
+  }));
+
+  if (changed.length > 0) {
+    const refusal = new TRPCError({
       code: "CONFLICT",
       message: "This request was already carried out with other values."
     });
+
+    recordError(refusal, { expected: true, reason: "changed_repeat" });
+    throw refusal;
   }
 }
 
@@ -144,10 +175,24 @@ export function refuseOutdatedSave(
   loadedUpdatedAt: string | undefined,
   changesRecord: boolean
 ) {
-  if (loadedUpdatedAt && changesRecord && new Date(loadedUpdatedAt).getTime() !== record.updatedAt.getTime()) {
-    throw new TRPCError({
+  if (!loadedUpdatedAt) {
+    return;
+  }
+
+  const isOutdated = new Date(loadedUpdatedAt).getTime() !== record.updatedAt.getTime();
+
+  annotateSafely(() => ({
+    // "same_values": the form is old but the save changes nothing, so it passes (ADR 0015).
+    "save.freshness": !isOutdated ? "current" : changesRecord ? "outdated" : "same_values"
+  }));
+
+  if (isOutdated && changesRecord) {
+    const refusal = new TRPCError({
       code: "CONFLICT",
       message: "This record was changed since it was loaded."
     });
+
+    recordError(refusal, { expected: true, reason: "outdated_save" });
+    throw refusal;
   }
 }

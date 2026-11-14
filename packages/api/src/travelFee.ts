@@ -1,6 +1,7 @@
+import { annotate } from "@hcm/telemetry";
 import { addedOrder } from "./addedOrder";
 import type { Db } from "./context";
-import { maxAmountCents } from "./input";
+import { annotateSafely, maxAmountCents } from "./input";
 
 // The Travel Fee is the one Service Menu Item a Stylist marked as the fee for going to a Client.
 // A Scheduled Appointment gets a Service from it when it is created at home or moved to at home,
@@ -52,9 +53,14 @@ export function findTravelFeeItem(db: Db, stylistId: string) {
   });
 }
 
+/** Why the Travel Fee changed nothing, or what it did: counted by `travel_fee.decision`. */
+function decided(decision: "added" | "removed" | "no_item" | "already_present" | "total_too_large" | "none_to_remove", fields: Parameters<typeof annotate>[0] = {}) {
+  annotateSafely(() => ({ "travel_fee.decision": decision, ...fields }));
+}
+
 /** Makes [itemId] the Stylist's only Travel Fee item: any other loses the mark. */
 export async function unmarkOtherTravelFees(db: Db, stylistId: string, itemId: string) {
-  await db.serviceMenuItem.updateMany({
+  const unmarked = await db.serviceMenuItem.updateMany({
     where: {
       stylistId,
       travelFee: true,
@@ -66,6 +72,8 @@ export async function unmarkOtherTravelFees(db: Db, stylistId: string, itemId: s
       travelFee: false
     }
   });
+
+  annotateSafely(() => ({ "service_menu.unmarked_travel_fee_count": unmarked.count }));
 }
 
 /**
@@ -78,6 +86,7 @@ export async function addTravelFee(db: Db, stylistId: string, appointmentId: str
   const item = await findTravelFeeItem(db, stylistId);
 
   if (!item) {
+    decided("no_item");
     return noTravelFeeChange;
   }
 
@@ -92,7 +101,13 @@ export async function addTravelFee(db: Db, stylistId: string, appointmentId: str
   });
   const totalCents = services.reduce((total, service) => total + service.priceCents, 0);
 
-  if (services.some((service) => service.menuItemId === item.id) || totalCents + item.defaultPriceCents > maxAmountCents) {
+  const alreadyThere = services.some((service) => service.menuItemId === item.id);
+
+  if (alreadyThere || totalCents + item.defaultPriceCents > maxAmountCents) {
+    decided(alreadyThere ? "already_present" : "total_too_large", {
+      "travel_fee.item_id": item.id,
+      "travel_fee.item_price_minor": item.defaultPriceCents
+    });
     return noTravelFeeChange;
   }
 
@@ -107,6 +122,8 @@ export async function addTravelFee(db: Db, stylistId: string, appointmentId: str
     }
   });
 
+  decided("added", { "travel_fee.item_id": item.id, "travel_fee.item_price_minor": item.defaultPriceCents });
+
   return { added: [toTravelFeeService(service)], removed: [] };
 }
 
@@ -118,6 +135,7 @@ export async function removeTravelFee(db: Db, stylistId: string, appointmentId: 
   const item = await findTravelFeeItem(db, stylistId);
 
   if (!item) {
+    decided("no_item");
     return noTravelFeeChange;
   }
 
@@ -130,6 +148,7 @@ export async function removeTravelFee(db: Db, stylistId: string, appointmentId: 
   });
 
   if (services.length === 0) {
+    decided("none_to_remove", { "travel_fee.item_id": item.id });
     return noTravelFeeChange;
   }
 
@@ -140,6 +159,8 @@ export async function removeTravelFee(db: Db, stylistId: string, appointmentId: 
       }
     }
   });
+
+  decided("removed", { "travel_fee.item_id": item.id, "travel_fee.removed_count": services.length });
 
   return { added: [], removed: services.map(toTravelFeeService) };
 }

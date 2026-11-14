@@ -1,4 +1,5 @@
 import type { Db } from "./context";
+import { annotateSafely } from "./input";
 
 // A Family groups Clients of one Stylist (CONTEXT.md: Family). A Client is in at most one
 // (`Client.familyId`) and may have a short role in it (`Client.familyRole`). A Family always has
@@ -39,8 +40,16 @@ export async function dissolveIfAlone(db: Db, stylistId: string, familyId: strin
   });
 
   if (members.length >= 2) {
+    annotateSafely(() => ({ "family.id": familyId, "family.member_count": members.length, "family.dissolved": false }));
     return [];
   }
+
+  annotateSafely(() => ({
+    "family.id": familyId,
+    "family.member_count": members.length,
+    "family.dissolved": true,
+    "family.released_client_count": members.length
+  }));
 
   if (members.length > 0) {
     await db.client.updateMany({
@@ -73,6 +82,8 @@ export async function leaveFamily(db: Db, stylistId: string, client: FamilyField
   if (!client.familyId) {
     return [];
   }
+
+  annotateSafely(() => ({ "family.id": client.familyId, "family.left_client_id": client.id, "family.had_role": Boolean(client.familyRole) }));
 
   await db.client.update({
     where: {
