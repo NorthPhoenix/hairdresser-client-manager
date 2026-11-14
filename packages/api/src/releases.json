@@ -1,5 +1,20 @@
 [
   {
+    "versionCode": 19,
+    "versionName": "1.17.0",
+    "date": "2026-11-14",
+    "notes": {
+      "ru": [
+        "Записи можно показывать в Google Календаре: «Профиль» → «Google Календарь». Приложение подскажет, как один раз создать календарь «Клиенты», и само найдёт его на телефоне",
+        "Новые и изменённые записи появляются в нём сами: время, место, услуги и телефон основного клиента. Отменённые и удалённые записи из него убираются"
+      ],
+      "en": [
+        "Appointments can show in Google Calendar: Profile → Google Calendar. The app shows how to create the \"Clients\" calendar once, and finds it on the phone by itself",
+        "New and changed Appointments appear there by themselves: time, place, Services and the primary Client's phone. Canceled and deleted ones are taken out"
+      ]
+    }
+  },
+  {
     "versionCode": 18,
     "versionName": "1.16.0",
     "date": "2026-11-14",
