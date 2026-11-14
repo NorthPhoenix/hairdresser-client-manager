@@ -120,5 +120,6 @@ internal fun EditAppointmentSheet(
         onDate = { date = it },
         onStartTime = { startTime = it },
         onEndTime = { endTime = it },
+        movingAppointmentId = appointment.id,
     )
 }

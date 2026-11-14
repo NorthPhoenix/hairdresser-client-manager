@@ -656,7 +656,21 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      */
     private suspend fun loadAppointmentLists() {
         followDay()
-        together(::loadHome, ::loadTomorrow, ::loadCalendarDay, appointmentReads.weeks::refreshShown, appointmentReads.months::refreshShown, appointmentReads.sources::refreshShown)
+        together(::loadHome, ::loadTomorrow, ::loadCalendarDay, appointmentReads.weeks::refreshShown, ::refreshMonths, appointmentReads.sources::refreshShown)
+    }
+
+    /**
+     * The months the date picker reads, which the screens under it keep loaded without showing them.
+     * One that fails keeps what it had, and is no reason to call the whole reload failed: the day and
+     * the week on screen say how theirs went.
+     */
+    private suspend fun refreshMonths() {
+        try {
+            appointmentReads.months.refreshShown()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+        }
     }
 
     /** The key of Today's list: today in the Stylist's timezone. Null while there is no Stylist to show it to. */

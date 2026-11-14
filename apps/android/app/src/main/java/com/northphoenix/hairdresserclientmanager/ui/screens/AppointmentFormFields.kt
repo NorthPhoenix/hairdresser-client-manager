@@ -98,7 +98,7 @@ fun AppointmentTimeFields(
                 onClick = { onOpen(AppointmentTimeField.DATE) },
                 wraps = true,
             )
-            // The date picker is opened on nearly every booking. Its month is loaded with the form, as the list under
+            // The date picker is opened for nearly every new Appointment. Its month is loaded with the form, as the list under
             // the date reads it, and so is the next one: the picker opens with its days marked, and a day picked in
             // either month is listed at once.
             PreloadAppointmentMonths(YearMonth.from(date).plusMonths(1))
@@ -145,15 +145,18 @@ fun AppointmentTimeFields(
  * What [date] already has, under its field, so that a time is picked knowing it: each Appointment
  * that is not canceled ([CalendarWeek.bookedOn]) with its time, its primary Client, how many more
  * Clients it has and a house when it is at home. It comes from the day's month as the date picker
- * reads it ([monthAppointmentsState]); "No Appointments on this day" ("No other Appointments" while one
- * is moved) once it is known to have none, and nothing while it is loading or could not be loaded,
- * where the form is no place to say so.
+ * reads it ([monthAppointmentsState]); "No Appointments on this day" ("No other Appointments" on the
+ * day of the one being moved) once it is known to have none, and nothing while it is loading or
+ * could not be loaded, where the form is no place to say so.
  */
 @Composable
 private fun DayAppointments(date: LocalDate, excluding: String?) {
     val format = LocalTimeFormat.current
     val read by monthAppointmentsState(YearMonth.from(date))
-    val booked = read.data?.let { CalendarWeek.bookedOn(it, date, format.zone, excluding) } ?: return
+    val month = read.data ?: return
+    val booked = CalendarWeek.bookedOn(month, date, format.zone, excluding)
+    // "No other Appointments" only on the day the moved one is on now: any other day has none at all.
+    val movedIsHere = excluding != null && CalendarWeek.bookedOn(month, date, format.zone).any { it.id == excluding }
     val times = booked.map { appointment -> listOfNotNull(format.time(appointment.startsAt), appointment.endsAt?.let { format.time(it) }).joinToString("–") }
     val timeStyle = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
     // The names start in one column: as wide as the widest of the day's times.
@@ -166,8 +169,7 @@ private fun DayAppointments(date: LocalDate, excluding: String?) {
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (booked.isEmpty()) {
-            // While an Appointment is moved, the day has at least that one: none of the others.
-            Text(stringResource(if (excluding == null) R.string.appointment_day_free else R.string.appointment_day_free_of_others), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(if (movedIsHere) R.string.appointment_day_free_of_others else R.string.appointment_day_free), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             return@Column
         }
 
@@ -217,7 +219,7 @@ private fun NightStartHint(start: String, dayTime: String, onDayTime: () -> Unit
     }
 }
 
-/** The picker of the field that is [open]. Picking a value closes it. */
+/** The picker of the field that is [open]. Picking a value closes it. [movingAppointmentId]: see [HcmDatePickerDialog]. */
 @Composable
 fun AppointmentTimePicker(
     open: AppointmentTimeField?,
@@ -229,6 +231,7 @@ fun AppointmentTimePicker(
     onDate: (LocalDate) -> Unit,
     onStartTime: (LocalTime) -> Unit,
     onEndTime: (LocalTime) -> Unit,
+    movingAppointmentId: String? = null,
 ) {
     when (open) {
         AppointmentTimeField.DATE -> HcmDatePickerDialog(
@@ -239,6 +242,7 @@ fun AppointmentTimePicker(
                 onDate(it)
                 onDismiss()
             },
+            movingAppointmentId = movingAppointmentId,
         )
         AppointmentTimeField.START -> HcmTimePickerDialog(
             title = stringResource(R.string.appointment_start_label),

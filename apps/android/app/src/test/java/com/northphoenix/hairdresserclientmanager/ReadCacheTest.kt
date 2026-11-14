@@ -16,6 +16,7 @@ import com.northphoenix.hairdresserclientmanager.state.Changes
 import com.northphoenix.hairdresserclientmanager.state.DayKey
 import com.northphoenix.hairdresserclientmanager.state.MonthKey
 import com.northphoenix.hairdresserclientmanager.state.WeekKey
+import com.northphoenix.hairdresserclientmanager.state.keptWhileLoading
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.state.Read
 import com.northphoenix.hairdresserclientmanager.state.ReadCache
@@ -1017,6 +1018,55 @@ class ReadCacheTest {
         val (again) = shownBy(reads.months.watch(month))
         runCurrent()
         assertEquals(setOf(wednesday.day), CalendarWeek.daysWithAppointments(again.last().data.orEmpty(), zone))
+    }
+
+    @Test
+    fun `an Appointment moved to another month loads both months anew, and a Client's new name reaches a month on screen`() = runTest {
+        val october = MonthKey(YearMonth.of(2026, 10), zone)
+        val november = MonthKey(YearMonth.of(2026, 11), zone)
+        val server = Server().apply { days[monday.day] = listOf(appointment("a1")) }
+        val reads = reads(server)
+
+        // The form keeps both months loaded: its own and the next one.
+        val (octoberShown, form) = shownBy(reads.months.watch(october))
+        val (_, next) = shownBy(reads.months.watch(november))
+        runCurrent()
+
+        // The Client is renamed: the list under the date names them anew at once.
+        reads.clientSaved(newNumber.copy(name = "Renamed"))
+        runCurrent()
+        assertEquals(listOf("Renamed"), octoberShown.last().data.orEmpty().map { it.primaryClientName })
+
+        // Moved to 2 November while the form is closed: neither cached month is served as it was.
+        form.cancel()
+        next.cancel()
+        runCurrent()
+        val moved = appointment("a1").copy(startsAt = "2026-11-02T15:00:00.000Z")
+        server.days[monday.day] = emptyList()
+        server.days[LocalDate.of(2026, 11, 2)] = listOf(moved)
+        reads.startChanged("a1", Instant.parse(moved.startsAt))
+        assertEquals(LoadState.Loading, reads.months.now(october).state)
+        assertEquals(LoadState.Loading, reads.months.now(november).state)
+
+        val (octoberAgain) = shownBy(reads.months.watch(october))
+        val (novemberAgain) = shownBy(reads.months.watch(november))
+        runCurrent()
+        assertEquals(emptySet<LocalDate>(), CalendarWeek.daysWithAppointments(octoberAgain.last().data.orEmpty(), zone))
+        assertEquals(setOf(LocalDate.of(2026, 11, 2)), CalendarWeek.daysWithAppointments(novemberAgain.last().data.orEmpty(), zone))
+    }
+
+    @Test
+    fun `a hint keeps what it showed while its key is read anew, but not a failure or a new answer`() {
+        val shown = Read(LoadState.Loaded, listOf("a1"))
+
+        // Read anew after a change or a pause: nothing yet, so what was shown stays.
+        assertEquals(shown, shown.keptWhileLoading(Read()))
+        // Loading again with an answer on screen, a failure, or the new answer: shown as they come.
+        assertEquals(Read(LoadState.Loading, listOf("a2")), shown.keptWhileLoading(Read(LoadState.Loading, listOf("a2"))))
+        assertEquals(Read<List<String>>(LoadState.Failed(0)), shown.keptWhileLoading(Read(LoadState.Failed(0))))
+        assertEquals(Read(LoadState.Loaded, emptyList<String>()), shown.keptWhileLoading(Read(LoadState.Loaded, emptyList())))
+        // Nothing was shown yet: loading is loading.
+        assertEquals(Read<List<String>>(), Read<List<String>>().keptWhileLoading(Read()))
     }
 
     @Test

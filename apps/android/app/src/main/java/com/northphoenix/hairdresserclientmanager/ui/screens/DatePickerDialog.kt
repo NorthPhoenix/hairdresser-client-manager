@@ -35,6 +35,7 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -51,12 +52,15 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.domain.CalendarWeek
 import com.northphoenix.hairdresserclientmanager.domain.weeksOf
 import com.northphoenix.hairdresserclientmanager.state.Read
+import com.northphoenix.hairdresserclientmanager.state.keptWhileLoading
 import com.northphoenix.hairdresserclientmanager.ui.LocalAppointmentMonths
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.CircleIconButton
@@ -87,11 +91,12 @@ private val MonthHeight = WeekdayRowHeight + WeekRowHeight * 6
  * day's number says it has an Appointment that is not canceled, as on the Calendar's week strip
  * ([LocalAppointmentMonths]), so a day for an Appointment is picked knowing which days are booked. The
  * screen that opens the picker keeps the month it opens on loaded ([PreloadAppointmentMonths]), so the
- * dots are there as it opens.
+ * dots are there as it opens. [movingAppointmentId], the Appointment whose time is being edited,
+ * marks no day.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HcmDatePickerDialog(initial: LocalDate, today: LocalDate, onDismiss: () -> Unit, onPick: (LocalDate) -> Unit) {
+fun HcmDatePickerDialog(initial: LocalDate, today: LocalDate, onDismiss: () -> Unit, onPick: (LocalDate) -> Unit, movingAppointmentId: String? = null) {
     val format = LocalTimeFormat.current
     var selected by rememberSaveable { mutableStateOf(initial) }
     var month by rememberSaveable { mutableStateOf(YearMonth.from(initial).coerceIn(FirstMonth, LastMonth)) }
@@ -148,7 +153,14 @@ fun HcmDatePickerDialog(initial: LocalDate, today: LocalDate, onDismiss: () -> U
                         },
                     )
                 } else {
-                    PickerMonth(month, selected, today, onSelect = { selected = it }, onSwipe = { months -> showMonth(month.plusMonths(months)) })
+                    PickerMonth(
+                        month,
+                        selected,
+                        today,
+                        movingAppointmentId,
+                        onSelect = { selected = it },
+                        onSwipe = { months -> showMonth(month.plusMonths(months)) },
+                    )
                 }
             }
         }
@@ -164,9 +176,16 @@ fun HcmDatePickerDialog(initial: LocalDate, today: LocalDate, onDismiss: () -> U
 @Composable
 internal fun monthAppointmentsState(month: YearMonth): State<Read<List<Appointment>>> {
     val months = LocalAppointmentMonths.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
 
     return key(months, month) {
-        remember { months.month(month) }.collectAsStateWithLifecycle(remember { months.monthNow(month) })
+        // Read while the screen is in front. Read again after a change or a pause, the month keeps what it showed
+        // until the answer (keptWhileLoading), so the dots and the list under a form's date do not blink.
+        produceState(remember { months.monthNow(month) }, lifecycle) {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                months.month(month).collect { next -> value = value.keptWhileLoading(next) }
+            }
+        }
     }
 }
 
@@ -182,14 +201,24 @@ internal fun PreloadAppointmentMonths(vararg months: YearMonth) {
 
 /** One month as a grid of days under the names of the weekdays. A swipe to the side shows the month next to it. */
 @Composable
-private fun PickerMonth(month: YearMonth, selected: LocalDate, today: LocalDate, onSelect: (LocalDate) -> Unit, onSwipe: (months: Long) -> Unit) {
+private fun PickerMonth(
+    month: YearMonth,
+    selected: LocalDate,
+    today: LocalDate,
+    movingAppointmentId: String?,
+    onSelect: (LocalDate) -> Unit,
+    onSwipe: (months: Long) -> Unit,
+) {
     val format = LocalTimeFormat.current
     val weeks = remember(month, format.firstDayOfWeek) { weeksOf(month, format.firstDayOfWeek) }
     val firstWeekday = today.with(TemporalAdjusters.previousOrSame(format.firstDayOfWeek))
     val swipe by rememberUpdatedState(onSwipe)
     // A month the screen under the picker keeps loaded is marked from the first frame; another one when it has loaded.
     val booked by monthAppointmentsState(month)
-    val marked = remember(booked, format.zone) { CalendarWeek.daysWithAppointments(booked.data.orEmpty(), format.zone) }
+    // An Appointment being moved does not mark the day it is leaving, as the list under the form's date leaves it out.
+    val marked = remember(booked, format.zone, movingAppointmentId) {
+        CalendarWeek.daysWithAppointments(booked.data.orEmpty().filter { it.id != movingAppointmentId }, format.zone)
+    }
 
     Column(
         Modifier.fillMaxSize().pointerInput(Unit) {
