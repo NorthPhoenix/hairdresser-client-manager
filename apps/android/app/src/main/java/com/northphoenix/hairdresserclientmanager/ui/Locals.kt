@@ -36,26 +36,26 @@ val LocalTimeFormat = staticCompositionLocalOf { TimeFormat(Locale.getDefault(),
 val LocalSnackbarHostState = staticCompositionLocalOf { SnackbarHostState() }
 
 /**
- * What is booked, for where a day is picked for an Appointment: the date picker marks the days of
+ * The Appointments of a month, for where a day is picked for an Appointment: the date picker marks the days of
  * its month that have an Appointment, and the form that books or moves one lists what the chosen
  * day already has. The app reads a month as the date picker shows it
  * ([com.northphoenix.hairdresserclientmanager.state.AppViewModel.monthAppointments]); outside it nothing is booked.
  */
-interface Bookings {
+interface AppointmentMonths {
     /** The Appointments that start in [month], for as long as this is collected. */
     fun month(month: YearMonth): Flow<Read<List<Appointment>>>
 
     /** What there is of [month] already, without asking: for the first frame. */
     fun monthNow(month: YearMonth): Read<List<Appointment>>
 
-    object None : Bookings {
+    object None : AppointmentMonths {
         override fun month(month: YearMonth): Flow<Read<List<Appointment>>> = flowOf(Read())
 
         override fun monthNow(month: YearMonth): Read<List<Appointment>> = Read()
     }
 }
 
-val LocalBookings = staticCompositionLocalOf<Bookings> { Bookings.None }
+val LocalAppointmentMonths = staticCompositionLocalOf<AppointmentMonths> { AppointmentMonths.None }
 
 /**
  * [message] is the text when the notice appeared. On screen it is [messageRes] filled with [args], so a notice follows a change of the app language.

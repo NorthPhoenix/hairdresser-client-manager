@@ -55,6 +55,8 @@ A key is a small data class with everything the answer depends on, and each read
 | --- | --- | --- | --- |
 | Today's list (`appointment.home`) | `DayKey(day, zone)` | 4 | 30 minutes |
 | A Calendar day (`appointment.list`) | `DayKey(day, zone)` | 62 | 30 minutes |
+| A week of the Calendar's week strip (`appointment.list` for seven days) | `WeekKey(firstDay, zone)` | 9 | 30 minutes |
+| A month of the date picker (`appointment.list` for the month) | `MonthKey(month, zone)` | 6 | 30 minutes |
 | One Appointment (`appointment.get`) | `AppointmentKey(id)` | 100 | 30 minutes |
 | The sources of Appointment Copying (`appointment.completedSources`) | `CopyTargetKey(appointmentId, clientIds)` | 20 | 30 minutes |
 | The Client list (`clientProfile.list`) | `StylistKey(stylistId)` | 1 | 30 minutes |

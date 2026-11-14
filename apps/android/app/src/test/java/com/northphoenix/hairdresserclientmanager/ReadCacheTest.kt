@@ -981,14 +981,31 @@ class ReadCacheTest {
         assertEquals(LoadState.Loading, reads.months.now(month).state)
 
         // The form keeps the month loaded: one request for the whole month, and only its days.
-        val (_, form) = shownBy(reads.months.watch(month))
+        val (formShown, form) = shownBy(reads.months.watch(month))
         runCurrent()
         assertEquals(listOf("month 2026-10"), server.requests)
+        assertEquals(listOf("a1"), formShown.last().data.orEmpty().map { it.id })
 
         // The picker opened on it has its marks from the first frame, before any read of its own.
         val opened = reads.months.now(month)
         assertEquals(LoadState.Loaded, opened.state)
         assertEquals(setOf(monday.day), CalendarWeek.daysWithAppointments(opened.data.orEmpty(), zone))
+
+        // While the form shows it, a cancel on its way leaves Monday's list under the date, and is back when it fails.
+        fun mondayList() = CalendarWeek.bookedOn(formShown.last().data.orEmpty(), monday.day, zone).map { it.id }
+        val cancel = reads.ahead("status-a1", "a1") { it.copy(status = AppointmentStatus.CANCELED) }
+        cancel.show()
+        runCurrent()
+        assertEquals(emptyList<String>(), mondayList())
+        cancel.settle()
+        runCurrent()
+        assertEquals(listOf("a1"), mondayList())
+
+        // Deleted: it leaves the month at once.
+        server.days[monday.day] = emptyList()
+        reads.forget("a1")
+        runCurrent()
+        assertEquals(emptyList<String>(), mondayList())
 
         // Booked on Wednesday while the form is closed: the cached month does not have it, so it is not served at once but loaded anew.
         form.cancel()
@@ -999,7 +1016,7 @@ class ReadCacheTest {
         assertEquals(LoadState.Loading, reads.months.now(month).state)
         val (again) = shownBy(reads.months.watch(month))
         runCurrent()
-        assertEquals(setOf(monday.day, wednesday.day), CalendarWeek.daysWithAppointments(again.last().data.orEmpty(), zone))
+        assertEquals(setOf(wednesday.day), CalendarWeek.daysWithAppointments(again.last().data.orEmpty(), zone))
     }
 
     @Test

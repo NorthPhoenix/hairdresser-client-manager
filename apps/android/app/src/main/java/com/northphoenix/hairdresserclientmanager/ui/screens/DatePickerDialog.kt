@@ -57,7 +57,7 @@ import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.domain.CalendarWeek
 import com.northphoenix.hairdresserclientmanager.domain.weeksOf
 import com.northphoenix.hairdresserclientmanager.state.Read
-import com.northphoenix.hairdresserclientmanager.ui.LocalBookings
+import com.northphoenix.hairdresserclientmanager.ui.LocalAppointmentMonths
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.CircleIconButton
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
@@ -85,8 +85,8 @@ private val MonthHeight = WeekdayRowHeight + WeekRowHeight * 6
  * Picks a day. The month is drawn by the app itself: the Material date picker marks as today the
  * day it is on the device, and [today] is the day it is in the Stylist's timezone. A dot under a
  * day's number says it has an Appointment that is not canceled, as on the Calendar's week strip
- * ([LocalBookings]), so a day for an Appointment is picked knowing which days are booked. The
- * screen that opens the picker keeps the month it opens on loaded ([PreloadBookedMonths]), so the
+ * ([LocalAppointmentMonths]), so a day for an Appointment is picked knowing which days are booked. The
+ * screen that opens the picker keeps the month it opens on loaded ([PreloadAppointmentMonths]), so the
  * dots are there as it opens.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -156,17 +156,17 @@ fun HcmDatePickerDialog(initial: LocalDate, today: LocalDate, onDismiss: () -> U
 }
 
 /**
- * The Appointments that start in [month] ([LocalBookings]), for as long as this is in the
+ * The Appointments that start in [month] ([LocalAppointmentMonths]), for as long as this is in the
  * composition. It starts from what is loaded already, so a month that a screen keeps loaded
- * ([PreloadBookedMonths]) is there from the first frame of whatever else reads it; another month
+ * ([PreloadAppointmentMonths]) is there from the first frame of whatever else reads it; another month
  * comes a moment later.
  */
 @Composable
-internal fun monthBookings(month: YearMonth): State<Read<List<Appointment>>> {
-    val bookings = LocalBookings.current
+internal fun monthAppointmentsState(month: YearMonth): State<Read<List<Appointment>>> {
+    val months = LocalAppointmentMonths.current
 
-    return key(bookings, month) {
-        remember { bookings.month(month) }.collectAsStateWithLifecycle(remember { bookings.monthNow(month) })
+    return key(months, month) {
+        remember { months.month(month) }.collectAsStateWithLifecycle(remember { months.monthNow(month) })
     }
 }
 
@@ -176,8 +176,8 @@ internal fun monthBookings(month: YearMonth): State<Read<List<Appointment>>> {
  * they arrive.
  */
 @Composable
-internal fun PreloadBookedMonths(vararg months: YearMonth) {
-    months.forEach { month -> monthBookings(month) }
+internal fun PreloadAppointmentMonths(vararg months: YearMonth) {
+    months.forEach { month -> monthAppointmentsState(month) }
 }
 
 /** One month as a grid of days under the names of the weekdays. A swipe to the side shows the month next to it. */
@@ -188,7 +188,7 @@ private fun PickerMonth(month: YearMonth, selected: LocalDate, today: LocalDate,
     val firstWeekday = today.with(TemporalAdjusters.previousOrSame(format.firstDayOfWeek))
     val swipe by rememberUpdatedState(onSwipe)
     // A month the screen under the picker keeps loaded is marked from the first frame; another one when it has loaded.
-    val booked by monthBookings(month)
+    val booked by monthAppointmentsState(month)
     val marked = remember(booked, format.zone) { CalendarWeek.daysWithAppointments(booked.data.orEmpty(), format.zone) }
 
     Column(

@@ -103,8 +103,8 @@ fun HcmApp(container: AppContainer) {
             // while the app is open or on the way back to it, and the view model saves it as the Stylist's choice.
             LaunchedEffect(viewModel, locale) { viewModel.followLanguage() }
 
-            val bookings = remember(viewModel) {
-                object : Bookings {
+            val appointmentMonths = remember(viewModel) {
+                object : AppointmentMonths {
                     override fun month(month: YearMonth) = viewModel.monthAppointments(month)
 
                     override fun monthNow(month: YearMonth) = viewModel.shownMonthAppointments(month)
@@ -114,7 +114,7 @@ fun HcmApp(container: AppContainer) {
             CompositionLocalProvider(
                 LocalTimeFormat provides timeFormat,
                 LocalSnackbarHostState provides snackbarHostState,
-                LocalBookings provides bookings,
+                LocalAppointmentMonths provides appointmentMonths,
             ) {
                 val authState by viewModel.authState.collectAsStateWithLifecycle()
 

@@ -661,6 +661,22 @@ class DomainTest {
     }
 
     @Test
+    fun `a month runs from the start of its 1st to the end of its last day in the Stylist's timezone`() {
+        val format = TimeFormat(Locale.US, ZoneId.of("America/Chicago"))
+
+        // October ends at midnight of 1 November, still daylight time there (the clocks go back at 2:00).
+        val (octoberStart, octoberEnd) = format.monthRange(YearMonth.of(2026, 10))
+        assertEquals(Instant.parse("2026-10-01T05:00:00Z"), octoberStart)
+        assertEquals(Instant.parse("2026-11-01T05:00:00Z"), octoberEnd)
+        // 10 p.m. on 31 October in Austin is 1 November in UTC, and it is in October's range.
+        assertTrue(Instant.parse("2026-11-01T03:00:00Z").let { it >= octoberStart && it < octoberEnd })
+
+        val (novemberStart, novemberEnd) = format.monthRange(YearMonth.of(2026, 11))
+        assertEquals(octoberEnd, novemberStart)
+        assertEquals(Instant.parse("2026-12-01T06:00:00Z"), novemberEnd)
+    }
+
+    @Test
     fun `dates and clock follow the app language`() {
         val day = LocalDate.of(2026, 10, 8)
         val english = TimeFormat(Locale.US, ZoneId.of("UTC"))

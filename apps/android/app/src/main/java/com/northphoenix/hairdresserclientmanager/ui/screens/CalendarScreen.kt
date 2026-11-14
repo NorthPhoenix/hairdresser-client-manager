@@ -84,7 +84,7 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit)
     val marked by remember(viewModel, weekStart) { viewModel.calendarWeekMarks(weekStart) }.collectAsStateWithLifecycle(emptySet())
     val hasAppointments = stringResource(R.string.calendar_day_has_appointments)
     // The date button's picker opens on the selected day's month: it is kept loaded, so the picker opens with its days marked.
-    PreloadBookedMonths(YearMonth.from(selected))
+    PreloadAppointmentMonths(YearMonth.from(selected))
 
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
         LazyColumn(

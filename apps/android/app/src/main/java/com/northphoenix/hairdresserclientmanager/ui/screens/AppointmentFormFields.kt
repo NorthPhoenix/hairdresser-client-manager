@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.LocationType
+import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
 import com.northphoenix.hairdresserclientmanager.domain.CalendarWeek
 import com.northphoenix.hairdresserclientmanager.domain.NightStart
@@ -72,7 +73,7 @@ enum class AppointmentTimeField { DATE, START, END }
  * the times were cut on narrow screens and at large font sizes. [endDate] is the day the end time
  * falls on, which is said under the field when it is another day than [date]. A start at night is
  * said under its field too (see [NightStart]), with [onDayTime] to move it to the same time on the
- * other half of the day. Under the date are the other Appointments of that day ([DayBookings]),
+ * other half of the day. Under the date are the other Appointments of that day ([DayAppointments]),
  * without [movingAppointmentId], the one whose time is being edited.
  */
 @Composable
@@ -100,8 +101,8 @@ fun AppointmentTimeFields(
             // The date picker is opened on nearly every booking. Its month is loaded with the form, as the list under
             // the date reads it, and so is the next one: the picker opens with its days marked, and a day picked in
             // either month is listed at once.
-            PreloadBookedMonths(YearMonth.from(date).plusMonths(1))
-            DayBookings(date, excluding = movingAppointmentId)
+            PreloadAppointmentMonths(YearMonth.from(date).plusMonths(1))
+            DayAppointments(date, excluding = movingAppointmentId)
         }
         Column {
             PickerField(
@@ -144,13 +145,14 @@ fun AppointmentTimeFields(
  * What [date] already has, under its field, so that a time is picked knowing it: each Appointment
  * that is not canceled ([CalendarWeek.bookedOn]) with its time, its primary Client, how many more
  * Clients it has and a house when it is at home. It comes from the day's month as the date picker
- * reads it ([monthBookings]); "No appointments on this day" once it is known to have none, and
- * nothing while it is loading or could not be loaded, where the form is no place to say so.
+ * reads it ([monthAppointmentsState]); "No Appointments on this day" ("No other Appointments" while one
+ * is moved) once it is known to have none, and nothing while it is loading or could not be loaded,
+ * where the form is no place to say so.
  */
 @Composable
-private fun DayBookings(date: LocalDate, excluding: String?) {
+private fun DayAppointments(date: LocalDate, excluding: String?) {
     val format = LocalTimeFormat.current
-    val read by monthBookings(YearMonth.from(date))
+    val read by monthAppointmentsState(YearMonth.from(date))
     val booked = read.data?.let { CalendarWeek.bookedOn(it, date, format.zone, excluding) } ?: return
     val times = booked.map { appointment -> listOfNotNull(format.time(appointment.startsAt), appointment.endsAt?.let { format.time(it) }).joinToString("–") }
     val timeStyle = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
@@ -164,14 +166,16 @@ private fun DayBookings(date: LocalDate, excluding: String?) {
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (booked.isEmpty()) {
-            Text(stringResource(R.string.appointment_day_free), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // While an Appointment is moved, the day has at least that one: none of the others.
+            Text(stringResource(if (excluding == null) R.string.appointment_day_free else R.string.appointment_day_free_of_others), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             return@Column
         }
 
         Text(stringResource(R.string.appointment_day_booked), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         booked.forEachIndexed { index, appointment ->
-            val others = appointment.participants.size - 1
-            val name = appointment.primaryClientName + if (others > 0) " +$others" else ""
+            // Named as its card names it: by a Client who is in it, also when its primary Client is not (AppointmentClients.Fault).
+            val others = AppointmentClients.othersCount(appointment)
+            val name = AppointmentClients.leadName(appointment) + if (others > 0) " +$others" else ""
             val place = stringResource(appointment.locationType.label)
 
             // A long name takes a second line rather than being cut to its first word; the time and the house stay on its first line.

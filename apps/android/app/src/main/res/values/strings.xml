@@ -33,7 +33,8 @@
     <string name="appointment_conflict_warning">Appointment created, but it overlaps another one.</string>
     <string name="appointment_date_label">Date</string>
     <string name="appointment_day_booked">Already on this day</string>
-    <string name="appointment_day_free">No appointments on this day</string>
+    <string name="appointment_day_free">No Appointments on this day</string>
+    <string name="appointment_day_free_of_others">No other Appointments on this day</string>
     <string name="appointment_end_before_start">End time must be after start time.</string>
     <string name="appointment_end_label">End time</string>
     <string name="appointment_end_time_skipped">The clocks go forward on that day, so this end time does not exist. Choose another end time.</string>

@@ -253,10 +253,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             val format = TimeFormat(Locale.ROOT, key.zone)
             api.listAppointments(format.dayRange(key.firstDay).first, format.dayRange(key.firstDay.plusDays(CalendarWeek.LENGTH - 1)).second)
         },
-        fetchMonth = { key ->
-            val format = TimeFormat(Locale.ROOT, key.zone)
-            api.listAppointments(format.dayRange(key.month.atDay(1)).first, format.dayRange(key.month.atEndOfMonth()).second)
-        },
+        fetchMonth = { key -> TimeFormat(Locale.ROOT, key.zone).monthRange(key.month).let { (start, end) -> api.listAppointments(start, end) } },
     )
 
     private val _home = MutableStateFlow(Read<List<Appointment>>())

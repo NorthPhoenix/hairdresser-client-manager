@@ -33,6 +33,7 @@
     <string name="appointment_date_label">Дата</string>
     <string name="appointment_day_booked">Уже в этот день</string>
     <string name="appointment_day_free">В этот день записей нет</string>
+    <string name="appointment_day_free_of_others">Других записей в этот день нет</string>
     <string name="appointment_end_before_start">Окончание должно быть позже начала.</string>
     <string name="appointment_end_label">Окончание</string>
     <string name="appointment_end_time_skipped">В этот день часы переводят вперёд, и такого времени окончания нет. Выберите другое время.</string>
