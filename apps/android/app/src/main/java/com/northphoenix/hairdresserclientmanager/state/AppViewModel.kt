@@ -73,6 +73,7 @@ import com.northphoenix.hairdresserclientmanager.i18n.refusedSignInMessage
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 import java.util.Locale
 import java.util.UUID
@@ -253,6 +254,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             val format = TimeFormat(Locale.ROOT, key.zone)
             api.listAppointments(format.dayRange(key.firstDay).first, format.dayRange(key.firstDay.plusDays(CalendarWeek.LENGTH - 1)).second)
         },
+        fetchMonth = { key -> TimeFormat(Locale.ROOT, key.zone).monthRange(key.month).let { (start, end) -> api.listAppointments(start, end) } },
     )
 
     private val _home = MutableStateFlow(Read<List<Appointment>>())
@@ -676,7 +678,21 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      */
     private suspend fun loadAppointmentLists() {
         followDay()
-        together(::loadHome, ::loadTomorrow, ::loadCalendarDay, appointmentReads.weeks::refreshShown, appointmentReads.sources::refreshShown)
+        together(::loadHome, ::loadTomorrow, ::loadCalendarDay, appointmentReads.weeks::refreshShown, ::refreshMonths, appointmentReads.sources::refreshShown)
+    }
+
+    /**
+     * The months the date picker reads, which the screens under it keep loaded without showing them.
+     * One that fails keeps what it had, and is no reason to call the whole reload failed: the day and
+     * the week on screen say how theirs went.
+     */
+    private suspend fun refreshMonths() {
+        try {
+            appointmentReads.months.refreshShown()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+        }
     }
 
     /** The key of Today's list: today in the Stylist's timezone. Null while there is no Stylist to show it to. */
@@ -849,6 +865,22 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                     ?: flowOf(emptySet())
             }
             .distinctUntilChanged()
+
+    /**
+     * The Appointments that start in [month], for as long as this is collected: the date picker marks
+     * the days that have any, and the form that books or moves an Appointment lists those of its day.
+     * A month shown before is there at once and is asked again behind it.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun monthAppointments(month: YearMonth): Flow<Read<List<Appointment>>> =
+        listsZone.flatMapLatest { zone -> zone?.let { appointmentReads.months.watch(MonthKey(month, it)) } ?: flowOf(Read()) }
+
+    /**
+     * What there is of [month] already, without asking the server: for the first frame of a date
+     * picker, so that a month the screen under it has loaded is marked from the start.
+     */
+    fun shownMonthAppointments(month: YearMonth): Read<List<Appointment>> =
+        _stylist.value?.takeIf { it.onboardingComplete }?.let { appointmentReads.months.now(MonthKey(month, zoneOrSystem(it.timezone))) } ?: Read()
 
     /** Makes [date] the Calendar's day. It is another key to read (see [calendarKey]): what is on its way for the day before is not shown. */
     private fun showCalendarDay(date: LocalDate) {

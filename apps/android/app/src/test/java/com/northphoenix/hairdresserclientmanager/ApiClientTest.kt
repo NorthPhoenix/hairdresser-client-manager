@@ -372,6 +372,16 @@ class ApiClientTest {
         assertEquals(listOf(1500L, null, null), tips)
     }
 
+    @Test
+    fun `a history entry reads its custom total, also 0, and none from a server that does not send it`() = runTest {
+        val entry = """{"id":"a1","primaryClientName":"Света","startsAt":"2026-10-16T23:00:00.000Z","status":"completed""""
+        enqueue("""{"result":{"data":[$entry,"finalTotalCentsOverride":19000},$entry,"finalTotalCentsOverride":0},$entry,"finalTotalCentsOverride":null},$entry}]}}""")
+
+        val totals = api.clientAppointmentHistory("c1").map { it.finalTotalCentsOverride }
+
+        assertEquals(listOf(19000L, 0L, null, null), totals)
+    }
+
     // --- Edit Appointment and the overlap warning ---
 
     private val updated =

@@ -32,6 +32,9 @@
     <string name="appointment_client_required">Choose a Client or create a new one.</string>
     <string name="appointment_conflict_warning">Appointment created, but it overlaps another one.</string>
     <string name="appointment_date_label">Date</string>
+    <string name="appointment_day_booked">Already on this day</string>
+    <string name="appointment_day_free">No Appointments on this day</string>
+    <string name="appointment_day_free_of_others">No other Appointments on this day</string>
     <string name="appointment_end_before_start">End time must be after start time.</string>
     <string name="appointment_end_label">End time</string>
     <string name="appointment_end_time_skipped">The clocks go forward on that day, so this end time does not exist. Choose another end time.</string>
@@ -550,8 +553,13 @@
     <string name="appointment_tip_suggestion_yes">Yes</string>
     <string name="appointment_tip_suggestion_no">No</string>
     <string name="appointment_tip_included">incl. %1$s tip</string>
-    <string name="history_tip">Tip</string>
-    <string name="history_tip_whole_visit">Tip for the whole visit</string>
+    <string name="history_discount">Discount</string>
+    <string name="history_surcharge">Surcharge</string>
+    <string name="history_no_services">No services chosen yet</string>
+    <plurals name="history_other_clients">
+        <item quantity="one">%d more Client</item>
+        <item quantity="other">%d more Clients</item>
+    </plurals>
 
     <!-- Family (CONTEXT.md: Family). Roles are the Stylist's own words. -->
     <string name="family_title">Family</string>
@@ -608,6 +616,8 @@
     <string name="earnings_booked_month">Already booked until the end of the month</string>
     <string name="earnings_booked_year">Already booked until the end of the year</string>
     <string name="earnings_booked_none">Nothing booked yet</string>
+    <string name="earnings_unresolved">Needs an outcome</string>
+    <string name="earnings_unresolved_hint">Not counted in Earned until marked on the Today tab</string>
     <string name="earnings_canceled">Canceled: %d</string>
     <string name="earnings_no_show">No-shows: %d</string>
     <string name="earnings_top_services">Revenue by service</string>

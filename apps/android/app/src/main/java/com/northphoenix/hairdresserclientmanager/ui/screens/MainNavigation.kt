@@ -73,6 +73,9 @@ import kotlinx.coroutines.delay
 
 private object Routes {
     const val MAIN = "main"
+
+    /** Set on the main screen's entry by a screen above it, before going back to it: the tab it then shows. */
+    const val OPEN_TAB = "openTab"
     const val SERVICES = "services"
     const val EARNINGS = "earnings"
     const val RELEASES = "releases"
@@ -118,6 +121,12 @@ private object Routes {
     }
 
     fun clientProfile(id: String) = "client-profile/$id"
+
+    /**
+     * Set on an Appointment's entry by the form that has just created it: its screen opens with the
+     * sheet that adds Services (see AppointmentDraft.opensAddingServices), once.
+     */
+    const val ADD_SERVICES = "addServices"
 }
 
 private enum class MainTab(@StringRes val label: Int, val icon: ImageVector) {
@@ -180,10 +189,27 @@ fun MainNavigation(viewModel: AppViewModel) {
         predictivePopExitTransition = { edge -> BackSwipe.leave(edge) },
     ) {
         composable(Routes.MAIN) { entry ->
-            MainScreen(viewModel, open = { route -> navController.from(entry) { navigate(route) } })
+            val openTab by entry.savedStateHandle.getStateFlow<String?>(Routes.OPEN_TAB, null).collectAsStateWithLifecycle()
+
+            MainScreen(
+                viewModel,
+                open = { route -> navController.from(entry) { navigate(route) } },
+                openTab = MainTab.entries.firstOrNull { it.name == openTab },
+                onTabOpened = { entry.savedStateHandle[Routes.OPEN_TAB] = null },
+            )
         }
         composable(Routes.EARNINGS) { entry ->
-            EarningsScreen(viewModel, onBack = { navController.from(entry) { popBackStack() } })
+            EarningsScreen(
+                viewModel,
+                onBack = { navController.from(entry) { popBackStack() } },
+                // Back to the main screen, on the Today tab, where the Appointments waiting for an outcome are marked.
+                onOpenToday = {
+                    navController.from(entry) {
+                        previousBackStackEntry?.savedStateHandle?.set(Routes.OPEN_TAB, MainTab.TODAY.name)
+                        popBackStack()
+                    }
+                },
+            )
         }
         composable(Routes.RELEASES) { entry ->
             ReleasesScreen(viewModel, onBack = { navController.from(entry) { popBackStack() } })
@@ -198,11 +224,15 @@ fun MainNavigation(viewModel: AppViewModel) {
             Routes.APPOINTMENT,
             arguments = listOf(navArgument("id") { type = NavType.StringType }),
         ) { entry ->
+            val justCreated by entry.savedStateHandle.getStateFlow(Routes.ADD_SERVICES, false).collectAsStateWithLifecycle()
+
             AppointmentDetailScreen(
                 viewModel = viewModel,
                 appointmentId = entry.arguments?.getString("id").orEmpty(),
                 onBack = { navController.from(entry) { popBackStack() } },
                 onOpenClient = { navController.from(entry) { navigate(Routes.clientProfile(it)) } },
+                justCreated = justCreated,
+                onOpened = { entry.savedStateHandle[Routes.ADD_SERVICES] = false },
             )
         }
         composable(
@@ -222,6 +252,7 @@ fun MainNavigation(viewModel: AppViewModel) {
                     navController.from(entry) {
                         popBackStack()
                         navigate(Routes.appointment(appointment.id))
+                        currentBackStackEntry?.savedStateHandle?.set(Routes.ADD_SERVICES, true)
                     }
                 },
             )
@@ -305,9 +336,17 @@ private fun NavHostController.from(entry: NavBackStackEntry, action: NavHostCont
     }
 }
 
+/** [openTab]: a tab a screen above asked for on the way back, shown once, then [onTabOpened]. */
 @Composable
-private fun MainScreen(viewModel: AppViewModel, open: (route: String) -> Unit) {
+private fun MainScreen(viewModel: AppViewModel, open: (route: String) -> Unit, openTab: MainTab?, onTabOpened: () -> Unit) {
     var tab by rememberSaveable { mutableStateOf(MainTab.TODAY) }
+
+    LaunchedEffect(openTab) {
+        if (openTab != null) {
+            tab = openTab
+            onTabOpened()
+        }
+    }
     // What a tab holds (search text, list position, an unsaved Settings draft) is kept while another tab is shown.
     val tabStates = rememberSaveableStateHolder()
     val openAppointment: (String) -> Unit = { id -> open(Routes.appointment(id)) }

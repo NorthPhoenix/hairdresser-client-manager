@@ -638,6 +638,9 @@ describe("client router", () => {
         locationAddress: "100 Salon St",
         customLocationAddress: "",
         participantClientIds: ["client_2", "client_1"],
+        // Of the whole visit: Mila's Blowout too, though only this Client's Services are sent.
+        serviceTotalCents: 12500,
+        finalTotalCentsOverride: null,
         tipCents: null,
         // The note is of the whole visit: every Client of it has it.
         note: "Mila first",
@@ -796,6 +799,77 @@ describe("client router", () => {
       { id: "noted", note: "Guard 2 on the sides" },
       { id: "blank", note: "" },
       { id: "none", note: "" }
+    ]);
+  });
+
+  it("gives each Appointment of the history what its Services come to, and its custom total or null", async () => {
+    const startsAt = new Date("2026-06-13T15:00:00.000Z");
+    const service = (id: string, clientId: string, priceCents: number) => ({
+      id,
+      clientId,
+      menuItemId: null,
+      name: "Haircut",
+      priceCents,
+      note: null,
+      colorFormulas: []
+    });
+    const appointment = (id: string, finalTotalCentsOverride: number | null, participantIds: string[]) => ({
+      id,
+      primaryClientId: "client_1",
+      startsAt,
+      status: "completed",
+      locationType: "inSalon",
+      locationAddress: null,
+      locationAddressIsCustom: false,
+      note: null,
+      finalTotalCentsOverride,
+      tipCents: null,
+      primaryClient: { id: "client_1", name: "Anna", address: null },
+      participants: participantIds.map((clientId) => ({ clientId })),
+      // Every Service of the visit, as the query reads them; of a group Appointment, another Client's too.
+      services: participantIds.map((clientId, index) => service(`${id}_service_${index}`, clientId, 6000 - index * 1500)),
+      photos: []
+    });
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: {
+          upsert: vi.fn().mockResolvedValue({
+            id: "stylist_1",
+            clerkId: "clerk_1",
+            language: "ru",
+            timezone: "America/Chicago",
+            salonAddress: null,
+            onboardingCompletedAt: new Date()
+          })
+        },
+        appointment: {
+          findMany: vi.fn().mockResolvedValue([
+            appointment("discount", 5000, ["client_1"]),
+            appointment("free", 0, ["client_1"]),
+            appointment("group", 9000, ["client_1", "client_2"]),
+            appointment("list", null, ["client_1"])
+          ])
+        }
+      } as unknown as TRPCContext["db"])
+    );
+
+    const history = await caller.clientProfile.appointmentHistory({ id: "client_1" });
+
+    expect(
+      history.map(({ id, serviceTotalCents, finalTotalCentsOverride, services }) => ({
+        id,
+        serviceTotalCents,
+        finalTotalCentsOverride,
+        prices: services.map((service) => service.priceCents)
+      }))
+    ).toEqual([
+      // The Services keep their own prices; the custom total is apart from them.
+      { id: "discount", serviceTotalCents: 6000, finalTotalCentsOverride: 5000, prices: [6000] },
+      // A custom total of 0 is a price, not "none".
+      { id: "free", serviceTotalCents: 6000, finalTotalCentsOverride: 0, prices: [6000] },
+      // Only this Client's Service is sent; the sum and the custom total are of the whole visit.
+      { id: "group", serviceTotalCents: 10500, finalTotalCentsOverride: 9000, prices: [6000] },
+      { id: "list", serviceTotalCents: 6000, finalTotalCentsOverride: null, prices: [6000] }
     ]);
   });
 

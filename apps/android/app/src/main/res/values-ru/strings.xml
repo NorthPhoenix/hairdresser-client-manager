@@ -31,6 +31,9 @@
     <string name="appointment_client_required">Выберите клиента или создайте нового.</string>
     <string name="appointment_conflict_warning">Запись создана, но она пересекается по времени с другой.</string>
     <string name="appointment_date_label">Дата</string>
+    <string name="appointment_day_booked">Уже в этот день</string>
+    <string name="appointment_day_free">В этот день записей нет</string>
+    <string name="appointment_day_free_of_others">Других записей в этот день нет</string>
     <string name="appointment_end_before_start">Окончание должно быть позже начала.</string>
     <string name="appointment_end_label">Окончание</string>
     <string name="appointment_end_time_skipped">В этот день часы переводят вперёд, и такого времени окончания нет. Выберите другое время.</string>
@@ -582,8 +585,15 @@
     <string name="appointment_tip_suggestion_yes">Да</string>
     <string name="appointment_tip_suggestion_no">Нет</string>
     <string name="appointment_tip_included">вкл. чаевые %1$s</string>
-    <string name="history_tip">Чаевые</string>
-    <string name="history_tip_whole_visit">Чаевые за всю запись</string>
+    <string name="history_discount">Скидка</string>
+    <string name="history_surcharge">Наценка</string>
+    <string name="history_no_services">Услуги пока не выбраны</string>
+    <plurals name="history_other_clients">
+        <item quantity="one">Ещё %d клиент</item>
+        <item quantity="few">Ещё %d клиента</item>
+        <item quantity="many">Ещё %d клиентов</item>
+        <item quantity="other">Ещё %d клиента</item>
+    </plurals>
 
     <!-- Семья (CONTEXT.md: Family). Роли пишет сам мастер. -->
     <string name="family_title">Семья</string>
@@ -642,6 +652,8 @@
     <string name="earnings_booked_month">Уже записано до конца месяца</string>
     <string name="earnings_booked_year">Уже записано до конца года</string>
     <string name="earnings_booked_none">Пока ничего не записано</string>
+    <string name="earnings_unresolved">Нужно закрыть</string>
+    <string name="earnings_unresolved_hint">Не учтено в «Заработано», пока не закрыто на вкладке «Сегодня»</string>
     <string name="earnings_canceled">Отменены: %d</string>
     <string name="earnings_no_show">Неявки: %d</string>
     <string name="earnings_top_services">Выручка по услугам</string>

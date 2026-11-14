@@ -9,12 +9,12 @@ import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** The days of the Calendar's week strip that are marked as having Appointments. */
+/** The days of the Calendar's week strip and of the date picker that are marked as having Appointments, and what a day already has. */
 class CalendarWeekTest {
     private val chicago = ZoneId.of("America/Chicago")
 
-    private fun appointment(startsAt: String, status: AppointmentStatus = AppointmentStatus.SCHEDULED) =
-        Appointment(id = startsAt, primaryClientId = "c1", primaryClientName = "Anna", startsAt = startsAt, status = status, locationType = LocationType.IN_SALON)
+    private fun appointment(startsAt: String, status: AppointmentStatus = AppointmentStatus.SCHEDULED, id: String = startsAt) =
+        Appointment(id = id, primaryClientId = "c1", primaryClientName = "Anna", startsAt = startsAt, status = status, locationType = LocationType.IN_SALON)
 
     @Test
     fun `a week is seven days from its first`() {
@@ -48,5 +48,40 @@ class CalendarWeekTest {
         val marked = CalendarWeek.daysWithAppointments(listOf(appointment("2026-10-25T00:00:00Z")), chicago)
 
         assertEquals(setOf(LocalDate.of(2026, 10, 24)), marked)
+    }
+
+    @Test
+    fun `what a day already has is what starts on it and is not canceled, by its start`() {
+        val day = LocalDate.of(2026, 11, 16)
+        val booked = CalendarWeek.bookedOn(
+            listOf(
+                appointment("2026-11-16T21:30:00Z"),
+                appointment("2026-11-16T17:00:00Z", AppointmentStatus.CANCELED),
+                appointment("2026-11-16T15:00:00Z", AppointmentStatus.NO_SHOW),
+                appointment("2026-11-16T19:00:00Z", AppointmentStatus.COMPLETED),
+                // The 17th in Austin; then the 16th in Austin, though the 17th in UTC.
+                appointment("2026-11-17T08:00:00Z"),
+                appointment("2026-11-17T02:00:00Z"),
+            ),
+            day,
+            chicago,
+        )
+
+        assertEquals(
+            listOf("2026-11-16T15:00:00Z", "2026-11-16T19:00:00Z", "2026-11-16T21:30:00Z", "2026-11-17T02:00:00Z"),
+            booked.map { it.startsAt },
+        )
+    }
+
+    @Test
+    fun `the Appointment being moved is not in its own way`() {
+        val booked = CalendarWeek.bookedOn(
+            listOf(appointment("2026-11-16T17:00:00Z", id = "moving"), appointment("2026-11-16T21:30:00Z", id = "other")),
+            LocalDate.of(2026, 11, 16),
+            chicago,
+            excluding = "moving",
+        )
+
+        assertEquals(listOf("other"), booked.map { it.id })
     }
 }

@@ -56,8 +56,10 @@ object ClientRules {
 
     /**
      * Matches by name or by phone. Upper and lower case are the same, and so are "ё" and "е".
-     * Only a search that is itself a phone number is matched through its digits; anything else
-     * has to be found as typed, in the name or in the phone.
+     * A name in the other alphabet is also found by its spelling ([NameSpelling.Search]): «Ольга»
+     * finds "Olga Smith", and "Olga" finds «Ольга Иванова».
+     * Only a search that is itself a phone number is matched through its digits; any other search
+     * has to be found as typed in the phone.
      */
     fun filter(clients: List<ClientProfile>, search: String): List<ClientProfile> {
         val query = searchFold(search.trim())
@@ -67,9 +69,11 @@ object ClientRules {
         }
 
         val phoneQuery = if (isPhoneLike(query)) searchablePhone(query) else ""
+        val otherAlphabet = NameSpelling.Search(query)
 
         return clients.filter { client ->
             searchFold(client.name).contains(query) ||
+                otherAlphabet.finds(client.name) ||
                 (phoneQuery.isNotEmpty() && phoneForms(client.phone).any { it.contains(phoneQuery) }) ||
                 searchFold(client.phone).contains(query)
         }

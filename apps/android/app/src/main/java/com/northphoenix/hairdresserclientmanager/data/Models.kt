@@ -336,6 +336,17 @@ data class ClientHistoryEntry(
     val customLocationAddress: String = "",
     /** Every Client of it, the primary one first. Empty from a server that does not say (an older one). */
     val participantClientIds: List<String> = emptyList(),
+    /**
+     * The sum of the prices of the Services of the whole visit, also of a group Appointment, whose
+     * [services] here are this Client's alone. Null from a server that does not say (an older one).
+     */
+    val serviceTotalCents: Long? = null,
+    /**
+     * The custom total: the price of the Services of the whole visit, also of a group Appointment,
+     * when the Stylist set one. Null when the Services are at their own prices, or from a server
+     * that does not say (an older one).
+     */
+    val finalTotalCentsOverride: Long? = null,
     /** The tip for the whole visit, also of a group Appointment. Null when none is recorded. */
     val tipCents: Long? = null,
     /** The note of the whole visit, also of a group Appointment. Empty when it has none, or from a server that does not say (an older one). */
@@ -376,6 +387,11 @@ data class EarningsSummary(
     val noShow: Int = 0,
     /** Scheduled from now to the end of the period. Null once the period is over. */
     val upcoming: Upcoming? = null,
+    /**
+     * Scheduled Appointments of the period whose start time has passed: waiting for an outcome, so
+     * neither earned nor booked. Null from a server before it was sent.
+     */
+    val unresolved: Unresolved? = null,
     val topServices: List<TopService> = emptyList(),
 ) {
     @Serializable
@@ -383,6 +399,9 @@ data class EarningsSummary(
 
     @Serializable
     data class Upcoming(val count: Int = 0, val totalCents: Long = 0)
+
+    @Serializable
+    data class Unresolved(val count: Int = 0, val totalCents: Long = 0)
 
     /** A Service, or the group of Service Menu Items it was started from, with what it brought in. */
     @Serializable

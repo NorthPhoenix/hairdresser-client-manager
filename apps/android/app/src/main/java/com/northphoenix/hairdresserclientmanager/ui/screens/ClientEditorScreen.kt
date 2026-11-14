@@ -13,6 +13,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,6 +21,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -66,13 +69,22 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.toClipEntry
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
@@ -103,6 +115,7 @@ import com.northphoenix.hairdresserclientmanager.domain.ContactImport
 import com.northphoenix.hairdresserclientmanager.domain.CopiedContact
 import com.northphoenix.hairdresserclientmanager.domain.ImportedContact
 import com.northphoenix.hairdresserclientmanager.domain.ChangedElsewhere
+import com.northphoenix.hairdresserclientmanager.domain.HistoryTotals
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.OneLine
 import com.northphoenix.hairdresserclientmanager.domain.ShareImageSize
@@ -140,6 +153,7 @@ import com.northphoenix.hairdresserclientmanager.ui.components.tagTextStyle
 import com.northphoenix.hairdresserclientmanager.ui.openUri
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 import java.io.File
+import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -453,7 +467,7 @@ fun ClientEditorScreen(
                 )
                 val history by rememberClientHistory(viewModel, existing.id)
 
-                ClientHistoryCard(history, onRetry = { viewModel.loadClientHistory(existing.id) }, onOpenAppointment)
+                ClientHistorySection(history, onRetry = { viewModel.loadClientHistory(existing.id) }, onOpenAppointment)
                 TextAction(
                     stringResource(R.string.delete_client),
                     onClick = { dialog = ClientDialog.DELETE },
@@ -706,34 +720,28 @@ internal fun rememberClientHistory(viewModel: AppViewModel, clientId: String): S
 }
 
 /**
- * The Client's Appointment history ([rememberClientHistory]), newest first: each Appointment with
- * this Client's part of it, the Services with their prices, notes and Color Formulas, and the
- * Client's photos.
+ * The Client's Appointment history ([rememberClientHistory]), newest first, under its title as the
+ * lists of Home are: each Appointment a card of its own, as one receipt is one slip, with this
+ * Client's part of it, the Services with their prices, notes and Color Formulas, and the Client's
+ * photos. While it loads, fails or is empty, one card says so.
  */
 @Composable
-internal fun ClientHistoryCard(history: Read<List<ClientHistoryEntry>>, onRetry: () -> Unit, onOpenAppointment: (String) -> Unit) {
-    HcmCard(contentPadding = PaddingValues(vertical = 18.dp)) {
-        Text(stringResource(R.string.appointment_history_title), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(horizontal = 18.dp))
+internal fun ClientHistorySection(history: Read<List<ClientHistoryEntry>>, onRetry: () -> Unit, onOpenAppointment: (String) -> Unit) {
+    val entries = history.data.orEmpty()
+    val state = history.state
 
-        val entries = history.data.orEmpty()
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // No count beside it: the Profile's «Визитов» counts the visits that took place, and a second
+        // number for the same Client, with the canceled and the coming ones in it, would not match.
+        ListSectionLabel(stringResource(R.string.appointment_history_title), count = null)
 
-        when (val state = history.state) {
-            is LoadState.Failed -> InlineLoadFailed(
-                state.message,
-                onRetry = onRetry,
-                Modifier.padding(start = 18.dp, end = 18.dp, top = 10.dp),
-            )
-            LoadState.Loaded -> if (entries.isEmpty()) {
-                InlineEmpty(stringResource(R.string.appointment_history_empty), Modifier.padding(start = 18.dp, end = 18.dp, top = 10.dp))
-            } else {
-                entries.forEachIndexed { index, entry ->
-                    if (index > 0) {
-                        Hairline(Modifier.padding(horizontal = 18.dp))
-                    }
-                    ClientHistoryRow(entry, onOpen = { onOpenAppointment(entry.id) })
-                }
+        when {
+            state is LoadState.Failed -> HcmCard { InlineLoadFailed(state.message, onRetry = onRetry) }
+            state == LoadState.Loaded && entries.isEmpty() -> HcmCard { InlineEmpty(stringResource(R.string.appointment_history_empty)) }
+            state == LoadState.Loaded -> entries.forEach { entry ->
+                ClientHistoryRow(entry, onOpen = { onOpenAppointment(entry.id) })
             }
-            else -> LoadingRow(Modifier.heightIn(max = 96.dp))
+            else -> HcmCard { LoadingRow(Modifier.heightIn(max = 96.dp)) }
         }
     }
 }
@@ -743,24 +751,34 @@ private val HistoryPhotoSize = 96.dp
 private val HistoryPhotoTagMargin = 6.dp
 
 /**
- * One Appointment of the history: when it was and how it ended, its note, then what the Client
- * had in it. The Services and photos are this Client's alone, also in a group Appointment. The
- * whole row opens the Appointment.
+ * One Appointment of the history, read as a receipt: when it was and how it ended, its note, then
+ * each of this Client's Services at its own price, and under them what else the visit came to, a
+ * line each with its amount in the same right-hand column: the other Clients' Services of a group
+ * Appointment, the discount or surcharge of a custom total, the Tip. Last, after a short rule
+ * under that column, the total they all come to (see [HistoryTotals]): the one large figure of the
+ * row. A canceled or no-show visit was not charged, so it has its Services and no amounts at all.
+ * The Services and photos are this Client's alone, also in a group Appointment. The whole card
+ * opens the Appointment.
  */
 @Composable
 private fun ClientHistoryRow(entry: ClientHistoryEntry, onOpen: () -> Unit) {
     val format = LocalTimeFormat.current
+    val charged = HistoryTotals.wasCharged(entry)
 
-    Surface(onClick = onOpen, color = Color.Transparent) {
-        Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(
-                Modifier.padding(horizontal = HistoryInset),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+    // No side padding: the photos scroll to the card's edges; everything else keeps HistoryInset.
+    HcmCard(onClick = onOpen, contentPadding = PaddingValues(vertical = 16.dp)) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // The date and the chip on one line, the chip at the end; when the two do not fit (a large
+            // font), the chip goes under the date rather than the date breaking up beside it.
+            FlowRow(
+                Modifier.padding(horizontal = HistoryInset).fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                itemVerticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     format.mediumDate(format.zoned(entry.startsAt).toLocalDate()) + ", " + format.time(entry.startsAt),
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.padding(end = 12.dp),
                     style = MaterialTheme.typography.titleSmall,
                 )
                 StatusChip(entry.status)
@@ -769,29 +787,48 @@ private fun ClientHistoryRow(entry: ClientHistoryEntry, onOpen: () -> Unit) {
             if (entry.note.isNotBlank()) {
                 HistoryNote(entry.id, entry.note.trim())
             }
+            // A visit still to come with nothing chosen yet says so, rather than ending at its date.
+            if (entry.services.isEmpty() && HistoryTotals.isUpcoming(entry)) {
+                Text(
+                    stringResource(R.string.history_no_services),
+                    modifier = Modifier.padding(horizontal = HistoryInset),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             // In the order they were added, as on the Appointment.
             entry.services.forEach { service ->
                 Column(Modifier.padding(horizontal = HistoryInset), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(service.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-                        Text(Money.format(service.priceCents), style = MaterialTheme.typography.bodyLarge)
-                    }
+                    HistoryReceiptLine(
+                        service.name,
+                        amount = if (charged) Money.formatShort(service.priceCents) else null,
+                        labelStyle = MaterialTheme.typography.bodyLarge,
+                        labelColor = if (charged) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     if (service.note.isNotBlank()) {
                         Text(service.note, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     service.colorFormulas.forEach { formula -> ColorFormulaCard(formula) }
                 }
             }
-            // The Tip is for the whole visit: of a group Appointment, it says so.
-            entry.tipCents?.let { tip ->
-                Row(Modifier.padding(horizontal = HistoryInset), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        stringResource(if (entry.participantClientIds.size > 1) R.string.history_tip_whole_visit else R.string.history_tip),
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+            if (charged) {
+                HistoryTotals.othersCents(entry)?.let { others ->
+                    val count = HistoryTotals.otherClients(entry)
+
+                    HistoryReceiptLine(pluralStringResource(R.plurals.history_other_clients, count, count), Money.formatShort(others), Modifier.padding(horizontal = HistoryInset))
+                }
+                HistoryTotals.customPriceDifferenceCents(entry)?.let { difference ->
+                    HistoryReceiptLine(
+                        stringResource(if (difference < 0) R.string.history_discount else R.string.history_surcharge),
+                        signed(difference),
+                        Modifier.padding(horizontal = HistoryInset),
                     )
-                    Text(Money.format(tip), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                HistoryTotals.tipCents(entry)?.let { tip ->
+                    HistoryReceiptLine(stringResource(R.string.appointment_tip), signed(tip), Modifier.padding(horizontal = HistoryInset))
+                }
+                if (HistoryTotals.showsTotal(entry)) {
+                    HistoryTotalLine(Money.formatShort(HistoryTotals.totalCents(entry)))
                 }
             }
             if (entry.photos.isNotEmpty()) {
@@ -800,6 +837,62 @@ private fun ClientHistoryRow(entry: ClientHistoryEntry, onOpen: () -> Unit) {
         }
     }
 }
+
+/** An amount added to the Services ("+$20") or taken off them ("−$15"), as a receipt writes it. */
+private fun signed(cents: Long): String = (if (cents < 0) "−" else "+") + Money.formatShort(abs(cents))
+
+/**
+ * One line of a history row's receipt: a [label] at the start and its [amount] at the end, quiet,
+ * in the one column of amounts; the label wraps, the amount keeps to its first line, so the
+ * column holds at any font size. No [amount] when the visit was not charged.
+ */
+@Composable
+private fun HistoryReceiptLine(
+    label: String,
+    amount: String?,
+    modifier: Modifier = Modifier,
+    labelStyle: TextStyle = MaterialTheme.typography.bodyMedium,
+    labelColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(label, modifier = Modifier.weight(1f).alignByBaseline(), style = labelStyle, color = labelColor)
+        if (amount != null) {
+            Text(
+                amount,
+                modifier = Modifier.alignByBaseline(),
+                style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = TabularFigures),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/**
+ * The last line of a history row's receipt: a short rule over the column of amounts, as under a
+ * sum, then "Итого" and what the visit came to, the one large figure of the row, in the serif of
+ * Итоги's total.
+ */
+@Composable
+private fun HistoryTotalLine(total: String) {
+    Column(Modifier.padding(horizontal = HistoryInset), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Hairline(Modifier.align(Alignment.End).width(HistoryTotalRuleWidth))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(stringResource(R.string.appointment_final_total), modifier = Modifier.weight(1f).alignByBaseline(), style = MaterialTheme.typography.titleSmall)
+            Text(
+                total,
+                modifier = Modifier.alignByBaseline(),
+                // Proportional figures: one large number has nothing to line up with, and tabular ones space it out.
+                style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold, fontFeatureSettings = "lnum"),
+            )
+        }
+    }
+}
+
+/** How far the rule over a history row's total reaches in from the end: over the column of amounts. */
+private val HistoryTotalRuleWidth = 120.dp
+
+/** Figures of one width, so the amounts down a history row line up at the right. */
+private const val TabularFigures = "lnum, tnum"
 
 /** How many lines of an Appointment note a history row shows before "Ещё…". */
 private const val CollapsedHistoryNoteLines = 2
