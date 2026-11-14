@@ -47,8 +47,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.DeviceCalendar
 import com.northphoenix.hairdresserclientmanager.domain.CalendarAccess
@@ -124,6 +127,7 @@ private fun Setup(viewModel: AppViewModel) {
     var looks by remember { mutableIntStateOf(0) }
     var choosing by rememberSaveable { mutableStateOf(false) }
     val access = rememberAccessAsk { looks++ }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
 
     // Back from Android's settings, from adding an account, or from calendar.google.com: look again.
     LifecycleResumeEffect(Unit) {
@@ -139,22 +143,28 @@ private fun Setup(viewModel: AppViewModel) {
         else -> CalendarAccess.ASKABLE
     }
     val step = CalendarSetup.step(accessState, phone.calendars, phone.autoSync)
-    // What happens outside the app shows here by itself: a Google account added, the calendar made on
-    // calendar.google.com coming to the phone, or deleted there again.
-    LaunchedEffect(phone.access) {
-        while (phone.access) {
-            delay(3_000)
-            looks++
+    // What happens outside the app shows here by itself, while the screen is in front: a Google account
+    // added, the calendar made on calendar.google.com coming to the phone, or deleted there again.
+    LaunchedEffect(phone.access, lifecycle) {
+        if (phone.access) {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                while (true) {
+                    delay(3_000)
+                    looks++
+                }
+            }
         }
     }
-    // While it is waited for, Android is asked to sync now and then, so it comes sooner.
+    // The phone's calendar store, which the app reads, learns of those when Android syncs it, later than
+    // the Google Calendar app. While the calendar is waited for, Android is asked to sync each time the
+    // screen comes to the front (no more than once in five minutes), so it comes sooner.
     val watching = step is CalendarSetupStep.NoGoogleAccount || (step is CalendarSetupStep.Calendar && step.existing == null)
 
-    LaunchedEffect(watching) {
-        while (watching) {
+    LifecycleResumeEffect(watching) {
+        if (watching) {
             sync.askForSync()
-            delay(20_000)
         }
+        onPauseOrDispose { }
     }
 
     val ownName = stringResource(R.string.calendar_own_name)

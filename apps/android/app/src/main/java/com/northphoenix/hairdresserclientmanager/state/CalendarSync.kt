@@ -202,8 +202,21 @@ class CalendarSync(
             }
         }
 
-    /** Asks Android to bring the phone's calendars up to date now. Quietly: it only makes it sooner. */
+    private var askedForSyncAt: Instant? = null
+
+    /**
+     * Asks Android to bring the phone's calendars up to date now. Quietly: it only makes it sooner.
+     * At most once in [SYNC_ASK_GAP]: each ask is a sync of every account's calendars, run on the
+     * Google Calendar app's budget of background work, and asked too often it uses that up and stops
+     * the phone's calendar sync altogether (a sync of four accounts every 20 seconds did, in five minutes).
+     */
     fun askForSync() {
+        val now = clock()
+        if (askedForSyncAt?.let { Duration.between(it, now) < SYNC_ASK_GAP } == true) {
+            return
+        }
+        askedForSyncAt = now
+
         scope.launch {
             withContext(io) {
                 try {
@@ -362,6 +375,9 @@ class CalendarSync(
     private companion object {
         /** How far ahead Appointments are mirrored: all there are. */
         val HORIZON: Duration = Duration.ofDays(366L * 5)
+
+        /** The least time between two asks to sync. */
+        val SYNC_ASK_GAP: Duration = Duration.ofMinutes(5)
     }
 }
 

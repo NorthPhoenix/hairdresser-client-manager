@@ -365,13 +365,24 @@ class CalendarSyncTest {
     }
 
     @Test
-    fun `while the calendar made on calendar google com is waited for, Android is asked to sync`() = runTest {
+    fun `while the calendar made on calendar google com is waited for, Android is asked to sync, at most once in five minutes`() = runTest {
         val f = fixture()
 
         f.sync.askForSync()
         advanceUntilIdle()
-
         assertEquals(1, f.phone.syncRequests)
+
+        // Asked often, it would use up the Google Calendar app's budget of background work and stop the phone's calendar sync.
+        f.sync.askForSync()
+        now = now.plusSeconds(4 * 60 + 59)
+        f.sync.askForSync()
+        advanceUntilIdle()
+        assertEquals(1, f.phone.syncRequests)
+
+        now = now.plusSeconds(1)
+        f.sync.askForSync()
+        advanceUntilIdle()
+        assertEquals(2, f.phone.syncRequests)
     }
 
     @Test
