@@ -1,12 +1,14 @@
 // Sets up OpenTelemetry for a Node.js server of this app: the Next.js server on Vercel
 // (apps/web/instrumentation.ts) and the dev backend. Imported only by those entry points; code
 // that describes requests imports "@hcm/telemetry", which needs none of this.
+import { ServerResponse } from "node:http";
 import { PrismaInstrumentation } from "@prisma/instrumentation";
 import { registerOTel } from "@vercel/otel";
 import { readConfig } from "./config";
 import { describeError } from "./errors";
 import { errorFields, eventNames, processFields, schemaVersion, writeEvent } from "./event";
 import { WideEventProcessor } from "./processor";
+import { recordResponseStatus } from "./response";
 import { registry } from "./state";
 
 export { WideEventProcessor, type WideEventProcessorOptions } from "./processor";
@@ -83,6 +85,9 @@ export function registerTelemetry(options: RegisterOptions): void {
         new PrismaInstrumentation()
       ]
     });
+
+    // The status each response is written with, which Next.js does not always know (response.ts).
+    recordResponseStatus(ServerResponse.prototype as never);
 
     process.on("uncaughtExceptionMonitor", (error, origin) => {
       // A monitor only watches: the process still fails as it would without it.

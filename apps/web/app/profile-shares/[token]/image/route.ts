@@ -1,3 +1,5 @@
+// First: sets up telemetry before the first request (server/telemetry.ts says why).
+import "../../../../server/telemetry";
 import { buildShareImage } from "@hcm/api";
 import { requestedLocale } from "@hcm/shared";
 import { annotate } from "@hcm/telemetry";

@@ -25,6 +25,8 @@ The frameworks write attributes of their own that the privacy guard never sees, 
 - An outgoing HTTP call (kind CLIENT with a method) is named `fetch <METHOD> <host>` (or `http …`), never `fetch GET <address>`; an address in any other span's name is cut to scheme and host. An event never shows the raw name of such a span.
 - The message and stack of a recorded exception and the status message go through the same cleaning as `error.message` and `error.stack` (below), also when the framework recorded them.
 
+On Vercel the framework calls a route's handler directly and starts `register` in instrumentation.ts without waiting for it, so the root span of the first request on a new instance would start before OpenTelemetry is set up and that request would have no event (`next start` waits, so this never shows locally). Route handlers and proxy.ts therefore set telemetry up as their module loads (`apps/web/server/telemetry.ts`), which is before their first request. Pages load their modules during the request, so **the first page request on a new Vercel instance has no event** (the landing page, a Profile Share page, not-found): its `hcm.process` start line is there, the request line is not. Likewise Next.js reads a route's status before the response is written when Vercel calls it, so the status comes from what Node writes (`writeHead`, `packages/telemetry/src/response.ts`) instead.
+
 Nothing in telemetry throws into a request. Every function swallows its own failures; `traced` runs its work exactly once even when tracing around it breaks; a failure inside telemetry is counted and reported in the next printed event as `telemetry.internal_errors`.
 
 Where it is wired:
@@ -32,7 +34,8 @@ Where it is wired:
 | Where | What |
 | --- | --- |
 | `packages/telemetry` (`@hcm/telemetry`) | The API (`annotate`, `increment`, `traced`, `recordError`, `traceRequest`, `hashPrefix`, `requestFields`), the processor, the event builder, the tail sampler and the privacy guard. `@hcm/telemetry/node` sets up the SDK (`registerTelemetry`). |
-| `apps/web/instrumentation.ts` | `registerTelemetry({ serviceName: "hcm-web" })` at startup; `onRequestError` records errors that no code caught (pages, route handlers, proxy.ts). TRACE is still refused there before anything else; a refused TRACE has no event. |
+| `apps/web/server/telemetry.ts` | Imported first by every `route.ts` and by proxy.ts: sets up telemetry when their module loads, before their first request (see above). |
+| `apps/web/instrumentation.ts` | `registerTelemetry({ serviceName: "hcm-web" })` at startup, unless a module above was first; `onRequestError` records errors that no code caught (pages, route handlers, proxy.ts). TRACE is still refused there before anything else; a refused TRACE has no event. |
 | `packages/api/src/trpc.ts` | The outermost procedure step names the procedure, the input's size and fields, the app version and whether the request is signed in. `stylistProcedure` adds the Stylist, `stylistTransactionProcedure` the transaction's timing. `recordProcedureError` is the `onError` of both servers. |
 | `apps/web/app/api/trpc/[trpc]/route.ts`, `apps/dev-backend/src/server.ts` | Request header facts (`requestFields`) and `onError: recordProcedureError`. The dev backend wraps each request in `traceRequest`, which replaces its old access log line. |
 
@@ -208,7 +211,7 @@ Timestamps in events are UTC. On Vercel the spans are in the project's Traces pa
 | `duration_ms` | number | Time from the root span's start to its end. |
 | `http.method` | string | Request method. |
 | `http.route` | string | Route pattern (`/api/trpc/[trpc]`, `/profile-shares/[token]`), `proxy` for Next.js's proxy span. Never the path. |
-| `http.status_code` | int | Status of the response. For proxy.ts, the status of what it answers (`405` for a refused method, `404` for a link that shows nothing, `200` when it passes the request on), which proxy.ts annotates: Next.js reports 200 for the proxy whatever it answers. A status that code annotates replaces the framework's, in the event and on the exported span. |
+| `http.status_code` | int | Status of the response. For proxy.ts, the status of what it answers (`405` for a refused method, `404` for a link that shows nothing, `200` when it passes the request on), which proxy.ts annotates: Next.js reports 200 for the proxy whatever it answers. A status that code annotates replaces the framework's, in the event and on the exported span; so does the status Node writes the response with (`response.ts`), because on Vercel Next.js reports 200 for every route. Vercel's own router answers 404 for an unknown address after the not-found page answered 200; that event says 200 and `page.kind` `unavailable`. |
 | `next.span_type` | string | Next.js's type of the root span, usually `BaseServer.handleRequest`. Web only. |
 | `next.proxy` | bool | The event is Next.js's run of proxy.ts, which has a root span (a trace) of its own apart from the route's. |
 | `trace_id` | string | OpenTelemetry trace id (32 hex): the same in Vercel's trace view and in an incoming `traceparent`. |
@@ -216,7 +219,7 @@ Timestamps in events are UTC. On Vercel the spans are in the project's Traces pa
 | `parent_span_id` | string | The caller's span id, when a `traceparent` came in. |
 | `trace.continued` | bool | Whether the request continued an incoming `traceparent`. |
 | `instance.request_seq` | int | The how-many-th request of this instance (requests only). |
-| `instance.cold_start` | bool | The first request of this instance. |
+| `instance.cold_start` | bool | The first request of this instance that has an event. On Vercel the first request of an instance that a page served has none (see "How it works"), so its next request says `true`. |
 | `instance.uptime_ms` | int | Age of the instance when the request started. |
 | `span_count` | int | Child spans that ended during the request. |
 | `db.query_count` | int | SQL statements Prisma sent (`prisma:client:db_query` spans). |

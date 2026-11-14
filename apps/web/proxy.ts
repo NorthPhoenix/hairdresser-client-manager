@@ -1,3 +1,5 @@
+// First: sets up telemetry before the first request (server/telemetry.ts says why).
+import "./server/telemetry";
 import { clerkMiddleware } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse, type NextFetchEvent } from "next/server";
 import { defaultLocale, requestedLocale } from "@hcm/shared";
