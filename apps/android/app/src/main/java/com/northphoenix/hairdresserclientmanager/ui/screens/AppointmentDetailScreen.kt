@@ -30,6 +30,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
@@ -60,6 +62,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -68,12 +71,15 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
@@ -241,7 +247,8 @@ internal sealed interface DetailSheet {
  * Everything about one Appointment: outcome, Clients, Services with Color Formulas, totals, photos and note.
  * [justCreated]: the form has just created it, so the screen opens with the sheet that adds Services
  * ([AppointmentDraft.opensAddingServices]). [onOpened] is called once the screen has opened with or without it,
- * so that it is not opened again.
+ * so that it is not opened again. A tap on «Completed» brings the price and the Tip into view
+ * ([AppointmentTotals.showsTotalsOn]).
  */
 @Composable
 fun AppointmentDetailScreen(
@@ -329,6 +336,11 @@ private fun AppointmentDetail(
     // The other Scheduled Appointments at this one's time, until the Stylist dismisses the warning.
     val overlapping = viewModel.overlapWarnings.collectAsStateWithLifecycle().value[appointment.id].orEmpty()
     val scroll = rememberScrollState()
+    // The card with the price and the Tip, which «Completed» brings into view (AppointmentTotals.showsTotalsOn):
+    // its height, and how many times it was asked for, which starts the scroll.
+    val totalsIntoView = remember { BringIntoViewRequester() }
+    var totalsHeight by remember { mutableIntStateOf(0) }
+    var totalsAsked by remember { mutableIntStateOf(0) }
     val isGroup = appointment.participants.size > 1
     var sheet by rememberSaveable(stateSaver = DetailSheet.Saver) {
         mutableStateOf<DetailSheet?>(DetailSheet.AddService().takeIf { AppointmentDraft.opensAddingServices(justCreated, overlapping.isNotEmpty()) })
@@ -438,6 +450,18 @@ private fun AppointmentDetail(
         saving = saving,
         unsaved = unsaved,
     ) { padding ->
+        // The screen runs under the navigation bar: the card comes to rest above it, down to its last line.
+        val totalsClearance = with(LocalDensity.current) { (padding.calculateBottomPadding() + 16.dp).toPx() }
+
+        LaunchedEffect(totalsAsked) {
+            if (totalsAsked > 0) {
+                // From where the card is once the new status is shown.
+                withFrameNanos {}
+                // No move when it is in view already; a card taller than the screen shows from its top.
+                totalsIntoView.bringIntoView(Rect(0f, 0f, 1f, totalsHeight + totalsClearance))
+            }
+        }
+
         ScreenColumn(padding, scroll = scroll) {
             if (overlapping.isNotEmpty()) {
                 OverlapWarning(appointment, overlapping, onDismiss = { viewModel.dismissOverlapWarning(appointment.id) })
@@ -492,7 +516,12 @@ private fun AppointmentDetail(
                             ChoiceChip(
                                 stringResource(status.label),
                                 selected = appointment.status == status,
-                                onClick = { viewModel.setAppointmentStatus(appointment.id, status) },
+                                onClick = {
+                                    if (AppointmentTotals.showsTotalsOn(appointment.status, status)) {
+                                        totalsAsked++
+                                    }
+                                    viewModel.setAppointmentStatus(appointment.id, status)
+                                },
                             )
                         }
                     }
@@ -617,6 +646,7 @@ private fun AppointmentDetail(
             // --- totals ---
             TotalsCard(
                 appointment = appointment,
+                modifier = Modifier.bringIntoViewRequester(totalsIntoView).onSizeChanged { totalsHeight = it.height },
                 overrideText = finalTotalDraft,
                 onOverrideText = { finalTotalDraft = it },
                 onSaveOverride = { viewModel.setAppointmentFinalTotal(appointment.id, it) },
@@ -1291,6 +1321,7 @@ private fun ServiceBlock(
 @Composable
 private fun TotalsCard(
     appointment: Appointment,
+    modifier: Modifier,
     overrideText: String,
     onOverrideText: (String) -> Unit,
     onSaveOverride: (Long?) -> Unit,
@@ -1308,7 +1339,7 @@ private fun TotalsCard(
     var refusedTipText by rememberSaveable(appointment.id) { mutableStateOf<String?>(null) }
     val tip = appointment.tipCents
 
-    HcmCard {
+    HcmCard(modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.appointment_totals_title), style = MaterialTheme.typography.headlineSmall)
             LabeledValue(stringResource(R.string.appointment_service_total), Money.format(appointment.serviceTotalCents))

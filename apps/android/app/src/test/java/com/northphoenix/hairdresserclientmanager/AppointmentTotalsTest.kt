@@ -125,4 +125,21 @@ class AppointmentTotalsTest {
 
         assertSame(below, AppointmentTotals.withSuggestedTip(below))
     }
+
+    @Test
+    fun `completing an Appointment brings its price and tip into view`() {
+        AppointmentStatus.entries.filter { it != AppointmentStatus.COMPLETED }.forEach { shown ->
+            assertTrue(AppointmentTotals.showsTotalsOn(shown, AppointmentStatus.COMPLETED))
+        }
+    }
+
+    @Test
+    fun `no other status and no tap on the status it has already moves the screen`() {
+        AppointmentStatus.entries.forEach { shown ->
+            AppointmentStatus.entries.filter { it != AppointmentStatus.COMPLETED }.forEach { tapped ->
+                assertFalse(AppointmentTotals.showsTotalsOn(shown, tapped))
+            }
+        }
+        assertFalse(AppointmentTotals.showsTotalsOn(AppointmentStatus.COMPLETED, AppointmentStatus.COMPLETED))
+    }
 }
