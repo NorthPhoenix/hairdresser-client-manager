@@ -1,5 +1,22 @@
 [
   {
+    "versionCode": 18,
+    "versionName": "1.16.0",
+    "date": "2026-11-14",
+    "notes": {
+      "ru": [
+        "После «Создать запись» сразу открывается выбор услуг, чтобы добавить их к новой записи",
+        "При выборе даты записи дни, где уже есть записи, отмечены точкой, а под датой видно, что уже есть в этот день",
+        "Поиск клиента находит имя, написанное другим алфавитом: «Ольга» находит «Olga», и наоборот"
+      ],
+      "en": [
+        "After \"Create Appointment\", the Service picker opens right away to add Services to the new Appointment",
+        "When picking the date of an Appointment, days that already have Appointments are marked with a dot, and under the date you see what that day already has",
+        "Client search finds a name written in the other alphabet: \"Olga\" finds «Ольга», and the other way round"
+      ]
+    }
+  },
+  {
     "versionCode": 17,
     "versionName": "1.15.0",
     "date": "2026-11-12",
