@@ -79,6 +79,7 @@ private object Routes {
     const val SERVICES = "services"
     const val EARNINGS = "earnings"
     const val RELEASES = "releases"
+    const val CALENDAR_INTEGRATION = "calendar-integration"
     const val APPOINTMENT = "appointment/{id}"
     const val NEW_APPOINTMENT = "appointment-new?date={date}&client={client}&place={place}&address={address}"
 
@@ -212,6 +213,9 @@ fun MainNavigation(viewModel: AppViewModel) {
         }
         composable(Routes.RELEASES) { entry ->
             ReleasesScreen(viewModel, onBack = { navController.from(entry) { popBackStack() } })
+        }
+        composable(Routes.CALENDAR_INTEGRATION) { entry ->
+            CalendarIntegrationScreen(viewModel, onBack = { navController.from(entry) { popBackStack() } })
         }
         composable(Routes.SERVICES) { entry ->
             ServiceMenuScreen(viewModel, onBack = { navController.from(entry) { popBackStack() } })
@@ -392,7 +396,7 @@ private fun MainScreen(viewModel: AppViewModel, open: (route: String) -> Unit, o
         Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             tabStates.SaveableStateProvider(tab.name) {
                 when (tab) {
-                    MainTab.TODAY -> TodayScreen(viewModel, openAppointment)
+                    MainTab.TODAY -> TodayScreen(viewModel, openAppointment, onOpenCalendarIntegration = { open(Routes.CALENDAR_INTEGRATION) })
                     MainTab.CALENDAR -> CalendarScreen(viewModel, openAppointment)
                     MainTab.CLIENTS -> ClientsScreen(viewModel, onOpenClient = { open(Routes.clientProfile(it)) }, onImport = { open(Routes.CONTACT_IMPORT) })
                     MainTab.PROFILE -> ProfileScreen(
@@ -400,6 +404,7 @@ private fun MainScreen(viewModel: AppViewModel, open: (route: String) -> Unit, o
                         onOpenServiceMenu = { open(Routes.SERVICES) },
                         onOpenEarnings = { open(Routes.EARNINGS) },
                         onOpenReleases = { open(Routes.RELEASES) },
+                        onOpenCalendarIntegration = { open(Routes.CALENDAR_INTEGRATION) },
                     )
                 }
             }
