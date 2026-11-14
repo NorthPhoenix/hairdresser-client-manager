@@ -1,3 +1,4 @@
+import { annotate } from "@hcm/telemetry";
 import { z } from "zod";
 import { expectedUpdatedAt, refuseOutdatedSave, text, textLimits, timezoneText } from "../input";
 import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from "../trpc";
@@ -45,10 +46,36 @@ function toStylistOutput(
 
 export const stylistRouter = createTRPCRouter({
   bootstrap: stylistProcedure.input(stylistBootstrapInput).query(({ ctx }) => {
+    annotate(() => ({
+      "stylist.language": ctx.stylist.language,
+      "stylist.timezone": ctx.stylist.timezone,
+      "stylist.is_onboarded": Boolean(ctx.stylist.onboardingCompletedAt),
+      "stylist.has_salon_address": Boolean(ctx.stylist.salonAddress),
+      "stylist.photo_storage_configured": ctx.photoOrigins.length > 0
+    }));
+
     return toStylistOutput(ctx.stylist, ctx.photoOrigins);
   }),
   saveSettings: stylistTransactionProcedure.input(stylistSettingsInput).mutation(async ({ ctx, input }) => {
     const salonAddress = input.salonAddress ?? "";
+    const changedFields = [
+      ctx.stylist.language !== input.language ? "language" : null,
+      ctx.stylist.timezone !== input.timezone ? "timezone" : null,
+      (ctx.stylist.salonAddress ?? "") !== salonAddress ? "salon_address" : null
+    ].filter((field) => field !== null);
+
+    annotate(() => ({
+      "stylist.language": input.language,
+      "stylist.timezone": input.timezone,
+      "stylist.has_salon_address": salonAddress !== "",
+      "stylist.salon_address_length": salonAddress.length,
+      // Compared with the Stylist as read before the lock.
+      "stylist.changed_fields": changedFields,
+      "stylist.is_noop_save": changedFields.length === 0,
+      // The first save of the settings completes the onboarding.
+      "stylist.onboarding_completed_now": !ctx.stylist.onboardingCompletedAt,
+      "stylist.has_expected_updated_at": Boolean(input.expectedUpdatedAt)
+    }));
 
     if (input.expectedUpdatedAt) {
       // ctx.stylist was read before the lock.
@@ -81,7 +108,7 @@ export const stylistRouter = createTRPCRouter({
 
     // In-salon Appointments that are still Scheduled show the salon's current address, also those
     // created before there was one. Appointments with an outcome keep the address they had.
-    await ctx.db.appointment.updateMany({
+    const moved = await ctx.db.appointment.updateMany({
       where: {
         stylistId: stylist.id,
         status: "scheduled",
@@ -91,6 +118,8 @@ export const stylistRouter = createTRPCRouter({
         locationAddress: stylist.salonAddress ?? ""
       }
     });
+
+    annotate(() => ({ "stylist.salon_appointment_updated_count": moved?.count }));
 
     return toStylistOutput(stylist, ctx.photoOrigins);
   })

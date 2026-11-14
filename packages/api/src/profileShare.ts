@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { annotate, recordError, traced } from "@hcm/telemetry";
 import type { SupportedLocale } from "@hcm/shared";
 import { addedOrder } from "./addedOrder";
 import type { Db } from "./context";
@@ -112,10 +113,15 @@ export async function loadProfileShareContent(
   const photoCategories = photoCategoryOrder.filter((category) =>
     category === "after" ? options.includeAfterPhotos : options.includeOtherPhotos
   );
-  const [stylistName, upcomingAppointments, lastCompletedAppointment] = await Promise.all([
+  const [stylistName, upcomingAppointments, lastCompletedAppointment] = await traced("profile_share.load_content", () => Promise.all([
     // The account's name comes from the sign-in provider. A share is shown without it rather than
     // not at all.
-    accountName(client.stylist.clerkId).catch(() => null),
+    accountName(client.stylist.clerkId).catch((error) => {
+      recordError(error, { handled: true, reason: "account_name_unavailable" });
+      annotate({ "profile_share.account_lookup": "failed" });
+
+      return null;
+    }),
     db.appointment.findMany({
       where: {
         ...ofClient,
@@ -160,9 +166,8 @@ export async function loadProfileShareContent(
         startsAt: "desc"
       }
     })
-  ]);
-
-  return {
+  ]));
+  const content: ProfileShareContent = {
     clientName: client.name,
     stylistName: stylistName?.replace(/\s+/g, " ").trim() || null,
     salonAddress: client.stylist.salonAddress?.trim() || null,
@@ -188,6 +193,26 @@ export async function loadProfileShareContent(
     },
     includesColorFormulas: options.includeColorFormulas
   };
+  const completed = content.lastCompletedAppointment;
+
+  annotate({
+    "client.id": client.id,
+    "stylist.id": client.stylist.id,
+    "profile_share.include_color_formulas": options.includeColorFormulas,
+    "profile_share.include_after_photos": options.includeAfterPhotos,
+    "profile_share.include_other_photos": options.includeOtherPhotos,
+    "profile_share.upcoming_count": content.upcomingAppointments.length,
+    "profile_share.has_last_completed": completed !== null,
+    "profile_share.service_count": completed?.services.length ?? 0,
+    "profile_share.color_formula_count": completed?.services.reduce((sum, service) => sum + service.colorFormulas.length, 0) ?? 0,
+    "profile_share.photo_count": completed?.photos.length ?? 0,
+    // Stored photos that are left out because their address is not in this server's photo storage.
+    "profile_share.photo_outside_storage_count": (lastCompletedAppointment?.photos.length ?? 0) - (completed?.photos.length ?? 0),
+    "profile_share.has_stylist_name": content.stylistName !== null,
+    "profile_share.has_salon_address": content.salonAddress !== null
+  });
+
+  return content;
 }
 
 function toSharedAppointment({ startsAt, endsAt, locationType, locationAddress }: SharedAppointment): SharedAppointment {
@@ -234,6 +259,8 @@ export function formatAppointmentTime(locale: SupportedLocale, timezone: string,
     return format(timezone);
   } catch {
     // A timezone stored before timezones were checked can be one this server does not know.
+    annotate({ "profile_share.timezone_fallback": true });
+
     return format("UTC");
   }
 }

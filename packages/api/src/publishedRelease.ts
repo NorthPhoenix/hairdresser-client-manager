@@ -1,3 +1,4 @@
+import { annotate, recordError, traced } from "@hcm/telemetry";
 import { z } from "zod";
 
 /**
@@ -86,33 +87,58 @@ export function createPublishedReleaseReader({
   let reading: Promise<PublishedRelease | null> | null = null;
 
   async function read(): Promise<PublishedRelease | null> {
-    try {
-      // Not cached by the framework: Next.js caches no fetch unless asked to.
-      const response = await fetch(manifestUrl, { signal: AbortSignal.timeout(timeoutMs) });
+    // The one outgoing call of this reader, so the time it takes is a span of its own.
+    return traced("release.read_manifest", async (span) => {
+      // What went wrong, in the domain's words, if anything does.
+      let reason = "manifest_unreadable";
 
-      if (!response.ok) {
-        throw new Error(`The release manifest answered ${response.status}.`);
+      try {
+        // Not cached by the framework: Next.js caches no fetch unless asked to.
+        const response = await fetch(manifestUrl, { signal: AbortSignal.timeout(timeoutMs) });
+
+        span.annotate({ "release.manifest_status": response.status });
+
+        if (!response.ok) {
+          reason = "manifest_http_error";
+          throw new Error(`The release manifest answered ${response.status}.`);
+        }
+
+        reason = "manifest_unreadable";
+
+        const release = parseManifest(await response.json(), manifestUrl);
+
+        if (!release) {
+          reason = "manifest_invalid";
+          throw new Error("The release manifest breaks a rule.");
+        }
+
+        lastGood = { release, at: now() };
+        annotate({ "release.manifest_result": "read", "release.published_version_code": release.versionCode });
+
+        return release;
+      } catch (error) {
+        const stale = lastGood && now() - lastGood.at <= staleForMs ? lastGood.release : null;
+
+        annotate({
+          "release.manifest_result": stale ? "failed_used_stale" : "failed_none",
+          "release.published_version_code": stale?.versionCode
+        });
+        recordError(error, { handled: true, reason: error instanceof Error && error.name === "TimeoutError" ? "manifest_timeout" : reason });
+
+        return stale;
       }
-
-      const release = parseManifest(await response.json(), manifestUrl);
-
-      if (!release) {
-        throw new Error("The release manifest breaks a rule.");
-      }
-
-      lastGood = { release, at: now() };
-      return release;
-    } catch (error) {
-      console.error("Could not read the published Android release:", error);
-
-      return lastGood && now() - lastGood.at <= staleForMs ? lastGood.release : null;
-    }
+    });
   }
 
   return async () => {
     if (now() - checkedAt < freshForMs) {
+      annotate({ "release.manifest_source": "cache", "release.published_version_code": answer?.versionCode });
+
       return answer;
     }
+
+    // Others who ask while the manifest is read share that one reading.
+    annotate({ "release.manifest_source": reading ? "joined_reading" : "fetched" });
 
     reading ??= read().then((release) => {
       answer = release;

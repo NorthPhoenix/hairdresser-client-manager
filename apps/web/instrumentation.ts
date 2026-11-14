@@ -1,4 +1,5 @@
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
+import type { Instrumentation } from "next";
 
 // Set on the class of HTTP servers once TRACE is refused there: development runs `register`
 // again when this file changes.
@@ -46,5 +47,43 @@ export async function register() {
     const { Server } = await import("node:http");
 
     refuseTrace(Server.prototype);
+
+    // OpenTelemetry and the wide event of each request (docs/observability.md). Setting it up
+    // never keeps the server from starting: `registerTelemetry` reports its own failures, and a
+    // package that cannot even be loaded is reported here.
+    try {
+      const { registerTelemetry } = await import("@hcm/telemetry/node");
+
+      registerTelemetry({ serviceName: "hcm-web" });
+    } catch (error) {
+      console.error(JSON.stringify({ event: "hcm.process", schema_version: 1, "process.phase": "telemetry_failed", "error.message": String(error).slice(0, 500) }));
+    }
   }
 }
+
+/**
+ * Called by the framework for an error that no code of this app caught: in a page, a route
+ * handler or proxy.ts. It goes into the wide event of the request it ended. A tRPC failure does
+ * not come here; the tRPC route records it (`recordProcedureError`).
+ */
+export const onRequestError: Instrumentation.onRequestError = async (error, _request, context) => {
+  if (process.env.NEXT_RUNTIME !== "nodejs") {
+    return;
+  }
+
+  try {
+    const { annotate, recordError } = await import("@hcm/telemetry");
+
+    // The route pattern only: the path of a Profile Share carries its token.
+    annotate({
+      "next.route_path": context.routePath,
+      "next.route_type": context.routeType,
+      "next.router_kind": context.routerKind,
+      "next.render_source": context.renderSource,
+      "next.error_digest": (error as { digest?: unknown }).digest
+    });
+    recordError(error, { reason: `unhandled_in_${context.routeType}` });
+  } catch {
+    // Telemetry never fails a request, also not one that already failed.
+  }
+};

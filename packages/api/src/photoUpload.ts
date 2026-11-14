@@ -1,3 +1,4 @@
+import { annotate, recordError } from "@hcm/telemetry";
 import type { Db } from "./context";
 
 /**
@@ -28,6 +29,14 @@ export type PhotoUploadRefusal = {
   message: string;
 };
 
+// Records a refusal with its reason, which is what the upload route then answers with its code.
+function refuse(reason: string, refusal: PhotoUploadRefusal) {
+  recordError(new Error(refusal.message), { expected: true, code: refusal.code, reason });
+  annotate({ "upload.decision": "refused", "upload.refusal_code": refusal.code });
+
+  return { refusal };
+}
+
 /**
  * Decides whether a caller may upload an Appointment Photo, before the upload route hands out an
  * address to upload to: the caller is signed in, the Appointment is theirs and still exists, and
@@ -39,14 +48,21 @@ export async function authorizePhotoUpload(
   clerkUserId: string | null | undefined,
   input: PhotoUploadInput
 ): Promise<{ refusal: PhotoUploadRefusal } | { metadata: PhotoUploadInput & { userId: string } }> {
+  annotate({
+    "appointment.id": input.appointmentId,
+    "client.id": input.clientId,
+    "photo.category": input.category,
+    "auth.signed_in": Boolean(clerkUserId)
+  });
+
   if (!clerkUserId) {
-    return {
-      refusal: {
-        code: "FORBIDDEN",
-        message: "Authentication required."
-      }
-    };
+    return refuse("not_signed_in", {
+      code: "FORBIDDEN",
+      message: "Authentication required."
+    });
   }
+
+  annotate({ "auth.user_id": clerkUserId });
 
   const appointment = await db.appointment.findFirst({
     where: {
@@ -61,22 +77,27 @@ export async function authorizePhotoUpload(
   });
 
   if (!appointment) {
-    return {
-      refusal: {
-        code: "NOT_FOUND",
-        message: "Appointment not found."
-      }
-    };
+    // Not found covers an Appointment that is another Stylist's too: the answer does not say which.
+    return refuse("appointment_not_found", {
+      code: "NOT_FOUND",
+      message: "Appointment not found."
+    });
   }
 
+  annotate({
+    "stylist.id": appointment.stylistId,
+    "appointment.status": appointment.status,
+    "appointment.client_count": appointment.participants.length
+  });
+
   if (!appointment.participants.some((participant) => participant.clientId === input.clientId)) {
-    return {
-      refusal: {
-        code: "BAD_REQUEST",
-        message: "Photo Client must be attached to the Appointment."
-      }
-    };
+    return refuse("client_not_attached", {
+      code: "BAD_REQUEST",
+      message: "Photo Client must be attached to the Appointment."
+    });
   }
+
+  annotate({ "upload.decision": "authorized" });
 
   return {
     metadata: {
