@@ -7,9 +7,9 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 /**
- * The week strip of the Calendar View: its seven days, and which of them are marked as having
- * Appointments. The date picker marks a month's days the same way, and the form that books or
- * moves an Appointment lists what its day already has.
+ * A week of the Calendar View: its seven days, and which days are marked as having Appointments.
+ * The Calendar's month and the date picker mark their days the same way, and the form that books
+ * or moves an Appointment lists what its day already has.
  */
 object CalendarWeek {
     const val LENGTH = 7L

@@ -79,7 +79,7 @@ private val WeekdayRowHeight = 32.dp
 // A day is a 40 dp circle; the row gives it the 48 dp of a touch target.
 private val WeekRowHeight = 48.dp
 
-// The dot of a day that has Appointments, as on the Calendar's week strip.
+// The dot of a day that has Appointments, as in the Calendar View.
 private val DayDotSize = 5.dp
 
 // A month takes up to six weeks. Always that tall, so the dialog keeps its size from month to month.
@@ -88,7 +88,7 @@ private val MonthHeight = WeekdayRowHeight + WeekRowHeight * 6
 /**
  * Picks a day. The month is drawn by the app itself: the Material date picker marks as today the
  * day it is on the device, and [today] is the day it is in the Stylist's timezone. A dot under a
- * day's number says it has an Appointment that is not canceled, as on the Calendar's week strip
+ * day's number says it has an Appointment that is not canceled, as in the Calendar View
  * ([LocalAppointmentMonths]), so a day for an Appointment is picked knowing which days are booked. The
  * screen that opens the picker keeps the month it opens on loaded ([PreloadAppointmentMonths]), so the
  * dots are there as it opens. [movingAppointmentId], the Appointment whose time is being edited,
