@@ -1,5 +1,6 @@
+import { annotate } from "@hcm/telemetry";
 import { z } from "zod";
-import { annotateSafely, expectedUpdatedAt, refuseOutdatedSave, text, textLimits, timezoneText } from "../input";
+import { expectedUpdatedAt, refuseOutdatedSave, text, textLimits, timezoneText } from "../input";
 import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from "../trpc";
 
 // The device defaults only create a Stylist: stylistProcedure checks them when it uses them.
@@ -45,7 +46,7 @@ function toStylistOutput(
 
 export const stylistRouter = createTRPCRouter({
   bootstrap: stylistProcedure.input(stylistBootstrapInput).query(({ ctx }) => {
-    annotateSafely(() => ({
+    annotate(() => ({
       "stylist.language": ctx.stylist.language,
       "stylist.timezone": ctx.stylist.timezone,
       "stylist.is_onboarded": Boolean(ctx.stylist.onboardingCompletedAt),
@@ -63,7 +64,7 @@ export const stylistRouter = createTRPCRouter({
       (ctx.stylist.salonAddress ?? "") !== salonAddress ? "salon_address" : null
     ].filter((field) => field !== null);
 
-    annotateSafely(() => ({
+    annotate(() => ({
       "stylist.language": input.language,
       "stylist.timezone": input.timezone,
       "stylist.has_salon_address": salonAddress !== "",
@@ -118,7 +119,7 @@ export const stylistRouter = createTRPCRouter({
       }
     });
 
-    annotateSafely(() => ({ "stylist.salon_appointment_updated_count": moved?.count }));
+    annotate(() => ({ "stylist.salon_appointment_updated_count": moved?.count }));
 
     return toStylistOutput(stylist, ctx.photoOrigins);
   })

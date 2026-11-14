@@ -1,4 +1,4 @@
-import { annotate as annotateEvent, increment, recordError, traced, type Fields } from "@hcm/telemetry";
+import { annotate, increment, recordError, traced } from "@hcm/telemetry";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { addedOrder } from "../addedOrder";
@@ -25,19 +25,6 @@ import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from 
 // is the most personal data of the app, so the event has only ids, counts, lengths, whether a detail
 // is there, and the branch a request took: never a name, a phone number, an email, an address, a
 // Client Note, a Family role or a formula.
-
-/**
- * Adds the fields `describe` works out to the request's wide event. They are worked out inside,
- * so that a row without a field they read leaves them out of the event instead of failing the
- * request: telemetry never fails a request.
- */
-function annotate(describe: () => Fields) {
-  try {
-    annotateEvent(describe());
-  } catch {
-    // Left out of the event.
-  }
-}
 
 /**
  * A refusal on purpose, recorded on the request's wide event with the domain's reason for it, so

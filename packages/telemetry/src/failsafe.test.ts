@@ -133,6 +133,34 @@ describe("annotations and errors", () => {
     expect(events()).toHaveLength(1);
   });
 
+  it("takes a function that works the fields out, and counts one that throws", async () => {
+    const { events } = setUpTelemetry();
+    const compute = vi.fn(() => ({ "client.id": "c1", "client.photo_count": 2 }));
+
+    await traceRequest({ method: "GET", route: "/" }, async () => {
+      annotate(compute);
+      expect(() =>
+        annotate(() => {
+          throw new Error("row without a field");
+        })
+      ).not.toThrow();
+      annotate({ "client.is_new": true });
+      return new Response("ok");
+    });
+
+    expect(compute).toHaveBeenCalledTimes(1);
+    expect(events()[0]).toMatchObject({ "client.id": "c1", "client.photo_count": 2, "client.is_new": true, "telemetry.internal_errors": 1 });
+  });
+
+  it("does not call the function when no event is running", () => {
+    tearDownTelemetry();
+    const compute = vi.fn(() => ({ a: 1 }));
+
+    annotate(compute);
+
+    expect(compute).not.toHaveBeenCalled();
+  });
+
   it("helpers never throw", () => {
     expect(hashPrefix("token")).toMatch(/^[0-9a-f]{12}$/);
     expect(requestFields(new Headers({ "x-vercel-id": "fra1::abc", "content-length": "12" }))).toMatchObject({ "request.id": "fra1::abc", "http.request_bytes": 12 });

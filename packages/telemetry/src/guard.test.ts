@@ -29,7 +29,7 @@ describe("the privacy guard", () => {
 
   it("lets measures of personal data through, as numbers and booleans only", () => {
     const { fields, blocked } = guardFields({
-      "client.notes_length": 42,
+      "client.note_length": 42,
       "client.has_phone": true,
       "photo.url_count": 2,
       "client.phone_count": "+7 999 123 45 67",
@@ -38,7 +38,7 @@ describe("the privacy guard", () => {
     });
 
     expect(fields).toEqual({
-      "client.notes_length": 42,
+      "client.note_length": 42,
       "client.has_phone": true,
       "photo.url_count": 2,
       "share.token_hash": "a1b2c3d4e5f6"

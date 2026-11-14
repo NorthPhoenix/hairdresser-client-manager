@@ -1,8 +1,8 @@
-import { recordError } from "@hcm/telemetry";
+import { annotate, recordError } from "@hcm/telemetry";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { addedOrder } from "../addedOrder";
-import { amountCents, annotateSafely, nameText, oneLineText, refuseChangedRepeat, requestKey, textLimits } from "../input";
+import { amountCents, nameText, oneLineText, refuseChangedRepeat, requestKey, textLimits } from "../input";
 import { unmarkOtherTravelFees } from "../travelFee";
 import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from "../trpc";
 
@@ -103,7 +103,7 @@ export const serviceMenuRouter = createTRPCRouter({
       : [];
     const formulaCounts = new Map(formulaUses.map((use) => [use.menuItemId, use._count._all]));
 
-    annotateSafely(() => ({
+    annotate(() => ({
       "service_menu.item_count": items.length,
       "service_menu.group_count": new Set(items.flatMap((item) => (item.group ? [item.group] : []))).size,
       "service_menu.grouped_item_count": items.filter((item) => item.group).length,
@@ -145,17 +145,17 @@ export const serviceMenuRouter = createTRPCRouter({
 
     const names = [...new Set(services.map((service) => service.name))];
 
-    annotateSafely(() => ({
+    annotate(() => ({
       "service_menu.formula_service_count": services.length,
       "service_menu.formula_name_count": names.length,
       // Whether the limit cut the list: older Services' names are missing.
-      "service_menu.formula_names_truncated": services.length >= formulaNamesLimit
+      "service_menu.is_formula_list_truncated": services.length >= formulaNamesLimit
     }));
 
     return names;
   }),
   save: stylistTransactionProcedure.input(serviceMenuSaveInput).mutation(async ({ ctx, input }) => {
-    annotateSafely(() => ({
+    annotate(() => ({
       "service_menu.is_new": !input.id,
       "service_menu.has_request_key": Boolean(input.requestKey),
       "service_menu.name_length": input.name.length,
@@ -183,9 +183,9 @@ export const serviceMenuRouter = createTRPCRouter({
         : null;
 
       if (repeatedItem) {
-        annotateSafely(() => ({ "service_menu.id": repeatedItem.id }));
+        annotate(() => ({ "service_menu.id": repeatedItem.id }));
         refuseChangedRepeat(repeatedItem, data, "service_menu");
-        annotateSafely(() => ({ "service_menu.save_result": "repeat_returned_first" }));
+        annotate(() => ({ "service_menu.save_result": "repeat_returned_first" }));
 
         return toServiceMenuItemOutput(repeatedItem);
       }
@@ -198,7 +198,7 @@ export const serviceMenuRouter = createTRPCRouter({
         }
       });
 
-      annotateSafely(() => ({
+      annotate(() => ({
         "service_menu.id": item.id,
         "service_menu.save_result": "created",
         "service_menu.is_travel_fee": Boolean(item.travelFee)
@@ -211,7 +211,7 @@ export const serviceMenuRouter = createTRPCRouter({
       return toServiceMenuItemOutput(item);
     }
 
-    annotateSafely(() => ({ "service_menu.id": input.id }));
+    annotate(() => ({ "service_menu.id": input.id }));
 
     const existingItem = await ctx.db.serviceMenuItem.findFirst({
       where: {
@@ -237,7 +237,7 @@ export const serviceMenuRouter = createTRPCRouter({
       data
     });
 
-    annotateSafely(() => {
+    annotate(() => {
       const changed = [
         existingItem.name !== item.name ? "name" : null,
         existingItem.defaultPriceCents !== item.defaultPriceCents ? "price" : null,
@@ -268,7 +268,7 @@ export const serviceMenuRouter = createTRPCRouter({
       }
     });
 
-    annotateSafely(() => ({
+    annotate(() => ({
       "service_menu.id": input.id,
       // "not_found": already gone, or not this Stylist's; the reply is the same.
       "service_menu.delete_result": deleted?.count === 0 ? "not_found" : "deleted"

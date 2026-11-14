@@ -1,7 +1,7 @@
 import { annotate } from "@hcm/telemetry";
 import { addedOrder } from "./addedOrder";
 import type { Db } from "./context";
-import { annotateSafely, maxAmountCents } from "./input";
+import { maxAmountCents } from "./input";
 
 // The Travel Fee is the one Service Menu Item a Stylist marked as the fee for going to a Client.
 // A Scheduled Appointment gets a Service from it when it is created at home or moved to at home,
@@ -55,7 +55,7 @@ export function findTravelFeeItem(db: Db, stylistId: string) {
 
 /** Why the Travel Fee changed nothing, or what it did: counted by `travel_fee.decision`. */
 function decided(decision: "added" | "removed" | "no_item" | "already_present" | "total_too_large" | "none_to_remove", fields: Parameters<typeof annotate>[0] = {}) {
-  annotateSafely(() => ({ "travel_fee.decision": decision, ...fields }));
+  annotate(() => ({ "travel_fee.decision": decision, ...fields }));
 }
 
 /** Makes [itemId] the Stylist's only Travel Fee item: any other loses the mark. */
@@ -73,7 +73,7 @@ export async function unmarkOtherTravelFees(db: Db, stylistId: string, itemId: s
     }
   });
 
-  annotateSafely(() => ({ "service_menu.unmarked_travel_fee_count": unmarked.count }));
+  annotate(() => ({ "service_menu.unmarked_travel_fee_count": unmarked.count }));
 }
 
 /**

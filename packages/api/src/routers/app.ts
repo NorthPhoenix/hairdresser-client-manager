@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { appReleases, releasesSince } from "../appReleases";
-import { annotateSafely } from "../input";
+import { annotate } from "@hcm/telemetry";
 import { createTRPCRouter, stylistProcedure } from "../trpc";
 
 const releasesInput = z
@@ -29,7 +29,7 @@ export const appReleaseRouter = createTRPCRouter({
     const downloadUrl = published?.downloadUrl ?? ctx.appDownloadUrl ?? null;
 
     // releasesSince records what it listed (release.*); this is what is decided here.
-    annotateSafely(() => ({
+    annotate(() => ({
       // "unknown": the server could not tell what is published, so nothing newer than the app is offered.
       "release_list.published_source": !ctx.publishedRelease ? "not_configured" : published === undefined ? "unknown" : published === null ? "none" : "published",
       "release_list.up_to_version_code": upTo,

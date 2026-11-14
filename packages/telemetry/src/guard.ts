@@ -72,7 +72,7 @@ const deniedWords = new Set([
 ]);
 
 // A key whose last word is one of these holds a measure of something, never the thing itself:
-// `client.notes_length`, `share.token_hash`, `photo.url_count`. Its value has to be a number or a
+// `client.note_length`, `share.token_hash`, `photo.url_count`. Its value has to be a number or a
 // boolean (or, for `_hash`, a short hex string), which the guard checks.
 const measureWords = new Set(["count", "length", "size", "bytes", "ms", "total", "hash", "present", "changed", "valid", "kind", "type"]);
 // The same for a first word: `has_phone`, `is_new`.

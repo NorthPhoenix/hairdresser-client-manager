@@ -1,5 +1,5 @@
 import type { Db } from "./context";
-import { annotateSafely } from "./input";
+import { annotate } from "@hcm/telemetry";
 
 // A Family groups Clients of one Stylist (CONTEXT.md: Family). A Client is in at most one
 // (`Client.familyId`) and may have a short role in it (`Client.familyRole`). A Family always has
@@ -40,13 +40,13 @@ export async function dissolveIfAlone(db: Db, stylistId: string, familyId: strin
   });
 
   if (members.length >= 2) {
-    annotateSafely(() => ({ "family.id": familyId, "family.member_count": members.length, "family.dissolved": false }));
+    annotate(() => ({ "family.id": familyId, "family.remaining_member_count": members.length, "family.dissolved": false }));
     return [];
   }
 
-  annotateSafely(() => ({
+  annotate(() => ({
     "family.id": familyId,
-    "family.member_count": members.length,
+    "family.remaining_member_count": members.length,
     "family.dissolved": true,
     "family.released_client_count": members.length
   }));
@@ -83,7 +83,7 @@ export async function leaveFamily(db: Db, stylistId: string, client: FamilyField
     return [];
   }
 
-  annotateSafely(() => ({ "family.id": client.familyId, "family.left_client_id": client.id, "family.had_role": Boolean(client.familyRole) }));
+  annotate(() => ({ "family.id": client.familyId, "family.left_client_id": client.id, "family.had_role": Boolean(client.familyRole) }));
 
   await db.client.update({
     where: {

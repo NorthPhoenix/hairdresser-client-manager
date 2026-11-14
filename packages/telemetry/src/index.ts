@@ -28,8 +28,13 @@ function activeState(): { span: Span; state: EventState } | undefined {
  * Nested objects become dotted keys (`{ client: { count: 2 } }` is `client.count`), camelCase
  * becomes snake_case, and the privacy guard drops what may not be recorded (it is named in
  * `telemetry.blocked_keys`). A later value for the same key replaces the earlier one.
+ *
+ * Pass a function that returns the fields when working them out reads data that may be missing:
+ * it runs inside the same guard as everything else here, so a failure while computing leaves the
+ * fields out of the event (and is counted as a telemetry error) instead of failing the request.
+ * Without an active event the function is not even called.
  */
-export function annotate(fields: Fields): void {
+export function annotate(fields: Fields | (() => Fields)): void {
   try {
     const active = activeState();
 
@@ -37,7 +42,7 @@ export function annotate(fields: Fields): void {
       return;
     }
 
-    const { fields: clean, blocked } = guardFields(fields);
+    const { fields: clean, blocked } = guardFields(typeof fields === "function" ? fields() : fields);
 
     for (const [key, value] of Object.entries(clean)) {
       active.state.fields.set(key, value);

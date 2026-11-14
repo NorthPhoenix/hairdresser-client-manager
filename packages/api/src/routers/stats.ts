@@ -1,4 +1,4 @@
-import { recordError, traced } from "@hcm/telemetry";
+import { annotate, recordError, traced } from "@hcm/telemetry";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import {
@@ -12,7 +12,6 @@ import {
   topServices,
   type RevenueLine
 } from "../earnings";
-import { annotateSafely } from "../input";
 import { createTRPCRouter, stylistProcedure } from "../trpc";
 
 const summaryInput = z.object({
@@ -51,7 +50,7 @@ export const statsRouter = createTRPCRouter({
     const inPeriod = { gte: bounds.startsAt, lt: bounds.endsAt };
     const stylistId = ctx.stylist.id;
     const current = bounds.startsAt <= now && now < bounds.endsAt;
-    annotateSafely(() => ({
+    annotate(() => ({
       "stats.period": input.period,
       // Left out: today's period.
       "stats.has_date": input.date !== undefined,
@@ -145,7 +144,7 @@ export const statsRouter = createTRPCRouter({
       otherOutcomes.find((outcome) => outcome.status === status)?._count._all ?? 0;
     const ranked = topServices(lines, groupOfItem);
 
-    annotateSafely(() => ({
+    annotate(() => ({
       "stats.completed_count": completed.length,
       "stats.canceled_count": countOf("canceled"),
       "stats.no_show_count": countOf("noShow"),

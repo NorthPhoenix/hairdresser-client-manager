@@ -1,4 +1,4 @@
-import { annotate, recordError, type Fields } from "@hcm/telemetry";
+import { annotate, recordError } from "@hcm/telemetry";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
@@ -115,19 +115,6 @@ export const requestKey = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/, "Request ke
 const comparable = (value: unknown) => (value instanceof Date ? value.getTime() : (value ?? ""));
 
 /**
- * Adds the fields `describe` works out to the request's wide event. They are worked out inside, so
- * that a row without a field they read leaves them out of the event instead of failing the
- * request: telemetry never fails a request.
- */
-export function annotateSafely(describe: () => Fields) {
-  try {
-    annotate(describe());
-  } catch {
-    // Left out of the event.
-  }
-}
-
-/**
  * Refuses a request whose key was already carried out with other values: the form was corrected
  * after a reply was lost, and answering like the first call would drop the correction without a
  * word. `sent` holds what this request states (undefined: not stated) and `stored` the record the
@@ -143,7 +130,7 @@ export function refuseChangedRepeat<Sent extends Record<string, unknown>>(
     (field) => sent[field] !== undefined && comparable(sent[field]) !== comparable(stored[field])
   );
 
-  annotateSafely(() => ({
+  annotate(() => ({
     // Whether the request was sent again with the same values (answered like the first) or changed.
     "request.repeat": changed.length > 0 ? "changed" : "same",
     "request.repeat_entity": entity,
@@ -181,7 +168,7 @@ export function refuseOutdatedSave(
 
   const isOutdated = new Date(loadedUpdatedAt).getTime() !== record.updatedAt.getTime();
 
-  annotateSafely(() => ({
+  annotate(() => ({
     // "same_values": the form is old but the save changes nothing, so it passes (ADR 0015).
     "save.freshness": !isOutdated ? "current" : changesRecord ? "outdated" : "same_values"
   }));

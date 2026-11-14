@@ -211,7 +211,7 @@ describe("the wide event", () => {
     const { events } = setUpTelemetry();
 
     await traceRequest({ method: "POST", route: "/api/trpc/[trpc]" }, async () => {
-      annotate({ "client.phone": "+7 999 123 45 67", "client.notes_length": 4 });
+      annotate({ "client.phone": "+7 999 123 45 67", "client.note_length": 4 });
       return new Response(null, { status: 200 });
     });
 
@@ -219,7 +219,7 @@ describe("the wide event", () => {
 
     expect(event?.["telemetry.blocked_keys"]).toEqual(["client.phone:personal"]);
     expect(JSON.stringify(event)).not.toContain("999");
-    expect(event?.["client.notes_length"]).toBe(4);
+    expect(event?.["client.note_length"]).toBe(4);
   });
 
   it("is never longer than one log line may be", async () => {

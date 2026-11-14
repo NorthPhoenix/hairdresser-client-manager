@@ -1,5 +1,5 @@
 import type { Prisma } from "@hcm/db";
-import { annotate as annotateEvent, recordError, traced, type Fields } from "@hcm/telemetry";
+import { annotate, recordError, traced } from "@hcm/telemetry";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { inAddedOrder } from "../addedOrder";
@@ -23,19 +23,6 @@ import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from 
 // records a request is about, the size of what it read and wrote, and the branch it took, as
 // counts, amounts and enum values. Never a Client's name, an address, a note or a formula: only
 // their lengths, or whether there is one.
-
-/**
- * Adds the fields `describe` works out to the request's wide event. They are worked out inside,
- * so that a row without a field they read leaves them out of the event instead of failing the
- * request: telemetry never fails a request.
- */
-function annotate(describe: () => Fields) {
-  try {
-    annotateEvent(describe());
-  } catch {
-    // Left out of the event.
-  }
-}
 
 /**
  * A refusal on purpose, recorded on the request's wide event with the domain's reason for it, so
@@ -1048,7 +1035,8 @@ export const appointmentRouter = createTRPCRouter({
           // The Client the first call created inline is recognised by the name it was given.
           inlineClientName: input.primaryClientId ? undefined : input.inlineClientName,
           clientIds: [input.primaryClientId ?? repeatedAppointment.primaryClientId, ...additionalClientIds].sort().join()
-        }
+        },
+        "appointment"
       );
 
       // The Appointment the first call created, with the overlap warning that call answered with.
@@ -1456,7 +1444,7 @@ export const appointmentRouter = createTRPCRouter({
         name: input.name,
         priceCents: input.priceCents,
         note: input.note ?? ""
-      });
+      }, "appointment_service");
 
       return getAppointmentOutput(ctx.db, appointment.id);
     }
@@ -1604,7 +1592,8 @@ export const appointmentRouter = createTRPCRouter({
       // The prices came from the menu: there is nothing to compare but whose and which items.
       refuseChangedRepeat(
         { services: repeatedServices.map((service) => `${service.clientId}:${service.menuItemId}`).join(" ") },
-        { services: picks.map((pick) => `${pick.clientId}:${pick.menuItemId}`).join(" ") }
+        { services: picks.map((pick) => `${pick.clientId}:${pick.menuItemId}`).join(" ") },
+        "appointment_service"
       );
 
       return getAppointmentOutput(ctx.db, appointment.id);
@@ -1859,7 +1848,7 @@ export const appointmentRouter = createTRPCRouter({
       refuseChangedRepeat(repeatedPhoto, {
         clientId: input.clientId,
         category: input.category
-      });
+      }, "photo");
 
       return getAppointmentOutput(ctx.db, appointment.id);
     }
@@ -2039,7 +2028,7 @@ export const appointmentRouter = createTRPCRouter({
       refuseChangedRepeat(repeatedFormula, {
         formula: input.formula,
         placement: input.placement ?? ""
-      });
+      }, "color_formula");
 
       return getAppointmentOutput(ctx.db, service.appointmentId);
     }
