@@ -27,8 +27,10 @@ object NameSpelling {
     /**
      * The spellings made one, replaced in this order in the name in Latin letters: a sound written
      * with one letter in one way and two in another ("h" and "kh", "ks" and "x") is written one way,
-     * "c" is "k" (but "ch" stays), "e" or "o" after "y", "j" or "i" is "e" (as "ye" and "yo" write
-     * «е» and «ё»), "y" and "j" are "i", and a run of "i" is one ("iya" is "ia").
+     * "c" is "k" (but "ch" stays), "e" or "o" after "y", "j" or "i" inside a word is "e" (as "ye"
+     * and "yo" write «е» and «ё» in "Alyona" and "Vasilyeva"), "y" and "j" are "i", and a run of
+     * "i" is one ("iya" is "ia"). At the start of a word "Ye", "Yo" or "Jo" keeps its first letter,
+     * so a search "Jo" is not "e", which nearly every name has; at its end "ie" stays ("Natalie").
      */
     private val spellings: List<Pair<Regex, String>> = listOf(
         "dzh" to "j",
@@ -43,7 +45,7 @@ object NameSpelling {
         "q" to "k",
         "tz" to "ts",
         "c(?!h)" to "k",
-        "[yji]e|[yj]o" to "e",
+        "(?<=\\p{L})(?:[yji]e|[yj]o)(?=\\p{L})" to "e",
         "[yj]" to "i",
         "i+" to "i",
     ).map { (from, to) -> Regex(from) to to }
@@ -58,11 +60,27 @@ object NameSpelling {
      * may write the soft sign ("Dar'ya"), is nothing.
      */
     fun of(text: String): String {
+        synchronized(spelled) { spelled[text] }?.let { return it }
+
+        return spell(text).also { synchronized(spelled) { spelled[text] = it } }
+    }
+
+    /**
+     * The names spelled so far, the most recently used last: a search spells every name of a list
+     * again at each letter typed, and a list of contacts can have thousands.
+     */
+    private val spelled = object : LinkedHashMap<String, String>(256, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean = size > MAX_SPELLED
+    }
+
+    private const val MAX_SPELLED = 10_000
+
+    private fun spell(text: String): String {
         val folded = Normalizer.normalize(text, Normalizer.Form.NFC).lowercase().replace('ё', 'е').filterNot(Char::isISOControl)
         val inLatin = buildString { folded.forEach { append(latin[it] ?: it) } }
         val plain = Normalizer.normalize(inLatin, Normalizer.Form.NFD).replace(marks, "").replace(apostrophes, "")
 
-        return spellings.fold(plain.replace(separators, " ").trim()) { spelled, (from, to) -> spelled.replace(from, to) }
+        return spellings.fold(plain.replace(separators, " ").trim()) { spelling, (from, to) -> spelling.replace(from, to) }
     }
 
     /**

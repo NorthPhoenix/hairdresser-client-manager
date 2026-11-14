@@ -32,8 +32,8 @@ class NameSpellingTest {
         assertOneSpelling("Наталья", "Natalia", "Natalya", "Natalja", "Natal'ya")
         assertOneSpelling("Татьяна", "Tatiana", "Tatyana")
         assertOneSpelling("Мария", "Maria", "Mariya")
-        assertOneSpelling("Елена", "Elena", "Yelena")
-        assertOneSpelling("Евгения", "Evgenia", "Evgeniya", "Yevgeniya")
+        assertOneSpelling("Елена", "Elena")
+        assertOneSpelling("Евгения", "Evgenia", "Evgeniya")
         assertOneSpelling("Виктория", "Victoria", "Viktoriya")
         assertOneSpelling("Кристина", "Kristina", "Christina")
         assertOneSpelling("Софья", "София", "Sofia", "Sophia", "Sofya")
@@ -105,6 +105,51 @@ class NameSpellingTest {
         assertEquals(listOf("6"), found(clients, "Анна"))
         assertEquals(listOf("6"), found(clients, "anna"))
         assertTrue(found(clients, "Мартин").isEmpty())
+    }
+
+    @Test
+    fun `a Russian search finds a name written with Ye at its start or -ie at its end`() {
+        val clients = listOf(
+            client("1", "Yelena Smith"),
+            client("2", "Yevgeniya Lee"),
+            client("3", "Natalie Brown"),
+            client("4", "Sophie Moore"),
+            client("5", "Marie Lopez"),
+        )
+
+        assertEquals(listOf("1"), found(clients, "Елена"))
+        assertEquals(listOf("2"), found(clients, "Евгения"))
+        assertEquals(listOf("3"), found(clients, "Натали"))
+        assertEquals(listOf("4"), found(clients, "Софи"))
+        assertEquals(listOf("5"), found(clients, "Мари"))
+    }
+
+    @Test
+    fun `a search that starts with Jo, Je, Ye or Yo keeps its first letter`() {
+        val clients = listOf(
+            client("1", "Анна Петрова"),
+            client("2", "Emily Carter"),
+            client("3", "Sofia Nguyen"),
+            client("4", "Елена Белова"),
+            client("5", "Алексей"),
+            client("6", "John Doe"),
+        )
+
+        listOf("Jo", "Je", "Yo", "Joy", "Дже", "Йо").forEach { search ->
+            assertTrue(search, found(clients, search).all { it == "6" })
+        }
+        assertEquals(listOf("6"), found(clients, "Jo"))
+        // "Ye" is found as typed, in "Nguyen", and nowhere else.
+        assertEquals(listOf("3"), found(clients, "Ye"))
+        assertEquals(listOf("6"), found(clients, "Джо"))
+        // Inside a word "ye" is «е» all the same.
+        assertEquals(listOf("3"), found(clients, "Нгуен"))
+    }
+
+    @Test
+    fun `a name is spelled the same every time`() {
+        repeat(3) { assertEquals("iulia petrova", NameSpelling.of("Юлия Петрова")) }
+        assertEquals("iulia petrova", NameSpelling.of("Julia Petrova"))
     }
 
     @Test
