@@ -1,6 +1,7 @@
 package com.northphoenix.hairdresserclientmanager.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,24 +31,37 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.northphoenix.hairdresserclientmanager.R
+import com.northphoenix.hairdresserclientmanager.data.Appointment
+import com.northphoenix.hairdresserclientmanager.domain.CalendarWeek
 import com.northphoenix.hairdresserclientmanager.domain.weeksOf
+import com.northphoenix.hairdresserclientmanager.state.Read
+import com.northphoenix.hairdresserclientmanager.state.keptWhileLoading
+import com.northphoenix.hairdresserclientmanager.ui.LocalAppointmentMonths
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.CircleIconButton
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
@@ -65,16 +79,24 @@ private val WeekdayRowHeight = 32.dp
 // A day is a 40 dp circle; the row gives it the 48 dp of a touch target.
 private val WeekRowHeight = 48.dp
 
+// The dot of a day that has Appointments, as on the Calendar's week strip.
+private val DayDotSize = 5.dp
+
 // A month takes up to six weeks. Always that tall, so the dialog keeps its size from month to month.
 private val MonthHeight = WeekdayRowHeight + WeekRowHeight * 6
 
 /**
  * Picks a day. The month is drawn by the app itself: the Material date picker marks as today the
- * day it is on the device, and [today] is the day it is in the Stylist's timezone.
+ * day it is on the device, and [today] is the day it is in the Stylist's timezone. A dot under a
+ * day's number says it has an Appointment that is not canceled, as on the Calendar's week strip
+ * ([LocalAppointmentMonths]), so a day for an Appointment is picked knowing which days are booked. The
+ * screen that opens the picker keeps the month it opens on loaded ([PreloadAppointmentMonths]), so the
+ * dots are there as it opens. [movingAppointmentId], the Appointment whose time is being edited,
+ * marks no day.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HcmDatePickerDialog(initial: LocalDate, today: LocalDate, onDismiss: () -> Unit, onPick: (LocalDate) -> Unit) {
+fun HcmDatePickerDialog(initial: LocalDate, today: LocalDate, onDismiss: () -> Unit, onPick: (LocalDate) -> Unit, movingAppointmentId: String? = null) {
     val format = LocalTimeFormat.current
     var selected by rememberSaveable { mutableStateOf(initial) }
     var month by rememberSaveable { mutableStateOf(YearMonth.from(initial).coerceIn(FirstMonth, LastMonth)) }
@@ -131,20 +153,72 @@ fun HcmDatePickerDialog(initial: LocalDate, today: LocalDate, onDismiss: () -> U
                         },
                     )
                 } else {
-                    PickerMonth(month, selected, today, onSelect = { selected = it }, onSwipe = { months -> showMonth(month.plusMonths(months)) })
+                    PickerMonth(
+                        month,
+                        selected,
+                        today,
+                        movingAppointmentId,
+                        onSelect = { selected = it },
+                        onSwipe = { months -> showMonth(month.plusMonths(months)) },
+                    )
                 }
             }
         }
     }
 }
 
+/**
+ * The Appointments that start in [month] ([LocalAppointmentMonths]), for as long as this is in the
+ * composition. It starts from what is loaded already, so a month that a screen keeps loaded
+ * ([PreloadAppointmentMonths]) is there from the first frame of whatever else reads it; another month
+ * comes a moment later.
+ */
+@Composable
+internal fun monthAppointmentsState(month: YearMonth): State<Read<List<Appointment>>> {
+    val months = LocalAppointmentMonths.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+
+    return key(months, month) {
+        // Read while the screen is in front. Read again after a change or a pause, the month keeps what it showed
+        // until the answer (keptWhileLoading), so the dots and the list under a form's date do not blink.
+        produceState(remember { months.monthNow(month) }, lifecycle) {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                months.month(month).collect { next -> value = value.keptWhileLoading(next) }
+            }
+        }
+    }
+}
+
+/**
+ * Keeps the Appointments of [months] loaded while the screen that opens a date picker on them is
+ * shown, so that the picker opens with its days marked. Nothing on the screen itself changes when
+ * they arrive.
+ */
+@Composable
+internal fun PreloadAppointmentMonths(vararg months: YearMonth) {
+    months.forEach { month -> monthAppointmentsState(month) }
+}
+
 /** One month as a grid of days under the names of the weekdays. A swipe to the side shows the month next to it. */
 @Composable
-private fun PickerMonth(month: YearMonth, selected: LocalDate, today: LocalDate, onSelect: (LocalDate) -> Unit, onSwipe: (months: Long) -> Unit) {
+private fun PickerMonth(
+    month: YearMonth,
+    selected: LocalDate,
+    today: LocalDate,
+    movingAppointmentId: String?,
+    onSelect: (LocalDate) -> Unit,
+    onSwipe: (months: Long) -> Unit,
+) {
     val format = LocalTimeFormat.current
     val weeks = remember(month, format.firstDayOfWeek) { weeksOf(month, format.firstDayOfWeek) }
     val firstWeekday = today.with(TemporalAdjusters.previousOrSame(format.firstDayOfWeek))
     val swipe by rememberUpdatedState(onSwipe)
+    // A month the screen under the picker keeps loaded is marked from the first frame; another one when it has loaded.
+    val booked by monthAppointmentsState(month)
+    // An Appointment being moved does not mark the day it is leaving, as the list under the form's date leaves it out.
+    val marked = remember(booked, format.zone, movingAppointmentId) {
+        CalendarWeek.daysWithAppointments(booked.data.orEmpty().filter { it.id != movingAppointmentId }, format.zone)
+    }
 
     Column(
         Modifier.fillMaxSize().pointerInput(Unit) {
@@ -179,7 +253,7 @@ private fun PickerMonth(month: YearMonth, selected: LocalDate, today: LocalDate,
                 week.forEach { day ->
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                         if (day != null) {
-                            PickerDay(day, selected = day == selected, today = day == today, onClick = { onSelect(day) })
+                            PickerDay(day, selected = day == selected, today = day == today, marked = day in marked, onClick = { onSelect(day) })
                         }
                     }
                 }
@@ -189,29 +263,47 @@ private fun PickerMonth(month: YearMonth, selected: LocalDate, today: LocalDate,
 }
 
 @Composable
-private fun PickerDay(day: LocalDate, selected: Boolean, today: Boolean, onClick: () -> Unit) {
+private fun PickerDay(day: LocalDate, selected: Boolean, today: Boolean, marked: Boolean, onClick: () -> Unit) {
     val date = LocalTimeFormat.current.fullDate(day)
-    val description = if (today) stringResource(R.string.date_picker_today, date) else date
+    val description = (if (today) stringResource(R.string.date_picker_today, date) else date) +
+        if (marked) ", " + stringResource(R.string.calendar_day_has_appointments) else ""
 
-    Surface(
-        selected = selected,
-        onClick = onClick,
-        modifier = Modifier.size(40.dp).semantics { contentDescription = description },
-        shape = CircleShape,
-        color = if (selected) HcmColors.Ink else Color.Transparent,
-        border = if (today && !selected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(
-                day.dayOfMonth.toString(),
-                // The description above already names the day.
-                modifier = Modifier.clearAndSetSemantics {},
-                style = MaterialTheme.typography.bodyLarge,
-                color = when {
-                    selected -> HcmColors.Surface
-                    today -> MaterialTheme.colorScheme.primary
-                    else -> MaterialTheme.colorScheme.onSurface
-                },
+    // The dot is drawn over the circle, not in it: the circle clips what it holds, and at a large font size the number fills it.
+    Box {
+        Surface(
+            selected = selected,
+            onClick = onClick,
+            modifier = Modifier.size(40.dp).semantics { contentDescription = description },
+            shape = CircleShape,
+            color = if (selected) HcmColors.Ink else Color.Transparent,
+            border = if (today && !selected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    day.dayOfMonth.toString(),
+                    // The description above already names the day.
+                    modifier = Modifier.clearAndSetSemantics {},
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = when {
+                        selected -> HcmColors.Surface
+                        today -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.onSurface
+                    },
+                )
+            }
+        }
+        if (marked) {
+            // Just under the digits, which stay in the middle of the circle on every day: half of them is about a third
+            // of the font size, so at a large font size the dot goes lower, to the circle's edge and past it.
+            val digitsHalf = with(LocalDensity.current) { (MaterialTheme.typography.bodyLarge.fontSize * 0.42f).toDp() }
+
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 20.dp + digitsHalf + 3.dp)
+                    .size(DayDotSize)
+                    .clip(CircleShape)
+                    .background(if (selected) HcmColors.Surface else MaterialTheme.colorScheme.primary),
             )
         }
     }

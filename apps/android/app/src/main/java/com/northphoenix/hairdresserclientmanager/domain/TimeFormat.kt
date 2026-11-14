@@ -138,6 +138,9 @@ class TimeFormat(val locale: Locale, val zone: ZoneId, private val thisYear: Int
     fun dayRange(date: LocalDate): Pair<Instant, Instant> =
         date.atStartOfDay(zone).toInstant() to date.plusDays(1).atStartOfDay(zone).toInstant()
 
+    /** A month's boundaries as instants, from the start of its 1st to the end of its last day, for the `start`/`end` range inputs. */
+    fun monthRange(month: YearMonth): Pair<Instant, Instant> = dayRange(month.atDay(1)).first to dayRange(month.atEndOfMonth()).second
+
     /**
      * Null when the clock never shows [time] on [date] in the Stylist's timezone: the night the
      * clocks go forward skips an hour. java.time would move such a time an hour later without a word.

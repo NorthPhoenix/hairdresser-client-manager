@@ -44,6 +44,15 @@ import org.mobilenativefoundation.store.store5.Validator
  */
 data class Read<out V>(val state: LoadState = LoadState.Loading, val data: V? = null, val saved: V? = data)
 
+/**
+ * [next] as a screen shows it that showed this of the same key: while the key is read anew and has
+ * nothing yet (after a change overtook what was cached, or after the app was away), what the screen
+ * showed stays until the answer, so a hint does not blink out and back. A failure, and anything
+ * with data, is shown as it comes. Only for a hint beside a form, never for a screen's own content.
+ */
+internal fun <V> Read<V>.keptWhileLoading(next: Read<V>): Read<V> =
+    if (next.state == LoadState.Loading && next.data == null && data != null) this else next
+
 /** What the server answered to a read, with what tells whether a change has made it out of date since (see [Changes]). */
 internal data class Answer<out V>(
     val value: V,

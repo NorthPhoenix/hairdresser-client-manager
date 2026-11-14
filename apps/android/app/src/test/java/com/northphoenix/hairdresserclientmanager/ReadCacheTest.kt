@@ -14,7 +14,9 @@ import com.northphoenix.hairdresserclientmanager.state.AppointmentReads
 import com.northphoenix.hairdresserclientmanager.state.CacheLimits
 import com.northphoenix.hairdresserclientmanager.state.Changes
 import com.northphoenix.hairdresserclientmanager.state.DayKey
+import com.northphoenix.hairdresserclientmanager.state.MonthKey
 import com.northphoenix.hairdresserclientmanager.state.WeekKey
+import com.northphoenix.hairdresserclientmanager.state.keptWhileLoading
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.state.Read
 import com.northphoenix.hairdresserclientmanager.state.ReadCache
@@ -22,6 +24,7 @@ import com.northphoenix.hairdresserclientmanager.state.after
 import com.northphoenix.hairdresserclientmanager.state.showLatest
 import java.time.Instant
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -105,6 +108,9 @@ class ReadCacheTest {
         suspend fun week(key: WeekKey): List<Appointment> =
             answer("week ${key.firstDay}") { CalendarWeek.days(key.firstDay).flatMap { days[it].orEmpty() } }
 
+        suspend fun month(key: MonthKey): List<Appointment> =
+            answer("month ${key.month}") { days.filterKeys { YearMonth.from(it) == key.month }.values.flatten() }
+
         suspend fun find(id: String): Appointment? = answer("get $id") { (days.values.flatten() + todays).firstOrNull { it.id == id } }
 
         private suspend fun <T> answer(request: String, read: () -> T): T {
@@ -128,7 +134,7 @@ class ReadCacheTest {
     }
 
     private fun TestScope.reads(server: Server, changes: Changes = Changes()) =
-        AppointmentReads(backgroundScope, changes, server::today, server::day, server::find, fetchSources = { emptyList() }, fetchWeek = server::week)
+        AppointmentReads(backgroundScope, changes, server::today, server::day, server::find, fetchSources = { emptyList() }, fetchWeek = server::week, fetchMonth = server::month)
 
     /** What a screen that reads [flow] is shown, value by value. It starts reading at once, as a screen does. */
     private fun <T> TestScope.shownBy(flow: Flow<T>): Pair<List<T>, Job> {
@@ -373,7 +379,7 @@ class ReadCacheTest {
                 days[monday.day] = listOf(appointment("a1"))
                 days[tuesday.day] = listOf(appointment("a2"))
             }
-            val reads = AppointmentReads(immediate, Changes(), server::today, server::day, server::find, fetchSources = { emptyList() }, fetchWeek = { emptyList() })
+            val reads = AppointmentReads(immediate, Changes(), server::today, server::day, server::find, fetchSources = { emptyList() }, fetchWeek = { emptyList() }, fetchMonth = { emptyList() })
             val timezone = MutableStateFlow<ZoneId?>(null)
             val chosen = MutableStateFlow(monday.day)
             val calendar = mutableListOf<Pair<LocalDate, Read<List<Appointment>>>>()
@@ -961,6 +967,106 @@ class ReadCacheTest {
         runCurrent()
         assertEquals(listOf(LoadState.Loading, LoadState.Loaded), again.map { it.state })
         assertEquals(setOf(monday.day, wednesday.day), CalendarWeek.daysWithAppointments(again.last().data.orEmpty(), zone))
+    }
+
+    @Test
+    fun `a month the form keeps loaded is there at once for the date picker, and a new Appointment in it is loaded anew`() = runTest {
+        val month = MonthKey(YearMonth.of(2026, 10), zone)
+        val server = Server().apply {
+            days[monday.day] = listOf(appointment("a1"))
+            days[LocalDate.of(2026, 11, 2)] = listOf(appointment("a9", clientId = "c9").copy(startsAt = "2026-11-02T15:00:00.000Z"))
+        }
+        val reads = reads(server)
+
+        // Nothing is known before the form asks: a picker opened now would show no marks until its own read answers.
+        assertEquals(LoadState.Loading, reads.months.now(month).state)
+
+        // The form keeps the month loaded: one request for the whole month, and only its days.
+        val (formShown, form) = shownBy(reads.months.watch(month))
+        runCurrent()
+        assertEquals(listOf("month 2026-10"), server.requests)
+        assertEquals(listOf("a1"), formShown.last().data.orEmpty().map { it.id })
+
+        // The picker opened on it has its marks from the first frame, before any read of its own.
+        val opened = reads.months.now(month)
+        assertEquals(LoadState.Loaded, opened.state)
+        assertEquals(setOf(monday.day), CalendarWeek.daysWithAppointments(opened.data.orEmpty(), zone))
+
+        // While the form shows it, a cancel on its way leaves Monday's list under the date, and is back when it fails.
+        fun mondayList() = CalendarWeek.bookedOn(formShown.last().data.orEmpty(), monday.day, zone).map { it.id }
+        val cancel = reads.ahead("status-a1", "a1") { it.copy(status = AppointmentStatus.CANCELED) }
+        cancel.show()
+        runCurrent()
+        assertEquals(emptyList<String>(), mondayList())
+        cancel.settle()
+        runCurrent()
+        assertEquals(listOf("a1"), mondayList())
+
+        // Deleted: it leaves the month at once.
+        server.days[monday.day] = emptyList()
+        reads.forget("a1")
+        runCurrent()
+        assertEquals(emptyList<String>(), mondayList())
+
+        // Booked on Wednesday while the form is closed: the cached month does not have it, so it is not served at once but loaded anew.
+        form.cancel()
+        runCurrent()
+        val created = appointment("a3", clientId = "c3").copy(startsAt = "2026-10-14T15:00:00.000Z")
+        server.days[wednesday.day] = listOf(created)
+        reads.startChanged(null, Instant.parse(created.startsAt))
+        assertEquals(LoadState.Loading, reads.months.now(month).state)
+        val (again) = shownBy(reads.months.watch(month))
+        runCurrent()
+        assertEquals(setOf(wednesday.day), CalendarWeek.daysWithAppointments(again.last().data.orEmpty(), zone))
+    }
+
+    @Test
+    fun `an Appointment moved to another month loads both months anew, and a Client's new name reaches a month on screen`() = runTest {
+        val october = MonthKey(YearMonth.of(2026, 10), zone)
+        val november = MonthKey(YearMonth.of(2026, 11), zone)
+        val server = Server().apply { days[monday.day] = listOf(appointment("a1")) }
+        val reads = reads(server)
+
+        // The form keeps both months loaded: its own and the next one.
+        val (octoberShown, form) = shownBy(reads.months.watch(october))
+        val (_, next) = shownBy(reads.months.watch(november))
+        runCurrent()
+
+        // The Client is renamed: the list under the date names them anew at once.
+        reads.clientSaved(newNumber.copy(name = "Renamed"))
+        runCurrent()
+        assertEquals(listOf("Renamed"), octoberShown.last().data.orEmpty().map { it.primaryClientName })
+
+        // Moved to 2 November while the form is closed: neither cached month is served as it was.
+        form.cancel()
+        next.cancel()
+        runCurrent()
+        val moved = appointment("a1").copy(startsAt = "2026-11-02T15:00:00.000Z")
+        server.days[monday.day] = emptyList()
+        server.days[LocalDate.of(2026, 11, 2)] = listOf(moved)
+        reads.startChanged("a1", Instant.parse(moved.startsAt))
+        assertEquals(LoadState.Loading, reads.months.now(october).state)
+        assertEquals(LoadState.Loading, reads.months.now(november).state)
+
+        val (octoberAgain) = shownBy(reads.months.watch(october))
+        val (novemberAgain) = shownBy(reads.months.watch(november))
+        runCurrent()
+        assertEquals(emptySet<LocalDate>(), CalendarWeek.daysWithAppointments(octoberAgain.last().data.orEmpty(), zone))
+        assertEquals(setOf(LocalDate.of(2026, 11, 2)), CalendarWeek.daysWithAppointments(novemberAgain.last().data.orEmpty(), zone))
+    }
+
+    @Test
+    fun `a hint keeps what it showed while its key is read anew, but not a failure or a new answer`() {
+        val shown = Read(LoadState.Loaded, listOf("a1"))
+
+        // Read anew after a change or a pause: nothing yet, so what was shown stays.
+        assertEquals(shown, shown.keptWhileLoading(Read()))
+        // Loading again with an answer on screen, a failure, or the new answer: shown as they come.
+        assertEquals(Read(LoadState.Loading, listOf("a2")), shown.keptWhileLoading(Read(LoadState.Loading, listOf("a2"))))
+        assertEquals(Read<List<String>>(LoadState.Failed(0)), shown.keptWhileLoading(Read(LoadState.Failed(0))))
+        assertEquals(Read(LoadState.Loaded, emptyList<String>()), shown.keptWhileLoading(Read(LoadState.Loaded, emptyList())))
+        // Nothing was shown yet: loading is loading.
+        assertEquals(Read<List<String>>(), Read<List<String>>().keptWhileLoading(Read()))
     }
 
     @Test

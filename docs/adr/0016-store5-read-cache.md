@@ -55,6 +55,8 @@ A key is a small data class with everything the answer depends on, and each read
 | --- | --- | --- | --- |
 | Today's list (`appointment.home`) | `DayKey(day, zone)` | 4 | 30 minutes |
 | A Calendar day (`appointment.list`) | `DayKey(day, zone)` | 62 | 30 minutes |
+| A week of the Calendar's week strip (`appointment.list` for seven days) | `WeekKey(firstDay, zone)` | 9 | 30 minutes |
+| A month of the date picker (`appointment.list` for the month) | `MonthKey(month, zone)` | 6 | 30 minutes |
 | One Appointment (`appointment.get`) | `AppointmentKey(id)` | 100 | 30 minutes |
 | The sources of Appointment Copying (`appointment.completedSources`) | `CopyTargetKey(appointmentId, clientIds)` | 20 | 30 minutes |
 | The Client list (`clientProfile.list`) | `StylistKey(stylistId)` | 1 | 30 minutes |
@@ -80,5 +82,6 @@ So the view model keeps the Stylist of the session as before. It is the session'
 ## Consequences
 
 - Right after a change, a cached day that held what changed shows a loading state once, and so do a Client's history and a copy sheet after any change. This is deliberate: the alternative is to show something known to be possibly wrong.
+- One exception, for hints beside a form only: the date picker's dots and the list of a day's Appointments under the date in Appointment Creation and the time edit keep what they showed while their month is read anew (`Read.keptWhileLoading`), instead of blinking out to a loading state and back. They are a hint about other Appointments, nothing is saved from them, and the answer replaces them within the same read. A month nobody has read yet still fills in when it answers.
 - Store answers through a flow, and a screen's first frame is drawn before a flow has answered. `ReadCache.now(key)` reads what the Store's memory has without asking the server (`StoreReadRequest.localOnly`), so a screen that reads a key for itself has the cached answer in its first frame. It relies on Store answering such a request without suspending; should a later version not do so, the first frame is a loading state and nothing else changes. A unit test fails when that happens.
 - The library is a beta. The app uses a small part of it (`StoreBuilder.from`, `MemoryPolicy`, `Validator`, `stream` with a cached, a fresh or a local-only request, `clear`), all behind one class, `ReadCache`. `clear()` for all keys is marked experimental in Store.
