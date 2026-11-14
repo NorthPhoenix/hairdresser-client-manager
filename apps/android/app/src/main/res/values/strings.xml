@@ -682,7 +682,7 @@
     <string name="calendar_fix_choose_its_account">Choose the account you created it in, marked “Google”, then Account sync.</string>
     <string name="calendar_not_coming">Calendar not showing up?</string>
     <string name="calendar_not_coming_body">If you created “%1$s” and it hasn\'t shown up here for more than a few minutes, check the calendar sync on this phone:</string>
-    <string name="calendar_fix_turn_on_calendar">Turn on “Calendar”.</string>
+    <string name="calendar_fix_turn_on_calendar">Turn on “Calendar”, and “Google Calendar” too if it\'s there.</string>
     <string name="calendar_problem_sync_off">Appointments are on this phone but don\'t reach Google Calendar.</string>
     <string name="calendar_home_cause_sync_off">Auto-sync is turned off on the phone.</string>
     <string name="calendar_create_watching">The app finds “%1$s” here by itself once it reaches the phone, usually within a few minutes.</string>

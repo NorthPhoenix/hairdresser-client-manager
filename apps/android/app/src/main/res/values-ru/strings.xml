@@ -719,7 +719,7 @@
     <string name="calendar_fix_choose_its_account">Выберите аккаунт, в котором создали календарь, с подписью «Google», затем синхронизацию аккаунта.</string>
     <string name="calendar_not_coming">Календарь не появляется?</string>
     <string name="calendar_not_coming_body">Если вы уже создали «%1$s», а здесь его нет дольше нескольких минут, проверьте синхронизацию календаря на телефоне:</string>
-    <string name="calendar_fix_turn_on_calendar">Включите «Календарь».</string>
+    <string name="calendar_fix_turn_on_calendar">Включите «Календарь», а если там есть и «Google Календарь», то и его.</string>
     <string name="calendar_problem_sync_off">Записи есть на телефоне, но в Google Календарь не попадают.</string>
     <string name="calendar_home_cause_sync_off">На телефоне выключена автосинхронизация.</string>
     <string name="calendar_create_watching">Приложение само найдёт календарь «%1$s», когда он появится на телефоне. Обычно это несколько минут.</string>
