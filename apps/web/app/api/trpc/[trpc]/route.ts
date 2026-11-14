@@ -1,3 +1,5 @@
+// First: sets up telemetry before the first request (server/telemetry.ts says why).
+import "../../../../server/telemetry";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { auth } from "@clerk/nextjs/server";
 import { appRouter, appVersionFromHeaders, createPublishedReleaseReader, createTRPCContext, manifestUrlFor, recordProcedureError } from "@hcm/api";

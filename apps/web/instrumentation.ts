@@ -50,7 +50,13 @@ export async function register() {
 
     // OpenTelemetry and the wide event of each request (docs/observability.md). Setting it up
     // never keeps the server from starting: `registerTelemetry` reports its own failures, and a
-    // package that cannot even be loaded is reported here.
+    // package that cannot even be loaded is reported here. On Vercel a route handler's module
+    // has usually set it up already (server/telemetry.ts); loading the package again would only
+    // cost time.
+    if ((globalThis as { [key: symbol]: unknown })[Symbol.for("hcm.telemetry.registered")]) {
+      return;
+    }
+
     try {
       const { registerTelemetry } = await import("@hcm/telemetry/node");
 
