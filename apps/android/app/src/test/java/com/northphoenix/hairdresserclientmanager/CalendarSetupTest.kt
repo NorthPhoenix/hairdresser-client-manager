@@ -33,7 +33,7 @@ class CalendarSetupTest {
 
     @Test
     fun `with a Google account the calendar is made`() {
-        assertEquals(CalendarSetupStep.Calendar(existing = null, sync = sync), CalendarSetup.step(CalendarAccess.GRANTED, listOf(main, holidays), sync))
+        assertEquals(CalendarSetupStep.Calendar(existing = null, accounts = listOf("mom@gmail.com"), sync = sync), CalendarSetup.step(CalendarAccess.GRANTED, listOf(main, holidays), sync))
     }
 
     @Test
@@ -41,7 +41,7 @@ class CalendarSetupTest {
         listOf("Клиенты", "клиенты ", "Clients", "CLIENTS").forEach { name ->
             val own = calendar(5, name, owner = "abc@group.calendar.google.com")
 
-            assertEquals(name, CalendarSetupStep.Calendar(existing = own, sync = sync), CalendarSetup.step(CalendarAccess.GRANTED, listOf(main, own), sync))
+            assertEquals(name, CalendarSetupStep.Calendar(existing = own, accounts = listOf("mom@gmail.com"), sync = sync), CalendarSetup.step(CalendarAccess.GRANTED, listOf(main, own), sync))
         }
     }
 
@@ -49,18 +49,26 @@ class CalendarSetupTest {
     fun `one the app may not write to is not offered`() {
         val readOnly = calendar(5, "Клиенты", owner = "shared@group.calendar.google.com", canWrite = false)
 
-        assertEquals(CalendarSetupStep.Calendar(existing = null, sync = sync), CalendarSetup.step(CalendarAccess.GRANTED, listOf(main, readOnly), sync))
+        assertEquals(CalendarSetupStep.Calendar(existing = null, accounts = listOf("mom@gmail.com"), sync = sync), CalendarSetup.step(CalendarAccess.GRANTED, listOf(main, readOnly), sync))
     }
 
     @Test
-    fun `while it is made, the step says whether sync can keep it from the phone`() {
-        val off = PhoneSync(auto = false)
-        val accountOff = PhoneSync(calendarOffFor = setOf("mom@gmail.com"))
+    fun `it can be made in any Google account on the phone whose calendar syncs`() {
+        val work = calendar(3, "work@gmail.com").copy(accountName = "work@gmail.com", ownerAccount = "work@gmail.com")
+        val test = calendar(4, "test@gmail.com").copy(accountName = "test@gmail.com", ownerAccount = "test@gmail.com")
+        val calendars = listOf(main, holidays, work, test)
 
-        assertEquals(CalendarSetupStep.Calendar(existing = null, sync = off), CalendarSetup.step(CalendarAccess.GRANTED, listOf(main), off))
-        assertTrue(off.off)
-        assertTrue(accountOff.off)
-        assertFalse(sync.off)
+        val all = CalendarSetup.step(CalendarAccess.GRANTED, calendars, sync) as CalendarSetupStep.Calendar
+        assertEquals(listOf("mom@gmail.com", "work@gmail.com", "test@gmail.com"), all.accounts)
+        assertEquals(all.accounts, all.syncing)
+
+        val oneOff = CalendarSetup.step(CalendarAccess.GRANTED, calendars, PhoneSync(calendarOffFor = setOf("test@gmail.com"))) as CalendarSetupStep.Calendar
+        assertEquals(listOf("mom@gmail.com", "work@gmail.com"), oneOff.syncing)
+
+        val autoOff = CalendarSetup.step(CalendarAccess.GRANTED, calendars, PhoneSync(auto = false)) as CalendarSetupStep.Calendar
+        assertTrue(autoOff.syncing.isEmpty())
+        assertFalse(PhoneSync(auto = false).syncs("mom@gmail.com"))
+        assertTrue(sync.syncs("mom@gmail.com"))
     }
 
     @Test
@@ -68,7 +76,7 @@ class CalendarSetupTest {
         val made = calendar(9, "Клиенты", owner = "new@group.calendar.google.com")
 
         assertEquals(made, CalendarSetup.find(listOf(main, made), "New@group.calendar.google.com"))
-        assertEquals(CalendarSetupStep.Calendar(existing = made, sync = sync), CalendarSetup.step(CalendarAccess.GRANTED, listOf(main, made), sync))
+        assertEquals(CalendarSetupStep.Calendar(existing = made, accounts = listOf("mom@gmail.com"), sync = sync), CalendarSetup.step(CalendarAccess.GRANTED, listOf(main, made), sync))
     }
 
     @Test

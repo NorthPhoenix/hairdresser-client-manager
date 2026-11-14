@@ -57,7 +57,9 @@ class CalendarSyncTest {
             return calendars
         }
 
-        override fun sync() = PhoneSync()
+        var phoneSync = PhoneSync()
+
+        override fun sync() = phoneSync
 
         override fun requestSync(accounts: Collection<String>) {
             syncedAccounts = accounts.toList()
@@ -371,6 +373,31 @@ class CalendarSyncTest {
         advanceUntilIdle()
 
         assertEquals(listOf("mom@gmail.com"), f.phone.syncedAccounts)
+    }
+
+    @Test
+    fun `sync that is off is said, with the events written all the same, and passes once it is on`() = runTest {
+        val f = fixture(appointment("a1"))
+        val calendar = f.phone.calendars.first()
+
+        f.sync.follow(stylist)
+        f.phone.phoneSync = PhoneSync(calendarOffFor = setOf(calendar.accountName))
+        f.sync.connect(calendar)
+        advanceUntilIdle()
+
+        assertEquals(CalendarProblem.CALENDAR_SYNC_OFF, f.sync.state.value.problem)
+        assertTrue(f.sync.state.value.problem!!.needsStylist)
+        assertEquals(listOf("Наташа"), f.phone.titles())
+
+        f.phone.phoneSync = PhoneSync(auto = false)
+        f.sync.syncNow()
+        advanceUntilIdle()
+        assertEquals(CalendarProblem.AUTO_SYNC_OFF, f.sync.state.value.problem)
+
+        f.phone.phoneSync = PhoneSync(calendarOffFor = setOf("someone.else@gmail.com"))
+        f.sync.syncNow()
+        advanceUntilIdle()
+        assertNull(f.sync.state.value.problem)
     }
 
     @Test

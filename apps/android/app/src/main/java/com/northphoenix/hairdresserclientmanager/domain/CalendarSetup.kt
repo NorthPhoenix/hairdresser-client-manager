@@ -28,15 +28,15 @@ enum class CalendarAccess {
     BLOCKED,
 }
 
-/** Android's sync settings that decide whether a calendar made in Google comes to the phone. */
+/** Android's sync settings that decide whether a calendar made in Google comes to the phone, and its events go to Google. */
 data class PhoneSync(
     /** "Auto-sync data", for all accounts. */
     val auto: Boolean = true,
     /** The Google accounts whose calendar sync is off. */
     val calendarOffFor: Set<String> = emptySet(),
 ) {
-    /** Whether a calendar made in Google can be kept from coming to the phone. */
-    val off: Boolean get() = !auto || calendarOffFor.isNotEmpty()
+    /** Whether the calendars of [account] sync with Google. */
+    fun syncs(account: String): Boolean = auto && account !in calendarOffFor
 }
 
 /** Where the setup of Calendar Integration is, and so what the screen asks the Stylist to do next. */
@@ -50,10 +50,13 @@ sealed interface CalendarSetupStep {
     /**
      * Ready for a calendar: [existing], a calendar of the app's name that is on the phone, is used.
      * Without one, the Stylist makes it on calendar.google.com (Android cannot make one, and nor can
-     * the Google Calendar app), and the screen waits for it to come to the phone. [sync] says whether
-     * it can come.
+     * the Google Calendar app) in one of the phone's Google [accounts], and the screen waits for it
+     * to come to the phone.
      */
-    data class Calendar(val existing: PhoneCalendar?, val sync: PhoneSync) : CalendarSetupStep
+    data class Calendar(val existing: PhoneCalendar?, val accounts: List<String>, val sync: PhoneSync) : CalendarSetupStep {
+        /** The accounts a calendar made in them comes to the phone from: those whose calendar sync is on. */
+        val syncing: List<String> get() = accounts.filter(sync::syncs)
+    }
 }
 
 object CalendarSetup {
@@ -82,6 +85,10 @@ object CalendarSetup {
             return CalendarSetupStep.NoGoogleAccount(sync)
         }
 
-        return CalendarSetupStep.Calendar(existing = calendars.firstOrNull { it.canWrite && isOwnName(it.name) }, sync = sync)
+        return CalendarSetupStep.Calendar(
+            existing = calendars.firstOrNull { it.canWrite && isOwnName(it.name) },
+            accounts = calendars.map { it.accountName }.distinct(),
+            sync = sync,
+        )
     }
 }

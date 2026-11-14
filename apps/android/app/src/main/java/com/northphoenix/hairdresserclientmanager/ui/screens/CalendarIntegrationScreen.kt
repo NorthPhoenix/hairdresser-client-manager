@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -177,7 +178,7 @@ private fun Setup(viewModel: AppViewModel) {
             is CalendarSetupStep.NoGoogleAccount -> {
                 Body(stringResource(R.string.calendar_step_account_body))
                 PrimaryButton(stringResource(R.string.calendar_step_account_action), onClick = { context.openAddGoogleAccount() }, modifier = Modifier.fillMaxWidth())
-                SyncOff(step.sync)
+                SyncOff(step.sync, accounts = emptyList())
             }
             is CalendarSetupStep.Calendar -> {
                 val existing = step.existing
@@ -186,17 +187,23 @@ private fun Setup(viewModel: AppViewModel) {
                     Body(stringResource(R.string.calendar_existing_found, existing.name, existing.accountName))
                     PrimaryButton(stringResource(R.string.calendar_use_existing), onClick = { sync.connect(existing) }, modifier = Modifier.fillMaxWidth())
                 } else {
+                    // Made in an account whose calendar does not sync, it would never come: those are left out, unless none syncs.
+                    val syncing = step.syncing
+                    val signIn = syncing.ifEmpty { step.accounts }
+
                     Body(stringResource(R.string.calendar_step_calendar_body))
                     Body(stringResource(R.string.calendar_create_where))
-                    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            stringResource(R.string.calendar_create_steps, accounts.joinToString(", "), ownName),
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                        )
-                    }
-                    if (step.sync.off) {
-                        SyncOff(step.sync)
+                    Steps(
+                        if (signIn.size == 1) {
+                            Step(stringResource(R.string.calendar_create_step_open_one, signIn.single()))
+                        } else {
+                            Step(stringResource(R.string.calendar_create_step_open_many), accounts = signIn)
+                        },
+                        Step(stringResource(R.string.calendar_create_step_new)),
+                        Step(stringResource(R.string.calendar_create_step_name, ownName)),
+                    )
+                    if (syncing.isEmpty()) {
+                        SyncOff(step.sync, step.accounts)
                     } else {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             CircularProgressIndicator(Modifier.padding(top = 2.dp).size(16.dp), strokeWidth = 2.dp)
@@ -240,17 +247,82 @@ private fun calendarStepTitle(step: CalendarSetupStep, ownName: String): String 
         is CalendarSetupStep.Access -> stringResource(R.string.calendar_step_calendar_title, ownName)
     }
 
-/** Calendar sync is off on the phone, which keeps a calendar made on calendar.google.com from coming to it. Nothing when it is on. */
+/**
+ * Android's sync that is off for [accounts], or for the whole phone, and so keeps their calendars
+ * from syncing with Google: why, which account, and the steps in Android's settings to turn it on.
+ * Nothing when it is on. With a [lead], that comes first, as what it means for the Stylist.
+ */
 @Composable
-private fun SyncOff(sync: PhoneSync) {
-    if (!sync.off) {
+private fun SyncOff(sync: PhoneSync, accounts: List<String>, lead: String? = null) {
+    val off = accounts.filter { it in sync.calendarOffFor }
+
+    if (sync.auto && off.isEmpty()) {
         return
     }
 
     val context = LocalContext.current
+    val reason = when {
+        !sync.auto -> stringResource(R.string.calendar_sync_auto_off)
+        off.size == 1 -> stringResource(R.string.calendar_sync_account_off_one, off.single())
+        else -> stringResource(R.string.calendar_sync_account_off_many)
+    }
 
-    Problem(stringResource(R.string.calendar_sync_off))
+    if (lead != null) {
+        Problem(lead)
+        Body(reason)
+    } else {
+        Problem(reason)
+    }
+    if (sync.auto && off.size > 1) {
+        AccountList(off, modifier = Modifier.padding(start = 26.dp))
+    }
+    Steps(
+        Step(stringResource(R.string.calendar_fix_open_settings)),
+        *when {
+            !sync.auto -> arrayOf(Step(stringResource(R.string.calendar_fix_auto_sync)))
+            else -> arrayOf(
+                Step(if (off.size == 1) stringResource(R.string.calendar_fix_choose_account, off.single()) else stringResource(R.string.calendar_fix_choose_any_account)),
+                Step(stringResource(R.string.calendar_fix_turn_on_calendar)),
+            )
+        },
+    )
     SecondaryButton(stringResource(R.string.calendar_open_sync_settings), onClick = { context.openSyncSettings() }, modifier = Modifier.fillMaxWidth())
+}
+
+/** One numbered step, with the accounts it names listed under it. */
+private class Step(val text: String, val accounts: List<String> = emptyList())
+
+/** Steps to follow outside the app, numbered, on a panel of their own. */
+@Composable
+private fun Steps(vararg steps: Step) {
+    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            steps.forEachIndexed { index, step ->
+                Row {
+                    Text("${index + 1}.", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(22.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(step.text, style = MaterialTheme.typography.bodyMedium)
+                        if (step.accounts.isNotEmpty()) {
+                            AccountList(step.accounts)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Google accounts, one a line, so each can be read and found in Android's settings. */
+@Composable
+private fun AccountList(accounts: List<String>, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        accounts.forEach { account ->
+            Row {
+                Text("•", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(16.dp))
+                Text(account, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            }
+        }
+    }
 }
 
 @Composable
@@ -324,6 +396,12 @@ private fun Connected(viewModel: AppViewModel, state: CalendarMirrorState, conne
                     Problem(stringResource(R.string.calendar_problem_gone, connection.calendarName))
                     PrimaryButton(stringResource(R.string.calendar_set_up_again), onClick = sync::disconnect, modifier = Modifier.fillMaxWidth())
                 }
+                CalendarProblem.AUTO_SYNC_OFF -> SyncOff(PhoneSync(auto = false), emptyList(), lead = stringResource(R.string.calendar_problem_sync_off))
+                CalendarProblem.CALENDAR_SYNC_OFF -> SyncOff(
+                    PhoneSync(calendarOffFor = setOf(connection.accountName)),
+                    listOf(connection.accountName),
+                    lead = stringResource(R.string.calendar_problem_sync_off),
+                )
                 CalendarProblem.SERVER -> Problem(stringResource(R.string.calendar_problem_server))
                 CalendarProblem.PHONE -> Problem(stringResource(R.string.calendar_problem_phone))
                 null -> Unit
@@ -450,10 +528,10 @@ fun CalendarProblemHomeCard(state: CalendarMirrorState, onFix: () -> Unit, modif
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(stringResource(R.string.calendar_home_problem_title), style = MaterialTheme.typography.titleMedium)
                 Text(
-                    if (state.problem == CalendarProblem.NO_ACCESS) {
-                        stringResource(R.string.calendar_home_cause_no_access)
-                    } else {
-                        stringResource(R.string.calendar_home_cause_gone, state.connection.calendarName)
+                    when (state.problem) {
+                        CalendarProblem.NO_ACCESS -> stringResource(R.string.calendar_home_cause_no_access)
+                        CalendarProblem.AUTO_SYNC_OFF, CalendarProblem.CALENDAR_SYNC_OFF -> stringResource(R.string.calendar_home_cause_sync_off)
+                        else -> stringResource(R.string.calendar_home_cause_gone, state.connection.calendarName)
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -87,6 +87,12 @@ enum class CalendarProblem {
     /** The calendar is not on the phone any more: deleted in Google, or its account removed from the phone. */
     CALENDAR_GONE,
 
+    /** The phone's auto-sync is off: the events are on the phone and do not reach Google. */
+    AUTO_SYNC_OFF,
+
+    /** Calendar sync is off for the calendar's Google account: the events are on the phone and do not reach Google. */
+    CALENDAR_SYNC_OFF,
+
     /** The Appointments could not be loaded. Passes on its own. */
     SERVER,
 
@@ -95,7 +101,7 @@ enum class CalendarProblem {
     ;
 
     /** Something only the Stylist can put right, which Home tells her about. */
-    val needsStylist: Boolean get() = this == NO_ACCESS || this == CALENDAR_GONE
+    val needsStylist: Boolean get() = this != SERVER && this != PHONE
 }
 
 data class CalendarMirrorState(
@@ -328,7 +334,14 @@ class CalendarSync(
         }
         store.lastSync = clock() to desired.size
 
-        return null
+        // The events are on the phone now. Whether they reach Google is Android's sync, which may be turned off.
+        val sync = withContext(io) { phone.sync() }
+
+        return when {
+            !sync.auto -> CalendarProblem.AUTO_SYNC_OFF
+            !sync.syncs(calendar.accountName) -> CalendarProblem.CALENDAR_SYNC_OFF
+            else -> null
+        }
     }
 
     /** The connected calendar on the phone: by its row, else by its address in Google. */
