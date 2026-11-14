@@ -1,3 +1,4 @@
+import { annotate, recordError, traced } from "@hcm/telemetry";
 import { t, type SupportedLocale } from "@hcm/shared";
 import {
   formatAppointmentTime,
@@ -249,6 +250,7 @@ export function buildShareImageSvg(input: ShareImageInput): string {
   line(100, t(locale, "profileShareLastCompletedTitle"), left, 34, 800);
 
   const completed = input.lastCompletedAppointment;
+  let listedServices = 0;
 
   if (completed) {
     line(52, formatAppointmentTime(locale, input.timezone, completed), left, 28, 700);
@@ -260,8 +262,6 @@ export function buildShareImageSvg(input: ShareImageInput): string {
       30,
       800
     );
-
-    let listedServices = 0;
 
     for (const service of completed.services.slice(0, shareImageLimits.services)) {
       if (listedServices > 0 && y >= shareImageLimits.height) {
@@ -325,6 +325,15 @@ export function buildShareImageSvg(input: ShareImageInput): string {
   }
 
   const height = Math.max(1600, y + 160);
+
+  // What the picture left out, which a Client is told in the picture and the Stylist is not.
+  annotate({
+    "share_image.language": locale,
+    "share_image.height_px": height,
+    "share_image.upcoming_cut_count": input.upcomingAppointments.length - upcomingAppointments.length,
+    "share_image.services_cut_count": completed ? completed.services.length - listedServices : 0,
+    "share_image.is_height_capped": completed ? listedServices < Math.min(completed.services.length, shareImageLimits.services) : false
+  });
   const frameHeight = height - 144;
   const svg = [
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="${height}" viewBox="0 0 1200 ${height}">`,
@@ -348,17 +357,35 @@ export async function buildShareImage(
   readSharePhoto: SharePhotoReader
 ): Promise<string> {
   const photos = content.lastCompletedAppointment?.photos.slice(0, shareImageLimits.photos) ?? [];
-  const embeddedPhotos = await Promise.all(
-    photos.map(async ({ url, category }) => {
-      const image = await readSharePhoto(url).catch(() => null);
 
-      return image && image.width > 0 && image.height > 0 ? [{ ...image, category }] : [];
-    })
-  );
+  // Building the picture is the costly part of a Share Image: it reads the photos and draws them.
+  return traced("share_image.build", async () => {
+    const embeddedPhotos = await Promise.all(
+      photos.map(async ({ url, category }) => {
+        const image = await readSharePhoto(url).catch((error) => {
+          // A photo that cannot be read is left out of the picture; the reader records why.
+          recordError(error, { handled: true, reason: "share_photo_reader_threw" });
 
-  return buildShareImageSvg({
-    ...content,
-    locale,
-    embeddedPhotos: embeddedPhotos.flat()
+          return null;
+        });
+
+        return image && image.width > 0 && image.height > 0 ? [{ ...image, category }] : [];
+      })
+    );
+    const embedded = embeddedPhotos.flat();
+    const svg = buildShareImageSvg({
+      ...content,
+      locale,
+      embeddedPhotos: embedded
+    });
+
+    annotate({
+      "share_image.photos_requested_count": photos.length,
+      "share_image.photos_embedded_count": embedded.length,
+      "share_image.photos_left_out_count": photos.length - embedded.length,
+      "share_image.svg_length": svg.length
+    });
+
+    return svg;
   });
 }

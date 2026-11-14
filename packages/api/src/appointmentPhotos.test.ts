@@ -272,8 +272,8 @@ describe("the stored files of deleted Appointment Photos", () => {
     expect(deleteStoredFiles).not.toHaveBeenCalled();
   });
 
-  it("carries out the Stylist's deletion when storage fails, and logs the files left behind", async () => {
-    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  it("carries out the Stylist's deletion when storage fails, and records the failure", async () => {
+    const printed = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const failure = new Error("UploadThing is down.");
     const { caller, photoIds } = createPhotoCaller(
       [photo("photo_1", "file_1"), photo("photo_2", "file_2")],
@@ -288,9 +288,13 @@ describe("the stored files of deleted Appointment Photos", () => {
     });
 
     expect(photoIds()).toEqual([]);
-    expect(logged).toHaveBeenCalledTimes(2);
-    expect(logged).toHaveBeenNthCalledWith(1, expect.stringContaining("file_1"), failure);
-    expect(logged).toHaveBeenNthCalledWith(2, expect.stringContaining("file_2"), failure);
+    const recorded = printed.mock.calls
+      .map(([line]) => (typeof line === "string" && line.startsWith('{"event":"hcm.error"') ? (JSON.parse(line) as Record<string, unknown>) : null))
+      .filter((event) => event !== null);
+
+    expect(recorded).toMatchObject([{ "error.reason": "photo_storage_delete_failed" }, { "error.reason": "photo_storage_delete_failed" }]);
+    // The file keys are the address of a Client's photo: events do not carry them.
+    expect(JSON.stringify(recorded)).not.toMatch(/file_[12]/);
   });
 });
 

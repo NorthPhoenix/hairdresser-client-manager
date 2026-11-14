@@ -1,3 +1,4 @@
+import { annotate, recordError } from "@hcm/telemetry";
 import { z } from "zod";
 import type { Db } from "./context";
 import releasesFile from "./releases.json" with { type: "json" };
@@ -55,20 +56,31 @@ export function releasesSince(releases: AppRelease[], sinceVersionCode?: number,
     throw new Error("There is no app release.");
   }
 
+  const newer = counted.filter((release) => sinceVersionCode === undefined || release.versionCode > sinceVersionCode);
+
+  annotate({
+    "release.latest_version_code": latest.versionCode,
+    "release.count": newer.length,
+    "release.since_version_code": sinceVersionCode,
+    // Whether a release that is not published yet was held back (docs/adr/0018), and whether
+    // nothing is published and the oldest release stood in.
+    "release.is_capped": upTo !== undefined && published.length < releases.length,
+    "release.capped_at_version_code": upTo,
+    "release.is_oldest_standing_in": published.length === 0
+  });
+
   return {
     latest: {
       versionCode: latest.versionCode,
       versionName: latest.versionName,
       date: latest.date
     },
-    releases: counted
-      .filter((release) => sinceVersionCode === undefined || release.versionCode > sinceVersionCode)
-      .map((release) => ({
-        versionCode: release.versionCode,
-        versionName: release.versionName,
-        date: release.date,
-        notes: { ru: release.notes.ru, en: release.notes.en }
-      }))
+    releases: newer.map((release) => ({
+      versionCode: release.versionCode,
+      versionName: release.versionName,
+      date: release.date,
+      notes: { ru: release.notes.ru, en: release.notes.en }
+    }))
   };
 }
 
@@ -87,18 +99,25 @@ export function appVersionFromHeaders(headers: Pick<Headers, "get">): AppVersion
   const codeText = headers.get("x-app-version-code")?.trim() ?? "";
 
   if (!/^\d{1,10}$/.test(codeText)) {
+    // An app before 1.4.0 names no version; a header that is there but is not a number is wrong.
+    annotate({ "app.version_state": codeText === "" ? "absent" : "invalid" });
+
     return null;
   }
 
   const code = Number(codeText);
 
   if (code < 1 || code > 2_100_000_000) {
+    annotate({ "app.version_state": "invalid" });
+
     return null;
   }
 
   const nameText = headers.get("x-app-version-name")?.trim() ?? "";
   // A name is what Android shows ("1.4.0"): short, printable and on one line.
   const name = nameText.length > 0 && nameText.length <= 50 && /^[\x21-\x7e]+$/.test(nameText) ? nameText : null;
+
+  annotate({ "app.version_state": "valid", "app.version_name_valid": name !== null });
 
   return { code, name };
 }
@@ -130,13 +149,23 @@ export function shouldRecordAppVersion(stylist: SeenAppVersion, version: AppVers
  * fail the request: the request is not about this.
  */
 export async function recordAppVersion(db: Db, stylist: { id: string } & SeenAppVersion, version: AppVersion | null, now = new Date()) {
-  if (!version || !shouldRecordAppVersion(stylist, version, now)) {
+  if (!version) {
+    annotate({ "app.version_write": "skipped_no_version" });
+
+    return;
+  }
+
+  if (!shouldRecordAppVersion(stylist, version, now)) {
+    annotate({ "app.version_write": "skipped_seen_within_hour" });
+
     return;
   }
 
   try {
     await db.$executeRaw`UPDATE "Stylist" SET "appVersionCode" = ${version.code}, "appVersionName" = ${version.name}, "appVersionSeenAt" = ${now} WHERE "id" = ${stylist.id}`;
+    annotate({ "app.version_write": "written", "app.version_changed": stylist.appVersionCode !== version.code });
   } catch (error) {
-    console.error("Could not record the app version of a Stylist:", error);
+    annotate({ "app.version_write": "failed" });
+    recordError(error, { handled: true, reason: "app_version_write_failed" });
   }
 }

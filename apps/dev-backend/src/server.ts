@@ -58,7 +58,14 @@ const uploadRouter = {
         category: z.enum(["before", "after", "other"])
       })
     )
-    .middleware(async ({ req, input }) => {
+    .middleware(async ({ req, input, files }) => {
+      annotate({
+        "upload.file_count": files.length,
+        "upload.total_bytes": files.reduce((sum, file) => sum + file.size, 0),
+        "upload.largest_bytes": files.reduce((largest, file) => Math.max(largest, file.size), 0),
+        "upload.file_type": files[0]?.type
+      });
+
       const upload = await authorizePhotoUpload(db, getDevUserId(req.headers.get("authorization")), input);
 
       if ("refusal" in upload) {
@@ -67,14 +74,25 @@ const uploadRouter = {
 
       return upload.metadata;
     })
-    .onUploadComplete(({ metadata, file }) => ({
-      appointmentId: metadata.appointmentId,
-      clientId: metadata.clientId,
-      category: metadata.category,
-      fileKey: file.key,
-      url: file.ufsUrl,
-      thumbnailUrl: file.ufsUrl
-    }))
+    .onUploadComplete(({ metadata, file }) => {
+      annotate({
+        "upload.completed": true,
+        "appointment.id": metadata.appointmentId,
+        "client.id": metadata.clientId,
+        "photo.category": metadata.category,
+        "upload.file_size_bytes": file.size,
+        "upload.file_type": file.type
+      });
+
+      return {
+        appointmentId: metadata.appointmentId,
+        clientId: metadata.clientId,
+        category: metadata.category,
+        fileKey: file.key,
+        url: file.ufsUrl,
+        thumbnailUrl: file.ufsUrl
+      };
+    })
 } satisfies FileRouter;
 
 const uploadThingHandler = createRouteHandler({
@@ -274,6 +292,13 @@ async function handle(request: Request): Promise<Response> {
   }
 
   if (url.pathname === "/api/uploadthing") {
+    // As apps/web/app/api/uploadthing/route.ts does.
+    annotate({
+      "upload.action_type": url.searchParams.get("actionType") ?? "none",
+      "upload.slug": url.searchParams.get("slug") ?? "none",
+      "upload.is_callback": request.headers.get("uploadthing-hook") === "callback"
+    });
+
     return uploadThingHandler(request);
   }
 

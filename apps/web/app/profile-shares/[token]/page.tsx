@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { formatAppointmentTime, sharedPhotoName, type ProfileShareContent } from "@hcm/api";
 import { requestedLocale, t, type SupportedLocale } from "@hcm/shared";
+import { annotate } from "@hcm/telemetry";
 import { loadProfileShare } from "../../../server/profileShare";
 import { HtmlDocument } from "../../htmlDocument";
 
@@ -51,11 +52,23 @@ export default async function ProfileSharePage({ params, searchParams }: Profile
   const { lang } = await searchParams;
   const share = await loadProfileShare(token);
 
+  annotate({ "profile_share.view": "page" });
+
   if (!share) {
+    // The proxy answers a link that shows nothing before it gets here (app/not-found.tsx), so this
+    // is a link that was revoked, or that the proxy could not look up, between the two.
+    annotate({ "profile_share.page_result": "not_found" });
     notFound();
   }
 
-  const locale = requestedLocale(lang) ?? share.language;
+  const asked = requestedLocale(lang);
+  const locale = asked ?? share.language;
+
+  annotate({
+    "profile_share.page_result": "shown",
+    "profile_share.language": locale,
+    "profile_share.language_source": asked ? "query" : "client"
+  });
 
   return <HtmlDocument locale={locale}>{profileShare(token, locale, share.content)}</HtmlDocument>;
 }

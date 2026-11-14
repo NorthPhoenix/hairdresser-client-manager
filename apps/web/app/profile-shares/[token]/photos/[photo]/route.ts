@@ -1,4 +1,5 @@
 import { findSharedPhoto } from "@hcm/api";
+import { recordError, annotate } from "@hcm/telemetry";
 import { loadProfileShare, openSharePhoto, unavailableShareResponse } from "../../../../../server/profileShare";
 
 /**
@@ -11,9 +12,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   const share = await loadProfileShare(token);
   const photo = share && findSharedPhoto(share.content, token, name);
 
+  annotate({ "profile_share.view": "photo" });
+
   if (!photo) {
+    // The link shows nothing, or no photo of its content has this name (the Stylist left it out).
+    annotate({ "profile_share.photo_request": share ? "photo_not_shared" : "link_unavailable" });
+
     return unavailableShareResponse(token);
   }
+
+  annotate({ "photo.category": photo.category, "profile_share.shared_photo_count": share.content.lastCompletedAppointment?.photos.length });
 
   // A stored file never changes, so the photo's name stands for what it shows. The browser may
   // keep the photo, but has to ask before each use: the answer above ends that with the share.
@@ -24,6 +32,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   };
 
   if (request.headers.get("if-none-match") === headers.ETag) {
+    annotate({ "profile_share.photo_request": "not_modified" });
+
     return new Response(null, {
       status: 304,
       headers
@@ -33,10 +43,17 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   const file = await openSharePhoto(photo.url);
 
   if (!file) {
+    // Not handled: the Client's phone gets a 502, so the event is an error. The reason is more
+    // exact than the status, and profile_share.photo_open says what the storage did.
+    annotate({ "profile_share.photo_request": "storage_failed" });
+    recordError(new Error("The photo could not be read."), { reason: "share_photo_unreadable" });
+
     return new Response("The photo could not be read.", {
       status: 502
     });
   }
+
+  annotate({ "profile_share.photo_request": "served" });
 
   return new Response(file.body, {
     headers: {

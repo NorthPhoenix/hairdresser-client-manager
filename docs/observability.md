@@ -95,7 +95,7 @@ Prisma queries and outgoing `fetch` calls already have spans; do not wrap a sing
 ## Naming rules
 
 - Keys are lower snake_case words joined by dots: `<namespace>.<field>`. camelCase given to `annotate` is turned into snake_case, but write snake_case.
-- Namespaces are the domain's nouns from CONTEXT.md in snake_case: `stylist.`, `client.`, `appointment.`, `service.`, `service_menu.`, `photo.`, `color_formula.`, `family.`, `profile_share.`, `share_image.`, `release.`, `upload.`; and technical ones: `trpc.`, `http.`, `app.`, `auth.`, `tx.`, `next.`.
+- Namespaces are the domain's nouns from CONTEXT.md in snake_case: `stylist.`, `client.`, `appointment.`, `appointment_service.` (a Service on an Appointment; `service.` is reserved for the service that wrote the event), `service_menu.`, `photo.`, `color_formula.`, `family.`, `profile_share.`, `share_image.`, `release.`, `upload.`; and technical ones: `trpc.`, `http.`, `app.`, `auth.`, `tx.`, `next.`.
 - The main record of the request is `<entity>.id`; a related one `<entity>.<other>_id` (`appointment.primary_client_id`); several are `<entity>.ids` (an array, at most 20) next to `<entity>.count`. IDs are written as the database has them, never prefixed or shortened.
 - Units are in the name, never in the value: `_ms` (milliseconds), `_bytes`, `_count`, `_length` (characters), `_days`, `_minor` (an amount in minor currency units, as stored).
 - Booleans read as a statement: `has_phone`, `is_recurring`, `just_created`, `ok`.

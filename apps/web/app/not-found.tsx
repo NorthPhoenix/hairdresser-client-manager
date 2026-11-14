@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { normalizeLocale, t } from "@hcm/shared";
+import { annotate } from "@hcm/telemetry";
 import { unavailableLanguageHeader } from "../server/shareLink";
 import { HtmlDocument } from "./htmlDocument";
 
@@ -24,6 +25,8 @@ export async function generateMetadata(): Promise<Metadata> {
  */
 export default async function UnavailablePage() {
   const locale = await pageLocale();
+
+  annotate({ "page.kind": "unavailable", "page.language": locale });
 
   return (
     <HtmlDocument locale={locale}>
