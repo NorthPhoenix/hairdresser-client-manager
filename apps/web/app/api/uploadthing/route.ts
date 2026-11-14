@@ -1,3 +1,5 @@
+// First: sets up telemetry before the first request (server/telemetry.ts says why).
+import "../../../server/telemetry";
 import { annotate } from "@hcm/telemetry";
 import { createRouteHandler } from "uploadthing/next";
 import { uploadRouter } from "./core";

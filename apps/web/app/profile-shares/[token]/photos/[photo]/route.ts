@@ -1,3 +1,5 @@
+// First: sets up telemetry before the first request (server/telemetry.ts says why).
+import "../../../../../server/telemetry";
 import { findSharedPhoto } from "@hcm/api";
 import { recordError, annotate } from "@hcm/telemetry";
 import { loadProfileShare, openSharePhoto, unavailableShareResponse } from "../../../../../server/profileShare";
