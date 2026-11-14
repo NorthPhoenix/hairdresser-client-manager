@@ -9,9 +9,10 @@ import { fileURLToPath } from "node:url";
 // The first path is put together at run time on purpose. Written as
 // `new URL("../.env", import.meta.url)`, a bundler takes it for a file it has to find while
 // building, and the build fails where there is none.
-config({ path: join(dirname(fileURLToPath(import.meta.url)), "..", ".env") });
-config({ path: "packages/db/.env" });
-config({ path: "../../packages/db/.env" });
+// `quiet` keeps dotenv from printing a line of advice each time, which on a host is every cold start.
+config({ path: join(dirname(fileURLToPath(import.meta.url)), "..", ".env"), quiet: true });
+config({ path: "packages/db/.env", quiet: true });
+config({ path: "../../packages/db/.env", quiet: true });
 
 const globalForPrisma = globalThis as unknown as {
   hcmPrisma?: PrismaClient;

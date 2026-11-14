@@ -1,5 +1,6 @@
 export { appRouter, type AppRouter } from "./root";
 export { createTRPCContext, type CreateTRPCContextOptions } from "./context";
+export { recordProcedureError } from "./trpc";
 export { appVersionFromHeaders, type AppVersion } from "./appReleases";
 export { createPublishedReleaseReader, manifestUrlFor, type PublishedRelease, type PublishedReleaseReader } from "./publishedRelease";
 export { getUploadThingOrigins } from "./photoStorage";

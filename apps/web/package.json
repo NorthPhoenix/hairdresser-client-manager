@@ -12,6 +12,7 @@
     "@hcm/api": "workspace:*",
     "@hcm/db": "workspace:*",
     "@hcm/shared": "workspace:*",
+    "@hcm/telemetry": "workspace:*",
     "@trpc/server": "latest",
     "@uploadthing/react": "^7.3.3",
     "next": "latest",

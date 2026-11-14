@@ -19,6 +19,7 @@
   "dependencies": {
     "@hcm/db": "workspace:*",
     "@hcm/shared": "workspace:*",
+    "@hcm/telemetry": "workspace:*",
     "@trpc/server": "latest",
     "zod": "latest"
   },
