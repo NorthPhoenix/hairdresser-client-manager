@@ -327,7 +327,7 @@ class AppointmentDraftTest {
     @Test
     fun `a new Appointment opens with the sheet that adds Services, unless it overlaps another`() {
         assertTrue(AppointmentDraft.opensAddingServices(justCreated = true, overlapping = false))
-        // The warning at the top of the screen comes first.
+        // The screen opens on the overlap warning instead.
         assertFalse(AppointmentDraft.opensAddingServices(justCreated = true, overlapping = true))
         // Opened from a list, or once again after the first time.
         assertFalse(AppointmentDraft.opensAddingServices(justCreated = false, overlapping = false))
