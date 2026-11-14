@@ -11,6 +11,7 @@
   "dependencies": {
     "@hcm/api": "workspace:*",
     "@hcm/db": "workspace:*",
+    "@hcm/telemetry": "workspace:*",
     "@trpc/server": "11.17.0",
     "uploadthing": "7.7.4",
     "zod": "4.4.3"

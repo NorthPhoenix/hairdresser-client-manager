@@ -1,3 +1,4 @@
+import { annotate, recordError } from "@hcm/telemetry";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { addedOrder } from "../addedOrder";
@@ -102,6 +103,16 @@ export const serviceMenuRouter = createTRPCRouter({
       : [];
     const formulaCounts = new Map(formulaUses.map((use) => [use.menuItemId, use._count._all]));
 
+    annotate(() => ({
+      "service_menu.item_count": items.length,
+      "service_menu.group_count": new Set(items.flatMap((item) => (item.group ? [item.group] : []))).size,
+      "service_menu.grouped_item_count": items.filter((item) => item.group).length,
+      "service_menu.travel_fee_item_count": items.filter((item) => item.travelFee).length,
+      "service_menu.used_item_count": useCounts.size,
+      "service_menu.formula_item_count": formulaCounts.size,
+      "service_menu.is_empty": items.length === 0
+    }));
+
     return items.map((item) => ({
       ...toServiceMenuItemOutput(item),
       // How many Services were started from this item, in all Appointments of the Stylist.
@@ -132,9 +143,28 @@ export const serviceMenuRouter = createTRPCRouter({
       take: formulaNamesLimit
     });
 
-    return [...new Set(services.map((service) => service.name))];
+    const names = [...new Set(services.map((service) => service.name))];
+
+    annotate(() => ({
+      "service_menu.formula_service_count": services.length,
+      "service_menu.formula_name_count": names.length,
+      // Whether the limit cut the list: older Services' names are missing.
+      "service_menu.is_formula_list_truncated": services.length >= formulaNamesLimit
+    }));
+
+    return names;
   }),
   save: stylistTransactionProcedure.input(serviceMenuSaveInput).mutation(async ({ ctx, input }) => {
+    annotate(() => ({
+      "service_menu.is_new": !input.id,
+      "service_menu.has_request_key": Boolean(input.requestKey),
+      "service_menu.name_length": input.name.length,
+      "service_menu.price_minor": input.defaultPriceCents,
+      // "unchanged": the app left the group out; "cleared": empty or null; "set": a group.
+      "service_menu.group_input": input.group === undefined ? "unchanged" : input.group ? "set" : "cleared",
+      "service_menu.travel_fee_input": input.travelFee === undefined ? "unchanged" : input.travelFee ? "marked" : "unmarked"
+    }));
+
     const data = {
       name: input.name,
       defaultPriceCents: input.defaultPriceCents,
@@ -153,7 +183,9 @@ export const serviceMenuRouter = createTRPCRouter({
         : null;
 
       if (repeatedItem) {
-        refuseChangedRepeat(repeatedItem, data);
+        annotate(() => ({ "service_menu.id": repeatedItem.id }));
+        refuseChangedRepeat(repeatedItem, data, "service_menu");
+        annotate(() => ({ "service_menu.save_result": "repeat_returned_first" }));
 
         return toServiceMenuItemOutput(repeatedItem);
       }
@@ -166,12 +198,20 @@ export const serviceMenuRouter = createTRPCRouter({
         }
       });
 
+      annotate(() => ({
+        "service_menu.id": item.id,
+        "service_menu.save_result": "created",
+        "service_menu.is_travel_fee": Boolean(item.travelFee)
+      }));
+
       if (item.travelFee) {
         await unmarkOtherTravelFees(ctx.db, ctx.stylist.id, item.id);
       }
 
       return toServiceMenuItemOutput(item);
     }
+
+    annotate(() => ({ "service_menu.id": input.id }));
 
     const existingItem = await ctx.db.serviceMenuItem.findFirst({
       where: {
@@ -181,10 +221,13 @@ export const serviceMenuRouter = createTRPCRouter({
     });
 
     if (!existingItem) {
-      throw new TRPCError({
+      const refusal = new TRPCError({
         code: "NOT_FOUND",
         message: "Service Menu Item not found."
       });
+
+      recordError(refusal, { expected: true, reason: "service_menu_item_not_found" });
+      throw refusal;
     }
 
     const item = await ctx.db.serviceMenuItem.update({
@@ -194,6 +237,23 @@ export const serviceMenuRouter = createTRPCRouter({
       data
     });
 
+    annotate(() => {
+      const changed = [
+        existingItem.name !== item.name ? "name" : null,
+        existingItem.defaultPriceCents !== item.defaultPriceCents ? "price" : null,
+        (existingItem.group ?? null) !== (item.group ?? null) ? "group" : null,
+        Boolean(existingItem.travelFee) !== Boolean(item.travelFee) ? "travel_fee" : null
+      ].filter((field) => field !== null);
+
+      return {
+        "service_menu.save_result": "updated",
+        "service_menu.changed_fields": changed,
+        "service_menu.is_noop_save": changed.length === 0,
+        "service_menu.is_travel_fee": Boolean(item.travelFee),
+        "service_menu.price_before_minor": existingItem.defaultPriceCents
+      };
+    });
+
     if (item.travelFee) {
       await unmarkOtherTravelFees(ctx.db, ctx.stylist.id, item.id);
     }
@@ -201,12 +261,18 @@ export const serviceMenuRouter = createTRPCRouter({
     return toServiceMenuItemOutput(item);
   }),
   delete: stylistProcedure.input(serviceMenuDeleteInput).mutation(async ({ ctx, input }) => {
-    await ctx.db.serviceMenuItem.deleteMany({
+    const deleted = await ctx.db.serviceMenuItem.deleteMany({
       where: {
         id: input.id,
         stylistId: ctx.stylist.id
       }
     });
+
+    annotate(() => ({
+      "service_menu.id": input.id,
+      // "not_found": already gone, or not this Stylist's; the reply is the same.
+      "service_menu.delete_result": deleted?.count === 0 ? "not_found" : "deleted"
+    }));
 
     return {
       id: input.id

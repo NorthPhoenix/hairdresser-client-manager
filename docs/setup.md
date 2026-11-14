@@ -8,6 +8,8 @@ Before extending the mobile/API stack, read ADRs `0010`, `0011`, `0012`, `0013`,
 
 For building, configuring, and running the Android app, including a local backend that needs no provider credentials, read `apps/android/README.md`.
 
+What the server logs (one wide event per request) and how code adds to it: `docs/observability.md`.
+
 For v1 acceptance, Android QA, localization ownership, optional provider behavior, and future-agent entry points, read `docs/v1-acceptance.md`.
 
 ## Human setup checkpoints
