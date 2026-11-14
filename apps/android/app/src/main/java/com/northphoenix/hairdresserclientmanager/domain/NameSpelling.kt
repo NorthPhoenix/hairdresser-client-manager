@@ -97,11 +97,11 @@ object NameSpelling {
      * name in its own alphabet that it does not hold as typed: «Илья» does not find «Лилия», though
      * "ilia" is in "lilia". In the other alphabet it is looked for from the start of a word of the
      * name, as names are typed: «Яна» finds "Yana Lee" but not "Diana", whose spelling holds "iana".
-     * A search without a letter (a number), or spelled shorter than two letters («Дж» is "i"), looks
-     * for nothing.
+     * A search of fewer than two letters (a number has none), or spelled shorter than two letters
+     * («Дж» is "i"), looks for nothing.
      */
     class Search(text: String) {
-        private val spelled: String? = of(text).takeIf { it.length >= 2 && text.any(Char::isLetter) }
+        private val spelled: String? = of(typedSoFar(text)).takeIf { it.length >= 2 && text.count(Char::isLetter) >= 2 }
         private val cyrillic = text.any(::isCyrillic)
         private val latin = text.any(::isLatin)
 
@@ -112,6 +112,16 @@ object NameSpelling {
                 " ${of(name)}".contains(" $spelled")
     }
 }
+
+/**
+ * A search as its last letters will read once the word is typed on: a "y" or "j" it ends with after
+ * a letter may start «ё», «ю» or «я» ("Aly…" on the way to "Alyona"), so it is left out for now, and
+ * a "ye" or "yo" it ends with after a letter is «е» or «ё», as inside a word ("Alyo" is "Ale").
+ */
+private fun typedSoFar(text: String): String = text.replace(endingYeOrYo, "e").replace(endingY, "")
+
+private val endingYeOrYo = Regex("(?<=\\p{L})[yjYJ][eoEO]$")
+private val endingY = Regex("(?<=\\p{L})[yjYJ]$")
 
 private fun isCyrillic(char: Char): Boolean = char.isLetter() && Character.UnicodeScript.of(char.code) == Character.UnicodeScript.CYRILLIC
 

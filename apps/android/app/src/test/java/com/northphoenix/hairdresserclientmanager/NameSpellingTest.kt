@@ -91,6 +91,8 @@ class NameSpellingTest {
         // Spelled as one letter, a search would find nearly every name.
         assertFalse(NameSpelling.Search("Дж").finds("Maria Lopez"))
         assertFalse(NameSpelling.Search("о").finds("Olga Smith"))
+        assertFalse(NameSpelling.Search("Я").finds("Yana Lee"))
+        assertTrue(NameSpelling.Search("Ян").finds("Yana Lee"))
     }
 
     @Test
@@ -195,6 +197,20 @@ class NameSpellingTest {
         assertEquals(listOf("4", "5"), found(clients, "Смит"))
         assertEquals(listOf("9"), found(clients, "Ахм"))
         assertEquals(listOf("9"), found(clients, "Карим"))
+    }
+
+    @Test
+    fun `a Latin search finds a Russian name as it is being typed`() {
+        val clients = listOf(client("1", "Алёна Петрова"), client("2", "Пётр"), client("3", "Васильева"), client("4", "Ксюша"), client("5", "Артём"))
+        val typed = mapOf(
+            "1" to listOf("Al", "Aly", "Alyo", "Alyon", "Alyona"),
+            "2" to listOf("Pyo", "Pyot", "Pyotr"),
+            "3" to listOf("Vasil", "Vasily", "Vasilye", "Vasilyev", "Vasilyeva"),
+            "4" to listOf("Ksy", "Ksyu", "Ksyusha"),
+            "5" to listOf("Art", "Arty", "Artyo", "Artyom"),
+        )
+
+        typed.forEach { (id, searches) -> searches.forEach { assertTrue(it, id in found(clients, it)) } }
     }
 
     @Test
