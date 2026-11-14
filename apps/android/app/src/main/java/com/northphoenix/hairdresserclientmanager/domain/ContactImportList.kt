@@ -82,11 +82,11 @@ object ContactImportList {
         }
 
         val digits = if (isPhoneLike(query)) ClientRules.searchablePhone(query) else ""
-        val spelled = NameSpelling.ofSearch(query)
+        val otherAlphabet = NameSpelling.Search(query)
 
         return rows.filter { row ->
             fold(row.candidate.name).contains(query) ||
-                (spelled != null && NameSpelling.of(row.candidate.name).contains(spelled)) ||
+                otherAlphabet.finds(row.candidate.name) ||
                 (digits.isNotEmpty() && row.candidate.phones.any { ClientRules.searchablePhone(it).contains(digits) }) ||
                 row.candidate.phones.any { fold(it).contains(query) }
         }

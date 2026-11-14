@@ -5,8 +5,8 @@ import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
 import com.northphoenix.hairdresserclientmanager.domain.NameSpelling
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -74,9 +74,37 @@ class NameSpellingTest {
 
     @Test
     fun `only a search with a letter is looked for in the other alphabet`() {
-        assertEquals("olga", NameSpelling.ofSearch("ольга"))
-        assertNull(NameSpelling.ofSearch("+7 916"))
-        assertNull(NameSpelling.ofSearch("--"))
+        assertTrue(NameSpelling.Search("ольга").finds("Olga Smith"))
+        assertFalse(NameSpelling.Search("+7 916").finds("Anna +7 916"))
+        assertFalse(NameSpelling.Search("--").finds("Anna -- Smith"))
+        // Spelled as one letter, a search would find nearly every name.
+        assertFalse(NameSpelling.Search("Дж").finds("Maria Lopez"))
+        assertFalse(NameSpelling.Search("о").finds("Olga Smith"))
+    }
+
+    @Test
+    fun `a Russian search finds no other Russian name than as typed`() {
+        val clients = listOf(
+            client("1", "Жанна"),
+            client("2", "Наташа"),
+            client("3", "Лилия"),
+            client("4", "Эмилия"),
+            client("5", "Диана"),
+            client("6", "Стефания"),
+            client("7", "Мария"),
+            client("8", "Hannah Lee"),
+            client("9", "Maria Lopez"),
+        )
+
+        // «х» is "kh", never the "h" of «ж», «ч» or «ш»; an "h" of a Latin name is «х».
+        assertEquals(listOf("8"), found(clients, "Ханна"))
+        assertEquals(listOf("8"), found(clients, "Ха"))
+        // Spellings that meet ("ilia" in "lilia") do not join two Russian names.
+        assertTrue(found(clients, "Илья").isEmpty())
+        assertTrue(found(clients, "Яна").isEmpty())
+        assertTrue(found(clients, "Аня").isEmpty())
+        assertTrue(found(clients, "Дж").isEmpty())
+        assertEquals(listOf("7", "9"), found(clients, "Мария"))
     }
 
     @Test
