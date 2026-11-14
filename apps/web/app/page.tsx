@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { defaultLocale, requestedLocale, t } from "@hcm/shared";
+import { annotate } from "@hcm/telemetry";
 import { HtmlDocument } from "./htmlDocument";
 
 type WebIndexPageProps = {
@@ -29,6 +30,8 @@ export async function generateMetadata(props: WebIndexPageProps): Promise<Metada
  */
 export default async function WebIndexPage(props: WebIndexPageProps) {
   const locale = await pageLocale(props);
+
+  annotate({ "page.kind": "home", "page.language": locale });
 
   return (
     <HtmlDocument locale={locale}>

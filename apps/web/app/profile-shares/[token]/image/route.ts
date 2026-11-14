@@ -1,5 +1,8 @@
+// First: sets up telemetry before the first request (server/telemetry.ts says why).
+import "../../../../server/telemetry";
 import { buildShareImage } from "@hcm/api";
 import { requestedLocale } from "@hcm/shared";
+import { annotate } from "@hcm/telemetry";
 import { loadProfileShare, readSharePhoto, unavailableShareResponse } from "../../../../server/profileShare";
 
 export async function GET(request: Request, { params }: { params: Promise<{ token: string }> }) {
@@ -7,12 +10,20 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   const lang = new URL(request.url).searchParams.get("lang");
   const share = await loadProfileShare(token);
 
+  annotate({ "profile_share.view": "image" });
+
   if (!share) {
     return unavailableShareResponse(token, lang);
   }
 
-  const locale = requestedLocale(lang) ?? share.language;
+  const asked = requestedLocale(lang);
+  const locale = asked ?? share.language;
+
+  annotate({ "profile_share.language": locale, "profile_share.language_source": asked ? "query" : "client" });
+
   const svg = await buildShareImage(share.content, locale, readSharePhoto);
+
+  annotate({ "profile_share.image_served": true });
 
   return new Response(svg, {
     headers: {

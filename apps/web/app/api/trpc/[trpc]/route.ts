@@ -1,6 +1,9 @@
+// First: sets up telemetry before the first request (server/telemetry.ts says why).
+import "../../../../server/telemetry";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { auth } from "@clerk/nextjs/server";
-import { appRouter, appVersionFromHeaders, createPublishedReleaseReader, createTRPCContext, manifestUrlFor } from "@hcm/api";
+import { appRouter, appVersionFromHeaders, createPublishedReleaseReader, createTRPCContext, manifestUrlFor, recordProcedureError } from "@hcm/api";
+import { annotate, requestFields } from "@hcm/telemetry";
 import { UTApi } from "uploadthing/server";
 import { accountName, photoOrigins, readSharePhoto } from "../../../../server/profileShare";
 
@@ -21,6 +24,9 @@ async function deleteStoredFiles(fileKeys: string[]) {
 }
 
 function handler(request: Request) {
+  // The request's wide event is the root span that Next.js opened for it (docs/observability.md).
+  annotate(requestFields(request.headers));
+
   return fetchRequestHandler({
     endpoint: "/api/trpc",
     req: request,
@@ -44,12 +50,8 @@ function handler(request: Request) {
         appDownloadUrl: process.env.APP_DOWNLOAD_URL,
         publishedRelease
       }),
-    // The reply to an unexpected failure says nothing about it, so the log has to.
-    onError: ({ error, path }) => {
-      if (error.code === "INTERNAL_SERVER_ERROR") {
-        console.error(`tRPC ${path ?? "request"} failed:`, error.cause ?? error);
-      }
-    }
+    // The reply to an unexpected failure says nothing about it, so the request's event has to.
+    onError: recordProcedureError
   });
 }
 

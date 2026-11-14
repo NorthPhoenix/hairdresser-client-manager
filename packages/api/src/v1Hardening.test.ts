@@ -209,7 +209,7 @@ describe("v1 acceptance hardening", () => {
 
   it("answers for a share page before the page only when its link is known to show nothing", async () => {
     const findUnique = vi.fn();
-    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const logged = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     vi.doMock("@hcm/db", () => ({ db: { profileShare: { findUnique } } }));
 
@@ -237,6 +237,7 @@ describe("v1 acceptance hardening", () => {
       findUnique.mockRejectedValueOnce(new Error("The database is away."));
       expect(await lookUpSharePage(token)).toEqual({ showsNothing: false, language: undefined });
       expect(logged).toHaveBeenCalledOnce();
+      expect(String(logged.mock.calls[0]?.[0])).toContain('"error.reason":"share_lookup_failed"');
     } finally {
       vi.doUnmock("@hcm/db");
       logged.mockRestore();
