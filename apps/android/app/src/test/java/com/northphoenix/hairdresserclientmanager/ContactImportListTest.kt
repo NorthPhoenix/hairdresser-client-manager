@@ -170,6 +170,13 @@ class ContactImportListTest {
     }
 
     @Test
+    fun `a search finds a name in the other alphabet too`() {
+        assertEquals(listOf(1L), ContactImportList.filter(rows, "Petrova").map { it.candidate.id })
+        assertEquals(listOf(1L), ContactImportList.filter(rows, "yolka").map { it.candidate.id })
+        assertEquals(listOf(2L), ContactImportList.filter(rows, "Боб").map { it.candidate.id })
+    }
+
+    @Test
     fun `a search that is a number matches the digits of any number of the contact`() {
         assertEquals(listOf(2L), ContactImportList.filter(rows, "333-44").map { it.candidate.id })
         assertEquals(listOf(2L), ContactImportList.filter(rows, "7375550100").map { it.candidate.id })

@@ -70,7 +70,10 @@ object ContactImportList {
             .sortedWith(compareBy<ImportRow>({ bucket(it.candidate.name, cyrillicFirst) }, { fold(it.candidate.name) }, { it.candidate.id }))
     }
 
-    /** The rows that a search finds: by name, or, when the search is a phone number, by the digits of any number. */
+    /**
+     * The rows that a search finds: by name, also in the other alphabet ([NameSpelling]), or, when the search is a phone
+     * number, by the digits of any number.
+     */
     fun filter(rows: List<ImportRow>, search: String): List<ImportRow> {
         val query = fold(search.trim())
 
@@ -79,9 +82,11 @@ object ContactImportList {
         }
 
         val digits = if (isPhoneLike(query)) ClientRules.searchablePhone(query) else ""
+        val spelled = NameSpelling.ofSearch(query)
 
         return rows.filter { row ->
             fold(row.candidate.name).contains(query) ||
+                (spelled != null && NameSpelling.of(row.candidate.name).contains(spelled)) ||
                 (digits.isNotEmpty() && row.candidate.phones.any { ClientRules.searchablePhone(it).contains(digits) }) ||
                 row.candidate.phones.any { fold(it).contains(query) }
         }
