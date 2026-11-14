@@ -38,7 +38,6 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.data.LocationType
@@ -50,8 +49,6 @@ import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.Notice
-import com.northphoenix.hairdresserclientmanager.state.Read
-import com.northphoenix.hairdresserclientmanager.ui.LocalBookings
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.HcmTextField
 import com.northphoenix.hairdresserclientmanager.ui.components.PickerField
@@ -62,6 +59,7 @@ import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.YearMonth
 
 // The fields for the time and the place of an Appointment. Appointment Creation and the edit of an
 // Appointment show the same ones, so that both ask the same way. Each form holds its own values.
@@ -99,6 +97,10 @@ fun AppointmentTimeFields(
                 onClick = { onOpen(AppointmentTimeField.DATE) },
                 wraps = true,
             )
+            // The date picker is opened on nearly every booking. Its month is loaded with the form, as the list under
+            // the date reads it, and so is the next one: the picker opens with its days marked, and a day picked in
+            // either month is listed at once.
+            PreloadBookedMonths(YearMonth.from(date).plusMonths(1))
             DayBookings(date, excluding = movingAppointmentId)
         }
         Column {
@@ -141,16 +143,15 @@ fun AppointmentTimeFields(
 /**
  * What [date] already has, under its field, so that a time is picked knowing it: each Appointment
  * that is not canceled ([CalendarWeek.bookedOn]) with its time, its primary Client, how many more
- * Clients it has and a house when it is at home. The day is read as the Calendar reads it
- * ([LocalBookings]); "No appointments on this day" once it is known to have none, and nothing while
- * it is loading or could not be loaded, where the form is no place to say so.
+ * Clients it has and a house when it is at home. It comes from the day's month as the date picker
+ * reads it ([monthBookings]); "No appointments on this day" once it is known to have none, and
+ * nothing while it is loading or could not be loaded, where the form is no place to say so.
  */
 @Composable
 private fun DayBookings(date: LocalDate, excluding: String?) {
     val format = LocalTimeFormat.current
-    val bookings = LocalBookings.current
-    val read by remember(bookings, date) { bookings.on(date) }.collectAsStateWithLifecycle(Read())
-    val booked = read.data?.let { CalendarWeek.bookedOn(it, excluding) } ?: return
+    val read by monthBookings(YearMonth.from(date))
+    val booked = read.data?.let { CalendarWeek.bookedOn(it, date, format.zone, excluding) } ?: return
     val times = booked.map { appointment -> listOfNotNull(format.time(appointment.startsAt), appointment.endsAt?.let { format.time(it) }).joinToString("–") }
     val timeStyle = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
     // The names start in one column: as wide as the widest of the day's times.

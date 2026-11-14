@@ -50,8 +50,6 @@ import com.northphoenix.hairdresserclientmanager.ui.components.TextAction
 import com.northphoenix.hairdresserclientmanager.ui.screens.MainNavigation
 import com.northphoenix.hairdresserclientmanager.ui.screens.OnboardingScreen
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmTheme
-import java.time.DayOfWeek
-import java.time.LocalDate
 import java.time.YearMonth
 import kotlinx.coroutines.launch
 
@@ -107,9 +105,9 @@ fun HcmApp(container: AppContainer) {
 
             val bookings = remember(viewModel) {
                 object : Bookings {
-                    override fun markedDays(month: YearMonth, firstDayOfWeek: DayOfWeek) = viewModel.calendarMonthMarks(month, firstDayOfWeek)
+                    override fun month(month: YearMonth) = viewModel.monthAppointments(month)
 
-                    override fun on(day: LocalDate) = viewModel.appointmentsOn(day)
+                    override fun monthNow(month: YearMonth) = viewModel.shownMonthAppointments(month)
                 }
             }
 

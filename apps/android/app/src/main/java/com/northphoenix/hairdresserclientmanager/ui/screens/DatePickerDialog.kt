@@ -31,7 +31,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -51,7 +53,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
+import com.northphoenix.hairdresserclientmanager.data.Appointment
+import com.northphoenix.hairdresserclientmanager.domain.CalendarWeek
 import com.northphoenix.hairdresserclientmanager.domain.weeksOf
+import com.northphoenix.hairdresserclientmanager.state.Read
 import com.northphoenix.hairdresserclientmanager.ui.LocalBookings
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.CircleIconButton
@@ -80,7 +85,9 @@ private val MonthHeight = WeekdayRowHeight + WeekRowHeight * 6
  * Picks a day. The month is drawn by the app itself: the Material date picker marks as today the
  * day it is on the device, and [today] is the day it is in the Stylist's timezone. A dot under a
  * day's number says it has an Appointment that is not canceled, as on the Calendar's week strip
- * ([LocalBookings]), so a day for an Appointment is picked knowing which days are booked.
+ * ([LocalBookings]), so a day for an Appointment is picked knowing which days are booked. The
+ * screen that opens the picker keeps the month it opens on loaded ([PreloadBookedMonths]), so the
+ * dots are there as it opens.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -148,6 +155,31 @@ fun HcmDatePickerDialog(initial: LocalDate, today: LocalDate, onDismiss: () -> U
     }
 }
 
+/**
+ * The Appointments that start in [month] ([LocalBookings]), for as long as this is in the
+ * composition. It starts from what is loaded already, so a month that a screen keeps loaded
+ * ([PreloadBookedMonths]) is there from the first frame of whatever else reads it; another month
+ * comes a moment later.
+ */
+@Composable
+internal fun monthBookings(month: YearMonth): State<Read<List<Appointment>>> {
+    val bookings = LocalBookings.current
+
+    return key(bookings, month) {
+        remember { bookings.month(month) }.collectAsStateWithLifecycle(remember { bookings.monthNow(month) })
+    }
+}
+
+/**
+ * Keeps the Appointments of [months] loaded while the screen that opens a date picker on them is
+ * shown, so that the picker opens with its days marked. Nothing on the screen itself changes when
+ * they arrive.
+ */
+@Composable
+internal fun PreloadBookedMonths(vararg months: YearMonth) {
+    months.forEach { month -> monthBookings(month) }
+}
+
 /** One month as a grid of days under the names of the weekdays. A swipe to the side shows the month next to it. */
 @Composable
 private fun PickerMonth(month: YearMonth, selected: LocalDate, today: LocalDate, onSelect: (LocalDate) -> Unit, onSwipe: (months: Long) -> Unit) {
@@ -155,10 +187,9 @@ private fun PickerMonth(month: YearMonth, selected: LocalDate, today: LocalDate,
     val weeks = remember(month, format.firstDayOfWeek) { weeksOf(month, format.firstDayOfWeek) }
     val firstWeekday = today.with(TemporalAdjusters.previousOrSame(format.firstDayOfWeek))
     val swipe by rememberUpdatedState(onSwipe)
-    val bookings = LocalBookings.current
-    // None are marked while the month loads: the dots come when they are known.
-    val marked by remember(bookings, month, format.firstDayOfWeek) { bookings.markedDays(month, format.firstDayOfWeek) }
-        .collectAsStateWithLifecycle(emptySet())
+    // A month the screen under the picker keeps loaded is marked from the first frame; another one when it has loaded.
+    val booked by monthBookings(month)
+    val marked = remember(booked, format.zone) { CalendarWeek.daysWithAppointments(booked.data.orEmpty(), format.zone) }
 
     Column(
         Modifier.fillMaxSize().pointerInput(Unit) {

@@ -6,6 +6,7 @@ import com.northphoenix.hairdresserclientmanager.domain.CalendarWeek
 import com.northphoenix.hairdresserclientmanager.domain.HomeOutcomes
 import java.time.Instant
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -18,6 +19,9 @@ internal data class DayKey(val day: LocalDate, val zone: ZoneId)
 
 /** The seven days from [firstDay] on in [zone]: a week of the Calendar's week strip. */
 internal data class WeekKey(val firstDay: LocalDate, val zone: ZoneId)
+
+/** A month in [zone], from its 1st to its last day: a month of the date picker, which marks its days that have Appointments. */
+internal data class MonthKey(val month: YearMonth, val zone: ZoneId)
 
 /** One Appointment, by its id. */
 internal data class AppointmentKey(val id: String)
@@ -32,7 +36,8 @@ internal data class CopyTargetKey(val appointmentId: String, val clientIds: Set<
 /**
  * Every read of Appointments, each through a [ReadCache]: [today] (`appointment.home`), a
  * Calendar day ([days], `appointment.list`), a week of the Calendar's week strip ([weeks], `appointment.list`
- * for seven days), one Appointment by its id ([one], `appointment.get`)
+ * for seven days), a month of the date picker ([months], `appointment.list` for the month), one
+ * Appointment by its id ([one], `appointment.get`)
  * and what Appointment Copying can copy from ([sources], `appointment.completedSources`).
  *
  * A change is told here, and reaches the reads in two ways. What is on screen gets what the
@@ -58,6 +63,7 @@ internal class AppointmentReads(
     find: suspend (id: String) -> Appointment?,
     fetchSources: suspend (CopyTargetKey) -> List<Appointment>,
     fetchWeek: suspend (WeekKey) -> List<Appointment>,
+    fetchMonth: suspend (MonthKey) -> List<Appointment>,
 ) {
     /**
      * Today's list holds every Scheduled Appointment that is overdue as well, of whatever day. So
@@ -91,6 +97,21 @@ internal class AppointmentReads(
     ) { key ->
         zones += key.zone
         fetchWeek(key)
+    }
+
+    /**
+     * The Appointments that start in a month, for the date picker: it marks the days that have any,
+     * and the form that books or moves an Appointment lists those of its day. Such a list is about
+     * each day of the month as a day's list is ([startsOn]).
+     */
+    val months = ReadCache<MonthKey, List<Appointment>>(
+        scope,
+        changes,
+        MONTH_LIMITS,
+        about = { key, list -> list.flatMap { idsIn(it) } + monthDays(key).map(::startsOn) },
+    ) { key ->
+        zones += key.zone
+        fetchMonth(key)
     }
 
     /** The answer is null for an Appointment the server no longer has. */
@@ -167,6 +188,7 @@ internal class AppointmentReads(
         today.update { _, list -> list.map { if (it.id == id) change(it) else it } }
         days.update { _, list -> list.map { if (it.id == id) change(it) else it } }
         weeks.update { _, list -> list.map { if (it.id == id) change(it) else it } }
+        months.update { _, list -> list.map { if (it.id == id) change(it) else it } }
         one.update { key, appointment -> if (key.id == id && appointment != null) change(appointment) else appointment }
         changes.changed(id)
     }
@@ -182,6 +204,7 @@ internal class AppointmentReads(
             today.expect(change) { _, list -> list.map { if (it.id == id) edit(it) else it } }
             days.expect(change) { _, list -> list.map { if (it.id == id) edit(it) else it } }
             weeks.expect(change) { _, list -> list.map { if (it.id == id) edit(it) else it } }
+            months.expect(change) { _, list -> list.map { if (it.id == id) edit(it) else it } }
             one.expect(change) { key, appointment -> if (key.id == id && appointment != null) edit(appointment) else appointment }
             expected.value += change to (id to edit)
         },
@@ -190,6 +213,7 @@ internal class AppointmentReads(
             today.settled(change)
             days.settled(change)
             weeks.settled(change)
+            months.settled(change)
             one.settled(change)
             expected.value -= change
         },
@@ -217,6 +241,7 @@ internal class AppointmentReads(
         today.update { _, list -> list.map { it.withClient(saved) } }
         days.update { _, list -> list.map { it.withClient(saved) } }
         weeks.update { _, list -> list.map { it.withClient(saved) } }
+        months.update { _, list -> list.map { it.withClient(saved) } }
         one.update { _, appointment -> appointment?.withClient(saved) }
         sources.update { _, list -> list.map { it.withClient(saved) } }
         changes.changed(saved.id)
@@ -248,6 +273,7 @@ internal class AppointmentReads(
         today.update { _, list -> list.filterNot { it.id == id } }
         days.update { _, list -> list.filterNot { it.id == id } }
         weeks.update { _, list -> list.filterNot { it.id == id } }
+        months.update { _, list -> list.filterNot { it.id == id } }
         sources.update { _, list -> list.filterNot { it.id == id } }
         one.answer(AppointmentKey(id), null)
         changes.changed(id)
@@ -261,6 +287,7 @@ internal class AppointmentReads(
         today.clear()
         days.clear()
         weeks.clear()
+        months.clear()
         one.clear()
         sources.clear()
     }
@@ -292,6 +319,9 @@ internal class AppointmentReads(
         /** As for the days: two months of weeks. */
         val WEEK_LIMITS = CacheLimits(answers = 9)
 
+        /** The months the date picker was opened on and swiped to of late. */
+        val MONTH_LIMITS = CacheLimits(answers = 6)
+
         val ONE_LIMITS = CacheLimits(answers = 100)
 
         /** The copy sheets opened of late. A list is kept only until the next change (see [sources]). */
@@ -304,6 +334,8 @@ internal class AppointmentReads(
         fun startsOn(key: DayKey): String = "starts-on:${key.day}@${key.zone.id}"
 
         fun weekDays(key: WeekKey): List<DayKey> = CalendarWeek.days(key.firstDay).map { DayKey(it, key.zone) }
+
+        fun monthDays(key: MonthKey): List<DayKey> = (1..key.month.lengthOfMonth()).map { DayKey(key.month.atDay(it), key.zone) }
 
         /** What an Appointment repeats of others: a change to one of these is a change to it. */
         fun idsIn(appointment: Appointment): List<String> =

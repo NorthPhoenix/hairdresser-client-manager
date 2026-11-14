@@ -25,8 +25,6 @@ import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
 import com.northphoenix.hairdresserclientmanager.state.Read
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
-import java.time.DayOfWeek
-import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 import java.util.Locale
@@ -40,18 +38,20 @@ val LocalSnackbarHostState = staticCompositionLocalOf { SnackbarHostState() }
 /**
  * What is booked, for where a day is picked for an Appointment: the date picker marks the days of
  * its month that have an Appointment, and the form that books or moves one lists what the chosen
- * day already has. The app reads both as the Calendar does ([com.northphoenix.hairdresserclientmanager.state.AppViewModel.calendarMonthMarks],
- * [com.northphoenix.hairdresserclientmanager.state.AppViewModel.appointmentsOn]); outside it nothing is booked.
+ * day already has. The app reads a month as the date picker shows it
+ * ([com.northphoenix.hairdresserclientmanager.state.AppViewModel.monthAppointments]); outside it nothing is booked.
  */
 interface Bookings {
-    fun markedDays(month: YearMonth, firstDayOfWeek: DayOfWeek): Flow<Set<LocalDate>>
+    /** The Appointments that start in [month], for as long as this is collected. */
+    fun month(month: YearMonth): Flow<Read<List<Appointment>>>
 
-    fun on(day: LocalDate): Flow<Read<List<Appointment>>>
+    /** What there is of [month] already, without asking: for the first frame. */
+    fun monthNow(month: YearMonth): Read<List<Appointment>>
 
     object None : Bookings {
-        override fun markedDays(month: YearMonth, firstDayOfWeek: DayOfWeek): Flow<Set<LocalDate>> = flowOf(emptySet())
+        override fun month(month: YearMonth): Flow<Read<List<Appointment>>> = flowOf(Read())
 
-        override fun on(day: LocalDate): Flow<Read<List<Appointment>>> = flowOf(Read())
+        override fun monthNow(month: YearMonth): Read<List<Appointment>> = Read()
     }
 }
 
