@@ -10,7 +10,6 @@ import com.northphoenix.hairdresserclientmanager.domain.MirrorEvent
 import com.northphoenix.hairdresserclientmanager.domain.MirrorStep
 import com.northphoenix.hairdresserclientmanager.domain.MirrorWords
 import com.northphoenix.hairdresserclientmanager.domain.PhoneCalendar
-import com.northphoenix.hairdresserclientmanager.domain.PhoneSync
 import com.northphoenix.hairdresserclientmanager.domain.WrittenEvent
 import com.northphoenix.hairdresserclientmanager.domain.zoneOrSystem
 import kotlinx.coroutines.CancellationException
@@ -38,10 +37,14 @@ interface PhoneCalendarStore {
     /** The Google calendars on the phone. */
     fun calendars(): List<PhoneCalendar>
 
-    fun sync(): PhoneSync
+    /**
+     * Android's "Auto-sync app data", for all accounts. Whether one account's calendar syncs is not
+     * for the app to know: Android tells only apps the account is shared with, and says "off" to the rest.
+     */
+    fun autoSync(): Boolean
 
-    /** Asks Android to sync the calendars of these Google accounts now, so a calendar made on calendar.google.com comes sooner. */
-    fun requestSync(accounts: Collection<String>)
+    /** Asks Android to sync the phone's calendars now, so a calendar made on calendar.google.com comes sooner. Accounts whose calendar sync is off stay as they are. */
+    fun requestSync()
 
     /** Makes the phone keep and sync the events of a calendar. */
     fun keepSyncing(calendarId: Long)
@@ -89,9 +92,6 @@ enum class CalendarProblem {
 
     /** The phone's auto-sync is off: the events are on the phone and do not reach Google. */
     AUTO_SYNC_OFF,
-
-    /** Calendar sync is off for the calendar's Google account: the events are on the phone and do not reach Google. */
-    CALENDAR_SYNC_OFF,
 
     /** The Appointments could not be loaded. Passes on its own. */
     SERVER,
@@ -195,19 +195,19 @@ class CalendarSync(
                 PhoneFacts(access = false)
             } else {
                 try {
-                    PhoneFacts(access = true, calendars = phone.calendars(), sync = phone.sync())
+                    PhoneFacts(access = true, calendars = phone.calendars(), autoSync = phone.autoSync())
                 } catch (_: SecurityException) {
                     PhoneFacts(access = false)
                 }
             }
         }
 
-    /** Asks Android to bring the calendars of [accounts] to the phone now. Quietly: it only makes it sooner. */
-    fun askForSync(accounts: Collection<String>) {
+    /** Asks Android to bring the phone's calendars up to date now. Quietly: it only makes it sooner. */
+    fun askForSync() {
         scope.launch {
             withContext(io) {
                 try {
-                    phone.requestSync(accounts)
+                    phone.requestSync()
                 } catch (_: Exception) {
                     // Android syncs on its own as well.
                 }
@@ -335,13 +335,7 @@ class CalendarSync(
         store.lastSync = clock() to desired.size
 
         // The events are on the phone now. Whether they reach Google is Android's sync, which may be turned off.
-        val sync = withContext(io) { phone.sync() }
-
-        return when {
-            !sync.auto -> CalendarProblem.AUTO_SYNC_OFF
-            !sync.syncs(calendar.accountName) -> CalendarProblem.CALENDAR_SYNC_OFF
-            else -> null
-        }
+        return if (withContext(io) { phone.autoSync() }) null else CalendarProblem.AUTO_SYNC_OFF
     }
 
     /** The connected calendar on the phone: by its row, else by its address in Google. */
@@ -375,5 +369,6 @@ class CalendarSync(
 data class PhoneFacts(
     val access: Boolean,
     val calendars: List<PhoneCalendar> = emptyList(),
-    val sync: PhoneSync = PhoneSync(),
+    /** Android's "Auto-sync app data". */
+    val autoSync: Boolean = true,
 )

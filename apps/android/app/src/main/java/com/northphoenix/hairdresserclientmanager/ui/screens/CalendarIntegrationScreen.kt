@@ -55,7 +55,6 @@ import com.northphoenix.hairdresserclientmanager.domain.CalendarAccess
 import com.northphoenix.hairdresserclientmanager.domain.CalendarSetup
 import com.northphoenix.hairdresserclientmanager.domain.CalendarSetupStep
 import com.northphoenix.hairdresserclientmanager.domain.PhoneCalendar
-import com.northphoenix.hairdresserclientmanager.domain.PhoneSync
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.CalendarConnection
 import com.northphoenix.hairdresserclientmanager.state.CalendarMirrorState
@@ -139,21 +138,21 @@ private fun Setup(viewModel: AppViewModel) {
         access.blocked -> CalendarAccess.BLOCKED
         else -> CalendarAccess.ASKABLE
     }
-    val step = CalendarSetup.step(accessState, phone.calendars, phone.sync)
-    val accounts = phone.calendars.map { it.accountName }.distinct()
-    // Waiting for what happens outside the app: a Google account added, the calendar made on
-    // calendar.google.com coming to the phone. Android is asked to sync now and then, so it comes sooner.
-    val watching = step is CalendarSetupStep.NoGoogleAccount || (step is CalendarSetupStep.Calendar && step.existing == null)
-
-    LaunchedEffect(watching) {
-        while (watching) {
+    val step = CalendarSetup.step(accessState, phone.calendars, phone.autoSync)
+    // What happens outside the app shows here by itself: a Google account added, the calendar made on
+    // calendar.google.com coming to the phone, or deleted there again.
+    LaunchedEffect(phone.access) {
+        while (phone.access) {
             delay(3_000)
             looks++
         }
     }
-    LaunchedEffect(watching, accounts) {
+    // While it is waited for, Android is asked to sync now and then, so it comes sooner.
+    val watching = step is CalendarSetupStep.NoGoogleAccount || (step is CalendarSetupStep.Calendar && step.existing == null)
+
+    LaunchedEffect(watching) {
         while (watching) {
-            sync.askForSync(accounts)
+            sync.askForSync()
             delay(20_000)
         }
     }
@@ -178,7 +177,9 @@ private fun Setup(viewModel: AppViewModel) {
             is CalendarSetupStep.NoGoogleAccount -> {
                 Body(stringResource(R.string.calendar_step_account_body))
                 PrimaryButton(stringResource(R.string.calendar_step_account_action), onClick = { context.openAddGoogleAccount() }, modifier = Modifier.fillMaxWidth())
-                SyncOff(step.sync, accounts = emptyList())
+                if (!step.autoSync) {
+                    AutoSyncOff()
+                }
             }
             is CalendarSetupStep.Calendar -> {
                 val existing = step.existing
@@ -187,28 +188,25 @@ private fun Setup(viewModel: AppViewModel) {
                     Body(stringResource(R.string.calendar_existing_found, existing.name, existing.accountName))
                     PrimaryButton(stringResource(R.string.calendar_use_existing), onClick = { sync.connect(existing) }, modifier = Modifier.fillMaxWidth())
                 } else {
-                    // Made in an account whose calendar does not sync, it would never come: those are left out, unless none syncs.
-                    val syncing = step.syncing
-                    val signIn = syncing.ifEmpty { step.accounts }
-
                     Body(stringResource(R.string.calendar_step_calendar_body))
                     Body(stringResource(R.string.calendar_create_where))
                     Steps(
-                        if (signIn.size == 1) {
-                            Step(stringResource(R.string.calendar_create_step_open_one, signIn.single()))
+                        if (step.accounts.size == 1) {
+                            Step(stringResource(R.string.calendar_create_step_open_one, step.accounts.single()))
                         } else {
-                            Step(stringResource(R.string.calendar_create_step_open_many), accounts = signIn)
+                            Step(stringResource(R.string.calendar_create_step_open_many), accounts = step.accounts)
                         },
                         Step(stringResource(R.string.calendar_create_step_new)),
                         Step(stringResource(R.string.calendar_create_step_name, ownName)),
                     )
-                    if (syncing.isEmpty()) {
-                        SyncOff(step.sync, step.accounts)
+                    if (!step.autoSync) {
+                        AutoSyncOff()
                     } else {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             CircularProgressIndicator(Modifier.padding(top = 2.dp).size(16.dp), strokeWidth = 2.dp)
                             Body(stringResource(R.string.calendar_create_watching, ownName))
                         }
+                        NotComing(step.accounts, ownName)
                     }
                 }
                 TextAction(stringResource(R.string.calendar_choose_other), onClick = { choosing = true }, modifier = Modifier.align(Alignment.End))
@@ -248,43 +246,43 @@ private fun calendarStepTitle(step: CalendarSetupStep, ownName: String): String 
     }
 
 /**
- * Android's sync that is off for [accounts], or for the whole phone, and so keeps their calendars
- * from syncing with Google: why, which account, and the steps in Android's settings to turn it on.
- * Nothing when it is on. With a [lead], that comes first, as what it means for the Stylist.
+ * Android's auto-sync, off for the whole phone: the steps in Android's settings to turn it on.
+ * With a [lead], that comes first, as what it means for the Stylist.
  */
 @Composable
-private fun SyncOff(sync: PhoneSync, accounts: List<String>, lead: String? = null) {
-    val off = accounts.filter { it in sync.calendarOffFor }
-
-    if (sync.auto && off.isEmpty()) {
-        return
-    }
-
+private fun AutoSyncOff(lead: String? = null) {
     val context = LocalContext.current
-    val reason = when {
-        !sync.auto -> stringResource(R.string.calendar_sync_auto_off)
-        off.size == 1 -> stringResource(R.string.calendar_sync_account_off_one, off.single())
-        else -> stringResource(R.string.calendar_sync_account_off_many)
-    }
 
     if (lead != null) {
         Problem(lead)
-        Body(reason)
+        Body(stringResource(R.string.calendar_sync_auto_off))
     } else {
-        Problem(reason)
+        Problem(stringResource(R.string.calendar_sync_auto_off))
     }
-    if (sync.auto && off.size > 1) {
-        AccountList(off, modifier = Modifier.padding(start = 26.dp))
+    Steps(Step(stringResource(R.string.calendar_fix_open_settings)), Step(stringResource(R.string.calendar_fix_auto_sync)))
+    SecondaryButton(stringResource(R.string.calendar_open_sync_settings), onClick = { context.openSyncSettings() }, modifier = Modifier.fillMaxWidth())
+}
+
+/**
+ * What to check when the calendar made on calendar.google.com does not come to the phone: the calendar
+ * sync of its account, which Android does not tell the app. Folded until the Stylist asks.
+ */
+@Composable
+private fun ColumnScope.NotComing(accounts: List<String>, ownName: String) {
+    var open by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    if (!open) {
+        // Over "Choose another calendar", in one column with it.
+        TextAction(stringResource(R.string.calendar_not_coming), onClick = { open = true }, modifier = Modifier.align(Alignment.End))
+        return
     }
+
+    Body(stringResource(R.string.calendar_not_coming_body, ownName))
     Steps(
         Step(stringResource(R.string.calendar_fix_open_settings)),
-        *when {
-            !sync.auto -> arrayOf(Step(stringResource(R.string.calendar_fix_auto_sync)))
-            else -> arrayOf(
-                Step(if (off.size == 1) stringResource(R.string.calendar_fix_choose_account, off.single()) else stringResource(R.string.calendar_fix_choose_any_account)),
-                Step(stringResource(R.string.calendar_fix_turn_on_calendar)),
-            )
-        },
+        Step(if (accounts.size == 1) stringResource(R.string.calendar_fix_choose_account, accounts.single()) else stringResource(R.string.calendar_fix_choose_its_account)),
+        Step(stringResource(R.string.calendar_fix_turn_on_calendar)),
     )
     SecondaryButton(stringResource(R.string.calendar_open_sync_settings), onClick = { context.openSyncSettings() }, modifier = Modifier.fillMaxWidth())
 }
@@ -396,12 +394,7 @@ private fun Connected(viewModel: AppViewModel, state: CalendarMirrorState, conne
                     Problem(stringResource(R.string.calendar_problem_gone, connection.calendarName))
                     PrimaryButton(stringResource(R.string.calendar_set_up_again), onClick = sync::disconnect, modifier = Modifier.fillMaxWidth())
                 }
-                CalendarProblem.AUTO_SYNC_OFF -> SyncOff(PhoneSync(auto = false), emptyList(), lead = stringResource(R.string.calendar_problem_sync_off))
-                CalendarProblem.CALENDAR_SYNC_OFF -> SyncOff(
-                    PhoneSync(calendarOffFor = setOf(connection.accountName)),
-                    listOf(connection.accountName),
-                    lead = stringResource(R.string.calendar_problem_sync_off),
-                )
+                CalendarProblem.AUTO_SYNC_OFF -> AutoSyncOff(lead = stringResource(R.string.calendar_problem_sync_off))
                 CalendarProblem.SERVER -> Problem(stringResource(R.string.calendar_problem_server))
                 CalendarProblem.PHONE -> Problem(stringResource(R.string.calendar_problem_phone))
                 null -> Unit
@@ -530,7 +523,7 @@ fun CalendarProblemHomeCard(state: CalendarMirrorState, onFix: () -> Unit, modif
                 Text(
                     when (state.problem) {
                         CalendarProblem.NO_ACCESS -> stringResource(R.string.calendar_home_cause_no_access)
-                        CalendarProblem.AUTO_SYNC_OFF, CalendarProblem.CALENDAR_SYNC_OFF -> stringResource(R.string.calendar_home_cause_sync_off)
+                        CalendarProblem.AUTO_SYNC_OFF -> stringResource(R.string.calendar_home_cause_sync_off)
                         else -> stringResource(R.string.calendar_home_cause_gone, state.connection.calendarName)
                     },
                     style = MaterialTheme.typography.bodyMedium,

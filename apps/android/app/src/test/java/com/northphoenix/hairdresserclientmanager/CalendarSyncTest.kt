@@ -12,7 +12,6 @@ import com.northphoenix.hairdresserclientmanager.domain.CalendarMirror
 import com.northphoenix.hairdresserclientmanager.domain.MirrorEvent
 import com.northphoenix.hairdresserclientmanager.domain.MirrorWords
 import com.northphoenix.hairdresserclientmanager.domain.PhoneCalendar
-import com.northphoenix.hairdresserclientmanager.domain.PhoneSync
 import com.northphoenix.hairdresserclientmanager.domain.WrittenEvent
 import com.northphoenix.hairdresserclientmanager.state.CalendarConnection
 import com.northphoenix.hairdresserclientmanager.state.CalendarConnectionStore
@@ -45,7 +44,7 @@ class CalendarSyncTest {
         /** Events of the calendar that are not the app's. */
         val foreign = mutableSetOf<Long>()
         var failInsertAfter = Int.MAX_VALUE
-        var syncedAccounts = listOf<String>()
+        var syncRequests = 0
         var keptSyncing = listOf<Long>()
         private var nextId = 100L
         var inserts = 0
@@ -57,12 +56,12 @@ class CalendarSyncTest {
             return calendars
         }
 
-        var phoneSync = PhoneSync()
+        var autoSync = true
 
-        override fun sync() = phoneSync
+        override fun autoSync() = autoSync
 
-        override fun requestSync(accounts: Collection<String>) {
-            syncedAccounts = accounts.toList()
+        override fun requestSync() {
+            syncRequests++
         }
 
         override fun keepSyncing(calendarId: Long) {
@@ -369,32 +368,26 @@ class CalendarSyncTest {
     fun `while the calendar made on calendar google com is waited for, Android is asked to sync`() = runTest {
         val f = fixture()
 
-        f.sync.askForSync(listOf("mom@gmail.com"))
+        f.sync.askForSync()
         advanceUntilIdle()
 
-        assertEquals(listOf("mom@gmail.com"), f.phone.syncedAccounts)
+        assertEquals(1, f.phone.syncRequests)
     }
 
     @Test
-    fun `sync that is off is said, with the events written all the same, and passes once it is on`() = runTest {
+    fun `auto-sync that is off is said, with the events written all the same, and passes once it is on`() = runTest {
         val f = fixture(appointment("a1"))
-        val calendar = f.phone.calendars.first()
 
         f.sync.follow(stylist)
-        f.phone.phoneSync = PhoneSync(calendarOffFor = setOf(calendar.accountName))
-        f.sync.connect(calendar)
+        f.phone.autoSync = false
+        f.sync.connect(f.phone.calendars.first())
         advanceUntilIdle()
 
-        assertEquals(CalendarProblem.CALENDAR_SYNC_OFF, f.sync.state.value.problem)
+        assertEquals(CalendarProblem.AUTO_SYNC_OFF, f.sync.state.value.problem)
         assertTrue(f.sync.state.value.problem!!.needsStylist)
         assertEquals(listOf("Наташа"), f.phone.titles())
 
-        f.phone.phoneSync = PhoneSync(auto = false)
-        f.sync.syncNow()
-        advanceUntilIdle()
-        assertEquals(CalendarProblem.AUTO_SYNC_OFF, f.sync.state.value.problem)
-
-        f.phone.phoneSync = PhoneSync(calendarOffFor = setOf("someone.else@gmail.com"))
+        f.phone.autoSync = true
         f.sync.syncNow()
         advanceUntilIdle()
         assertNull(f.sync.state.value.problem)

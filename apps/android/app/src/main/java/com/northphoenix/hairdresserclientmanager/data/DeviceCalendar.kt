@@ -1,7 +1,6 @@
 package com.northphoenix.hairdresserclientmanager.data
 
 import android.Manifest
-import android.accounts.Account
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
@@ -16,7 +15,6 @@ import com.northphoenix.hairdresserclientmanager.domain.CalendarEventRow
 import com.northphoenix.hairdresserclientmanager.domain.CalendarMirror
 import com.northphoenix.hairdresserclientmanager.domain.MirrorEvent
 import com.northphoenix.hairdresserclientmanager.domain.PhoneCalendar
-import com.northphoenix.hairdresserclientmanager.domain.PhoneSync
 import com.northphoenix.hairdresserclientmanager.domain.WrittenEvent
 import com.northphoenix.hairdresserclientmanager.state.CalendarConnection
 import com.northphoenix.hairdresserclientmanager.state.CalendarConnectionStore
@@ -81,26 +79,20 @@ class AndroidPhoneCalendarStore(context: Context, private val alsoLocal: Boolean
         return calendars
     }
 
-    override fun sync(): PhoneSync =
+    override fun autoSync(): Boolean =
         try {
-            // Only Google accounts sync with Google: a local calendar of a debug build has no sync to be off.
-            val accounts = calendarsOf(listOf(GOOGLE)).map { it.accountName }.toSet()
-
-            PhoneSync(
-                auto = ContentResolver.getMasterSyncAutomatically(),
-                calendarOffFor = accounts.filterTo(mutableSetOf()) { !ContentResolver.getSyncAutomatically(Account(it, GOOGLE), CalendarContract.AUTHORITY) },
-            )
+            ContentResolver.getMasterSyncAutomatically()
         } catch (_: SecurityException) {
-            PhoneSync()
+            true
         }
 
-    override fun requestSync(accounts: Collection<String>) {
-        val extras = Bundle().apply {
-            putBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, true)
-            putBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, true)
-        }
+    override fun requestSync() {
+        // For every account, not one: Android drops a request for an account the app cannot see, and
+        // the app sees no Google account. Not "manual" either, which would sync accounts whose sync is off.
+        // It reaches the sync adapter because the manifest says the app may see it (<queries>).
+        val extras = Bundle().apply { putBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, true) }
 
-        accounts.forEach { ContentResolver.requestSync(Account(it, GOOGLE), CalendarContract.AUTHORITY, extras) }
+        ContentResolver.requestSync(null, CalendarContract.AUTHORITY, extras)
     }
 
     override fun keepSyncing(calendarId: Long) {

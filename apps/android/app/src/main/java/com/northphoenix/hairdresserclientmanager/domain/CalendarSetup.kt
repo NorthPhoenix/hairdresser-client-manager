@@ -28,35 +28,25 @@ enum class CalendarAccess {
     BLOCKED,
 }
 
-/** Android's sync settings that decide whether a calendar made in Google comes to the phone, and its events go to Google. */
-data class PhoneSync(
-    /** "Auto-sync data", for all accounts. */
-    val auto: Boolean = true,
-    /** The Google accounts whose calendar sync is off. */
-    val calendarOffFor: Set<String> = emptySet(),
-) {
-    /** Whether the calendars of [account] sync with Google. */
-    fun syncs(account: String): Boolean = auto && account !in calendarOffFor
-}
-
 /** Where the setup of Calendar Integration is, and so what the screen asks the Stylist to do next. */
 sealed interface CalendarSetupStep {
     /** The app may not use the phone's calendar yet. */
     data class Access(val blocked: Boolean) : CalendarSetupStep
 
-    /** The phone has no Google calendar at all: no Google account on it, or one whose calendar does not sync. */
-    data class NoGoogleAccount(val sync: PhoneSync) : CalendarSetupStep
+    /**
+     * The phone has no Google calendar at all: no Google account on it, or one whose calendar does not sync.
+     * [autoSync] is Android's "Auto-sync app data", for all accounts.
+     */
+    data class NoGoogleAccount(val autoSync: Boolean) : CalendarSetupStep
 
     /**
      * Ready for a calendar: [existing], a calendar of the app's name that is on the phone, is used.
      * Without one, the Stylist makes it on calendar.google.com (Android cannot make one, and nor can
      * the Google Calendar app) in one of the phone's Google [accounts], and the screen waits for it
-     * to come to the phone.
+     * to come to the phone. It comes only with [autoSync] on, and the calendar sync of its account,
+     * which Android does not tell the app (only apps an account is shared with).
      */
-    data class Calendar(val existing: PhoneCalendar?, val accounts: List<String>, val sync: PhoneSync) : CalendarSetupStep {
-        /** The accounts a calendar made in them comes to the phone from: those whose calendar sync is on. */
-        val syncing: List<String> get() = accounts.filter(sync::syncs)
-    }
+    data class Calendar(val existing: PhoneCalendar?, val accounts: List<String>, val autoSync: Boolean) : CalendarSetupStep
 }
 
 object CalendarSetup {
@@ -77,18 +67,18 @@ object CalendarSetup {
         calendars.filter { it.canWrite }.sortedWith(compareBy<PhoneCalendar>({ !isOwnName(it.name) }, { !it.isMain }, { it.name.lowercase() }, { it.accountName }))
 
     /** The next step, from what the phone says now. */
-    fun step(access: CalendarAccess, calendars: List<PhoneCalendar>, sync: PhoneSync): CalendarSetupStep {
+    fun step(access: CalendarAccess, calendars: List<PhoneCalendar>, autoSync: Boolean): CalendarSetupStep {
         if (access != CalendarAccess.GRANTED) {
             return CalendarSetupStep.Access(blocked = access == CalendarAccess.BLOCKED)
         }
         if (calendars.isEmpty()) {
-            return CalendarSetupStep.NoGoogleAccount(sync)
+            return CalendarSetupStep.NoGoogleAccount(autoSync)
         }
 
         return CalendarSetupStep.Calendar(
             existing = calendars.firstOrNull { it.canWrite && isOwnName(it.name) },
             accounts = calendars.map { it.accountName }.distinct(),
-            sync = sync,
+            autoSync = autoSync,
         )
     }
 }
