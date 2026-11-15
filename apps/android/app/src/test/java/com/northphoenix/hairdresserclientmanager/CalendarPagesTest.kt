@@ -91,19 +91,20 @@ class CalendarPagesTest {
     }
 
     @Test
-    fun `the months read for the marks hold every day the calendar shows or is swiped or opened to next`() {
-        assertEquals((9..12).map { YearMonth.of(2026, it) } + YearMonth.of(2027, 1), CalendarPages.monthsAround(day))
+    fun `the months read for the marks hold every day of the weeks around the selected one and of its month`() {
+        assertEquals((10..12).map { YearMonth.of(2026, it) }, CalendarPages.monthsAround(day))
 
         for (pages in listOf(mondayFirst, sundayFirst)) {
             var selected = LocalDate.of(2026, 1, 1)
             while (selected.year == 2026) {
                 val read = CalendarPages.monthsAround(selected)
                 val week = pages.weekPage(selected)
-                val month = pages.monthPage(selected)
-                val shown = (week - 1..week + 1).flatMap { CalendarWeek.days(pages.weekOf(it)) } +
-                    (month - 1..month + 1).flatMap { pages.monthGrid(pages.monthOf(it)).flatten() }
+                val shown = (week - 1..week + 1).flatMap { CalendarWeek.days(pages.weekOf(it)) } + pages.monthGrid(YearMonth.from(selected)).flatten()
+                // The months next to it come in with their own days marked.
+                val swipedTo = listOf(-1L, 1L).map { YearMonth.from(selected).plusMonths(it) }
 
                 assertEquals(emptyList<LocalDate>(), shown.filter { YearMonth.from(it) !in read })
+                assertTrue(read.containsAll(swipedTo))
                 selected = selected.plusDays(1)
             }
         }
@@ -111,12 +112,15 @@ class CalendarPagesTest {
 
     @Test
     fun `a vertical drag is the calendar's only when the month can open or close with it`() {
-        assertTrue(pullsCalendar(over = 12f, opened = 0f))
-        assertTrue(pullsCalendar(over = -12f, opened = 1f))
-        assertTrue(pullsCalendar(over = -12f, opened = 0.4f))
+        assertTrue(pullsCalendar(moved = 12f, opened = 0f, listAtTop = true))
+        assertTrue(pullsCalendar(moved = -12f, opened = 1f, listAtTop = true))
+        assertTrue(pullsCalendar(moved = -12f, opened = 0.4f, listAtTop = true))
         // Up on the week and down on the open month, the list scrolls and refreshes.
-        assertFalse(pullsCalendar(over = -12f, opened = 0f))
-        assertFalse(pullsCalendar(over = 12f, opened = 1f))
+        assertFalse(pullsCalendar(moved = -12f, opened = 0f, listAtTop = true))
+        assertFalse(pullsCalendar(moved = 12f, opened = 1f, listAtTop = true))
+        // With the list scrolled down, a pull down scrolls it back up; the open month still closes.
+        assertFalse(pullsCalendar(moved = 12f, opened = 0f, listAtTop = false))
+        assertTrue(pullsCalendar(moved = -12f, opened = 1f, listAtTop = false))
     }
 
     @Test

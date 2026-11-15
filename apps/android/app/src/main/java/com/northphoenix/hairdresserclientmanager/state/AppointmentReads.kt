@@ -291,8 +291,8 @@ internal class AppointmentReads(
         val DAY_LIMITS = CacheLimits(answers = 62)
 
         /**
-         * The months the Calendar View and the date picker have shown of late. A month the Calendar
-         * shows reads the months on both sides of it as well, and those its first and last weeks reach into.
+         * The months the Calendar View and the date picker have shown of late. The Calendar reads the
+         * month of its selected day and the month on each side of it.
          */
         val MONTH_LIMITS = CacheLimits(answers = 12)
 

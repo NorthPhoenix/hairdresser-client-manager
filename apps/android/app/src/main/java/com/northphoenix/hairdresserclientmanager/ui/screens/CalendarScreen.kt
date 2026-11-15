@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
@@ -78,7 +79,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.collapse
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.expand
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
@@ -131,9 +134,12 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit)
     // Read here, outside the list, so that the calendar scrolled out of view and back reads nothing again.
     val marked = markedDays(remember(selected) { CalendarPages.monthsAround(selected) })
 
+    val list = rememberLazyListState()
+
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             Modifier.fillMaxSize(),
+            state = list,
             contentPadding = PaddingValues(start = ScreenPadding, end = ScreenPadding, top = 28.dp, bottom = 104.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -162,6 +168,7 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit)
                     selected = selected,
                     today = today,
                     marked = marked,
+                    listAtTop = { !list.canScrollBackward },
                     latest = { viewModel.calendarDate.value },
                     onSelect = viewModel::setCalendarDate,
                     modifier = Modifier.padding(top = 6.dp),
@@ -219,13 +226,15 @@ private fun MonthTitle(month: YearMonth) {
  * A swipe that comes to rest on another week or month selects a day there ([CalendarPages]), and
  * so does any other move of the pages that is not the calendar's own: TalkBack's page actions, a
  * mouse wheel. [latest] is the day asked for last, which a swipe goes on from even before
- * [selected] has caught up with it. [marked] are the days that have Appointments.
+ * [selected] has caught up with it. [marked] are the days that have Appointments. The week opens
+ * only while [listAtTop]: further down, a pull down on it scrolls the list back up.
  */
 @Composable
 private fun SwipeCalendar(
     selected: LocalDate,
     today: LocalDate,
     marked: Set<LocalDate>,
+    listAtTop: () -> Boolean,
     latest: () -> LocalDate,
     onSelect: (LocalDate) -> Unit,
     modifier: Modifier = Modifier,
@@ -237,6 +246,7 @@ private fun SwipeCalendar(
     val pages = remember(firstDayOfWeek) { CalendarPages(firstDayOfWeek) }
     val latestDay by rememberUpdatedState(latest)
     val select by rememberUpdatedState(onSelect)
+    val atTop by rememberUpdatedState(listAtTop)
 
     // Where the month view is going: kept, so the Calendar comes back the way it was left.
     var monthShown by rememberSaveable { mutableStateOf(false) }
@@ -331,7 +341,8 @@ private fun SwipeCalendar(
                         down
                     } else {
                         awaitVerticalTouchSlopOrCancellation(down.id) { change, over ->
-                            if (pullsCalendar(over, opened)) {
+                            // The direction is the whole move's: what is left over past the touch slop can be nothing.
+                            if (pullsCalendar(change.position.y - down.position.y, opened, atTop())) {
                                 change.consume()
                                 opened = (opened + over / travel).coerceIn(0f, 1f)
                             }
@@ -538,7 +549,15 @@ private fun CalendarHandle(monthShown: Boolean, onClick: () -> Unit) {
             .fillMaxWidth()
             .height(HandleHeight)
             .clickable(interactionSource = null, indication = null, role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = label },
+            .semantics {
+                contentDescription = label
+                // TalkBack says whether the month is open, as it does for a sheet.
+                if (monthShown) {
+                    collapse(label) { onClick(); true }
+                } else {
+                    expand(label) { onClick(); true }
+                }
+            },
         contentAlignment = Alignment.Center,
     ) {
         Box(Modifier.size(width = 32.dp, height = 4.dp).clip(CircleShape).background(MaterialTheme.colorScheme.outline))
@@ -576,11 +595,13 @@ private val OpenSpring = spring<Float>(dampingRatio = Spring.DampingRatioNoBounc
 private val DayNumbers = (1..31).map(Int::toString)
 
 /**
- * Whether a vertical drag of [over] pixels (down is positive) on the calendar is the calendar's
+ * Whether a vertical drag of [moved] pixels (down is positive) on the calendar is the calendar's
  * own, with the month [opened] that far: a pull that has somewhere to go. Up on the week and down
- * on the open month, the list under the calendar scrolls and is pulled to refresh instead.
+ * on the open month, the list under the calendar scrolls and is pulled to refresh instead, and so
+ * does a pull down while the list is not at its top ([listAtTop]), with the calendar partly out of view.
  */
-internal fun pullsCalendar(over: Float, opened: Float): Boolean = (over > 0f && opened < 1f) || (over < 0f && opened > 0f)
+internal fun pullsCalendar(moved: Float, opened: Float, listAtTop: Boolean): Boolean =
+    (moved > 0f && opened < 1f && listAtTop) || (moved < 0f && opened > 0f)
 
 /**
  * Whether a pull let go with the month [opened] that far, moving at [speed] pixels a second (down
