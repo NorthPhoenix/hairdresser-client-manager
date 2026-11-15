@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -59,6 +60,7 @@ import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.domain.CalendarWeek
 import com.northphoenix.hairdresserclientmanager.domain.weeksOf
+import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.state.Read
 import com.northphoenix.hairdresserclientmanager.state.keptWhileLoading
 import com.northphoenix.hairdresserclientmanager.ui.LocalAppointmentMonths
@@ -175,15 +177,29 @@ fun HcmDatePickerDialog(initial: LocalDate, today: LocalDate, onDismiss: () -> U
  */
 @Composable
 internal fun monthAppointmentsState(month: YearMonth): State<Read<List<Appointment>>> {
+    val read = monthReadState(month)
+
+    return remember(read) { derivedStateOf { read.value.shown } }
+}
+
+/**
+ * A month as [monthAppointmentsState] shows it ([shown]), and whether that is the month's own
+ * current answer ([current]) rather than what it showed before, kept while it is read anew.
+ */
+internal data class MonthRead(val shown: Read<List<Appointment>>, val current: Boolean)
+
+/** [monthAppointmentsState], with whether what it shows is the month's current answer ([MonthRead]). */
+@Composable
+internal fun monthReadState(month: YearMonth): State<MonthRead> {
     val months = LocalAppointmentMonths.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
 
     return key(months, month) {
         // Read while the screen is in front. Read again after a change or a pause, the month keeps what it showed
         // until the answer (keptWhileLoading), so the dots and the list under a form's date do not blink.
-        produceState(remember { months.monthNow(month) }, lifecycle) {
+        produceState(remember { months.monthNow(month).let { MonthRead(it, it.state == LoadState.Loaded) } }, lifecycle) {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                months.month(month).collect { next -> value = value.keptWhileLoading(next) }
+                months.month(month).collect { next -> value = MonthRead(value.shown.keptWhileLoading(next), next.state == LoadState.Loaded) }
             }
         }
     }

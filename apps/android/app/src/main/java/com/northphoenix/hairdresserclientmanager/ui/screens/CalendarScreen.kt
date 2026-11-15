@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.systemGestureExclusion
@@ -137,62 +138,84 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit)
     val months = shownMonths(remember(selected) { CalendarPages.monthsAround(selected) })
 
     val list = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    // After a swipe to another day, the day is shown from its title: a list scrolled down a long day does not open the next
+    // one in its middle.
+    val showDayTitle = {
+        list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == DaysKey }?.takeIf { it.offset < 0 }?.let { days ->
+            scope.launch { list.animateScrollToItem(days.index) }
+        }
+    }
 
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
-            Modifier.fillMaxSize(),
-            state = list,
-            contentPadding = PaddingValues(start = ScreenPadding, end = ScreenPadding, top = 28.dp, bottom = 104.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item(key = "title") {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    // The buttons share a line with the small title only: beside the month they would leave it too little room at a large font size.
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Kicker(stringResource(R.string.calendar_title), Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
-                        CircleIconButton(
-                            Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
-                            stringResource(R.string.previous_day),
-                            onClick = { viewModel.setCalendarDate(viewModel.calendarDate.value.minusDays(1)) },
-                        )
-                        CircleIconButton(
-                            Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                            stringResource(R.string.next_day),
-                            onClick = { viewModel.setCalendarDate(viewModel.calendarDate.value.plusDays(1)) },
-                        )
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            // The day takes at least the screen under the calendar, so a swipe anywhere below it turns the day.
+            val dayHeight = (maxHeight - ListTopPadding - ListBottomPadding).coerceAtLeast(0.dp)
+
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                state = list,
+                contentPadding = PaddingValues(start = ScreenPadding, end = ScreenPadding, top = ListTopPadding, bottom = ListBottomPadding),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                item(key = "title") {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        // The buttons share a line with the small title only: beside the month they would leave it too little room at a large font size.
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Kicker(stringResource(R.string.calendar_title), Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
+                            CircleIconButton(
+                                Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
+                                stringResource(R.string.previous_day),
+                                onClick = { viewModel.setCalendarDate(viewModel.calendarDate.value.minusDays(1)) },
+                            )
+                            CircleIconButton(
+                                Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                                stringResource(R.string.next_day),
+                                onClick = { viewModel.setCalendarDate(viewModel.calendarDate.value.plusDays(1)) },
+                            )
+                        }
+                        MonthTitle(YearMonth.from(selected))
                     }
-                    MonthTitle(YearMonth.from(selected))
                 }
-            }
 
-            item(key = "calendar") {
-                SwipeCalendar(
-                    selected = selected,
-                    today = today,
-                    marked = months.marked,
-                    listAtTop = { !list.canScrollBackward },
-                    latest = { viewModel.calendarDate.value },
-                    onSelect = viewModel::setCalendarDate,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
-            }
+                item(key = "calendar") {
+                    SwipeCalendar(
+                        selected = selected,
+                        today = today,
+                        marked = months.marked,
+                        listAtTop = { !list.canScrollBackward },
+                        latest = { viewModel.calendarDate.value },
+                        onSelect = viewModel::setCalendarDate,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
 
-            item(key = "days") {
-                DayPager(
-                    selected = selected,
-                    today = today,
-                    shown = shown,
-                    months = months,
-                    latest = { viewModel.calendarDate.value },
-                    onSelect = viewModel::setCalendarDate,
-                    // Choosing the day again loads it again.
-                    onRetry = { viewModel.setCalendarDate(shown.day) },
-                    onOpenAppointment = onOpenAppointment,
-                )
+                item(key = DaysKey) {
+                    DayPager(
+                        selected = selected,
+                        today = today,
+                        shown = shown,
+                        months = months,
+                        minHeight = dayHeight,
+                        latest = { viewModel.calendarDate.value },
+                        onSelect = viewModel::setCalendarDate,
+                        onSwiped = { showDayTitle() },
+                        // Choosing the day again loads it again.
+                        onRetry = { viewModel.setCalendarDate(shown.day) },
+                        onOpenAppointment = onOpenAppointment,
+                    )
+                }
             }
         }
     }
 }
+
+private const val DaysKey = "days"
+
+private val ListTopPadding = 28.dp
+
+/** Room under the list for the button that books an Appointment. */
+private val ListBottomPadding = 104.dp
 
 /** The month and year of the selected day. Another month slides in from the side it was swiped from. */
 @Composable
@@ -499,18 +522,24 @@ private fun WeekRow(
 @Composable
 private fun shownMonths(months: List<YearMonth>): ShownMonths {
     val zone = LocalTimeFormat.current.zone
-    val reads = months.map { month -> month to key(month) { monthAppointmentsState(month) }.value.data }
+    val reads = months.map { month -> month to key(month) { monthReadState(month) }.value }
 
     return remember(reads, zone) { ShownMonths(reads.toMap(), zone) }
 }
 
 /** What the months around the selected day have, as [shownMonths] reads them. */
-private class ShownMonths(private val appointments: Map<YearMonth, List<Appointment>?>, private val zone: ZoneId) {
+private class ShownMonths(private val reads: Map<YearMonth, MonthRead>, private val zone: ZoneId) {
     /** The days that have an Appointment that is not canceled. */
-    val marked: Set<LocalDate> = CalendarWeek.daysWithAppointments(appointments.values.flatMap { it.orEmpty() }, zone)
+    val marked: Set<LocalDate> = CalendarWeek.daysWithAppointments(reads.values.flatMap { it.shown.data.orEmpty() }, zone)
 
-    /** The list of [day] as its month has it, or null while its month has nothing yet. */
-    fun day(day: LocalDate): List<Appointment>? = appointments[YearMonth.from(day)]?.let { CalendarWeek.startingOn(it, day, zone) }
+    /** The list of [day] as its month shows it, or null while its month has nothing yet: what a day next to the selected one shows. */
+    fun day(day: LocalDate): List<Appointment>? = reads[YearMonth.from(day)]?.shown?.data?.let { CalendarWeek.startingOn(it, day, zone) }
+
+    /**
+     * The list of [day] as its month's current answer has it, or null: what the selected day shows while its own read is on
+     * the way. Never what the month only kept from before, which may be out of date.
+     */
+    fun currentDay(day: LocalDate): List<Appointment>? = reads[YearMonth.from(day)]?.takeIf { it.current }?.let { day(day) }
 }
 
 /**
@@ -559,12 +588,20 @@ private fun followSelectedDay(
     // A swipe selects its day as soon as the finger lets go, as the page it lands on is known then: the calendar and the list
     // follow while it is still landing.
     LaunchedEffect(pager) {
-        snapshotFlow { if (pager.isScrollInProgress && !dragged && slides == 0) pager.targetPage else null }.collect { landing ->
-            if (landing != null && landing != placedPage) {
-                val now = latestDay()
-                val day = dayOnPage(now, landing)
+        snapshotFlow { pager.isScrollInProgress && !dragged && slides == 0 }.collectLatest { landing ->
+            if (!landing) {
+                return@collectLatest
+            }
+            // The page a fling lands on is settled in its first frames: a swipe past the middle flicked back is first taken
+            // for the page it went to.
+            repeat(2) { withFrameNanos {} }
+            val page = pager.targetPage
 
-                placedPage = landing
+            if (pager.isScrollInProgress && !dragged && slides == 0 && page != placedPage) {
+                val now = latestDay()
+                val day = dayOnPage(now, page)
+
+                placedPage = page
                 if (day != now) {
                     onSelect(day)
                 }
@@ -607,25 +644,45 @@ private fun DayPager(
     today: LocalDate,
     shown: CalendarDay,
     months: ShownMonths,
+    minHeight: Dp,
     latest: () -> LocalDate,
     onSelect: (LocalDate) -> Unit,
+    onSwiped: () -> Unit,
     onRetry: () -> Unit,
     onOpenAppointment: (String) -> Unit,
 ) {
     // Not saved: it starts on the selected day whenever it is made.
     val pager = remember { PagerState(currentPage = CalendarPages.dayPage(selected)) { CalendarPages.dayCount } }
-    val sliding = followSelectedDay(pager, CalendarPages.dayPage(selected), latest, dayOn = { _, page -> CalendarPages.dayOf(page) }, select = onSelect)
+    val sliding = followSelectedDay(
+        pager,
+        CalendarPages.dayPage(selected),
+        latest,
+        dayOn = { _, page -> CalendarPages.dayOf(page) },
+        select = { day ->
+            onSelect(day)
+            onSwiped()
+        },
+    )
 
     // As wide as the screen, so a day slides out at its edge rather than at the list's padding.
-    HorizontalPager(pager, Modifier.fullBleed(ScreenPadding), userScrollEnabled = !sliding, verticalAlignment = Alignment.Top) { page ->
+    HorizontalPager(
+        pager,
+        Modifier.fullBleed(ScreenPadding).heightIn(min = minHeight),
+        userScrollEnabled = !sliding,
+        verticalAlignment = Alignment.Top,
+    ) { page ->
         val day = CalendarPages.dayOf(page)
-        val listed = months.day(day)
 
         Column(Modifier.fillMaxWidth().padding(horizontal = ScreenPadding), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // A day swiped to for the first time keeps what its month had while its own read is on the way, rather than a spinner.
-            if (day == shown.day && !(shown.load == LoadState.Loading && shown.appointments.isEmpty() && listed != null)) {
+            // A day swiped to for the first time shows what its month has while its own read is on the way, rather than a spinner;
+            // only the month's current answer, never one it kept from before.
+            val stand = if (day == shown.day && shown.load == LoadState.Loading && shown.appointments.isEmpty()) months.currentDay(day) else null
+
+            if (day == shown.day && stand == null) {
                 DayList(day, today, shown.appointments, shown.load, onRetry, onOpenAppointment)
             } else {
+                val listed = stand ?: months.day(day)
+
                 DayList(day, today, listed.orEmpty(), if (listed == null) LoadState.Loading else LoadState.Loaded, onRetry = null, onOpenAppointment)
             }
         }
