@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
@@ -145,6 +146,12 @@ fun ClientRow(
     trailing: (@Composable () -> Unit)? = null,
     possibleDuplicate: Boolean = false,
     visits: ClientRowVisits.Line? = null,
+    /**
+     * Whether the row keeps room for the [visits] line while there is none yet: the dates are
+     * loading, or could not be read. A picker's rows do, since one tap there picks: a row that grew
+     * under her finger as the line came could make a tap aimed at one Client pick the one below.
+     */
+    reservesVisitsLine: Boolean = false,
 ) {
     HcmCard(modifier.fillMaxWidth(), onClick = onClick, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -171,7 +178,10 @@ fun ClientRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                visits?.let { VisitsLine(it) }
+                when {
+                    visits != null -> VisitsLine(visits)
+                    reservesVisitsLine -> Text("", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.clearAndSetSemantics {})
+                }
                 // Another Client has the same number: the profile offers to merge them.
                 if (possibleDuplicate) {
                     Tag(

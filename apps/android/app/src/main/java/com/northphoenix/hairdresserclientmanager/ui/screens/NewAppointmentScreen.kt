@@ -72,8 +72,9 @@ fun NewAppointmentScreen(
     val clients = clientList.data.orEmpty()
     val clientsLoad = clientList.state
     // Read while the form is open, so the Client pickers open with each Client's next Appointment or
-    // last visit in their rows, as in the Clients View: who is booked already, which of two Наташи came last month.
-    val visits = rememberClientRowVisits(viewModel, clients)
+    // last visit in their rows, as in the Clients View: who is booked already, which of two Наташи came
+    // last month. Empty until it has loaded: the rows keep room for the line meanwhile.
+    val visits = rememberClientRowVisits(viewModel, clients).orEmpty()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val saving by viewModel.saving.collectAsStateWithLifecycle()
     val today by viewModel.today.collectAsStateWithLifecycle()

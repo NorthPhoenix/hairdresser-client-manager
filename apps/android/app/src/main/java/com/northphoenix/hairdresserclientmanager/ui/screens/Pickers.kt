@@ -51,10 +51,8 @@ import java.time.LocalTime
  * [clients] is the Stylist's whole Client list and [load] its state. The Clients in [takenIds]
  * are in the Appointment already and are not offered; the sheet needs the whole list all the
  * same, to tell a Stylist without Clients from one whose Clients are all taken.
- * With [visits] (`rememberClientRowVisits`), each row says the Client's next Appointment or last
- * visit, as in the Clients View; a Client it has no line for gets none. A sheet that opens before
- * they have loaded goes without them: rows that grew a line under her finger could make a tap
- * pick the Client below the one she aimed at.
+ * With [visits], each row says the Client's next Appointment or last visit, as in the Clients
+ * View ([ClientRow]); null for a picker whose rows do not.
  */
 @Composable
 fun ClientPickerSheet(
@@ -74,8 +72,6 @@ fun ClientPickerSheet(
     var search by rememberSaveable { mutableStateOf("") }
     val offered = remember(clients, takenIds) { clients.filter { it.id !in takenIds } }
     val filtered = remember(offered, search) { ClientRules.filter(offered, search) }
-    val openedWithVisits = remember { visits != null }
-    val shownVisits = visits.takeIf { openedWithVisits }
 
     // A lazy list: a Stylist with hundreds of Clients gets the sheet as fast as one with ten.
     HcmListBottomSheet(
@@ -117,7 +113,8 @@ fun ClientPickerSheet(
             ClientRow(
                 client,
                 onClick = { onPick(client) },
-                visits = shownVisits?.get(client.id),
+                visits = visits?.get(client.id),
+                reservesVisitsLine = visits != null,
                 trailing = {
                     if (client.id in selectedIds) {
                         Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
