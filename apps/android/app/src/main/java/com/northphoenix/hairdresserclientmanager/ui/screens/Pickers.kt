@@ -52,7 +52,9 @@ import java.time.LocalTime
  * are in the Appointment already and are not offered; the sheet needs the whole list all the
  * same, to tell a Stylist without Clients from one whose Clients are all taken.
  * With [visits], each row says the Client's next Appointment or last visit, as in the Clients
- * View ([ClientRow]); null for a picker whose rows do not.
+ * View ([ClientRow]); null for a picker whose rows do not. A row whose Client is not in it keeps
+ * room for the line, empty: pass an empty map while the lines load (or could not be read), never
+ * null, or the rows grow as they come.
  */
 @Composable
 fun ClientPickerSheet(
