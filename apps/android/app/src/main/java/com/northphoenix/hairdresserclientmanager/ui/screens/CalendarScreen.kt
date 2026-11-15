@@ -254,8 +254,8 @@ private fun MonthTitle(month: YearMonth) {
  * finished by an animation from where the finger let go.
  *
  * A swipe to another week or month selects a day there ([CalendarPages]) as the finger lets go, and
- * so does any other move of the pages that is not the calendar's own when it comes to rest:
- * TalkBack's page actions, a mouse wheel. [latest] is the day asked for last, which a swipe goes on from even before
+ * so does any other move of the pages that is not the calendar's own: TalkBack's page actions, a
+ * mouse wheel. [latest] is the day asked for last, which a swipe goes on from even before
  * [selected] has caught up with it. [marked] are the days that have Appointments. The week opens
  * only while [listAtTop]: further down, a pull down on it scrolls the list back up.
  */
@@ -559,8 +559,8 @@ private class ShownMonths(private val reads: Map<YearMonth, MonthRead>, private 
  * month next to this one, the clock) brings its page into view: the page next to this one slides
  * in, one further away is there at once, and a day selected again before the page is in place
  * moves it on from where it is. Any other move of the pages selects the day [dayOn] gives for the
- * page it goes to, from [latest], the day asked for last: a swipe as the finger lets go, and
- * TalkBack's page actions or a mouse wheel as they come to rest.
+ * page it goes to, from [latest], the day asked for last: a swipe as the finger lets go, TalkBack's
+ * page actions as they start, and any other move when it comes to rest.
  *
  * Returns whether one of its own slides is under way. Meanwhile the pages are not to be swiped, so
  * a tap on a day while one slides in selects that day.
@@ -703,12 +703,13 @@ internal data class DayPageList(val appointments: List<Appointment>, val load: L
  * What the page of [day] shows. The selected day ([shown], when it is that day) shows its own read;
  * while that is on its way with nothing yet, its month's current answer ([current]) stands in for
  * it, never what the month kept from before. A read that failed says so, with its retry. A day next
- * to the selected one shows its month's list ([kept]), which is a preview, and loading while the
- * month has nothing.
+ * to the selected one shows its month's current list; while its month is read anew, the list it
+ * kept ([kept]) shows as loading (no count, no "nothing on this day"), and loading while the month
+ * has nothing.
  */
 internal fun dayPageList(day: LocalDate, shown: CalendarDay, current: List<Appointment>?, kept: List<Appointment>?): DayPageList =
     when {
-        day != shown.day -> DayPageList(kept.orEmpty(), if (kept == null) LoadState.Loading else LoadState.Loaded, own = false)
+        day != shown.day -> if (current != null) DayPageList(current, LoadState.Loaded, own = false) else DayPageList(kept.orEmpty(), LoadState.Loading, own = false)
         shown.appointments.isEmpty() && shown.load == LoadState.Loading && current != null -> DayPageList(current, LoadState.Loaded, own = false)
         else -> DayPageList(shown.appointments, shown.load, own = true)
     }

@@ -53,12 +53,15 @@ class CalendarDayPagerTest {
     }
 
     @Test
-    fun `a day next to the selected one shows its month's list, or loading`() {
+    fun `a day next to the selected one shows its month's current list, and a kept one only as loading`() {
         val selected = CalendarDay(saturday, own, LoadState.Loaded)
         val fridays = listOf(appointment("f1", "2026-11-13T16:00:00Z"))
 
-        assertEquals(DayPageList(fridays, LoadState.Loaded, own = false), dayPageList(friday, selected, current = null, kept = fridays))
+        assertEquals(DayPageList(fridays, LoadState.Loaded, own = false), dayPageList(friday, selected, current = fridays, kept = fridays))
         assertEquals(DayPageList(emptyList(), LoadState.Loaded, own = false), dayPageList(friday, selected, current = emptyList(), kept = emptyList()))
+        // The month is read anew after a change: what it kept is shown without a count or "nothing on this day".
+        assertEquals(DayPageList(fridays, LoadState.Loading, own = false), dayPageList(friday, selected, current = null, kept = fridays))
+        assertEquals(DayPageList(emptyList(), LoadState.Loading, own = false), dayPageList(friday, selected, current = null, kept = emptyList()))
         assertEquals(DayPageList(emptyList(), LoadState.Loading, own = false), dayPageList(friday, selected, current = null, kept = null))
     }
 
