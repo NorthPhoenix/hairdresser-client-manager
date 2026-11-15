@@ -7,9 +7,9 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 /**
- * The week strip of the Calendar View: its seven days, and which of them are marked as having
- * Appointments. The date picker marks a month's days the same way, and the form that books or
- * moves an Appointment lists what its day already has.
+ * A week of the Calendar View: its seven days, and which days are marked as having Appointments.
+ * The Calendar's month and the date picker mark their days the same way, and the form that books
+ * or moves an Appointment lists what its day already has.
  */
 object CalendarWeek {
     const val LENGTH = 7L
@@ -26,6 +26,15 @@ object CalendarWeek {
         appointments
             .filter { it.status != AppointmentStatus.CANCELED }
             .mapTo(mutableSetOf()) { Instant.parse(it.startsAt).atZone(zone).toLocalDate() }
+
+    /**
+     * The list of [day] in [zone] as `appointment.list` gives it for the day, out of [appointments]
+     * read for a longer time: every one that starts on it, canceled ones too, in the order they came
+     * (the server's: by start). The Calendar View shows the days next to the selected one from the
+     * month it has read, so they are there as they are swiped in.
+     */
+    fun startingOn(appointments: List<Appointment>, day: LocalDate, zone: ZoneId): List<Appointment> =
+        appointments.filter { Instant.parse(it.startsAt).atZone(zone).toLocalDate() == day }
 
     /**
      * What [day] already has, for the form that books or moves an Appointment: those of [appointments]

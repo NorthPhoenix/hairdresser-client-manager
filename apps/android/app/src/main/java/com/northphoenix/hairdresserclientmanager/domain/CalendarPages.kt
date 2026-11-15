@@ -1,0 +1,90 @@
+package com.northphoenix.hairdresserclientmanager.domain
+
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalAdjusters
+
+/**
+ * The pages the Calendar View swipes through: weeks while it shows a week, months while it shows
+ * the month, and the days of the list under it ([dayPage]). A page is numbered from the first week or month of [FIRST_MONTH] on, up to the last
+ * of [LAST_MONTH], the years the date picker offers.
+ *
+ * Swiping to another page selects a day on it: the same weekday of another week, the same day of
+ * another month, or the last day of a month that is shorter (from 31 January, February selects
+ * the 28th, and March then the 28th as well).
+ */
+class CalendarPages(val firstDayOfWeek: DayOfWeek) {
+    private val firstWeek = FIRST_MONTH.atDay(1).with(TemporalAdjusters.previousOrSame(firstDayOfWeek))
+
+    val weekCount: Int = ChronoUnit.WEEKS.between(firstWeek, weekStart(LAST_MONTH.atEndOfMonth())).toInt() + 1
+
+    val monthCount: Int = ChronoUnit.MONTHS.between(FIRST_MONTH, LAST_MONTH).toInt() + 1
+
+    /** The first day of the week [day] is in. */
+    fun weekStart(day: LocalDate): LocalDate = day.with(TemporalAdjusters.previousOrSame(firstDayOfWeek))
+
+    /** The page of the week [day] is in. A day outside the pages is on the first or the last one. */
+    fun weekPage(day: LocalDate): Int = ChronoUnit.WEEKS.between(firstWeek, weekStart(day)).toInt().coerceIn(0, weekCount - 1)
+
+    /** The first day of the week on [page]. */
+    fun weekOf(page: Int): LocalDate = firstWeek.plusWeeks(page.toLong())
+
+    /** The page of the month [day] is in. */
+    fun monthPage(day: LocalDate): Int = ChronoUnit.MONTHS.between(FIRST_MONTH, YearMonth.from(day)).toInt().coerceIn(0, monthCount - 1)
+
+    /** The month on [page]. */
+    fun monthOf(page: Int): YearMonth = FIRST_MONTH.plusMonths(page.toLong())
+
+    /** The day that is selected once the week on [page] is swiped to, with [selected] selected now. */
+    fun dayOnWeekPage(selected: LocalDate, page: Int): LocalDate = selected.plusWeeks((page - weekPage(selected)).toLong())
+
+    /** The day that is selected once the month on [page] is swiped to, with [selected] selected now. */
+    fun dayOnMonthPage(selected: LocalDate, page: Int): LocalDate =
+        if (YearMonth.from(selected) == monthOf(page)) selected else selected.plusMonths((page - monthPage(selected)).toLong())
+
+    /**
+     * The days of [month] in whole weeks, as the month view shows it: the first week begins with
+     * the days of the month before that share it, and the last one ends with those of the month after.
+     */
+    fun monthGrid(month: YearMonth): List<List<LocalDate>> {
+        val first = weekStart(month.atDay(1))
+
+        return (0 until weeksIn(month)).map { week -> CalendarWeek.days(first.plusWeeks(week.toLong())) }
+    }
+
+    /** How many weeks the month view of [month] has: four to six. */
+    fun weeksIn(month: YearMonth): Int = ChronoUnit.WEEKS.between(weekStart(month.atDay(1)), weekStart(month.atEndOfMonth())).toInt() + 1
+
+    /** Which week of its month's view [day] is in, from 0. */
+    fun weekOfMonth(day: LocalDate): Int = ChronoUnit.WEEKS.between(weekStart(YearMonth.from(day).atDay(1)), weekStart(day)).toInt()
+
+    companion object {
+        val FIRST_MONTH: YearMonth = YearMonth.of(1900, 1)
+        val LAST_MONTH: YearMonth = YearMonth.of(2100, 12)
+
+        private val firstDay = FIRST_MONTH.atDay(1)
+
+        /** How many days the list under the calendar is swiped through, one page a day. */
+        val dayCount: Int = (LAST_MONTH.atEndOfMonth().toEpochDay() - firstDay.toEpochDay()).toInt() + 1
+
+        /** The page of [day] in the list under the calendar. A day outside the pages is on the first or the last one. */
+        fun dayPage(day: LocalDate): Int = (day.toEpochDay() - firstDay.toEpochDay()).toInt().coerceIn(0, dayCount - 1)
+
+        /** The day on [page] of the list under the calendar. */
+        fun dayOf(page: Int): LocalDate = firstDay.plusDays(page.toLong())
+
+        /** [day], or the first or the last day of the pages for a day outside them: the arrows go no further. */
+        fun clamp(day: LocalDate): LocalDate = dayOf(dayPage(day))
+
+        /**
+         * The months whose Appointments mark the days of the calendar around [selected]: its month
+         * and the one on each side. They hold every day of the week and the weeks next to it, and of
+         * its month as the week opens into it, so those are marked from the first frame. A month
+         * swiped to has its own days marked as it comes in; the days of the months before and after
+         * it that its first and last weeks show are marked once it has come to rest.
+         */
+        fun monthsAround(selected: LocalDate): List<YearMonth> = (-1L..1L).map { YearMonth.from(selected).plusMonths(it) }
+    }
+}

@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -59,6 +60,7 @@ import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.domain.CalendarWeek
 import com.northphoenix.hairdresserclientmanager.domain.weeksOf
+import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.state.Read
 import com.northphoenix.hairdresserclientmanager.state.keptWhileLoading
 import com.northphoenix.hairdresserclientmanager.ui.LocalAppointmentMonths
@@ -79,7 +81,7 @@ private val WeekdayRowHeight = 32.dp
 // A day is a 40 dp circle; the row gives it the 48 dp of a touch target.
 private val WeekRowHeight = 48.dp
 
-// The dot of a day that has Appointments, as on the Calendar's week strip.
+// The dot of a day that has Appointments, as in the Calendar View.
 private val DayDotSize = 5.dp
 
 // A month takes up to six weeks. Always that tall, so the dialog keeps its size from month to month.
@@ -88,7 +90,7 @@ private val MonthHeight = WeekdayRowHeight + WeekRowHeight * 6
 /**
  * Picks a day. The month is drawn by the app itself: the Material date picker marks as today the
  * day it is on the device, and [today] is the day it is in the Stylist's timezone. A dot under a
- * day's number says it has an Appointment that is not canceled, as on the Calendar's week strip
+ * day's number says it has an Appointment that is not canceled, as in the Calendar View
  * ([LocalAppointmentMonths]), so a day for an Appointment is picked knowing which days are booked. The
  * screen that opens the picker keeps the month it opens on loaded ([PreloadAppointmentMonths]), so the
  * dots are there as it opens. [movingAppointmentId], the Appointment whose time is being edited,
@@ -175,15 +177,36 @@ fun HcmDatePickerDialog(initial: LocalDate, today: LocalDate, onDismiss: () -> U
  */
 @Composable
 internal fun monthAppointmentsState(month: YearMonth): State<Read<List<Appointment>>> {
+    val read = monthReadState(month)
+
+    return remember(read) { derivedStateOf { read.value.shown } }
+}
+
+/**
+ * A month as [monthAppointmentsState] shows it ([shown]), and whether that is the month's own
+ * current answer ([current]) rather than what it showed before, kept while it is read anew.
+ */
+internal data class MonthRead(val shown: Read<List<Appointment>>, val current: Boolean) {
+    /** What is shown once [next] comes: what was shown is kept while the month is read anew, and is then not current. */
+    fun then(next: Read<List<Appointment>>): MonthRead = MonthRead(shown.keptWhileLoading(next), next.state == LoadState.Loaded)
+
+    companion object {
+        fun of(read: Read<List<Appointment>>): MonthRead = MonthRead(read, read.state == LoadState.Loaded)
+    }
+}
+
+/** [monthAppointmentsState], with whether what it shows is the month's current answer ([MonthRead]). */
+@Composable
+internal fun monthReadState(month: YearMonth): State<MonthRead> {
     val months = LocalAppointmentMonths.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
 
     return key(months, month) {
         // Read while the screen is in front. Read again after a change or a pause, the month keeps what it showed
         // until the answer (keptWhileLoading), so the dots and the list under a form's date do not blink.
-        produceState(remember { months.monthNow(month) }, lifecycle) {
+        produceState(remember { MonthRead.of(months.monthNow(month)) }, lifecycle) {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                months.month(month).collect { next -> value = value.keptWhileLoading(next) }
+                months.month(month).collect { next -> value = value.then(next) }
             }
         }
     }

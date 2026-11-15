@@ -263,7 +263,6 @@ class ClientReadsTest {
             fetchDay = { onMonday },
             find = { null },
             fetchSources = { sources },
-            fetchWeek = { emptyList() },
             fetchMonth = { emptyList() },
         )
 
