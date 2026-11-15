@@ -464,11 +464,13 @@ class DomainTest {
     }
 
     @Test
-    fun anAddressTypedOnSeveralLinesIsShownOnOne() {
+    fun `an address typed on several lines is shown on one`() {
         assertEquals("742 Evergreen Terrace, Austin, TX", OneLine.address("742 Evergreen Terrace, Austin, TX"))
         assertEquals("742 Evergreen Terrace, Apt 5", OneLine.address("742 Evergreen Terrace\nApt 5"))
         // Blank lines and spaces at the ends of lines go, so a card's second line is never empty.
         assertEquals("742 Evergreen Terrace, Apt 5", OneLine.address(" 742 Evergreen Terrace \r\n\n  \nApt 5\n"))
+        // A line that ends with a comma gets no second one.
+        assertEquals("ул. Ленина, д. 5, кв. 12", OneLine.address("ул. Ленина, д. 5,\nкв. 12"))
         assertEquals("", OneLine.address(" \n "))
         assertEquals("", OneLine.address(""))
     }

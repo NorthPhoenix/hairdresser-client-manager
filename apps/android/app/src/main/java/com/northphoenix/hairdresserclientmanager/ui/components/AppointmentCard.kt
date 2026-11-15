@@ -124,13 +124,13 @@ fun AppointmentCard(
                 IconLine(
                     appointment.locationType.icon,
                     listOf(stringResource(appointment.locationType.label), OneLine.address(appointment.locationAddress)).filter { it.isNotBlank() }.joinToString(" · "),
-                    // An address at home is where the Stylist goes and differs from card to card, so it may take a
-                    // second line; the salon's address is on every card in the salon and stays on one.
+                    // An at-home address is where the Stylist goes and differs from card to card, so it may take a
+                    // second line; the salon address of an in-salon Appointment is on each of them and stays on one.
                     maxLines = if (appointment.locationType == LocationType.AT_HOME) 2 else 1,
                 )
                 if (appointment.services.isNotEmpty()) {
-                    // Up to three lines: one menu name can fill a line ("Покраска в один цвет средний волос"), so on
-                    // one line the card showed only the first Service. A longer list is cut on the third.
+                    // Up to three lines: the name of one Service Menu Item can fill a line ("Покраска в один цвет
+                    // средний волос"), so on one line the card showed only the first Service. A longer list is cut on the third.
                     IconLine(Icons.Rounded.ContentCut, appointment.services.joinToString(", ") { it.name }, maxLines = 3)
                 }
                 Spacer(Modifier.height(2.dp))

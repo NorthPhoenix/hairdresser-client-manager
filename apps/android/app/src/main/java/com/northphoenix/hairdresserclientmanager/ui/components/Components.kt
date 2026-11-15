@@ -891,10 +891,10 @@ fun IconLine(icon: ImageVector, text: String, modifier: Modifier = Modifier, col
     val style = MaterialTheme.typography.bodyMedium
     val iconSize = 16.dp
     // The height of one line of the text. The icon and the text are placed by padding worked out from it, not by
-    // an alignment line: a card takes its height from the intrinsic height of what it holds (IntrinsicSize.Min),
-    // which leaves alignment lines out. On one line they sit as when both were centred in the row.
+    // an alignment line: the Appointment card takes its height from the intrinsic height of what it holds
+    // (IntrinsicSize.Min), which leaves alignment lines out. On one line they sit as when both were centred in the row.
     val density = LocalDensity.current
-    val measurer = rememberTextMeasurer(cacheSize = 1)
+    val measurer = rememberTextMeasurer(cacheSize = 0)
     val lineHeight = remember(measurer, style, density) { with(density) { measurer.measure("Ш", style).size.height.toDp() } }
 
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
