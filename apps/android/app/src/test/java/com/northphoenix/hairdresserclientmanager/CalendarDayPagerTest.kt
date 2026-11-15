@@ -8,6 +8,7 @@ import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.state.Read
 import com.northphoenix.hairdresserclientmanager.ui.screens.DayPageList
 import com.northphoenix.hairdresserclientmanager.ui.screens.MonthRead
+import com.northphoenix.hairdresserclientmanager.ui.screens.dayAreaHeight
 import com.northphoenix.hairdresserclientmanager.ui.screens.dayPageList
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
@@ -59,6 +60,15 @@ class CalendarDayPagerTest {
         assertEquals(DayPageList(fridays, LoadState.Loaded, own = false), dayPageList(friday, selected, current = null, kept = fridays))
         assertEquals(DayPageList(emptyList(), LoadState.Loaded, own = false), dayPageList(friday, selected, current = emptyList(), kept = emptyList()))
         assertEquals(DayPageList(emptyList(), LoadState.Loading, own = false), dayPageList(friday, selected, current = null, kept = null))
+    }
+
+    @Test
+    fun `the day fills the screen under the calendar, and no more`() {
+        // 2340 px of list, less the title and the week; the month makes it shorter.
+        assertEquals(1600, dayAreaHeight(screen = 2340, titleHeight = 420, calendarHeight = 320))
+        assertEquals(1000, dayAreaHeight(screen = 2340, titleHeight = 420, calendarHeight = 920))
+        // At a very large font the title and the month are taller than the screen: the day is as tall as it is.
+        assertEquals(0, dayAreaHeight(screen = 1200, titleHeight = 600, calendarHeight = 900))
     }
 
     @Test

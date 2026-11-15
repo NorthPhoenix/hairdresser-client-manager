@@ -130,7 +130,7 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit)
     val format = LocalTimeFormat.current
     // The day and what is loaded of it come together, so one day's Appointments are never under another day.
     val shown by viewModel.calendarDay.collectAsStateWithLifecycle()
-    // The calendar shows the day asked for last at once: a swipe that has come to rest selects its day with no wait for the list.
+    // The calendar shows the day asked for last at once: a swipe selects its day as the finger lets go, with no wait for the list.
     val selected by viewModel.calendarDate.collectAsStateWithLifecycle()
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
     val today by viewModel.today.collectAsStateWithLifecycle()
@@ -154,13 +154,17 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit)
         BoxWithConstraints(Modifier.fillMaxSize()) {
             // The day takes at least the screen under the calendar, so a swipe anywhere below it turns the day. No more: a short
             // day does not scroll. Worked out as the calendar is laid out, so that it follows the month opening and closing.
-            val screen = with(LocalDensity.current) { (maxHeight - ListTopPadding - ListBottomPadding - ListGap * 2).roundToPx() }
-            val dayHeight = { (screen - titleHeight - calendarHeight).coerceAtLeast(0) }
+            // Every part in whole pixels as the list lays it out: a pixel too many and a short day scrolls, and a pull on the week
+            // then refreshes instead of opening the month.
+            val density = LocalDensity.current
+            val screen = with(density) { constraints.maxHeight - ListTopPadding.roundToPx() - 2 * ListGap.roundToPx() }
+            val dayHeight = { dayAreaHeight(screen, titleHeight, calendarHeight) }
 
             LazyColumn(
                 Modifier.fillMaxSize(),
                 state = list,
-                contentPadding = PaddingValues(start = ScreenPadding, end = ScreenPadding, top = ListTopPadding, bottom = ListBottomPadding),
+                // The room at the bottom for the button that books an Appointment is in the day itself, so that it turns the day too.
+                contentPadding = PaddingValues(start = ScreenPadding, end = ScreenPadding, top = ListTopPadding),
                 verticalArrangement = Arrangement.spacedBy(ListGap),
             ) {
                 item(key = "title") {
@@ -249,9 +253,9 @@ private fun MonthTitle(month: YearMonth) {
  * and pushed up it closes into the week of the selected day. Every move follows the finger and is
  * finished by an animation from where the finger let go.
  *
- * A swipe that comes to rest on another week or month selects a day there ([CalendarPages]), and
- * so does any other move of the pages that is not the calendar's own: TalkBack's page actions, a
- * mouse wheel. [latest] is the day asked for last, which a swipe goes on from even before
+ * A swipe to another week or month selects a day there ([CalendarPages]) as the finger lets go, and
+ * so does any other move of the pages that is not the calendar's own when it comes to rest:
+ * TalkBack's page actions, a mouse wheel. [latest] is the day asked for last, which a swipe goes on from even before
  * [selected] has caught up with it. [marked] are the days that have Appointments. The week opens
  * only while [listAtTop]: further down, a pull down on it scrolls the list back up.
  */
@@ -555,8 +559,8 @@ private class ShownMonths(private val reads: Map<YearMonth, MonthRead>, private 
  * month next to this one, the clock) brings its page into view: the page next to this one slides
  * in, one further away is there at once, and a day selected again before the page is in place
  * moves it on from where it is. Any other move of the pages selects the day [dayOn] gives for the
- * page it comes to rest on, from [latest], the day asked for last: a swipe, TalkBack's page
- * actions, a mouse wheel.
+ * page it goes to, from [latest], the day asked for last: a swipe as the finger lets go, and
+ * TalkBack's page actions or a mouse wheel as they come to rest.
  *
  * Returns whether one of its own slides is under way. Meanwhile the pages are not to be swiped, so
  * a tap on a day while one slides in selects that day.
@@ -642,7 +646,7 @@ private fun followSelectedDay(
 
 /**
  * The list of the selected day, swiped sideways to the day before or after it: the finger moves
- * it, and the day it comes to rest on is selected. The selected day shows what is loaded of it
+ * it, and the day it goes to is selected as the finger lets go. The selected day shows what is loaded of it
  * ([shown], when it is that day); the days next to it show their day as their month has it
  * ([months]), so they are there as they come in.
  */
@@ -683,7 +687,10 @@ private fun DayPager(
 
         val list = dayPageList(day, shown, current = months.currentDay(day), kept = months.day(day))
 
-        Column(Modifier.fillMaxWidth().padding(horizontal = ScreenPadding), verticalArrangement = Arrangement.spacedBy(ListGap)) {
+        Column(
+            Modifier.fillMaxWidth().padding(start = ScreenPadding, end = ScreenPadding, bottom = ListBottomPadding),
+            verticalArrangement = Arrangement.spacedBy(ListGap),
+        ) {
             DayList(day, today, list.appointments, list.load, onRetry.takeIf { list.own }, onOpenAppointment)
         }
     }
@@ -705,6 +712,12 @@ internal fun dayPageList(day: LocalDate, shown: CalendarDay, current: List<Appoi
         shown.appointments.isEmpty() && shown.load == LoadState.Loading && current != null -> DayPageList(current, LoadState.Loaded, own = false)
         else -> DayPageList(shown.appointments, shown.load, own = true)
     }
+
+/**
+ * How tall the day is at least, in pixels: the [screen] left under the list's top padding and its
+ * gaps, less the title and the calendar. A short day fills the screen and does not scroll.
+ */
+internal fun dayAreaHeight(screen: Int, titleHeight: Int, calendarHeight: Int): Int = (screen - titleHeight - calendarHeight).coerceAtLeast(0)
 
 /** A day's title and its Appointments. Without [onRetry], a day that could not be loaded shows that it is loading: its own read says so once it is selected. */
 @Composable
