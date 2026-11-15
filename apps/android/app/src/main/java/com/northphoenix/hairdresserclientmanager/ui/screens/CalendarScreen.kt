@@ -32,12 +32,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
@@ -259,9 +259,9 @@ private fun SwipeCalendar(
     // Weeks while the week is shown, months as soon as it opens. The month's view of the selected week is the week itself, so
     // the change from one to the other does not show. The pages, their effects and their layout all take it from this composition.
     val inMonth = opening
-    // Keyed by plain values: the keys name the pager's saved state, which is found again only under the same name.
-    val pager = key(inMonth, firstDayOfWeek.value) {
-        rememberPagerState(initialPage = if (inMonth) pages.monthPage(selected) else pages.weekPage(selected)) {
+    // Not saved: a pager starts on the selected day's page whenever it is made, also after the app was away.
+    val pager = remember(inMonth, pages) {
+        PagerState(currentPage = if (inMonth) pages.monthPage(selected) else pages.weekPage(selected)) {
             if (inMonth) pages.monthCount else pages.weekCount
         }
     }
@@ -390,6 +390,8 @@ private fun SwipeCalendar(
             Box(
                 Modifier
                     .fillMaxWidth()
+                    // A swipe that starts on the first or the last day is the calendar's, not the system's Back.
+                    .systemGestureExclusion()
                     .clipToBounds()
                     .layout { measurable, constraints ->
                         val placeable = measurable.measure(constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity))
