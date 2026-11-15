@@ -9,7 +9,7 @@ import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** The days of the Calendar's week strip and of the date picker that are marked as having Appointments, and what a day already has. */
+/** The days of the Calendar View and of the date picker that are marked as having Appointments, and what a day already has. */
 class CalendarWeekTest {
     private val chicago = ZoneId.of("America/Chicago")
 
@@ -71,6 +71,25 @@ class CalendarWeekTest {
             listOf("2026-11-16T15:00:00Z", "2026-11-16T19:00:00Z", "2026-11-16T21:30:00Z", "2026-11-17T02:00:00Z"),
             booked.map { it.startsAt },
         )
+    }
+
+    @Test
+    fun `a day taken from a month is the day's own list, canceled ones too, in the server's order`() {
+        // The month's list as the server sends it: by start.
+        val month = listOf(
+            appointment("2026-11-16T15:00:00Z", AppointmentStatus.NO_SHOW),
+            appointment("2026-11-16T17:00:00Z", AppointmentStatus.CANCELED),
+            appointment("2026-11-16T21:30:00Z"),
+            // The 16th in Austin, though the 17th in UTC; then the 17th in Austin.
+            appointment("2026-11-17T02:00:00Z"),
+            appointment("2026-11-17T08:00:00Z"),
+        )
+
+        assertEquals(
+            listOf("2026-11-16T15:00:00Z", "2026-11-16T17:00:00Z", "2026-11-16T21:30:00Z", "2026-11-17T02:00:00Z"),
+            CalendarWeek.startingOn(month, LocalDate.of(2026, 11, 16), chicago).map { it.startsAt },
+        )
+        assertEquals(emptyList<Appointment>(), CalendarWeek.startingOn(month, LocalDate.of(2026, 11, 18), chicago))
     }
 
     @Test

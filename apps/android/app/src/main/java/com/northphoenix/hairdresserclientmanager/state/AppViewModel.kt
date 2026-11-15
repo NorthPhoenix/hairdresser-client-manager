@@ -53,7 +53,6 @@ import com.northphoenix.hairdresserclientmanager.domain.AppUpdates
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentTotals
-import com.northphoenix.hairdresserclientmanager.domain.CalendarWeek
 import com.northphoenix.hairdresserclientmanager.domain.Earnings
 import com.northphoenix.hairdresserclientmanager.domain.EarningsPeriod
 import com.northphoenix.hairdresserclientmanager.domain.ChangedElsewhere
@@ -250,10 +249,6 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         fetchDay = { key -> dayRange(key).let { (start, end) -> api.listAppointments(start, end) } },
         find = { api.findAppointment(it) },
         fetchSources = { api.completedSources(it.appointmentId) },
-        fetchWeek = { key ->
-            val format = TimeFormat(Locale.ROOT, key.zone)
-            api.listAppointments(format.dayRange(key.firstDay).first, format.dayRange(key.firstDay.plusDays(CalendarWeek.LENGTH - 1)).second)
-        },
         fetchMonth = { key -> TimeFormat(Locale.ROOT, key.zone).monthRange(key.month).let { (start, end) -> api.listAppointments(start, end) } },
     )
 
@@ -678,13 +673,13 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      */
     private suspend fun loadAppointmentLists() {
         followDay()
-        together(::loadHome, ::loadTomorrow, ::loadCalendarDay, appointmentReads.weeks::refreshShown, ::refreshMonths, appointmentReads.sources::refreshShown)
+        together(::loadHome, ::loadTomorrow, ::loadCalendarDay, ::refreshMonths, appointmentReads.sources::refreshShown)
     }
 
     /**
-     * The months the date picker reads, which the screens under it keep loaded without showing them.
-     * One that fails keeps what it had, and is no reason to call the whole reload failed: the day and
-     * the week on screen say how theirs went.
+     * The months the Calendar View marks its days from, and those the date picker reads, which the
+     * screens under it keep loaded without showing them. One that fails keeps what it had, and is no
+     * reason to call the whole reload failed: the day on screen says how its own went.
      */
     private suspend fun refreshMonths() {
         try {
@@ -852,23 +847,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     }
 
     /**
-     * The days of the week from [firstDay] on that have an Appointment that is not canceled, for the
-     * Calendar's week strip, for as long as this is collected. A week shown before is there at once
-     * and is asked again behind it. None are marked while the week is loading or could not be loaded:
-     * the list of the selected day says so for itself.
-     */
-    @OptIn(ExperimentalCoroutinesApi::class)
-    fun calendarWeekMarks(firstDay: LocalDate): Flow<Set<LocalDate>> =
-        listsZone
-            .flatMapLatest { zone ->
-                zone?.let { appointmentReads.weeks.watch(WeekKey(firstDay, it)).map { read -> CalendarWeek.daysWithAppointments(read.data.orEmpty(), zone) } }
-                    ?: flowOf(emptySet())
-            }
-            .distinctUntilChanged()
-
-    /**
-     * The Appointments that start in [month], for as long as this is collected: the date picker marks
-     * the days that have any, and the form that books or moves an Appointment lists those of its day.
+     * The Appointments that start in [month], for as long as this is collected: the Calendar View and
+     * the date picker mark the days that have any, and the form that books or moves an Appointment lists those of its day.
      * A month shown before is there at once and is asked again behind it.
      */
     @OptIn(ExperimentalCoroutinesApi::class)

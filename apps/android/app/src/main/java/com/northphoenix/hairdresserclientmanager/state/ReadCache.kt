@@ -48,7 +48,7 @@ data class Read<out V>(val state: LoadState = LoadState.Loading, val data: V? = 
  * [next] as a screen shows it that showed this of the same key: while the key is read anew and has
  * nothing yet (after a change overtook what was cached, or after the app was away), what the screen
  * showed stays until the answer, so a hint does not blink out and back. A failure, and anything
- * with data, is shown as it comes. Only for a hint beside a form, never for a screen's own content.
+ * with data, is shown as it comes. Only for a hint (a calendar's dots, the list beside a form's date), never for a screen's own content.
  */
 internal fun <V> Read<V>.keptWhileLoading(next: Read<V>): Read<V> =
     if (next.state == LoadState.Loading && next.data == null && data != null) this else next

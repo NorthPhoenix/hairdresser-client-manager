@@ -98,6 +98,8 @@
     <string name="calendar_empty_body">No Appointments on this day.</string>
     <string name="calendar_title">Calendar</string>
     <string name="calendar_day_has_appointments">has appointments</string>
+    <string name="calendar_show_month">Show the month</string>
+    <string name="calendar_show_week">Show the week</string>
     <string name="cancel">Cancel</string>
     <string name="choose_client">Choose Client</string>
     <string name="clear">Clear</string>
