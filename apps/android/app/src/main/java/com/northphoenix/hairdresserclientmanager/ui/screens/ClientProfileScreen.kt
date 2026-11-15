@@ -50,6 +50,7 @@ import com.northphoenix.hairdresserclientmanager.data.ClientHistoryEntry
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
+import com.northphoenix.hairdresserclientmanager.domain.OneLine
 import com.northphoenix.hairdresserclientmanager.domain.PhoneFormat
 import com.northphoenix.hairdresserclientmanager.domain.Referrals
 import com.northphoenix.hairdresserclientmanager.domain.ClientVisits
@@ -319,7 +320,7 @@ private fun MissingClient(viewModel: AppViewModel, clientId: String, onBack: () 
 private fun QuickActions(client: ClientProfile, onFailed: (Int) -> Unit) {
     val context = LocalContext.current
     val number = ClientReminder.recipient(client.phone)
-    val address = client.address.lines().map(String::trim).filter(String::isNotEmpty).joinToString(", ")
+    val address = OneLine.address(client.address)
 
     if (number == null && address.isEmpty()) {
         return

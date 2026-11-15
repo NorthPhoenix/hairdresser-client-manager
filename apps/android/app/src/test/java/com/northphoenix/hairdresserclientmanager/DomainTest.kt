@@ -464,6 +464,16 @@ class DomainTest {
     }
 
     @Test
+    fun anAddressTypedOnSeveralLinesIsShownOnOne() {
+        assertEquals("742 Evergreen Terrace, Austin, TX", OneLine.address("742 Evergreen Terrace, Austin, TX"))
+        assertEquals("742 Evergreen Terrace, Apt 5", OneLine.address("742 Evergreen Terrace\nApt 5"))
+        // Blank lines and spaces at the ends of lines go, so a card's second line is never empty.
+        assertEquals("742 Evergreen Terrace, Apt 5", OneLine.address(" 742 Evergreen Terrace \r\n\n  \nApt 5\n"))
+        assertEquals("", OneLine.address(" \n "))
+        assertEquals("", OneLine.address(""))
+    }
+
+    @Test
     fun `a one-line field keeps what is typed and takes pasted text as one line`() {
         // Typing: nothing is touched, so a space can be typed before the next word.
         listOf("", "Anna", "Anna ", "  Anna  Petrova ", "Жан-Поль д’Арк", "👩🏽‍🦰 Zoë").forEach { assertEquals(it, it, OneLine.typed(it)) }

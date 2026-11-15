@@ -59,6 +59,7 @@ import com.northphoenix.hairdresserclientmanager.domain.AppointmentClients
 import com.northphoenix.hairdresserclientmanager.domain.HomeOutcomes
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentTotals
 import com.northphoenix.hairdresserclientmanager.domain.Money
+import com.northphoenix.hairdresserclientmanager.domain.OneLine
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
@@ -122,11 +123,15 @@ fun AppointmentCard(
                 }
                 IconLine(
                     appointment.locationType.icon,
-                    listOf(stringResource(appointment.locationType.label), appointment.locationAddress).filter { it.isNotBlank() }.joinToString(" · "),
-                    maxLines = 1,
+                    listOf(stringResource(appointment.locationType.label), OneLine.address(appointment.locationAddress)).filter { it.isNotBlank() }.joinToString(" · "),
+                    // An address at home is where the Stylist goes and differs from card to card, so it may take a
+                    // second line; the salon's address is on every card in the salon and stays on one.
+                    maxLines = if (appointment.locationType == LocationType.AT_HOME) 2 else 1,
                 )
                 if (appointment.services.isNotEmpty()) {
-                    IconLine(Icons.Rounded.ContentCut, appointment.services.joinToString(", ") { it.name }, maxLines = 1)
+                    // Up to three lines: one menu name can fill a line ("Покраска в один цвет средний волос"), so on
+                    // one line the card showed only the first Service. A longer list is cut on the third.
+                    IconLine(Icons.Rounded.ContentCut, appointment.services.joinToString(", ") { it.name }, maxLines = 3)
                 }
                 Spacer(Modifier.height(2.dp))
                 StatusAndAmount {

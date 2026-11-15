@@ -36,6 +36,12 @@ object OneLine {
             .filterNot(Char::isISOControl)
     }
 
+    /**
+     * An address, which may be typed on several lines, on one line as a card or a button shows it:
+     * its lines that are not blank, trimmed and joined with commas.
+     */
+    fun address(text: String): String = text.lines().map(String::trim).filter(String::isNotEmpty).joinToString(", ")
+
     /** A name needs a character that can be seen: spaces, control and zero-width characters alone are no name. */
     fun hasVisibleCharacter(text: String): Boolean {
         var index = 0
