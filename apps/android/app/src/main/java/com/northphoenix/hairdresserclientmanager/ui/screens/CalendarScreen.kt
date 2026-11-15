@@ -269,6 +269,8 @@ private fun SwipeCalendar(
     // How many of the calendar's own slides to the selected day's page are under way. Meanwhile the pages are not swiped,
     // so a tap on a day while one slides in selects that day.
     var slides by remember(pager) { mutableIntStateOf(0) }
+    // The page the pager was last put on for the selected day. Resting on another one, it was moved by the Stylist.
+    var placedPage by remember(pager) { mutableIntStateOf(pager.currentPage) }
     val atRest = open && !pulling && slides == 0
 
     // A day selected with the arrows, a tap on a day of the month next to this one, a swipe or by the clock brings its page into
@@ -284,8 +286,10 @@ private fun SwipeCalendar(
                 slides--
             }
         }
+        placedPage = selectedPage
     }
     // Any other move of the pages selects the day on the page it comes to rest on: a swipe, TalkBack's page actions, a mouse wheel.
+    // A pager that is where it was put has not been moved, also when the selected day has just changed and its slide is still to start.
     LaunchedEffect(pager, inMonth) {
         snapshotFlow { pager.isScrollInProgress }.collectLatest { moving ->
             if (moving) {
@@ -293,10 +297,11 @@ private fun SwipeCalendar(
             }
             // A slide that takes over from one that was stopped starts in the frame after.
             withFrameNanos {}
-            if (slides == 0 && !pager.isScrollInProgress) {
+            if (slides == 0 && !pager.isScrollInProgress && pager.currentPage != placedPage) {
                 val now = latestDay()
                 val day = if (inMonth) pages.dayOnMonthPage(now, pager.currentPage) else pages.dayOnWeekPage(now, pager.currentPage)
 
+                placedPage = pager.currentPage
                 if (day != now) {
                     select(day)
                 }
@@ -390,7 +395,8 @@ private fun SwipeCalendar(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    // A swipe that starts on the first or the last day is the calendar's, not the system's Back.
+                    // A swipe that starts on the first or the last day is the calendar's, not the system's Back. Android keeps this
+                    // for 200 dp at each edge at most, so in a tall open month the top weeks' first and last days may still go Back.
                     .systemGestureExclusion()
                     .clipToBounds()
                     .layout { measurable, constraints ->

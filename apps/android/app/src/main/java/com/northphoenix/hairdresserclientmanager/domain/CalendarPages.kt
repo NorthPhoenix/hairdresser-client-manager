@@ -68,8 +68,8 @@ class CalendarPages(val firstDayOfWeek: DayOfWeek) {
          * The months whose Appointments mark the days of the calendar around [selected]: its month
          * and the one on each side. They hold every day of the week and the weeks next to it, and of
          * its month as the week opens into it, so those are marked from the first frame. A month
-         * swiped to has its own days marked as it comes in; the days of the month after it that its
-         * last week shows are marked once it has come to rest.
+         * swiped to has its own days marked as it comes in; the days of the months before and after
+         * it that its first and last weeks show are marked once it has come to rest.
          */
         fun monthsAround(selected: LocalDate): List<YearMonth> = (-1L..1L).map { YearMonth.from(selected).plusMonths(it) }
     }
