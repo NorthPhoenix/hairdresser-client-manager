@@ -121,7 +121,7 @@ internal class AppointmentReads(
     private val expected = MutableStateFlow<Map<String, Pair<String, (Appointment) -> Appointment>>>(emptyMap())
 
     /** Changes whenever an Appointment on screen does. */
-    val shown: Flow<Unit> = combine(today.shown, days.shown, one.shown, newest, expected) { _, _, _, _, _ -> }
+    val shown: Flow<Unit> = combine(today.shown, days.shown, months.shown, one.shown, newest, expected) { _ -> }
 
     /**
      * The Appointment as it is on screen now: as its own read has it, and until that has answered
@@ -269,9 +269,13 @@ internal class AppointmentReads(
     private fun listed(): List<Appointment> =
         (today.shown.value.values + days.shown.value.values).flatMap { it.read.data.orEmpty() }
 
-    /** The Appointment as a list on screen has it: as it is shown, and as the server has it. */
+    /**
+     * The Appointment as a list on screen has it: as it is shown, and as the server has it. A month's
+     * list counts too: the Calendar shows the days next to the selected one, and the selected one
+     * until its own list has answered, from its month.
+     */
     private fun inLists(id: String): Read<Appointment?>? =
-        (today.shown.value.values + days.shown.value.values).firstNotNullOfOrNull { list ->
+        (today.shown.value.values + days.shown.value.values + months.shown.value.values).firstNotNullOfOrNull { list ->
             list.read.data?.firstOrNull { it.id == id }?.let { shown ->
                 Read(LoadState.Loaded, shown, list.read.saved?.firstOrNull { it.id == id } ?: shown)
             }

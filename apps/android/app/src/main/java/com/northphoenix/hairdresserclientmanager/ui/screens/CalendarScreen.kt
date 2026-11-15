@@ -31,7 +31,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.systemGestureExclusion
@@ -76,6 +75,7 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -139,6 +139,9 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit)
 
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    // The heights of the title and the calendar, which the day fills the screen under.
+    var titleHeight by remember { mutableIntStateOf(0) }
+    var calendarHeight by remember { mutableIntStateOf(0) }
     // After a swipe to another day, the day is shown from its title: a list scrolled down a long day does not open the next
     // one in its middle.
     val showDayTitle = {
@@ -149,29 +152,31 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit)
 
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
-            // The day takes at least the screen under the calendar, so a swipe anywhere below it turns the day.
-            val dayHeight = (maxHeight - ListTopPadding - ListBottomPadding).coerceAtLeast(0.dp)
+            // The day takes at least the screen under the calendar, so a swipe anywhere below it turns the day. No more: a short
+            // day does not scroll. Worked out as the calendar is laid out, so that it follows the month opening and closing.
+            val screen = with(LocalDensity.current) { (maxHeight - ListTopPadding - ListBottomPadding - ListGap * 2).roundToPx() }
+            val dayHeight = { (screen - titleHeight - calendarHeight).coerceAtLeast(0) }
 
             LazyColumn(
                 Modifier.fillMaxSize(),
                 state = list,
                 contentPadding = PaddingValues(start = ScreenPadding, end = ScreenPadding, top = ListTopPadding, bottom = ListBottomPadding),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(ListGap),
             ) {
                 item(key = "title") {
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Column(Modifier.onSizeChanged { titleHeight = it.height }, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         // The buttons share a line with the small title only: beside the month they would leave it too little room at a large font size.
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             Kicker(stringResource(R.string.calendar_title), Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
                             CircleIconButton(
                                 Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
                                 stringResource(R.string.previous_day),
-                                onClick = { viewModel.setCalendarDate(viewModel.calendarDate.value.minusDays(1)) },
+                                onClick = { viewModel.setCalendarDate(CalendarPages.clamp(viewModel.calendarDate.value.minusDays(1))) },
                             )
                             CircleIconButton(
                                 Icons.AutoMirrored.Rounded.KeyboardArrowRight,
                                 stringResource(R.string.next_day),
-                                onClick = { viewModel.setCalendarDate(viewModel.calendarDate.value.plusDays(1)) },
+                                onClick = { viewModel.setCalendarDate(CalendarPages.clamp(viewModel.calendarDate.value.plusDays(1))) },
                             )
                         }
                         MonthTitle(YearMonth.from(selected))
@@ -186,7 +191,7 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit)
                         listAtTop = { !list.canScrollBackward },
                         latest = { viewModel.calendarDate.value },
                         onSelect = viewModel::setCalendarDate,
-                        modifier = Modifier.padding(top = 6.dp),
+                        modifier = Modifier.onSizeChanged { calendarHeight = it.height }.padding(top = 6.dp),
                     )
                 }
 
@@ -213,6 +218,8 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit)
 private const val DaysKey = "days"
 
 private val ListTopPadding = 28.dp
+
+private val ListGap = 12.dp
 
 /** Room under the list for the button that books an Appointment. */
 private val ListBottomPadding = 104.dp
@@ -644,7 +651,7 @@ private fun DayPager(
     today: LocalDate,
     shown: CalendarDay,
     months: ShownMonths,
-    minHeight: Dp,
+    minHeight: () -> Int,
     latest: () -> LocalDate,
     onSelect: (LocalDate) -> Unit,
     onSwiped: () -> Unit,
@@ -667,27 +674,35 @@ private fun DayPager(
     // As wide as the screen, so a day slides out at its edge rather than at the list's padding.
     HorizontalPager(
         pager,
-        Modifier.fullBleed(ScreenPadding).heightIn(min = minHeight),
+        Modifier.fullBleed(ScreenPadding).atLeast(minHeight),
         userScrollEnabled = !sliding,
         verticalAlignment = Alignment.Top,
     ) { page ->
         val day = CalendarPages.dayOf(page)
 
-        Column(Modifier.fillMaxWidth().padding(horizontal = ScreenPadding), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // A day swiped to for the first time shows what its month has while its own read is on the way, rather than a spinner;
-            // only the month's current answer, never one it kept from before.
-            val stand = if (day == shown.day && shown.load == LoadState.Loading && shown.appointments.isEmpty()) months.currentDay(day) else null
+        val list = dayPageList(day, shown, current = months.currentDay(day), kept = months.day(day))
 
-            if (day == shown.day && stand == null) {
-                DayList(day, today, shown.appointments, shown.load, onRetry, onOpenAppointment)
-            } else {
-                val listed = stand ?: months.day(day)
-
-                DayList(day, today, listed.orEmpty(), if (listed == null) LoadState.Loading else LoadState.Loaded, onRetry = null, onOpenAppointment)
-            }
+        Column(Modifier.fillMaxWidth().padding(horizontal = ScreenPadding), verticalArrangement = Arrangement.spacedBy(ListGap)) {
+            DayList(day, today, list.appointments, list.load, onRetry.takeIf { list.own }, onOpenAppointment)
         }
     }
 }
+
+/** What a page of the day pager shows: [appointments] as [load] has them, and whether that is the day's [own] read. */
+internal data class DayPageList(val appointments: List<Appointment>, val load: LoadState, val own: Boolean)
+
+/**
+ * What the page of [day] shows. The selected day ([shown], when it is that day) shows its own read;
+ * while that has nothing (loading, or failed), its month's current answer ([current]) stands in for
+ * it, never what the month kept from before. A day next to the selected one shows its month's list
+ * ([kept]), which is a preview, and loading while the month has nothing.
+ */
+internal fun dayPageList(day: LocalDate, shown: CalendarDay, current: List<Appointment>?, kept: List<Appointment>?): DayPageList =
+    when {
+        day != shown.day -> DayPageList(kept.orEmpty(), if (kept == null) LoadState.Loading else LoadState.Loaded, own = false)
+        shown.appointments.isEmpty() && shown.load != LoadState.Loaded && current != null -> DayPageList(current, LoadState.Loaded, own = false)
+        else -> DayPageList(shown.appointments, shown.load, own = true)
+    }
 
 /** A day's title and its Appointments. Without [onRetry], a day that could not be loaded shows that it is loading: its own read says so once it is selected. */
 @Composable
@@ -710,6 +725,13 @@ private fun DayList(day: LocalDate, today: LocalDate, appointments: List<Appoint
             AppointmentCard(appointment, onClick = { onOpenAppointment(appointment.id) })
         }
     }
+}
+
+/** Makes a row at least [height] pixels tall, read as it is laid out. */
+private fun Modifier.atLeast(height: () -> Int) = layout { measurable, constraints ->
+    val placeable = measurable.measure(constraints.copy(minHeight = height().coerceIn(constraints.minHeight, constraints.maxHeight)))
+
+    layout(placeable.width, placeable.height) { placeable.place(0, 0) }
 }
 
 /** Lays a row of the padded list out as wide as the screen: [padding], the list's own, past it on both sides. */

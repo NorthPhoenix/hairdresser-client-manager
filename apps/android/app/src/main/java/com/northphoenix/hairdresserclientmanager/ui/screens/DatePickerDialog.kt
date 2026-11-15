@@ -186,7 +186,14 @@ internal fun monthAppointmentsState(month: YearMonth): State<Read<List<Appointme
  * A month as [monthAppointmentsState] shows it ([shown]), and whether that is the month's own
  * current answer ([current]) rather than what it showed before, kept while it is read anew.
  */
-internal data class MonthRead(val shown: Read<List<Appointment>>, val current: Boolean)
+internal data class MonthRead(val shown: Read<List<Appointment>>, val current: Boolean) {
+    /** What is shown once [next] comes: what was shown is kept while the month is read anew, and is then not current. */
+    fun then(next: Read<List<Appointment>>): MonthRead = MonthRead(shown.keptWhileLoading(next), next.state == LoadState.Loaded)
+
+    companion object {
+        fun of(read: Read<List<Appointment>>): MonthRead = MonthRead(read, read.state == LoadState.Loaded)
+    }
+}
 
 /** [monthAppointmentsState], with whether what it shows is the month's current answer ([MonthRead]). */
 @Composable
@@ -197,9 +204,9 @@ internal fun monthReadState(month: YearMonth): State<MonthRead> {
     return key(months, month) {
         // Read while the screen is in front. Read again after a change or a pause, the month keeps what it showed
         // until the answer (keptWhileLoading), so the dots and the list under a form's date do not blink.
-        produceState(remember { months.monthNow(month).let { MonthRead(it, it.state == LoadState.Loaded) } }, lifecycle) {
+        produceState(remember { MonthRead.of(months.monthNow(month)) }, lifecycle) {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                months.month(month).collect { next -> value = MonthRead(value.shown.keptWhileLoading(next), next.state == LoadState.Loaded) }
+                months.month(month).collect { next -> value = value.then(next) }
             }
         }
     }

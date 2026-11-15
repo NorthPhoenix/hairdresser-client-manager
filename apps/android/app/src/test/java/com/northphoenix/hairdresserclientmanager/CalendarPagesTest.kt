@@ -45,6 +45,10 @@ class CalendarPagesTest {
         assertEquals(0, CalendarPages.dayPage(LocalDate.of(1850, 1, 1)))
         assertEquals(LocalDate.of(2100, 12, 31), CalendarPages.dayOf(CalendarPages.dayCount - 1))
         assertEquals(CalendarPages.dayCount - 1, CalendarPages.dayPage(LocalDate.of(2200, 1, 1)))
+        // The arrows go no further than the pages.
+        assertEquals(LocalDate.of(2100, 12, 31), CalendarPages.clamp(LocalDate.of(2101, 1, 1)))
+        assertEquals(LocalDate.of(1900, 1, 1), CalendarPages.clamp(LocalDate.of(1899, 12, 31)))
+        assertEquals(day, CalendarPages.clamp(day))
     }
 
     @Test

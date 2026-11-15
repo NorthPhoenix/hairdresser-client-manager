@@ -75,6 +75,9 @@ class CalendarPages(val firstDayOfWeek: DayOfWeek) {
         /** The day on [page] of the list under the calendar. */
         fun dayOf(page: Int): LocalDate = firstDay.plusDays(page.toLong())
 
+        /** [day], or the first or the last day of the pages for a day outside them: the arrows go no further. */
+        fun clamp(day: LocalDate): LocalDate = dayOf(dayPage(day))
+
         /**
          * The months whose Appointments mark the days of the calendar around [selected]: its month
          * and the one on each side. They hold every day of the week and the weeks next to it, and of
