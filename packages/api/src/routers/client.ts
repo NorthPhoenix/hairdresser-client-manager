@@ -593,10 +593,11 @@ export const clientRouter = createTRPCRouter({
       }))
     };
   }),
-  // What the Clients View says of each Client's visits: the start of their last visit (Completed
-  // Appointment) and of their next Scheduled Appointment that has not started yet, as the Client
-  // Profile counts them. Every Appointment the Client is in counts, as primary Client or not. A
-  // Client with neither is left out: they have had no visit and have nothing ahead.
+  // What the Clients View and the Client pickers of Appointment Creation say of each Client's
+  // visits: the start of their last visit (Completed Appointment) and of their next Scheduled
+  // Appointment that has not started yet, as the Client Profile counts them. Every Appointment the
+  // Client is in counts, as primary Client or not. A Client with neither is left out: they have had
+  // no visit and have nothing ahead.
   visitDates: stylistProcedure.query(async ({ ctx }) => {
     const now = new Date();
     const rows = await ctx.db.appointmentParticipant.findMany({

@@ -152,9 +152,10 @@ data class FamilyMember(
 )
 
 /**
- * When a Client last came and when they come next, for the Clients View (`clientProfile.visitDates`):
- * the start of their latest Completed Appointment and of their first Scheduled one that had not
- * started when the server answered. The server lists only the Clients who have either.
+ * When a Client last came and when they come next, for the rows of the Clients View and of the
+ * Client pickers of Appointment Creation (`clientProfile.visitDates`): the start of their latest
+ * Completed Appointment and of their first Scheduled one that had not started when the server
+ * answered. The server lists only the Clients who have either.
  */
 @Serializable
 data class ClientVisitDates(

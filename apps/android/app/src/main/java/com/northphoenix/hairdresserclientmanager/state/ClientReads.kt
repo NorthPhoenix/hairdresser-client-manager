@@ -62,9 +62,9 @@ internal class ClientReads(
     val family = ReadCache(scope, changes, HISTORY_LIMITS, about = { _, _ -> listOf(Changes.ANY_CHANGE) }, fetch = fetchFamily)
 
     /**
-     * Each Client's last visit and next Appointment, for the rows of the Clients View. Any change of
-     * an Appointment, and of who is in it, can change them, so like [history] any change at all puts
-     * it out of date.
+     * Each Client's last visit and next Appointment, for the rows of the Clients View and of the
+     * Client pickers of Appointment Creation. Any change of an Appointment, and of who is in it,
+     * can change them, so like [history] any change at all puts it out of date.
      */
     val visitDates = ReadCache(scope, changes, LIST_LIMITS, about = { _, _ -> listOf(Changes.ANY_CHANGE) }, fetch = fetchVisitDates)
 

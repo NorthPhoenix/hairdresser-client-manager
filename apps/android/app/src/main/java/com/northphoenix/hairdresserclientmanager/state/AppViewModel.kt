@@ -1459,7 +1459,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         viewModelScope.launch { quietly { clientReads.visitDates.refresh(key) } }
     }
 
-    /** With the lists, the dates of the Clients View when it is on screen. Quietly, as [loadClientVisitDates]. */
+    /** With the lists, the dates of the Clients View or the form when one is on screen. Quietly, as [loadClientVisitDates]. */
     private suspend fun loadShownClientVisitDates() = quietly { clientReads.visitDates.refreshShown() }
 
     private suspend fun quietly(read: suspend () -> Unit) {
