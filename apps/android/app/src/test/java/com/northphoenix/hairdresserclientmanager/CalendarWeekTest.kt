@@ -9,7 +9,7 @@ import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** The days of the Calendar's week strip and of the date picker that are marked as having Appointments, and what a day already has. */
+/** The days of the Calendar View and of the date picker that are marked as having Appointments, and what a day already has. */
 class CalendarWeekTest {
     private val chicago = ZoneId.of("America/Chicago")
 

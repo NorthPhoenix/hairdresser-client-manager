@@ -2,13 +2,17 @@ package com.northphoenix.hairdresserclientmanager
 
 import com.northphoenix.hairdresserclientmanager.domain.CalendarPages
 import com.northphoenix.hairdresserclientmanager.domain.CalendarWeek
+import com.northphoenix.hairdresserclientmanager.ui.screens.opensOnRelease
+import com.northphoenix.hairdresserclientmanager.ui.screens.pullsCalendar
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** The weeks and months the Calendar View swipes through, and the day a swipe selects. */
+/** The weeks and months the Calendar View swipes through, the day a swipe selects, and when a pull opens the month. */
 class CalendarPagesTest {
     private val mondayFirst = CalendarPages(DayOfWeek.MONDAY)
     private val sundayFirst = CalendarPages(DayOfWeek.SUNDAY)
@@ -87,33 +91,40 @@ class CalendarPagesTest {
     }
 
     @Test
-    fun `the months read for the marks cover the pages in view, those next to them and the month the week opens into`() {
-        val week = mondayFirst.weekPage(day)
-        // The week of 7 December has the week of 30 November, which starts in November, before it.
-        val december = LocalDate.of(2026, 12, 7)
+    fun `the months read for the marks hold every day the calendar shows or is swiped or opened to next`() {
+        assertEquals((9..12).map { YearMonth.of(2026, it) } + YearMonth.of(2027, 1), CalendarPages.monthsAround(day))
 
-        assertEquals((10..12).map { YearMonth.of(2026, it) }, mondayFirst.monthsToMark(week, inMonth = false, selected = day))
-        assertEquals(
-            listOf(YearMonth.of(2026, 11), YearMonth.of(2026, 12), YearMonth.of(2027, 1)),
-            mondayFirst.monthsToMark(mondayFirst.weekPage(december), inMonth = false, selected = december),
-        )
-        assertEquals(
-            (9..12).map { YearMonth.of(2026, it) } + YearMonth.of(2027, 1),
-            mondayFirst.monthsToMark(mondayFirst.monthPage(day), inMonth = true, selected = day),
-        )
-        // Every day a week or a month on screen or next to it shows is in a month that is read.
-        for (selected in listOf(day, LocalDate.of(2026, 11, 30), LocalDate.of(2027, 1, 1))) {
-            val weekPage = mondayFirst.weekPage(selected)
-            val read = mondayFirst.monthsToMark(weekPage, inMonth = false, selected = selected)
-            val shown = (weekPage - 1..weekPage + 1).flatMap { CalendarWeek.days(mondayFirst.weekOf(it)) } +
-                mondayFirst.monthGrid(YearMonth.from(selected)).flatten()
-            assertEquals(emptyList<LocalDate>(), shown.filter { YearMonth.from(it) !in read })
+        for (pages in listOf(mondayFirst, sundayFirst)) {
+            var selected = LocalDate.of(2026, 1, 1)
+            while (selected.year == 2026) {
+                val read = CalendarPages.monthsAround(selected)
+                val week = pages.weekPage(selected)
+                val month = pages.monthPage(selected)
+                val shown = (week - 1..week + 1).flatMap { CalendarWeek.days(pages.weekOf(it)) } +
+                    (month - 1..month + 1).flatMap { pages.monthGrid(pages.monthOf(it)).flatten() }
 
-            val monthPage = mondayFirst.monthPage(selected)
-            val readInMonth = mondayFirst.monthsToMark(monthPage, inMonth = true, selected = selected)
-            val shownInMonth = (monthPage - 1..monthPage + 1).flatMap { mondayFirst.monthGrid(mondayFirst.monthOf(it)).flatten() }
-            assertEquals(emptyList<LocalDate>(), shownInMonth.filter { YearMonth.from(it) !in readInMonth })
+                assertEquals(emptyList<LocalDate>(), shown.filter { YearMonth.from(it) !in read })
+                selected = selected.plusDays(1)
+            }
         }
+    }
+
+    @Test
+    fun `a vertical drag is the calendar's only when the month can open or close with it`() {
+        assertTrue(pullsCalendar(over = 12f, opened = 0f))
+        assertTrue(pullsCalendar(over = -12f, opened = 1f))
+        assertTrue(pullsCalendar(over = -12f, opened = 0.4f))
+        // Up on the week and down on the open month, the list scrolls and refreshes.
+        assertFalse(pullsCalendar(over = -12f, opened = 0f))
+        assertFalse(pullsCalendar(over = 12f, opened = 1f))
+    }
+
+    @Test
+    fun `a pull let go fast goes on in its direction, a slow one to whichever is nearer`() {
+        assertTrue(opensOnRelease(opened = 0.1f, speed = 1200f, fastSpeed = 1000f))
+        assertFalse(opensOnRelease(opened = 0.9f, speed = -1200f, fastSpeed = 1000f))
+        assertTrue(opensOnRelease(opened = 0.6f, speed = -300f, fastSpeed = 1000f))
+        assertFalse(opensOnRelease(opened = 0.4f, speed = 300f, fastSpeed = 1000f))
     }
 
     @Test

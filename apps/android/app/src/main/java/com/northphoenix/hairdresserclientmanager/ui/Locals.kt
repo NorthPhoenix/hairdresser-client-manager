@@ -36,9 +36,9 @@ val LocalTimeFormat = staticCompositionLocalOf { TimeFormat(Locale.getDefault(),
 val LocalSnackbarHostState = staticCompositionLocalOf { SnackbarHostState() }
 
 /**
- * The Appointments of a month, for where a day is picked for an Appointment: the date picker marks the days of
- * its month that have an Appointment, and the form that books or moves one lists what the chosen
- * day already has. The app reads a month as the date picker shows it
+ * The Appointments of a month: the Calendar View and the date picker mark the days that have an
+ * Appointment, and the form that books or moves one lists what the chosen day already has. The app
+ * reads a whole month at a time
  * ([com.northphoenix.hairdresserclientmanager.state.AppViewModel.monthAppointments]); outside it nothing is booked.
  */
 interface AppointmentMonths {

@@ -18,7 +18,6 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitVerticalTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.verticalDrag
 import androidx.compose.foundation.indication
-import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,6 +54,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -62,6 +62,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -107,6 +108,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.sign
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 /**
@@ -126,6 +128,8 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit)
     val selected by viewModel.calendarDate.collectAsStateWithLifecycle()
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
     val today by viewModel.today.collectAsStateWithLifecycle()
+    // Read here, outside the list, so that the calendar scrolled out of view and back reads nothing again.
+    val marked = markedDays(remember(selected) { CalendarPages.monthsAround(selected) })
 
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -157,6 +161,7 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit)
                 SwipeCalendar(
                     selected = selected,
                     today = today,
+                    marked = marked,
                     latest = { viewModel.calendarDate.value },
                     onSelect = viewModel::setCalendarDate,
                     modifier = Modifier.padding(top = 6.dp),
@@ -211,11 +216,20 @@ private fun MonthTitle(month: YearMonth) {
  * and pushed up it closes into the week of the selected day. Every move follows the finger and is
  * finished by an animation from where the finger let go.
  *
- * A swipe that comes to rest on another week or month selects a day there ([CalendarPages]).
- * [latest] is the day asked for last, which a swipe goes on from even before [selected] has caught up with it.
+ * A swipe that comes to rest on another week or month selects a day there ([CalendarPages]), and
+ * so does any other move of the pages that is not the calendar's own: TalkBack's page actions, a
+ * mouse wheel. [latest] is the day asked for last, which a swipe goes on from even before
+ * [selected] has caught up with it. [marked] are the days that have Appointments.
  */
 @Composable
-private fun SwipeCalendar(selected: LocalDate, today: LocalDate, latest: () -> LocalDate, onSelect: (LocalDate) -> Unit, modifier: Modifier = Modifier) {
+private fun SwipeCalendar(
+    selected: LocalDate,
+    today: LocalDate,
+    marked: Set<LocalDate>,
+    latest: () -> LocalDate,
+    onSelect: (LocalDate) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val format = LocalTimeFormat.current
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
@@ -231,7 +245,7 @@ private fun SwipeCalendar(selected: LocalDate, today: LocalDate, latest: () -> L
     var pulling by remember { mutableStateOf(false) }
     var settling by remember { mutableStateOf<Job?>(null) }
     val opening by remember { derivedStateOf { opened > 0f } }
-    val atRest by remember { derivedStateOf { !pulling && (opened == 0f || opened == 1f) } }
+    val open by remember { derivedStateOf { opened == 0f || opened == 1f } }
     // Weeks while the week is shown, months as soon as it opens. The month's view of the selected week is the week itself, so
     // the change from one to the other does not show. The pages, their effects and their layout all take it from this composition.
     val inMonth = opening
@@ -242,18 +256,34 @@ private fun SwipeCalendar(selected: LocalDate, today: LocalDate, latest: () -> L
         }
     }
     val currentPager by rememberUpdatedState(pager)
-    // Whether a finger has moved the pager since it was last at rest: where it comes to rest then is the Stylist's choice.
-    var swiped by remember(pager) { mutableStateOf(false) }
+    // How many of the calendar's own slides to the selected day's page are under way. Meanwhile the pages are not swiped,
+    // so a tap on a day while one slides in selects that day.
+    var slides by remember(pager) { mutableIntStateOf(0) }
+    val atRest = open && !pulling && slides == 0
 
-    LaunchedEffect(pager) {
-        pager.interactionSource.interactions.collect { if (it is DragInteraction.Start) swiped = true }
+    // A day selected with the arrows, a tap on a day of the month next to this one, a swipe or by the clock brings its page into
+    // view: the page next to this one slides in, one further away is there at once. A day selected again before the page is in
+    // place moves it on from where it is.
+    val selectedPage = if (inMonth) pages.monthPage(selected) else pages.weekPage(selected)
+    LaunchedEffect(pager, selectedPage) {
+        if (pager.currentPage != selectedPage || pager.currentPageOffsetFraction != 0f) {
+            slides++
+            try {
+                if (abs(selectedPage - pager.currentPage) <= 1) pager.animateScrollToPage(selectedPage) else pager.scrollToPage(selectedPage)
+            } finally {
+                slides--
+            }
+        }
     }
-    // A swipe that has come to rest selects the day on the page it has brought into view, also when it came back to the page it
-    // started on while the arrows had moved the selected day to the next one.
+    // Any other move of the pages selects the day on the page it comes to rest on: a swipe, TalkBack's page actions, a mouse wheel.
     LaunchedEffect(pager, inMonth) {
-        snapshotFlow { pager.isScrollInProgress }.collect { moving ->
-            if (!moving && swiped) {
-                swiped = false
+        snapshotFlow { pager.isScrollInProgress }.collectLatest { moving ->
+            if (moving) {
+                return@collectLatest
+            }
+            // A slide that takes over from one that was stopped starts in the frame after.
+            withFrameNanos {}
+            if (slides == 0 && !pager.isScrollInProgress) {
                 val now = latestDay()
                 val day = if (inMonth) pages.dayOnMonthPage(now, pager.currentPage) else pages.dayOnWeekPage(now, pager.currentPage)
 
@@ -263,17 +293,6 @@ private fun SwipeCalendar(selected: LocalDate, today: LocalDate, latest: () -> L
             }
         }
     }
-    // A day selected otherwise, with the arrows, a tap on a day of the month next to this one, or by the clock, brings its
-    // page into view: the page next to this one slides in, one further away is there at once. A day selected again before the
-    // page is in place moves it on from where it is. A finger on the pager has the last word.
-    val selectedPage = if (inMonth) pages.monthPage(selected) else pages.weekPage(selected)
-    LaunchedEffect(pager, selectedPage) {
-        if (!swiped && (pager.currentPage != selectedPage || pager.currentPageOffsetFraction != 0f)) {
-            if (abs(selectedPage - pager.currentPage) <= 1) pager.animateScrollToPage(selectedPage) else pager.scrollToPage(selectedPage)
-        }
-    }
-    // The days are marked from the months of the pages in view, of the pages on both sides and of the month the week opens into.
-    val marked = markedDays(remember(pages, inMonth, pager.currentPage, selected) { pages.monthsToMark(pager.currentPage, inMonth, selected) })
 
     BoxWithConstraints(modifier.widenedTo(DayCellMinWidth * 7, into = ScreenPadding)) {
         val weekdays = remember(pages, format) { CalendarWeek.days(pages.weekStart(today)).map(format::shortWeekday) }
@@ -299,7 +318,7 @@ private fun SwipeCalendar(selected: LocalDate, today: LocalDate, latest: () -> L
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     // A month that is opening or closing is caught by the finger where it is.
-                    val caught = !atRest
+                    val caught = !open
                     if (caught) {
                         settling?.cancel()
                     } else if (currentPager.isScrollInProgress) {
@@ -312,34 +331,31 @@ private fun SwipeCalendar(selected: LocalDate, today: LocalDate, latest: () -> L
                         down
                     } else {
                         awaitVerticalTouchSlopOrCancellation(down.id) { change, over ->
-                            if ((over > 0f && opened < 1f) || (over < 0f && opened > 0f)) {
+                            if (pullsCalendar(over, opened)) {
                                 change.consume()
                                 opened = (opened + over / travel).coerceIn(0f, 1f)
                             }
                         }
                     } ?: return@awaitEachGesture
                     val velocity = VelocityTracker().apply { addPointerInputChange(start) }
+                    var moved = !caught
 
                     pulling = true
                     try {
                         verticalDrag(start.id) { change ->
+                            val by = change.positionChange().y
+
                             velocity.addPointerInputChange(change)
-                            opened = (opened + change.positionChange().y / travel).coerceIn(0f, 1f)
+                            moved = moved || by != 0f
+                            opened = (opened + by / travel).coerceIn(0f, 1f)
                             change.consume()
                         }
                     } finally {
                         pulling = false
                         val speed = velocity.calculateVelocity().y
-                        val fast = OpenVelocity.toPx()
 
-                        settle(
-                            toMonth = when {
-                                speed > fast -> true
-                                speed < -fast -> false
-                                else -> opened > 0.5f
-                            },
-                            velocity = speed,
-                        )
+                        // A month caught and let go without a move goes on where it was going, or where a tap on the handle sent it.
+                        settle(if (moved) opensOnRelease(opened, speed, OpenVelocity.toPx()) else monthShown, speed)
                     }
                 }
             },
@@ -558,6 +574,25 @@ private val OpenSpring = spring<Float>(dampingRatio = Spring.DampingRatioNoBounc
 
 /** The day numbers a calendar shows, to fit them all in one size. */
 private val DayNumbers = (1..31).map(Int::toString)
+
+/**
+ * Whether a vertical drag of [over] pixels (down is positive) on the calendar is the calendar's
+ * own, with the month [opened] that far: a pull that has somewhere to go. Up on the week and down
+ * on the open month, the list under the calendar scrolls and is pulled to refresh instead.
+ */
+internal fun pullsCalendar(over: Float, opened: Float): Boolean = (over > 0f && opened < 1f) || (over < 0f && opened > 0f)
+
+/**
+ * Whether a pull let go with the month [opened] that far, moving at [speed] pixels a second (down
+ * is positive), ends with the month open: a pull at [fastSpeed] or faster goes on in its
+ * direction, a slower one goes to whichever is nearer.
+ */
+internal fun opensOnRelease(opened: Float, speed: Float, fastSpeed: Float): Boolean =
+    when {
+        speed >= fastSpeed -> true
+        speed <= -fastSpeed -> false
+        else -> opened > 0.5f
+    }
 
 /** The height of a week of the calendar for days numbered in [numberStyle]: the number and its dot, padded, and never less than a touch target. */
 @Composable
