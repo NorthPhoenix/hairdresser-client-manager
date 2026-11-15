@@ -19,6 +19,7 @@ import androidx.compose.foundation.gestures.awaitVerticalTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.verticalDrag
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -35,7 +36,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.selection.selectable
@@ -92,9 +92,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.northphoenix.hairdresserclientmanager.R
+import com.northphoenix.hairdresserclientmanager.data.Appointment
 import com.northphoenix.hairdresserclientmanager.domain.CalendarPages
 import com.northphoenix.hairdresserclientmanager.domain.CalendarWeek
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
+import com.northphoenix.hairdresserclientmanager.state.CalendarDay
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.AppointmentCard
@@ -107,6 +109,7 @@ import com.northphoenix.hairdresserclientmanager.ui.components.fittedTextStyle
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.ZoneId
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.sign
@@ -118,6 +121,7 @@ import kotlinx.coroutines.launch
  * Calendar View: Appointments for one day, under a calendar that is swiped through. It shows the
  * week of the selected day, which is swiped sideways to the weeks around it and pulled down into
  * its month; the month is swiped sideways to the months around it and pushed up into the week again.
+ * The day's list is swiped sideways to the day before or after it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -125,14 +129,12 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit)
     val format = LocalTimeFormat.current
     // The day and what is loaded of it come together, so one day's Appointments are never under another day.
     val shown by viewModel.calendarDay.collectAsStateWithLifecycle()
-    val appointments = shown.appointments
-    val load = shown.load
     // The calendar shows the day asked for last at once: a swipe that has come to rest selects its day with no wait for the list.
     val selected by viewModel.calendarDate.collectAsStateWithLifecycle()
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
     val today by viewModel.today.collectAsStateWithLifecycle()
     // Read here, outside the list, so that the calendar scrolled out of view and back reads nothing again.
-    val marked = markedDays(remember(selected) { CalendarPages.monthsAround(selected) })
+    val months = shownMonths(remember(selected) { CalendarPages.monthsAround(selected) })
 
     val list = rememberLazyListState()
 
@@ -167,7 +169,7 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit)
                 SwipeCalendar(
                     selected = selected,
                     today = today,
-                    marked = marked,
+                    marked = months.marked,
                     listAtTop = { !list.canScrollBackward },
                     latest = { viewModel.calendarDate.value },
                     onSelect = viewModel::setCalendarDate,
@@ -175,24 +177,18 @@ fun CalendarScreen(viewModel: AppViewModel, onOpenAppointment: (String) -> Unit)
                 )
             }
 
-            item {
-                ListSectionLabel(
-                    if (shown.day == today) stringResource(R.string.tab_today) + " · " + format.longDay(shown.day) else format.longDay(shown.day),
-                    appointments.size.takeIf { load == LoadState.Loaded },
+            item(key = "days") {
+                DayPager(
+                    selected = selected,
+                    today = today,
+                    shown = shown,
+                    months = months,
+                    latest = { viewModel.calendarDate.value },
+                    onSelect = viewModel::setCalendarDate,
+                    // Choosing the day again loads it again.
+                    onRetry = { viewModel.setCalendarDate(shown.day) },
+                    onOpenAppointment = onOpenAppointment,
                 )
-            }
-
-            when (val state = load) {
-                // Choosing the day again loads it again.
-                is LoadState.Failed -> item { LoadFailed(state.message, onRetry = { viewModel.setCalendarDate(shown.day) }) }
-                LoadState.Loaded -> if (appointments.isEmpty()) {
-                    item { EmptyState(Icons.Rounded.EventBusy, stringResource(R.string.appointments_empty_title), body = stringResource(R.string.calendar_empty_body)) }
-                }
-                else -> item { LoadingRow() }
-            }
-
-            items(appointments, key = { it.id }) { appointment ->
-                AppointmentCard(appointment, onClick = { onOpenAppointment(appointment.id) })
             }
         }
     }
@@ -244,7 +240,6 @@ private fun SwipeCalendar(
     val scope = rememberCoroutineScope()
     val firstDayOfWeek = format.firstDayOfWeek
     val pages = remember(firstDayOfWeek) { CalendarPages(firstDayOfWeek) }
-    val latestDay by rememberUpdatedState(latest)
     val select by rememberUpdatedState(onSelect)
     val atTop by rememberUpdatedState(listAtTop)
 
@@ -266,48 +261,14 @@ private fun SwipeCalendar(
         }
     }
     val currentPager by rememberUpdatedState(pager)
-    // How many of the calendar's own slides to the selected day's page are under way. Meanwhile the pages are not swiped,
-    // so a tap on a day while one slides in selects that day.
-    var slides by remember(pager) { mutableIntStateOf(0) }
-    // The page the pager was last put on for the selected day. Resting on another one, it was moved by the Stylist.
-    var placedPage by remember(pager) { mutableIntStateOf(pager.currentPage) }
-    val atRest = open && !pulling && slides == 0
-
-    // A day selected with the arrows, a tap on a day of the month next to this one, a swipe or by the clock brings its page into
-    // view: the page next to this one slides in, one further away is there at once. A day selected again before the page is in
-    // place moves it on from where it is.
-    val selectedPage = if (inMonth) pages.monthPage(selected) else pages.weekPage(selected)
-    LaunchedEffect(pager, selectedPage) {
-        if (pager.currentPage != selectedPage || pager.currentPageOffsetFraction != 0f) {
-            slides++
-            try {
-                if (abs(selectedPage - pager.currentPage) <= 1) pager.animateScrollToPage(selectedPage) else pager.scrollToPage(selectedPage)
-            } finally {
-                slides--
-            }
-        }
-        placedPage = selectedPage
-    }
-    // Any other move of the pages selects the day on the page it comes to rest on: a swipe, TalkBack's page actions, a mouse wheel.
-    // A pager that is where it was put has not been moved, also when the selected day has just changed and its slide is still to start.
-    LaunchedEffect(pager, inMonth) {
-        snapshotFlow { pager.isScrollInProgress }.collectLatest { moving ->
-            if (moving) {
-                return@collectLatest
-            }
-            // A slide that takes over from one that was stopped starts in the frame after.
-            withFrameNanos {}
-            if (slides == 0 && !pager.isScrollInProgress && pager.currentPage != placedPage) {
-                val now = latestDay()
-                val day = if (inMonth) pages.dayOnMonthPage(now, pager.currentPage) else pages.dayOnWeekPage(now, pager.currentPage)
-
-                placedPage = pager.currentPage
-                if (day != now) {
-                    select(day)
-                }
-            }
-        }
-    }
+    val sliding = followSelectedDay(
+        pager,
+        selectedPage = if (inMonth) pages.monthPage(selected) else pages.weekPage(selected),
+        latest = latest,
+        dayOn = { now, page -> if (inMonth) pages.dayOnMonthPage(now, page) else pages.dayOnWeekPage(now, page) },
+        select = onSelect,
+    )
+    val atRest = open && !pulling && !sliding
 
     BoxWithConstraints(modifier.widenedTo(DayCellMinWidth * 7, into = ScreenPadding)) {
         val weekdays = remember(pages, format) { CalendarWeek.days(pages.weekStart(today)).map(format::shortWeekday) }
@@ -531,17 +492,176 @@ private fun WeekRow(
 }
 
 /**
- * The days of [months] that have an Appointment that is not canceled ([monthAppointmentsState]), read
- * once for every page of the calendar: the week and its month mark a day alike, and a month read
- * before is marked from the first frame. A month that stays in [months] is not read again.
+ * The Appointments of [months] ([monthAppointmentsState]), read once for every page of the calendar
+ * and the days next to the selected one: the week and its month mark a day alike, and a month read
+ * before is there from the first frame. A month that stays in [months] is not read again.
  */
 @Composable
-private fun markedDays(months: List<YearMonth>): Set<LocalDate> {
+private fun shownMonths(months: List<YearMonth>): ShownMonths {
     val zone = LocalTimeFormat.current.zone
-    val reads = months.map { month -> key(month) { monthAppointmentsState(month) } }
-    val appointments = reads.flatMap { it.value.data.orEmpty() }
+    val reads = months.map { month -> month to key(month) { monthAppointmentsState(month) }.value.data }
 
-    return remember(appointments, zone) { CalendarWeek.daysWithAppointments(appointments, zone) }
+    return remember(reads, zone) { ShownMonths(reads.toMap(), zone) }
+}
+
+/** What the months around the selected day have, as [shownMonths] reads them. */
+private class ShownMonths(private val appointments: Map<YearMonth, List<Appointment>?>, private val zone: ZoneId) {
+    /** The days that have an Appointment that is not canceled. */
+    val marked: Set<LocalDate> = CalendarWeek.daysWithAppointments(appointments.values.flatMap { it.orEmpty() }, zone)
+
+    /** The list of [day] as its month has it, or null while its month has nothing yet. */
+    fun day(day: LocalDate): List<Appointment>? = appointments[YearMonth.from(day)]?.let { CalendarWeek.startingOn(it, day, zone) }
+}
+
+/**
+ * Keeps [pager] on [selectedPage], the page of the selected day, and selects a day when the pager
+ * is moved otherwise. A day selected elsewhere (the arrows, the calendar, a tap on a day of the
+ * month next to this one, the clock) brings its page into view: the page next to this one slides
+ * in, one further away is there at once, and a day selected again before the page is in place
+ * moves it on from where it is. Any other move of the pages selects the day [dayOn] gives for the
+ * page it comes to rest on, from [latest], the day asked for last: a swipe, TalkBack's page
+ * actions, a mouse wheel.
+ *
+ * Returns whether one of its own slides is under way. Meanwhile the pages are not to be swiped, so
+ * a tap on a day while one slides in selects that day.
+ */
+@Composable
+private fun followSelectedDay(
+    pager: PagerState,
+    selectedPage: Int,
+    latest: () -> LocalDate,
+    dayOn: (selected: LocalDate, page: Int) -> LocalDate,
+    select: (LocalDate) -> Unit,
+): Boolean {
+    val latestDay by rememberUpdatedState(latest)
+    val dayOnPage by rememberUpdatedState(dayOn)
+    val onSelect by rememberUpdatedState(select)
+    // How many of the pager's own slides to the selected day's page are under way.
+    var slides by remember(pager) { mutableIntStateOf(0) }
+    // The page the pager was last put on for the selected day. Resting on another one, it was moved by the Stylist.
+    var placedPage by remember(pager) { mutableIntStateOf(pager.currentPage) }
+    val dragged by pager.interactionSource.collectIsDraggedAsState()
+
+    LaunchedEffect(pager, selectedPage) {
+        // A swipe let go on this page is already on its way there: it is not taken over.
+        val landing = pager.isScrollInProgress && pager.targetPage == selectedPage
+
+        if (!landing && (pager.currentPage != selectedPage || pager.currentPageOffsetFraction != 0f)) {
+            slides++
+            try {
+                if (abs(selectedPage - pager.currentPage) <= 1) pager.animateScrollToPage(selectedPage) else pager.scrollToPage(selectedPage)
+            } finally {
+                slides--
+            }
+        }
+        placedPage = selectedPage
+    }
+    // A swipe selects its day as soon as the finger lets go, as the page it lands on is known then: the calendar and the list
+    // follow while it is still landing.
+    LaunchedEffect(pager) {
+        snapshotFlow { if (pager.isScrollInProgress && !dragged && slides == 0) pager.targetPage else null }.collect { landing ->
+            if (landing != null && landing != placedPage) {
+                val now = latestDay()
+                val day = dayOnPage(now, landing)
+
+                placedPage = landing
+                if (day != now) {
+                    onSelect(day)
+                }
+            }
+        }
+    }
+    // Any move that ends otherwise selects the day on the page it comes to rest on. A pager that is where it was put has not
+    // been moved, also when the selected day has just changed and its slide is still to start.
+    LaunchedEffect(pager) {
+        snapshotFlow { pager.isScrollInProgress }.collectLatest { moving ->
+            if (moving) {
+                return@collectLatest
+            }
+            // A slide that takes over from one that was stopped starts in the frame after.
+            withFrameNanos {}
+            if (slides == 0 && !pager.isScrollInProgress && pager.currentPage != placedPage) {
+                val now = latestDay()
+                val day = dayOnPage(now, pager.currentPage)
+
+                placedPage = pager.currentPage
+                if (day != now) {
+                    onSelect(day)
+                }
+            }
+        }
+    }
+
+    return slides > 0
+}
+
+/**
+ * The list of the selected day, swiped sideways to the day before or after it: the finger moves
+ * it, and the day it comes to rest on is selected. The selected day shows what is loaded of it
+ * ([shown], when it is that day); the days next to it show their day as their month has it
+ * ([months]), so they are there as they come in.
+ */
+@Composable
+private fun DayPager(
+    selected: LocalDate,
+    today: LocalDate,
+    shown: CalendarDay,
+    months: ShownMonths,
+    latest: () -> LocalDate,
+    onSelect: (LocalDate) -> Unit,
+    onRetry: () -> Unit,
+    onOpenAppointment: (String) -> Unit,
+) {
+    // Not saved: it starts on the selected day whenever it is made.
+    val pager = remember { PagerState(currentPage = CalendarPages.dayPage(selected)) { CalendarPages.dayCount } }
+    val sliding = followSelectedDay(pager, CalendarPages.dayPage(selected), latest, dayOn = { _, page -> CalendarPages.dayOf(page) }, select = onSelect)
+
+    // As wide as the screen, so a day slides out at its edge rather than at the list's padding.
+    HorizontalPager(pager, Modifier.fullBleed(ScreenPadding), userScrollEnabled = !sliding, verticalAlignment = Alignment.Top) { page ->
+        val day = CalendarPages.dayOf(page)
+        val listed = months.day(day)
+
+        Column(Modifier.fillMaxWidth().padding(horizontal = ScreenPadding), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // A day swiped to for the first time keeps what its month had while its own read is on the way, rather than a spinner.
+            if (day == shown.day && !(shown.load == LoadState.Loading && shown.appointments.isEmpty() && listed != null)) {
+                DayList(day, today, shown.appointments, shown.load, onRetry, onOpenAppointment)
+            } else {
+                DayList(day, today, listed.orEmpty(), if (listed == null) LoadState.Loading else LoadState.Loaded, onRetry = null, onOpenAppointment)
+            }
+        }
+    }
+}
+
+/** A day's title and its Appointments. Without [onRetry], a day that could not be loaded shows that it is loading: its own read says so once it is selected. */
+@Composable
+private fun DayList(day: LocalDate, today: LocalDate, appointments: List<Appointment>, load: LoadState, onRetry: (() -> Unit)?, onOpenAppointment: (String) -> Unit) {
+    val format = LocalTimeFormat.current
+
+    ListSectionLabel(
+        if (day == today) stringResource(R.string.tab_today) + " · " + format.longDay(day) else format.longDay(day),
+        appointments.size.takeIf { load == LoadState.Loaded },
+    )
+    when (load) {
+        is LoadState.Failed -> if (onRetry != null) LoadFailed(load.message, onRetry = onRetry) else LoadingRow()
+        LoadState.Loaded -> if (appointments.isEmpty()) {
+            EmptyState(Icons.Rounded.EventBusy, stringResource(R.string.appointments_empty_title), body = stringResource(R.string.calendar_empty_body))
+        }
+        else -> LoadingRow()
+    }
+    appointments.forEach { appointment ->
+        key(appointment.id) {
+            AppointmentCard(appointment, onClick = { onOpenAppointment(appointment.id) })
+        }
+    }
+}
+
+/** Lays a row of the padded list out as wide as the screen: [padding], the list's own, past it on both sides. */
+private fun Modifier.fullBleed(padding: Dp) = layout { measurable, constraints ->
+    val extra = (padding * 2).roundToPx()
+    val wide = constraints.maxWidth + extra
+    val placeable = measurable.measure(constraints.copy(minWidth = wide, maxWidth = wide))
+
+    layout(constraints.maxWidth, placeable.height) { placeable.place(-extra / 2, 0) }
 }
 
 /**

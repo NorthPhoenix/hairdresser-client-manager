@@ -28,6 +28,15 @@ object CalendarWeek {
             .mapTo(mutableSetOf()) { Instant.parse(it.startsAt).atZone(zone).toLocalDate() }
 
     /**
+     * The list of [day] in [zone] as `appointment.list` gives it for the day, out of [appointments]
+     * read for a longer time: every one that starts on it, canceled ones too, in the order they came
+     * (the server's: by start). The Calendar View shows the days next to the selected one from the
+     * month it has read, so they are there as they are swiped in.
+     */
+    fun startingOn(appointments: List<Appointment>, day: LocalDate, zone: ZoneId): List<Appointment> =
+        appointments.filter { Instant.parse(it.startsAt).atZone(zone).toLocalDate() == day }
+
+    /**
      * What [day] already has, for the form that books or moves an Appointment: those of [appointments]
      * that start on it in [zone] and are not canceled, as for the marks, by their start. Without
      * [excluding], the Appointment being moved, which is not in its own way.

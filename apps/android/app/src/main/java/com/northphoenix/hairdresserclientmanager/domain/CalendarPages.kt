@@ -8,7 +8,7 @@ import java.time.temporal.TemporalAdjusters
 
 /**
  * The pages the Calendar View swipes through: weeks while it shows a week, months while it shows
- * the month. A page is numbered from the first week or month of [FIRST_MONTH] on, up to the last
+ * the month, and the days of the list under it ([dayPage]). A page is numbered from the first week or month of [FIRST_MONTH] on, up to the last
  * of [LAST_MONTH], the years the date picker offers.
  *
  * Swiping to another page selects a day on it: the same weekday of another week, the same day of
@@ -63,6 +63,17 @@ class CalendarPages(val firstDayOfWeek: DayOfWeek) {
     companion object {
         val FIRST_MONTH: YearMonth = YearMonth.of(1900, 1)
         val LAST_MONTH: YearMonth = YearMonth.of(2100, 12)
+
+        private val firstDay = FIRST_MONTH.atDay(1)
+
+        /** How many days the list under the calendar is swiped through, one page a day. */
+        val dayCount: Int = (LAST_MONTH.atEndOfMonth().toEpochDay() - firstDay.toEpochDay()).toInt() + 1
+
+        /** The page of [day] in the list under the calendar. A day outside the pages is on the first or the last one. */
+        fun dayPage(day: LocalDate): Int = (day.toEpochDay() - firstDay.toEpochDay()).toInt().coerceIn(0, dayCount - 1)
+
+        /** The day on [page] of the list under the calendar. */
+        fun dayOf(page: Int): LocalDate = firstDay.plusDays(page.toLong())
 
         /**
          * The months whose Appointments mark the days of the calendar around [selected]: its month

@@ -36,6 +36,18 @@ class CalendarPagesTest {
     }
 
     @Test
+    fun `the list under the calendar has a page for every day`() {
+        val page = CalendarPages.dayPage(day)
+
+        assertEquals(day, CalendarPages.dayOf(page))
+        assertEquals(LocalDate.of(2026, 11, 15), CalendarPages.dayOf(page + 1))
+        assertEquals(LocalDate.of(2026, 11, 1), CalendarPages.dayOf(page - 13))
+        assertEquals(0, CalendarPages.dayPage(LocalDate.of(1850, 1, 1)))
+        assertEquals(LocalDate.of(2100, 12, 31), CalendarPages.dayOf(CalendarPages.dayCount - 1))
+        assertEquals(CalendarPages.dayCount - 1, CalendarPages.dayPage(LocalDate.of(2200, 1, 1)))
+    }
+
+    @Test
     fun `a day outside the pages is on the first or the last of them`() {
         assertEquals(0, mondayFirst.weekPage(LocalDate.of(1850, 6, 1)))
         assertEquals(mondayFirst.weekCount - 1, mondayFirst.weekPage(LocalDate.of(2200, 6, 1)))
