@@ -1,5 +1,24 @@
 [
   {
+    "versionCode": 20,
+    "versionName": "1.18.0",
+    "date": "2026-11-14",
+    "notes": {
+      "ru": [
+        "Календарь листается свайпом: влево или вправо по неделе — предыдущая или следующая неделя",
+        "Потяните неделю вниз — откроется весь месяц. Его тоже можно листать свайпом, а движение вверх снова сворачивает его в неделю",
+        "Кнопка выбора даты в календаре убрана: она больше не нужна",
+        "Свайп по списку записей влево или вправо открывает предыдущий или следующий день"
+      ],
+      "en": [
+        "The Calendar swipes: left or right on the week goes to the previous or next week",
+        "Pull the week down to open the whole month. It swipes too, and pushing it up folds it back into the week",
+        "The Calendar's date button is gone: it is no longer needed",
+        "Swiping the list of Appointments left or right opens the day before or after"
+      ]
+    }
+  },
+  {
     "versionCode": 19,
     "versionName": "1.17.0",
     "date": "2026-11-14",
