@@ -38,13 +38,17 @@ class CalendarDayPagerTest {
     @Test
     fun `a selected day with nothing of its own yet shows its month's current answer, never a kept one`() {
         val loading = CalendarDay(saturday, emptyList(), LoadState.Loading)
-        val failed = CalendarDay(saturday, emptyList(), LoadState.Failed(R.string.app_name))
 
         assertEquals(DayPageList(fromMonth, LoadState.Loaded, own = false), dayPageList(saturday, loading, current = fromMonth, kept = fromMonth))
-        assertEquals(DayPageList(fromMonth, LoadState.Loaded, own = false), dayPageList(saturday, failed, current = fromMonth, kept = fromMonth))
-        // The month only kept its list from before: the day's own state is shown, with its retry.
+        // The month only kept its list from before: the day's own state is shown.
         assertEquals(DayPageList(emptyList(), LoadState.Loading, own = true), dayPageList(saturday, loading, current = null, kept = fromMonth))
-        assertEquals(DayPageList(emptyList(), failed.load, own = true), dayPageList(saturday, failed, current = null, kept = fromMonth))
+    }
+
+    @Test
+    fun `a selected day whose read failed says so, with its retry, whatever its month has`() {
+        val failed = CalendarDay(saturday, emptyList(), LoadState.Failed(R.string.app_name))
+
+        assertEquals(DayPageList(emptyList(), failed.load, own = true), dayPageList(saturday, failed, current = fromMonth, kept = fromMonth))
     }
 
     @Test

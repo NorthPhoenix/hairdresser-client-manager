@@ -582,6 +582,8 @@ private fun followSelectedDay(
         // A swipe let go on this page is already on its way there: it is not taken over.
         val landing = pager.isScrollInProgress && pager.targetPage == selectedPage
 
+        // Put here before it moves: a finger that holds the pager stops the slide, and where it lets go is then its choice.
+        placedPage = selectedPage
         if (!landing && (pager.currentPage != selectedPage || pager.currentPageOffsetFraction != 0f)) {
             slides++
             try {
@@ -590,7 +592,6 @@ private fun followSelectedDay(
                 slides--
             }
         }
-        placedPage = selectedPage
     }
     // A swipe selects its day as soon as the finger lets go, as the page it lands on is known then: the calendar and the list
     // follow while it is still landing.
@@ -693,14 +694,15 @@ internal data class DayPageList(val appointments: List<Appointment>, val load: L
 
 /**
  * What the page of [day] shows. The selected day ([shown], when it is that day) shows its own read;
- * while that has nothing (loading, or failed), its month's current answer ([current]) stands in for
- * it, never what the month kept from before. A day next to the selected one shows its month's list
- * ([kept]), which is a preview, and loading while the month has nothing.
+ * while that is on its way with nothing yet, its month's current answer ([current]) stands in for
+ * it, never what the month kept from before. A read that failed says so, with its retry. A day next
+ * to the selected one shows its month's list ([kept]), which is a preview, and loading while the
+ * month has nothing.
  */
 internal fun dayPageList(day: LocalDate, shown: CalendarDay, current: List<Appointment>?, kept: List<Appointment>?): DayPageList =
     when {
         day != shown.day -> DayPageList(kept.orEmpty(), if (kept == null) LoadState.Loading else LoadState.Loaded, own = false)
-        shown.appointments.isEmpty() && shown.load != LoadState.Loaded && current != null -> DayPageList(current, LoadState.Loaded, own = false)
+        shown.appointments.isEmpty() && shown.load == LoadState.Loading && current != null -> DayPageList(current, LoadState.Loaded, own = false)
         else -> DayPageList(shown.appointments, shown.load, own = true)
     }
 
