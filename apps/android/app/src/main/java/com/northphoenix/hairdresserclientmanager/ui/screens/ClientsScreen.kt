@@ -195,12 +195,13 @@ fun ClientRow(
 }
 
 /**
- * What each Client's row says of their visits, by Client id, read for as long as the Clients View
- * is open (as the Client Profile reads its history). Null until the dates have loaded: a row then
- * says nothing of them, rather than "no visits yet" of a Client who has had some.
+ * What each Client's row says of their visits, by Client id, read for as long as the caller is
+ * open (as the Client Profile reads its history): the Clients View, and the form of Appointment
+ * Creation for its Client pickers. Null until the dates have loaded: a row then says nothing of
+ * them, rather than "no visits yet" of a Client who has had some.
  */
 @Composable
-private fun rememberClientRowVisits(viewModel: AppViewModel, clients: List<ClientProfile>): Map<String, ClientRowVisits.Line>? {
+internal fun rememberClientRowVisits(viewModel: AppViewModel, clients: List<ClientProfile>): Map<String, ClientRowVisits.Line>? {
     val read by remember(viewModel) { viewModel.clientVisitDates() }.collectWhileOpen(
         initialValue = remember(viewModel) { viewModel.shownClientVisitDates() },
     )

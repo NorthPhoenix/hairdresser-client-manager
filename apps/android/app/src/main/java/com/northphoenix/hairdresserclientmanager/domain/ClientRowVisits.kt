@@ -6,10 +6,11 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 /**
- * The line a Client's row in the Clients View gives their visits: their next Appointment when
- * they have one ahead, else how long ago their last visit was, else that they have had none. As
- * the Client Profile counts them: a visit is a Completed Appointment, and the next Appointment is
- * the first Scheduled one that has not started. Tested in `ClientRowVisitsTest`.
+ * The line a Client's row in the Clients View, and in the Client pickers of Appointment Creation,
+ * gives their visits: their next Appointment when they have one ahead, else how long ago their
+ * last visit was, else that they have had none. As the Client Profile counts them: a visit is a
+ * Completed Appointment, and the next Appointment is the first Scheduled one that has not started.
+ * Tested in `ClientRowVisitsTest`.
  */
 object ClientRowVisits {
     enum class Day { TODAY, TOMORROW, LATER }

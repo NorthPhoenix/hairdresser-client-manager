@@ -1443,15 +1443,16 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     fun loadClientFamily(clientId: String) = loadShown(clientReads.family, ClientKey(clientId))
 
     /**
-     * Each Client's last visit and next Appointment, for as long as the Clients View collects this
-     * (see [clientHistory]). Nothing for a Stylist whose lists are not shown yet.
+     * Each Client's last visit and next Appointment, for as long as the Clients View or the form of
+     * Appointment Creation collects this (see [clientHistory]). Nothing for a Stylist whose lists are
+     * not shown yet.
      */
     fun clientVisitDates(): Flow<Read<List<ClientVisitDates>>> = ownerKey()?.let(clientReads.visitDates::watch) ?: flowOf(Read())
 
-    /** Those dates as they are without asking, for the first frame of the Clients View. */
+    /** Those dates as they are without asking, for the first frame of the Clients View or the form. */
     fun shownClientVisitDates(): Read<List<ClientVisitDates>> = ownerKey()?.let(clientReads.visitDates::now) ?: Read()
 
-    /** Called by the Clients View each time it comes into view. Quietly: without the dates the rows only say less. */
+    /** Called by the Clients View and the form each time they come into view. Quietly: without the dates the rows only say less. */
     fun loadClientVisitDates() {
         val key = ownerKey() ?: return
 

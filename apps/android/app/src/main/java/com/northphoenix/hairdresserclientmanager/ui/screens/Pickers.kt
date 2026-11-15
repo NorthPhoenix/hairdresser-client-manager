@@ -31,6 +31,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import com.northphoenix.hairdresserclientmanager.R
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
+import com.northphoenix.hairdresserclientmanager.domain.ClientRowVisits
 import com.northphoenix.hairdresserclientmanager.domain.ClientRules
 import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.i18n.emptyClientPickerText
@@ -50,6 +51,8 @@ import java.time.LocalTime
  * [clients] is the Stylist's whole Client list and [load] its state. The Clients in [takenIds]
  * are in the Appointment already and are not offered; the sheet needs the whole list all the
  * same, to tell a Stylist without Clients from one whose Clients are all taken.
+ * With [visits] (`rememberClientRowVisits`), each row says the Client's next Appointment or last
+ * visit, as in the Clients View; a Client it has no line for gets none.
  */
 @Composable
 fun ClientPickerSheet(
@@ -64,6 +67,7 @@ fun ClientPickerSheet(
     takenIds: Set<String> = emptySet(),
     /** A pick or a creation is being saved: the button that creates shows it and takes no second tap. */
     busy: Boolean = false,
+    visits: Map<String, ClientRowVisits.Line>? = null,
 ) {
     var search by rememberSaveable { mutableStateOf("") }
     val offered = remember(clients, takenIds) { clients.filter { it.id !in takenIds } }
@@ -109,6 +113,7 @@ fun ClientPickerSheet(
             ClientRow(
                 client,
                 onClick = { onPick(client) },
+                visits = visits?.get(client.id),
                 trailing = {
                     if (client.id in selectedIds) {
                         Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
