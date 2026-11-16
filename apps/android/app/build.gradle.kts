@@ -35,8 +35,8 @@ android {
         applicationId = "com.northphoenix.hairdresserclientmanager"
         minSdk = 26
         targetSdk = 36
-        versionCode = 20
-        versionName = "1.18.0"
+        versionCode = 21
+        versionName = "1.19.0"
 
         buildConfigField("String", "CLERK_PUBLISHABLE_KEY", localConfig("hcm.clerkPublishableKey").quoted())
         buildConfigField("String", "API_BASE_URL", localConfig("hcm.apiBaseUrl", "http://10.0.2.2:3000").quoted())

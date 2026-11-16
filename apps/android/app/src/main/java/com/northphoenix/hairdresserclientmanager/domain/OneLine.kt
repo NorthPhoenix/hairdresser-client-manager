@@ -4,7 +4,8 @@ package com.northphoenix.hairdresserclientmanager.domain
  * Text that is stored and shown on one line: a name, a phone number, a Color Formula placement.
  * Mirrors `toOneLine` and the name rule of packages/api/src/input.ts, so that a field shows what
  * the server will store: a line break or a tab becomes one space together with the spaces around
- * it, and every other control character, which nobody can see, is removed.
+ * it, and every other control character, which nobody can see, is removed. [address] shows an
+ * address, which is stored as typed, on one line.
  */
 object OneLine {
     // Written with escapes: some of these characters are invisible in an editor.
@@ -35,6 +36,14 @@ object OneLine {
             .joinToString(" ")
             .filterNot(Char::isISOControl)
     }
+
+    /**
+     * An address, which may be typed on several lines, on one line as the Appointment card and the
+     * Client Profile's map button show it: its lines that are not blank, trimmed and joined with
+     * commas, so a line that ends with one ("ул. Ленина, д. 5,") gets no second.
+     */
+    fun address(text: String): String =
+        text.lines().map { it.trim().trimEnd(',').trimEnd() }.filter(String::isNotEmpty).joinToString(", ")
 
     /** A name needs a character that can be seen: spaces, control and zero-width characters alone are no name. */
     fun hasVisibleCharacter(text: String): Boolean {
