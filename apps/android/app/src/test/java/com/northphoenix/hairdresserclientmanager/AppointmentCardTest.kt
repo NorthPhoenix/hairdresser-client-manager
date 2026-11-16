@@ -7,6 +7,7 @@ import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.domain.ServiceNames
 import com.northphoenix.hairdresserclientmanager.ui.components.cardAddress
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 /** What an Appointment card says on its place line and its Services line. */
@@ -45,10 +46,10 @@ class AppointmentCardTest {
     @Test
     fun `a Service added twice is named once with how many there are`() {
         // Two children's haircuts under one Client, added in two passes of the sheet.
-        assertEquals("Стрижка детская ×2", ServiceNames.line(listOf(service("Стрижка детская"), service("Стрижка детская"))))
+        assertEquals("Стрижка детская\u00A0×2", ServiceNames.line(listOf(service("Стрижка детская"), service("Стрижка детская"))))
         // Where the name first comes, also when another Service is between, and for another Client of a group Appointment.
         assertEquals(
-            "Колорирование ×2, Стрижка мужская ×2, Укладка",
+            "Колорирование\u00A0×2, Стрижка мужская\u00A0×2, Укладка",
             ServiceNames.line(
                 listOf(
                     service("Колорирование"),
@@ -62,7 +63,15 @@ class AppointmentCardTest {
     }
 
     @Test
+    fun `the count stays with its name when the line wraps`() {
+        val line = ServiceNames.line(listOf(service("Покраска в один цвет средний волос"), service("Покраска в один цвет средний волос")))
+
+        assertEquals("Покраска в один цвет средний волос\u00A0×2", line)
+        assertFalse(line.contains(" ×"))
+    }
+
+    @Test
     fun `names are compared without the spaces at their ends, and a blank name is left out`() {
-        assertEquals("Стрижка ×2", ServiceNames.line(listOf(service("Стрижка "), service(" "), service(" Стрижка"))))
+        assertEquals("Стрижка\u00A0×2", ServiceNames.line(listOf(service("Стрижка "), service(" "), service(" Стрижка"))))
     }
 }
