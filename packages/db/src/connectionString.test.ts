@@ -43,6 +43,36 @@ function outcome(address: string): { config: PgConfig } | { error: string } {
   }
 }
 
+/** Whether pg prints its SECURITY WARNING when it reads [address] (with a copy of its own). */
+function warns(address: string): boolean {
+  const pgParse = freshParse();
+  const warnings = vi.mocked(process.emitWarning);
+
+  warnings.mockClear();
+  try {
+    pgParse(address);
+  } catch {
+    return false;
+  }
+
+  return warnings.mock.calls.some(([warning]) => String(warning).includes("SECURITY WARNING"));
+}
+
+/** [address] with "&sslmode=verify-full" before its fragment, whatever it is. */
+function withVerifyFull(address: string): string {
+  const fragmentStart = address.indexOf("#");
+  const queryEnd = fragmentStart === -1 ? address.length : fragmentStart;
+
+  return address.slice(0, queryEnd) + verified + address.slice(queryEnd);
+}
+
+/** What pg should make of [address] with verify-full: the same connection, or the same error. */
+function expectedWithVerifyFull(address: string): ReturnType<typeof outcome> {
+  const before = outcome(address);
+
+  return "error" in before ? before : { config: { ...before.config, sslmode: "verify-full" } };
+}
+
 describe("verifiedTlsConnectionString", () => {
   beforeEach(() => {
     // pg's SECURITY WARNING, which these tests trigger on purpose.
@@ -149,16 +179,16 @@ describe("verifiedTlsConnectionString", () => {
     expect(verifiedTlsConnectionString(`${neon}?sslmode=require#primary`)).toBe(`${neon}?sslmode=require${verified}#primary`);
   });
 
-  it("agrees with pg on every address made of the pieces pg reads in special ways", () => {
+  it.each([20261115, 7, 424242])("agrees with pg on addresses made of the pieces pg reads in special ways (seed %i)", (start) => {
     const pieces = [
       "postgresql://", "postgres://", "socket:", "/", "//", "u", ":", "p", "@", "@/", "h", ":5432", "/db",
-      "?", "??", "&", "=", "#", "+", " ", "%", "%zz", "%41", "%6d", "\t", "\n", "\r", "\x00", "\uD800",
+      "?", "??", "&", "=", "#", "+", " ", "%", "%zz", "%41", "%3A", "%6d", "%ff", "\t", "\n", "\r", "\x00", "\x0b", "\uD800",
       "sslmode", "ssl%6Dode", "ssl\tmode", "uselibpqcompat", "true",
       "prefer", "require", "verify-ca", "verify-full", "disable", "no-verify",
       "sslmode=require", "sslmode=prefer", "sslmode=verify-ca", "sslmode=disable", "uselibpqcompat=true"
     ];
     // A fixed sequence of pseudo-random numbers (mulberry32), so that a failure can be run again.
-    let seed = 20261115;
+    let seed = start;
     const random = () => {
       seed = (seed + 0x6d2b79f5) | 0;
       let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
@@ -168,30 +198,26 @@ describe("verifiedTlsConnectionString", () => {
     };
     const pick = () => pieces[Math.floor(random() * pieces.length)]!;
 
-    for (let index = 0; index < 4000; index += 1) {
+    for (let index = 0; index < 2000; index += 1) {
       const head = random() < 0.7 ? "postgresql://u:p@h/db?" : "";
       const address = head + Array.from({ length: 1 + Math.floor(random() * 8) }, pick).join("");
-      const before = outcome(address);
       const rewritten = verifiedTlsConnectionString(address);
+      const label = JSON.stringify(address);
 
-      if ("error" in before) {
-        expect(rewritten, JSON.stringify(address)).toBe(address);
+      if (rewritten === address) {
+        // Left as it is: pg does not warn about it, or it would read the address in another way
+        // with the parameter added (a stray "%" or a control character at its end).
+        if (warns(address)) {
+          expect(outcome(withVerifyFull(address)), label).not.toEqual(expectedWithVerifyFull(address));
+        }
         continue;
       }
 
-      const asked = before.config.uselibpqcompat !== "true" && oldModes.includes(before.config.sslmode ?? "");
-
-      if (!asked) {
-        expect(rewritten, JSON.stringify(address)).toBe(address);
-        continue;
-      }
-
-      const after = parse(rewritten);
-      const { sslmode: _before, ...connectionBefore } = before.config;
-      const { sslmode: afterMode, ...connectionAfter } = after;
-
-      expect(afterMode, JSON.stringify(address)).toBe("verify-full");
-      expect(connectionAfter, JSON.stringify(address)).toEqual(connectionBefore);
+      // Changed: pg reads the same address with verify-full, and does not warn. One it cannot
+      // read, it cannot read either way.
+      expect(warns(rewritten), label).toBe(false);
+      expect(outcome(rewritten), label).toEqual(expectedWithVerifyFull(address));
     }
   });
+
 });
