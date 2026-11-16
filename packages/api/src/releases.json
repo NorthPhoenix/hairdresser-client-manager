@@ -1,5 +1,20 @@
 [
   {
+    "versionCode": 21,
+    "versionName": "1.19.0",
+    "date": "2026-11-15",
+    "notes": {
+      "ru": [
+        "В карточках записей на главном экране и в календаре видны все услуги: длинный список переносится на вторую и третью строку",
+        "Адрес записи на дому в карточке переносится на вторую строку, а не обрезается"
+      ],
+      "en": [
+        "Appointment cards on Home and in the Calendar show every Service: a long list wraps onto a second and third line",
+        "The address of an at-home Appointment wraps onto a second line on its card instead of being cut off"
+      ]
+    }
+  },
+  {
     "versionCode": 20,
     "versionName": "1.18.0",
     "date": "2026-11-14",
