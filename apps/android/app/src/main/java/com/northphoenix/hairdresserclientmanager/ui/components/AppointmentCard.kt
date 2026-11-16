@@ -70,8 +70,10 @@ val LocationType.icon get() = if (this == LocationType.AT_HOME) Icons.Rounded.Ho
 
 /**
  * The address a card shows after "At home": where the Stylist goes, on one line. None in the
- * salon: that is the salon address on every in-salon card, so the card says only "In the salon";
- * the Appointment screen still shows the address, with its map button.
+ * salon, so the card says only "In the salon": a Scheduled one is at the salon address the Stylist
+ * has now, the same on every such card. A past one keeps the address the salon had then, which
+ * after a move is another, and the card does not tell them apart; the Appointment screen shows
+ * the address of each, with its map button.
  */
 fun cardAddress(appointment: Appointment): String =
     if (appointment.locationType == LocationType.AT_HOME) OneLine.address(appointment.locationAddress) else ""
@@ -136,10 +138,11 @@ fun AppointmentCard(
                     // An at-home address is where the Stylist goes and differs from card to card, so it may take a second line.
                     maxLines = 2,
                 )
-                if (appointment.services.isNotEmpty()) {
+                val services = ServiceNames.line(appointment.services)
+                if (services.isNotEmpty()) {
                     // Up to three lines: the name of one Service Menu Item can fill a line ("Покраска в один цвет
                     // средний волос"), so on one line the card showed only the first Service. A longer list is cut on the third.
-                    IconLine(Icons.Rounded.ContentCut, ServiceNames.line(appointment.services), maxLines = 3)
+                    IconLine(Icons.Rounded.ContentCut, services, maxLines = 3)
                 }
                 Spacer(Modifier.height(2.dp))
                 StatusAndAmount {
