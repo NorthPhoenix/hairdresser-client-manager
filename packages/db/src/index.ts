@@ -3,8 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import { config } from "dotenv";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-// With its extension, so that plain Node loads dist/index.js as well as the bundlers do.
-import { verifiedTlsConnectionString } from "./connectionString.js";
+import { verifiedTlsConnectionString } from "./connectionString";
 
 // Local development keeps the database address in packages/db/.env. A host such as Vercel sets it
 // in the environment and has no such file, which is fine: a missing file is skipped.
