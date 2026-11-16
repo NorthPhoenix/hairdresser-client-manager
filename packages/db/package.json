@@ -14,7 +14,8 @@
   "scripts": {
     "build": "prisma generate && tsc -p tsconfig.json",
     "db:push": "prisma db push",
-    "lint": "prisma validate"
+    "lint": "prisma validate",
+    "test": "vitest run"
   },
   "dependencies": {
     "@prisma/adapter-pg": "latest",
@@ -23,7 +24,9 @@
   },
   "devDependencies": {
     "@types/node": "latest",
+    "pg-connection-string": "^2.13.0",
     "prisma": "latest",
-    "typescript": "latest"
+    "typescript": "latest",
+    "vitest": "latest"
   }
 }
