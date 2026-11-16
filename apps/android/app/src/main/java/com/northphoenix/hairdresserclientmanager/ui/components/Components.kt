@@ -78,7 +78,9 @@ import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -88,6 +90,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.northphoenix.hairdresserclientmanager.R
@@ -882,12 +885,33 @@ fun Hairline(modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
 }
 
-/** Icon followed by a line of supporting text. */
+/** Icon followed by supporting text, which wraps to at most [maxLines] lines; the icon is centred on the first. */
 @Composable
 fun IconLine(icon: ImageVector, text: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines: Int = 2) {
-    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = color)
-        Text(text, style = MaterialTheme.typography.bodyMedium, color = color, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
+    val style = MaterialTheme.typography.bodyMedium
+    val iconSize = 16.dp
+    // The height of one line of the text. The icon and the text are placed by padding worked out from it, not by
+    // an alignment line: the Appointment card takes its height from the intrinsic height of what it holds
+    // (IntrinsicSize.Min), which leaves alignment lines out. On one line they sit as when both were centred in the row.
+    val density = LocalDensity.current
+    val measurer = rememberTextMeasurer(cacheSize = 0)
+    val lineHeight = remember(measurer, style, density) { with(density) { measurer.measure("Ш", style).size.height.toDp() } }
+
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Icon(
+            icon,
+            contentDescription = null,
+            modifier = Modifier.padding(top = ((lineHeight - iconSize) / 2).coerceAtLeast(0.dp)).size(iconSize),
+            tint = color,
+        )
+        Text(
+            text,
+            modifier = Modifier.padding(top = ((iconSize - lineHeight) / 2).coerceAtLeast(0.dp)),
+            style = style,
+            color = color,
+            maxLines = maxLines,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
