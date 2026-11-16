@@ -120,7 +120,9 @@ object CalendarMirror {
      * where the event comes from, one to a line. Never Color Formulas, notes, prices, tips or photos.
      */
     fun description(appointment: Appointment, words: MirrorWords): String {
-        val services = serviceNames(appointment)
+        // A plain space before the count, as the events have said since they were first written: another
+        // text would rewrite every event with a repeated Service once, also of an Appointment that did not change.
+        val services = ServiceNames.line(appointment.services, beforeCount = " ")
         val others = otherClients(appointment)
         val phone = appointment.participants.firstOrNull { it.clientId == appointment.primaryClientId }?.phone?.trim().orEmpty()
 
@@ -135,16 +137,6 @@ object CalendarMirror {
     /** The Clients of the Appointment other than the primary one, in the order they were added. */
     private fun otherClients(appointment: Appointment): List<String> =
         appointment.participants.filter { it.clientId != appointment.primaryClientId }.map { it.name }
-
-    /** The names of the Services in the order they were added, one name once with how many there are: "Стрижка ×2, Укладка". */
-    private fun serviceNames(appointment: Appointment): String =
-        appointment.services
-            .map { it.name.trim() }
-            .filter { it.isNotEmpty() }
-            .groupingBy { it }
-            .eachCount()
-            .entries
-            .joinToString(", ") { (name, count) -> if (count == 1) name else "$name ×$count" }
 
     /**
      * What to do to the calendar so that it has [desired] and nothing else of the app's.

@@ -295,5 +295,20 @@
         "The Clients list and the Client picker show a Client's whole name, on up to three lines; a Client's language is shown only when it is not the app's"
       ]
     }
+  },
+  {
+    "versionCode": 22,
+    "versionName": "1.20.0",
+    "date": "2026-11-16",
+    "notes": {
+      "ru": [
+        "В карточках записей в салоне больше не повторяется адрес салона: там написано только «В салоне». Адрес и кнопка карты остаются на экране записи",
+        "Услуга, добавленная в запись дважды, показана один раз с количеством: «Стрижка ×2». Так же она названа в списке прошлых записей, из которых копируются услуги"
+      ],
+      "en": [
+        "In-salon Appointment cards no longer repeat the salon address: they just say \"In salon\". The address and the map button stay on the Appointment screen",
+        "A Service added to an Appointment twice is named once with its count: \"Haircut ×2\". The past Appointments you copy Services from name it the same way"
+      ]
+    }
   }
 ]
