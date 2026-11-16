@@ -46,6 +46,7 @@ Run these before merging v1 acceptance or feature-hardening changes:
 ```sh
 pnpm --filter @hcm/shared build
 pnpm --filter @hcm/api test
+pnpm --filter @hcm/db test
 pnpm lint
 pnpm build
 (cd apps/android && ./gradlew :app:testDebugUnitTest :app:assembleDebug)

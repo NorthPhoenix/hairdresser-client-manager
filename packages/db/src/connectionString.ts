@@ -12,8 +12,11 @@ const verifyFullAliases = new Set(["prefer", "require", "verify-ca"]);
  * without checking whose certificate it is. Naming "verify-full" keeps the connection as it is
  * today on both, and without the warning.
  *
- * The database address is changed by adding "&sslmode=verify-full" at the end of its query: pg
- * goes by the last value of a parameter, so that one is the SSL mode, and the rest stays as it was.
+ * Only the SSL mode of the database address changes. Where it has one SSL mode, written as
+ * "sslmode=require" (or "prefer", "verify-ca"), that becomes "sslmode=verify-full" where it stands;
+ * otherwise a last "&sslmode=verify-full" is added to its query, since pg goes by the last value of
+ * a parameter. The rest stays as it was.
+ *
  * Every other one is returned as it is: one that asks for libpq's meaning ("uselibpqcompat=true"),
  * one without an SSL mode or with another one ("disable", "no-verify", "verify-full"), one whose
  * parameters pg does not read (a Unix socket) or that the URL parser cannot read, and one that pg
@@ -28,15 +31,41 @@ export function verifiedTlsConnectionString(connectionString: string): string {
     return connectionString;
   }
 
-  // The query ends where the fragment starts: at the first "#", which nothing before it can escape.
+  // The query starts at the first "?" (none comes before it in a database address the URL parser
+  // reads), and ends where the fragment starts: at the first "#", which nothing before it can escape.
+  const queryStart = connectionString.indexOf("?");
   const fragmentStart = connectionString.indexOf("#");
   const queryEnd = fragmentStart === -1 ? connectionString.length : fragmentStart;
-  const verified = connectionString.slice(0, queryEnd) + "&sslmode=verify-full" + connectionString.slice(queryEnd);
-  const after = readAsPg(verified);
 
-  // Never so for a real database address, but one that ends in a stray "%" or a control character
-  // is read in another way once the parameter comes after that end.
-  return after && isWithVerifyFull(before, after) ? verified : connectionString;
+  if (queryStart === -1 || queryStart > queryEnd) {
+    return connectionString;
+  }
+
+  const head = connectionString.slice(0, queryStart);
+  const query = connectionString.slice(queryStart, queryEnd);
+  const tail = connectionString.slice(queryEnd);
+  // The SSL mode as it is written: "?sslmode=require" or "&sslmode=require".
+  const written = new RegExp(`([?&])sslmode=${sslMode}(?=&|$)`, "g");
+  const candidates = [
+    // Changed where it stands, so that the database address has one SSL mode whichever value of a
+    // repeated parameter a later pg goes by. Neon's database addresses have one, written so.
+    before.searchParams.getAll("sslmode").length === 1 && [...query.matchAll(written)].length === 1
+      ? head + query.replace(written, "$1sslmode=verify-full") + tail
+      : null,
+    // Else one more SSL mode at the end of the query: pg 8 goes by the last value.
+    head + query + "&sslmode=verify-full" + tail
+  ];
+
+  // The first one that pg reads as the same database address with verify-full, else the database
+  // address as it is. Never the case for a real one, but one that ends in a stray "%" or a control
+  // character is read in another way once a parameter comes after that end.
+  return (
+    candidates.find((candidate) => {
+      const after = candidate === null ? null : readAsPg(candidate);
+
+      return after !== null && isWithVerifyFull(before, after);
+    }) ?? connectionString
+  );
 }
 
 /**

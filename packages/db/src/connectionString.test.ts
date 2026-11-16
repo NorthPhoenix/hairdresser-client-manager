@@ -83,10 +83,12 @@ describe("verifiedTlsConnectionString", () => {
     vi.restoreAllMocks();
   });
 
-  it("asks for verify-full after the require of Neon's database address, and changes nothing else", () => {
-    const address = `${neon}?channel_binding=require&sslmode=require`;
+  it("asks for verify-full instead of the require of Neon's database address, and changes nothing else", () => {
+    const rewritten = verifiedTlsConnectionString(`${neon}?channel_binding=require&sslmode=require`);
 
-    expect(verifiedTlsConnectionString(address)).toBe(address + verified);
+    expect(rewritten).toBe(`${neon}?channel_binding=require&sslmode=verify-full`);
+    // One SSL mode, so a pg that took the first value of a repeated parameter would read it too.
+    expect(new URL(rewritten).searchParams.getAll("sslmode")).toEqual(["verify-full"]);
   });
 
   it.each(oldModes)("asks for verify-full instead of %s", (mode) => {
@@ -156,7 +158,7 @@ describe("verifiedTlsConnectionString", () => {
     expect(verifiedTlsConnectionString(`${neon}?sslmode=disable&sslmode=require`)).toBe(`${neon}?sslmode=disable&sslmode=require${verified}`);
     expect(verifiedTlsConnectionString(`${neon}?sslmode=require&sslmode=disable`)).toBe(`${neon}?sslmode=require&sslmode=disable`);
     expect(verifiedTlsConnectionString(`${neon}?uselibpqcompat=true&sslmode=require&uselibpqcompat=false`)).toBe(
-      `${neon}?uselibpqcompat=true&sslmode=require&uselibpqcompat=false${verified}`
+      `${neon}?uselibpqcompat=true&sslmode=verify-full&uselibpqcompat=false`
     );
   });
 
@@ -175,8 +177,21 @@ describe("verifiedTlsConnectionString", () => {
     }
   });
 
-  it("adds the SSL mode before a fragment", () => {
-    expect(verifiedTlsConnectionString(`${neon}?sslmode=require#primary`)).toBe(`${neon}?sslmode=require${verified}#primary`);
+  it("keeps a fragment after the query", () => {
+    expect(verifiedTlsConnectionString(`${neon}?sslmode=require#primary`)).toBe(`${neon}?sslmode=verify-full#primary`);
+    expect(verifiedTlsConnectionString(`${neon}?sslmode=disable&sslmode=require#primary`)).toBe(
+      `${neon}?sslmode=disable&sslmode=require${verified}#primary`
+    );
+  });
+
+  it("adds a last SSL mode where the one there is not written as such", () => {
+    // Its name escaped, or a line break after it: pg reads "sslmode=require" all the same.
+    expect(verifiedTlsConnectionString(`${neon}?ssl%6Dode=require`)).toBe(`${neon}?ssl%6Dode=require${verified}`);
+    expect(verifiedTlsConnectionString(`${neon}?sslmode=require\n`)).toBe(`${neon}?sslmode=require\n${verified}`);
+    // The SSL mode in the password is not the query's.
+    expect(verifiedTlsConnectionString("postgresql://app_owner:a&sslmode=require@ep-example-123456.us-east-2.aws.neon.tech/neondb?ssl%6Dode=require")).toBe(
+      `postgresql://app_owner:a&sslmode=require@ep-example-123456.us-east-2.aws.neon.tech/neondb?ssl%6Dode=require${verified}`
+    );
   });
 
   it.each([20261115, 7, 424242])("agrees with pg on database addresses made of the pieces pg reads in special ways (seed %i)", (start) => {
