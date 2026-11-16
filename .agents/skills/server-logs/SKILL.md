@@ -5,18 +5,21 @@ description: Use when you want to read server logs of the app.
 
 # Server logs
 
-The server prints one wide event per request: a single JSON line, `{"event":"hcm.request", ...}`, with the procedure, outcome, duration, database cost, IDs and the reason for a refusal or failure. Every field is in the field catalog of `docs/observability.md`; read it to know what a field means before drawing conclusions from it. Other lines (warnings, crashes) are plain text.
+Two kinds of log, which answer different questions:
+
+- **Events**: the server prints one wide event per request, a single JSON line `{"event":"hcm.request", ...}` with the procedure, outcome, duration, database cost, IDs and the reason for a refusal or failure. Every field is in the field catalog of `docs/observability.md`; read it to know what a field means before drawing conclusions from it. Other lines (warnings, crashes) are plain text.
+- **Request records**: Vercel's own record of every request (path, status, route, `pathType`, cache result, region), also of requests whose code printed nothing: static files, cached pages, the first page request on a new instance. Use them to count requests, to see the status a visitor got, and to find requests with no event.
 
 ## 1. Pick the source by time
 
-Production runs on Vercel, whose plan keeps runtime logs for about **one hour**. A cron job on the maintainer's server copies them every 15 minutes into an archive and indexes them. Run `hcm-logs status` first: its `checkpoint (saved up to)` line is the time up to which everything is in the archive.
+Production runs on Vercel, whose plan keeps events for about **one hour** and request records for **12 hours**. A cron job on the maintainer's server copies both every 15 minutes into an archive and indexes them. Run `hcm-logs status` first: its `runtime saved up to` and `requests saved up to` lines are the times up to which each kind is in the archive.
 
 | What you need | Source |
 | --- | --- |
-| Before the checkpoint | The archive: `hcm-logs` (step 2). Always prefer it; it reaches back to 2026-11-14 and searches by field. |
-| After the checkpoint (roughly the last 15–20 minutes), still within the last hour | Live from Vercel (step 3). |
-| Older than one hour and not in the archive | Lost. Check `hcm-logs status` and `~/hcm-logs/gaps.jsonl` for the lost range; say so rather than concluding it never happened. |
-| A local run (`apps/dev-backend`, `next dev`/`next start`) | The process's own output: the same events, one per line. |
+| Before that kind's "saved up to" time | The archive: `hcm-logs` (step 2). Always prefer it; it searches by field. Events reach back to 2026-11-14, request records to 2026-11-15 14:52 Central. |
+| After it (roughly the last 15–20 minutes), within Vercel's retention | Live from Vercel (step 3). |
+| Older than Vercel keeps and not in the archive | Lost. Check `hcm-logs status` and `~/hcm-logs/gaps.jsonl` for the lost range; say so rather than concluding it never happened. |
+| A local run (`apps/dev-backend`, `next dev`/`next start`) | The process's own output: the same events, one per line. There are no request records locally. |
 
 A question that spans both (for example "what happened in the last hour") needs both: the archive up to the checkpoint and live logs after it.
 
@@ -34,11 +37,14 @@ hcm-logs search 'error.reason?' --since 30d           # rows that have the field
 hcm-logs search SSL warning                           # plain words: full-text search over messages and errors
 hcm-logs stats --by trpc.procedure --since 30d        # count, errors, refusals, p50/p95/max/avg
 hcm-logs stats event=hcm.request --by instance.cold_start --metric db.query_ms
-hcm-logs trace <trace_id | request.id | Vercel requestId>
+hcm-logs requests httpStatus=404 --since 7d          # Vercel's request records
+hcm-logs requests --unlogged pathType!=static --since 7d   # requests that printed no event
+hcm-logs stats --table requests --by route,httpStatus --since 7d
+hcm-logs trace <trace_id | request.id | Vercel requestId>   # events and request record of one request
 hcm-logs sql 'SELECT "error.reason", count(*) FROM events WHERE _ms > 0 GROUP BY 1'
 ```
 
-Filters: `key=value`, `key!=value`, `key>n` (and `>=`, `<`, `<=`), `key~text` (contains), `key?` (has the field), `!key?` (lacks it). Booleans are 1/0 (`instance.cold_start=true` works). `--json` prints one object per line, `--fields '*'` every field, `--limit` defaults to 50. In SQL, quote dotted names (`"trpc.procedure"`); `_ms`, `_time` (UTC), `_kind` (`event`, `line`, `broken_event`), `message` and `vercel.*` (Vercel's envelope) are there too. More in `~/hcm-logs/README.md`.
+Filters: `key=value`, `key!=value`, `key>n` (and `>=`, `<`, `<=`), `key~text` (contains), `key?` (has the field), `!key?` (lacks it). Booleans are 1/0 (`instance.cold_start=true` works). `--json` prints one object per line, `--fields '*'` every field, `--limit` defaults to 50. In SQL, quote dotted names (`"trpc.procedure"`); `_ms`, `_time` (UTC), `_kind` (`event`, `line`, `broken_event`), `message` and `vercel.*` (Vercel's envelope) are there too. The `requests` table keeps Vercel's field names (`requestId`, `httpStatus`, `pathType`, ...; `hcm-logs fields --table requests`), and its `requestId` is the events' `"vercel.request_id"`. More in `~/hcm-logs/README.md`.
 
 The archive is read-only for you: query it, but never edit or delete its files, and do not run `pull-logs.py` or `hcm-logs index` (the cron job does both).
 
@@ -55,14 +61,14 @@ VERCEL_TOKEN="$(cat ~/.config/hcm/vercel-logs-token)" ~/.local/share/pnpm/vercel
 
 - Each record is under `.data`; the event is the JSON in `.data.message` (`.data.message | fromjson` for the events, which start with `{"event":"hcm.`). Timestamps are UTC; convert to Central time when you report them.
 - `--query 'level:error'` (or `requestPath:...`, `requestId:...`, `deploymentId:...`) filters on Vercel's side; the last line is a summary with `pagination.next` when there is more (`--next <cursor>`).
-- `vercel logs requests` (same flags) gives Vercel's own record of every request: status, route, cache result. It also covers requests that printed no event (see the gaps below). The archive does not keep these.
+- `vercel logs requests` (same flags) gives the request records; each is under `.data` of a line with `"type":"request"`.
 - Run it from outside the repository (`cd /tmp`) so the CLI does not pick up a linked project, and never print or log the token.
 
 If Vercel answers `forbidden` or `permission_denied`, the token has expired or been revoked: tell the maintainer, who makes a new team-scoped token at vercel.com/account/tokens for that file.
 
 ## Before concluding that something did not happen
 
-- On Vercel, the first request for a **page** on a new server instance prints no event (only an `hcm.process` start line). Routes, tRPC and the proxy are complete. See "How it works" in `docs/observability.md`.
+- On Vercel, the first request for a **page** on a new server instance prints no event (only an `hcm.process` start line). Routes, tRPC and the proxy are complete. See "How it works" in `docs/observability.md`. The request records have that request: `hcm-logs requests --unlogged pathType!=static`.
 - Events can be sampled when `HCM_TELEMETRY_SAMPLE_RATE` is below 1 (the default is 1; errors, refusals and slow requests are always kept). `sample.rate` on each event says which applied.
 - Check `hcm-logs status` for failed pulls and lost ranges in the window.
 
