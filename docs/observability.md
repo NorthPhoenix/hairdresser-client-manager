@@ -157,16 +157,16 @@ grep '^{"event":"hcm.request"' /tmp/hcm-events.jsonl | jq '{procedure: ."trpc.pr
 
 ### In production
 
-Vercel keeps runtime logs for an hour on the Hobby plan. A cron job on the maintainer's server copies them every 15 minutes into `~/hcm-logs/runtime/YYYY-MM-DD.jsonl` (see `~/hcm-logs/README.md`). Each record is Vercel's envelope, with the printed line in `message`:
+Vercel keeps runtime logs for an hour on the Hobby plan. A cron job on the maintainer's server copies them every 15 minutes into `~/hcm-logs/runtime/YYYY-MM-DD.jsonl` and indexes them into `~/hcm-logs/logs.db`, where every field of this catalog is a column under its own name (see `~/hcm-logs/README.md`). Search them with `hcm-logs`:
 
 ```sh
-cd ~/hcm-logs/runtime
-# Every event of a day, parsed.
-jq -c 'select(.message | startswith("{\"event\":\"hcm.")) | .message | fromjson' 2026-11-20.jsonl
-# Failures, with their procedure and error.
-jq -c '.message | select(startswith("{\"event\":\"hcm.request\"")) | fromjson | select(.outcome == "error") | {timestamp, p: ."trpc.procedure", e: ."error.type", m: ."error.message"}' *.jsonl
-# The slowest procedures.
-jq -r '.message | select(startswith("{\"event\":\"hcm.request\"")) | fromjson | [."duration_ms", ."trpc.procedure", ."db.query_count"] | @tsv' *.jsonl | sort -rn | head
+hcm-logs fields trpc.                                   # which fields exist, their types and counts
+hcm-logs search outcome=error --since 7d                # failures, newest last
+hcm-logs search trpc.procedure=clientProfile.save 'duration_ms>500' --fields duration_ms,db.query_count
+hcm-logs stats --by trpc.procedure --since 30d          # count, errors, refusals, p50/p95/max duration
+hcm-logs stats event=hcm.request --by instance.cold_start --metric duration_ms
+hcm-logs trace <trace_id>                               # everything one request printed
+hcm-logs sql 'SELECT "error.reason", count(*) FROM events GROUP BY 1'
 ```
 
 Timestamps in events are UTC. On Vercel the spans are in the project's Traces page once a sampling rule is set (Settings → Tracing); search them by the same field names, such as `trpc.procedure:clientProfile.save`.
