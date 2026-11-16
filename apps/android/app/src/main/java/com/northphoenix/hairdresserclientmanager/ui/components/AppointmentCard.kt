@@ -60,12 +60,21 @@ import com.northphoenix.hairdresserclientmanager.domain.HomeOutcomes
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentTotals
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.OneLine
+import com.northphoenix.hairdresserclientmanager.domain.ServiceNames
 import com.northphoenix.hairdresserclientmanager.i18n.label
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
 import com.northphoenix.hairdresserclientmanager.ui.theme.colors
 
 val LocationType.icon get() = if (this == LocationType.AT_HOME) Icons.Rounded.Home else Icons.Rounded.Storefront
+
+/**
+ * The address a card shows after "At home": where the Stylist goes, on one line. None in the
+ * salon: that is the salon address on every in-salon card, so the card says only "In the salon";
+ * the Appointment screen still shows the address, with its map button.
+ */
+fun cardAddress(appointment: Appointment): String =
+    if (appointment.locationType == LocationType.AT_HOME) OneLine.address(appointment.locationAddress) else ""
 
 /**
  * One Appointment in a list: time on the left, who/where/what on the right. With [onOutcome] the
@@ -123,15 +132,14 @@ fun AppointmentCard(
                 }
                 IconLine(
                     appointment.locationType.icon,
-                    listOf(stringResource(appointment.locationType.label), OneLine.address(appointment.locationAddress)).filter { it.isNotBlank() }.joinToString(" · "),
-                    // An at-home address is where the Stylist goes and differs from card to card, so it may take a
-                    // second line; the salon address of an in-salon Appointment is on each of them and stays on one.
-                    maxLines = if (appointment.locationType == LocationType.AT_HOME) 2 else 1,
+                    listOf(stringResource(appointment.locationType.label), cardAddress(appointment)).filter { it.isNotBlank() }.joinToString(" · "),
+                    // An at-home address is where the Stylist goes and differs from card to card, so it may take a second line.
+                    maxLines = 2,
                 )
                 if (appointment.services.isNotEmpty()) {
                     // Up to three lines: the name of one Service Menu Item can fill a line ("Покраска в один цвет
                     // средний волос"), so on one line the card showed only the first Service. A longer list is cut on the third.
-                    IconLine(Icons.Rounded.ContentCut, appointment.services.joinToString(", ") { it.name }, maxLines = 3)
+                    IconLine(Icons.Rounded.ContentCut, ServiceNames.line(appointment.services), maxLines = 3)
                 }
                 Spacer(Modifier.height(2.dp))
                 StatusAndAmount {

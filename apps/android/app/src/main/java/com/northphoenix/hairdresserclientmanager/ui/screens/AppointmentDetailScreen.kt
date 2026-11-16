@@ -116,6 +116,7 @@ import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.NightStart
 import com.northphoenix.hairdresserclientmanager.domain.ReminderLog
 import com.northphoenix.hairdresserclientmanager.domain.ServiceEdit
+import com.northphoenix.hairdresserclientmanager.domain.ServiceNames
 import com.northphoenix.hairdresserclientmanager.domain.TextLimits
 import com.northphoenix.hairdresserclientmanager.domain.TimeFormat
 import com.northphoenix.hairdresserclientmanager.domain.TravelFeeSuggestion
@@ -1772,7 +1773,7 @@ private fun CopyServicesSheet(
                         Text(AppointmentCopying.clientNames(source).joinToString(", "), style = MaterialTheme.typography.titleMedium)
                         Text(format.dateAndTimeRange(source), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
-                            AppointmentCopying.services(source).joinToString(", ") { it.name },
+                            ServiceNames.line(AppointmentCopying.services(source)),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 2,
