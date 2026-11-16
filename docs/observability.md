@@ -157,17 +157,7 @@ grep '^{"event":"hcm.request"' /tmp/hcm-events.jsonl | jq '{procedure: ."trpc.pr
 
 ### In production
 
-Vercel keeps runtime logs for an hour on the Hobby plan. A cron job on the maintainer's server copies them every 15 minutes into `~/hcm-logs/runtime/YYYY-MM-DD.jsonl` and indexes them into `~/hcm-logs/logs.db`, where every field of this catalog is a column under its own name (see `~/hcm-logs/README.md`). Search them with `hcm-logs`:
-
-```sh
-hcm-logs fields trpc.                                   # which fields exist, their types and counts
-hcm-logs search outcome=error --since 7d                # failures, newest last
-hcm-logs search trpc.procedure=clientProfile.save 'duration_ms>500' --fields duration_ms,db.query_count
-hcm-logs stats --by trpc.procedure --since 30d          # count, errors, refusals, p50/p95/max duration
-hcm-logs stats event=hcm.request --by instance.cold_start --metric duration_ms
-hcm-logs trace <trace_id>                               # everything one request printed
-hcm-logs sql 'SELECT "error.reason", count(*) FROM events GROUP BY 1'
-```
+Vercel keeps runtime logs for an hour on the Hobby plan. A cron job on the maintainer's server copies them every 15 minutes into an archive, `~/hcm-logs`, and indexes them so that every field of this catalog can be searched by name (`hcm-logs search trpc.procedure=clientProfile.save outcome=error --since 7d`). How to read them, from the archive or live from Vercel, is the `server-logs` skill (`.agents/skills/server-logs/SKILL.md`).
 
 Timestamps in events are UTC. On Vercel the spans are in the project's Traces page once a sampling rule is set (Settings → Tracing); search them by the same field names, such as `trpc.procedure:clientProfile.save`.
 
