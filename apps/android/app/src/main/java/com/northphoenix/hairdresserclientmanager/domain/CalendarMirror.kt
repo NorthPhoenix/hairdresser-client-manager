@@ -120,7 +120,9 @@ object CalendarMirror {
      * where the event comes from, one to a line. Never Color Formulas, notes, prices, tips or photos.
      */
     fun description(appointment: Appointment, words: MirrorWords): String {
-        val services = ServiceNames.line(appointment.services)
+        // A plain space before the count, as the events have said since they were first written: another
+        // text would rewrite every event with a repeated Service once, also of an Appointment that did not change.
+        val services = ServiceNames.line(appointment.services, beforeCount = " ")
         val others = otherClients(appointment)
         val phone = appointment.participants.firstOrNull { it.clientId == appointment.primaryClientId }?.phone?.trim().orEmpty()
 

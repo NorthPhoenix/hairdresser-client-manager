@@ -115,7 +115,7 @@ class CalendarMirrorTest {
             words,
         )!!
 
-        assertTrue(event.description.startsWith("Услуги: Стрижка\u00A0×2, Укладка\n"))
+        assertTrue(event.description.startsWith("Услуги: Стрижка ×2, Укладка\n"))
     }
 
     @Test
