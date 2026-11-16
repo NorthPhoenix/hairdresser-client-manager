@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { verifiedTlsConnectionString } from "./connectionString";
 
-// The address parser of the pg that the app's database client loads (through @prisma/adapter-pg),
+// The database address parser of the pg that the app's database client loads (through @prisma/adapter-pg),
 // so that the tests follow it when a newer one comes in.
 const fromPg = createRequire(createRequire(createRequire(import.meta.url).resolve("@prisma/adapter-pg")).resolve("pg"));
 const parserPath = fromPg.resolve("pg-connection-string");
@@ -12,7 +12,7 @@ type PgParse = (address: string, options?: { useLibpqCompat?: boolean }) => PgCo
 
 /**
  * A copy of pg's parser loaded afresh. pg warns about an old SSL mode once per process, at the first
- * address with one that it reads, so a test that counts warnings needs a copy of its own.
+ * database address with one that it reads, so a test that counts warnings needs a copy of its own.
  */
 function freshParse(): PgParse {
   delete fromPg.cache[parserPath];
@@ -23,18 +23,18 @@ function freshParse(): PgParse {
 const parse = freshParse();
 const oldModes = ["prefer", "require", "verify-ca"];
 
-// The shape of Neon's addresses, with made-up credentials.
+// The shape of Neon's database addresses, with made-up credentials.
 const neon = "postgresql://app_owner:s3cr%40t-pass@ep-example-123456-pooler.us-east-2.aws.neon.tech/neondb";
 const verified = "&sslmode=verify-full";
 
-/** What pg makes of an address, minus the SSL mode it was asked for: the connection itself. */
+/** What pg makes of a database address, minus the SSL mode it was asked for: the connection itself. */
 function connection(address: string, pgParse: PgParse = parse) {
   const { sslmode: _sslmode, ...rest } = pgParse(address);
 
   return rest;
 }
 
-/** What pg makes of an address, or the error it throws. */
+/** What pg makes of a database address, or the error it throws. */
 function outcome(address: string): { config: PgConfig } | { error: string } {
   try {
     return { config: parse(address) };
@@ -83,7 +83,7 @@ describe("verifiedTlsConnectionString", () => {
     vi.restoreAllMocks();
   });
 
-  it("asks for verify-full after the require of Neon's address, and changes nothing else", () => {
+  it("asks for verify-full after the require of Neon's database address, and changes nothing else", () => {
     const address = `${neon}?channel_binding=require&sslmode=require`;
 
     expect(verifiedTlsConnectionString(address)).toBe(address + verified);
@@ -101,7 +101,7 @@ describe("verifiedTlsConnectionString", () => {
       `${neon}?channel_binding=require&sslmode=${mode}&application_name=hcm`,
       // A line break left at the end of an environment variable, which pg does not read.
       `${neon}?channel_binding=require&sslmode=${mode}\n`,
-      // A space and an escape in the password: pg percent-encodes the address before reading it.
+      // A space and an escape in the password: pg percent-encodes the database address before reading it.
       `postgresql://app_owner:two words%41@ep-example-123456.us-east-2.aws.neon.tech/neondb?sslmode=${mode}`
     ]);
     const rewritten = addresses.map((address) => verifiedTlsConnectionString(address));
@@ -115,7 +115,7 @@ describe("verifiedTlsConnectionString", () => {
     }
     expect(warnings).not.toHaveBeenCalled();
 
-    // The addresses as they were are the ones pg warns about, once.
+    // The database addresses as they were are the ones pg warns about, once.
     addresses.forEach((address, index) => expect(connection(rewritten[index]!, pgParse)).toEqual(connection(address, pgParse)));
     expect(warnings).toHaveBeenCalledTimes(1);
     expect(String(warnings.mock.calls[0]?.[0])).toContain("SECURITY WARNING");
@@ -139,7 +139,7 @@ describe("verifiedTlsConnectionString", () => {
     ["libpq's meaning asked for", `${neon}?uselibpqcompat=true&sslmode=require`],
     ["a local address", "postgresql://postgres:postgres@127.0.0.1:54329/hcm_dev"],
     ["a Unix socket", "/var/run/postgresql hcm_dev"],
-    ["a socket: address", "socket:/var/run/postgresql?db=hcm_dev&sslmode=require"],
+    ["a socket: database address", "socket:/var/run/postgresql?db=hcm_dev&sslmode=require"],
     ["the SSL mode in the fragment", `${neon}#sslmode=require`],
     ["a \"?\" in the fragment", `${neon}#primary?sslmode=require`],
     // The URL parser takes the second "?" for part of the name: "?sslmode".
@@ -148,7 +148,7 @@ describe("verifiedTlsConnectionString", () => {
     ["an escaped name that pg does not decode", "postgresql://app_owner:p%zz@ep-example-123456.us-east-2.aws.neon.tech/neondb?ssl%6dode=require"],
     // pg cannot percent-encode a lone surrogate, and says so when it connects.
     ["text that pg cannot read", "postgresql://app_owner:two words\uD800@ep-example-123456.us-east-2.aws.neon.tech/neondb?sslmode=require"]
-  ])("leaves an address with %s as it is", (_case, address) => {
+  ])("leaves a database address with %s as it is", (_case, address) => {
     expect(verifiedTlsConnectionString(address)).toBe(address);
   });
 
@@ -160,12 +160,12 @@ describe("verifiedTlsConnectionString", () => {
     );
   });
 
-  it("reads the address as pg does: decoded, and without tabs and line breaks", () => {
+  it("reads the database address as pg does: decoded, and without tabs and line breaks", () => {
     for (const address of [
       `${neon}?ssl%6Dode=requir%65&channel_binding=require`,
       `${neon}?channel_binding=require&sslmode=require\r\n`,
       `${neon}?ssl\tmode=require`,
-      // A control character before an address without a scheme, which pg drops.
+      // A control character before a database address without a scheme, which pg drops.
       "\n//ep-example-123456.us-east-2.aws.neon.tech/neondb?sslmode=require"
     ]) {
       const rewritten = verifiedTlsConnectionString(address);
@@ -179,7 +179,7 @@ describe("verifiedTlsConnectionString", () => {
     expect(verifiedTlsConnectionString(`${neon}?sslmode=require#primary`)).toBe(`${neon}?sslmode=require${verified}#primary`);
   });
 
-  it.each([20261115, 7, 424242])("agrees with pg on addresses made of the pieces pg reads in special ways (seed %i)", (start) => {
+  it.each([20261115, 7, 424242])("agrees with pg on database addresses made of the pieces pg reads in special ways (seed %i)", (start) => {
     const pieces = [
       "postgresql://", "postgres://", "socket:", "/", "//", "u", ":", "p", "@", "@/", "h", ":5432", "/db",
       "?", "??", "&", "=", "#", "+", " ", "%", "%zz", "%41", "%3A", "%6d", "%ff", "\t", "\n", "\r", "\x00", "\x0b", "\uD800",
@@ -205,7 +205,7 @@ describe("verifiedTlsConnectionString", () => {
       const label = JSON.stringify(address);
 
       if (rewritten === address) {
-        // Left as it is: pg does not warn about it, or it would read the address in another way
+        // Left as it is: pg does not warn about it, or it would read the database address in another way
         // with the parameter added (a stray "%" or a control character at its end).
         if (warns(address)) {
           expect(outcome(withVerifyFull(address)), label).not.toEqual(expectedWithVerifyFull(address));
@@ -213,7 +213,7 @@ describe("verifiedTlsConnectionString", () => {
         continue;
       }
 
-      // Changed: pg reads the same address with verify-full, and does not warn. One it cannot
+      // Changed: pg reads the same database address with verify-full, and does not warn. One it cannot
       // read, it cannot read either way.
       expect(warns(rewritten), label).toBe(false);
       expect(outcome(rewritten), label).toEqual(expectedWithVerifyFull(address));
