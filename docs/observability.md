@@ -12,7 +12,7 @@ The server is traced with OpenTelemetry. The request's **root span is the event*
 
 - `hcm.request`: a span of kind SERVER (Next.js's `BaseServer.handleRequest`, the dev backend's `traceRequest`), and the span in which Next.js runs proxy.ts (`next.span_type` `Middleware.execute`), which on Vercel is the root of a function of its own and of kind INTERNAL.
 - None: any other span of Next.js's own (tracer `next.js`, or with a `next.span_type`), such as the `start response` that Next.js sometimes begins after the request's span ended. It is the framework's work outside any request and says nothing about one; the spans under it open no event either.
-- `hcm.task`: anything else, such as work this app started with `traced` outside any request.
+- `hcm.task`: anything else, such as work this app started with `traced` outside any request: the `db.warm_up` of each new server instance of the tRPC route, for one.
 
 A span started under a request that already ended (a promise left running) adds nothing and opens nothing, and neither does any span started under it. Code anywhere in the call stack adds fields to the current request's event with `annotate`, which finds the event through the active OpenTelemetry context (AsyncLocalStorage), so nothing is passed around. Child spans (Prisma's queries, outgoing `fetch` calls, units of work wrapped in `traced`) are added up into the event: query count and time, operations by model, external calls, the slowest piece of work. When the root span ends, the event is built, the tail sampler decides whether to keep it, and it is printed with `console.log` as one line.
 
@@ -701,6 +701,7 @@ Spans written with `traced`; their attributes stay on the span, and their time c
 | `appointment.copy_services` | `copyServices`: the inserts of the copied Services with their Color Formulas. | `appointment_service.count`, `color_formula.count` |
 | `client.delete_appointments` | `delete`: the loop over the deleted Client's Appointments. | |
 | `client_merge.move_appointments` | `merge`: the loop over the removed Client's Appointments. | |
+| `db.warm_up` | The tRPC route's first query (`SELECT 1`), started as its module loads (`apps/web/server/warmDatabase.ts`) so that the first request on a new instance does not start Prisma and open the connection itself. Outside any request, so it is an `hcm.task` of its own, one for each new instance: its `duration_ms` is how long starting the database took there, and a failure to reach the database is its `outcome` `error`. | |
 | `photo_storage.delete_files` | The deletion of unused files after a commit. | |
 | `profile_share.load_content` | The three loads of a Profile Share's content. | |
 | `release.read_manifest` | Reading the published release manifest. | `release.manifest_status` |

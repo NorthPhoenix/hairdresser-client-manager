@@ -1,13 +1,12 @@
 // First: sets up telemetry before the first request (server/telemetry.ts says why).
 import "../../../../server/telemetry";
+// Second: connects to the database while the rest loads (server/warmDatabase.ts says why).
+import "../../../../server/warmDatabase";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { auth } from "@clerk/nextjs/server";
 import { appRouter, appVersionFromHeaders, createPublishedReleaseReader, createTRPCContext, manifestUrlFor, recordProcedureError } from "@hcm/api";
 import { annotate, requestFields } from "@hcm/telemetry";
-import { UTApi } from "uploadthing/server";
 import { accountName, photoOrigins, readSharePhoto } from "../../../../server/profileShare";
-
-const uploadThing = new UTApi();
 
 // The release whose APK is published: latest.json beside APP_DOWNLOAD_URL, read at most once a
 // minute by each server instance (docs/adr/0018).
@@ -15,8 +14,12 @@ const releaseManifestUrl = manifestUrlFor(process.env.APP_DOWNLOAD_URL);
 const publishedRelease = releaseManifestUrl ? createPublishedReleaseReader({ manifestUrl: releaseManifestUrl }) : null;
 
 // The files of deleted Appointment Photos are deleted there too. The router logs a failure.
+// UploadThing's SDK is loaded here, the first time a file is deleted, and not with the route: it is
+// about a sixth of what a new server instance loads before its first request, which nearly never
+// deletes a photo.
 async function deleteStoredFiles(fileKeys: string[]) {
-  const { success } = await uploadThing.deleteFiles(fileKeys);
+  const { UTApi } = await import("uploadthing/server");
+  const { success } = await new UTApi().deleteFiles(fileKeys);
 
   if (!success) {
     throw new Error("UploadThing did not delete the files.");
