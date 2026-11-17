@@ -168,14 +168,16 @@ class EarningsTest {
     }
 
     @Test
-    fun tappingABarSelectsItsPeriodTodayForTodaysAndNothingForTheSelectedOne() {
+    fun tappingABarSelectsItsPeriodTodayForTodaysAndNothingForAnotherSelectedOne() {
         val month = EarningsPeriod.MONTH
 
         assertEquals(LocalDate.of(2026, 8, 1), Earnings.anchorForBar(month, LocalDate.of(2026, 8, 1), today, today))
         // Back to this month: today, so Неделя then opens on this week, not the month's first.
         assertEquals(today, Earnings.anchorForBar(month, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 8, 1), today))
-        // The bar already selected changes nothing, whatever day of it is shown.
-        assertEquals(null, Earnings.anchorForBar(month, LocalDate.of(2026, 10, 1), today, today))
+        // This month already selected, reached by an arrow (its first day shown): today again.
+        assertEquals(today, Earnings.anchorForBar(month, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 1), today))
+        assertEquals(today, Earnings.anchorForBar(month, LocalDate.of(2026, 10, 1), today, today))
+        // Another bar already selected changes nothing, whatever day of it is shown.
         assertEquals(null, Earnings.anchorForBar(month, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 17), today))
     }
 

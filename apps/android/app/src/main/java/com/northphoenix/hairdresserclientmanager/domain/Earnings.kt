@@ -130,13 +130,13 @@ object Earnings {
 
     /**
      * The day Итоги shows once the bar of the period starting [tapped] is tapped while [date] is
-     * shown: null for the bar already selected, else today for today's period (so Неделя, Месяц and
-     * Год open on today from it, as on opening) and the period's first day for any other.
+     * shown: today for today's period (so Неделя, Месяц and Год open on today from it, as on
+     * opening), null for another bar already selected, and the period's first day for any other.
      */
     fun anchorForBar(period: EarningsPeriod, tapped: LocalDate, date: LocalDate, today: LocalDate): LocalDate? =
         when {
-            date in span(period, tapped) -> null
             today in span(period, tapped) -> today
+            date in span(period, tapped) -> null
             else -> tapped
         }
 
