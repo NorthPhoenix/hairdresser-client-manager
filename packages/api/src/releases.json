@@ -310,5 +310,18 @@
         "A Service added to an Appointment twice is named once with its count: \"Haircut ×2\". The past Appointments you copy Services from name it the same way"
       ]
     }
+  },
+  {
+    "versionCode": 23,
+    "versionName": "1.21.0",
+    "date": "2026-11-17",
+    "notes": {
+      "ru": [
+        "В «Итогах» над суммой появились столбики: сколько заработано за каждую из последних шести недель, месяцев или лет, рядом друг с другом. Нажатие на столбик открывает этот период"
+      ],
+      "en": [
+        "Earnings now shows bars above the summary: what each of the last six weeks, months or years earned, side by side. Tap a bar to open that period"
+      ]
+    }
   }
 ]
