@@ -64,7 +64,8 @@ import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.state.Read
-import com.northphoenix.hairdresserclientmanager.state.TrendRead
+import com.northphoenix.hairdresserclientmanager.state.TrendShown
+import com.northphoenix.hairdresserclientmanager.state.trendShown
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.CircleIconButton
 import com.northphoenix.hairdresserclientmanager.ui.components.EmptyState
@@ -100,7 +101,7 @@ fun EarningsScreen(viewModel: AppViewModel, onBack: () -> Unit, onOpenToday: () 
     var shownNewest by rememberSaveable(period) { mutableStateOf<String?>(null) }
     val newest = Earnings.trendNewest(period, date, today, shownNewest?.let(LocalDate::parse))
     SideEffect { shownNewest = newest.toString() }
-    val trend = rememberTrend(viewModel, period, newest)
+    val trend = rememberTrend(viewModel, period, newest, Earnings.span(period, date).first)
     val locale = LocalTimeFormat.current.locale
 
     SubScreen(title = stringResource(R.string.earnings_title), onBack = onBack) { padding ->
@@ -145,10 +146,10 @@ fun EarningsScreen(viewModel: AppViewModel, onBack: () -> Unit, onOpenToday: () 
 
             val summary = read.data
             val selected = Earnings.span(period, date).first
-            val bars = trend.read.data?.takeIf { Earnings.showsTrend(it, selected.takeIf { trend.current }) }
+            val bars = trend.bars
             // The summary waits a moment for bars still on their way, which come above it, so it is not pushed down
             // once shown; not longer, since it does without them.
-            val trendSettled = trend.read.data != null || trend.read.state !is LoadState.Loading
+            val trendSettled = trend.settled
             var barsLate by remember(period, newest) { mutableStateOf(false) }
             LaunchedEffect(period, newest, summary != null && !trendSettled) {
                 if (summary != null && !trendSettled) {
@@ -200,11 +201,11 @@ private fun rememberEarnings(viewModel: AppViewModel, period: EarningsPeriod, da
 
 /**
  * The bars ending with the period that holds [newest], as the cache has them and each time they are
- * refreshed. When they move to other periods of the same length, the ones shown stay until those
- * are read ([TrendRead.then]); bars of another length never do.
+ * refreshed, while the period starting [selected] is selected. Bars on screen stay until the next
+ * ones are read ([trendShown]); bars of another length never do.
  */
 @Composable
-private fun rememberTrend(viewModel: AppViewModel, period: EarningsPeriod, newest: LocalDate): TrendRead {
+private fun rememberTrend(viewModel: AppViewModel, period: EarningsPeriod, newest: LocalDate, selected: LocalDate): TrendShown {
     val first = Earnings.span(period, newest).first
     // Keyed, so the first frame of other bars starts from their own cached answer, not the last bars' one.
     val read = key(viewModel, period, first) {
@@ -212,10 +213,10 @@ private fun rememberTrend(viewModel: AppViewModel, period: EarningsPeriod, newes
             initialValue = remember { viewModel.shownEarningsTrend(period, first) },
         ).value
     }
-    val last = remember(period) { arrayOfNulls<TrendRead>(1) }
-    val shown = last[0]?.then(read) ?: TrendRead(read)
+    val onScreen = remember(period) { arrayOfNulls<EarningsTrend>(1) }
+    val shown = trendShown(onScreen[0], read, selected)
 
-    SideEffect { last[0] = shown }
+    SideEffect { onScreen[0] = shown.bars }
     LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.loadEarningsTrend(period, first) }
 
     return shown
@@ -258,8 +259,8 @@ private fun TrendCard(
                 trend.periods.forEachIndexed { index, bar ->
                     val first = firsts[index]
                     val isSelected = first == selected
-                    // Whole dollars: the amounts sit side by side, and the summary below has the cents.
-                    val amount = Money.formatShort((bar.earnedCents + 50) / 100 * 100)
+                    // Whole dollars: the amounts sit side by side, and the summary below has the cents. Under a dollar, the cents.
+                    val amount = Money.formatShort(if (bar.earnedCents < 100) bar.earnedCents else (bar.earnedCents + 50) / 100 * 100)
                     val description = stringResource(R.string.earnings_trend_bar, Earnings.title(period, first, today, locale), amount)
                     val ink = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
                     val weight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal

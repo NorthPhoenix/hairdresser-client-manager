@@ -2,19 +2,29 @@ package com.northphoenix.hairdresserclientmanager.state
 
 import com.northphoenix.hairdresserclientmanager.data.EarningsSummary
 import com.northphoenix.hairdresserclientmanager.data.EarningsTrend
+import com.northphoenix.hairdresserclientmanager.domain.Earnings
+import java.time.LocalDate
 import kotlinx.coroutines.CoroutineScope
 
 /**
- * The bars of Итоги as the screen shows them ([read]), and whether they are the ones asked for
- * ([current]) rather than the ones before, kept while those are read: when the bars move to other
- * periods, the card does not blink out under the finger.
+ * The bars Итоги shows ([bars], null for none), and whether the summary under them may show
+ * ([settled]) rather than wait a moment for bars still on their way.
  */
-internal data class TrendRead(val read: Read<EarningsTrend>, val current: Boolean = true) {
-    /** What is shown once [next] comes for the bars asked for now. */
-    fun then(next: Read<EarningsTrend>): TrendRead {
-        val shown = read.keptWhileLoading(next)
+internal data class TrendShown(val bars: EarningsTrend?, val settled: Boolean)
 
-        return TrendRead(shown, current = shown === next)
+/**
+ * What Итоги shows once [next] comes for the bars asked for, while the period starting [selected]
+ * is selected and [before] were the bars on screen. Bars on screen stay while the next ones are
+ * read, so the card does not blink out under the finger (also when the bars move to other periods);
+ * bars that were not on screen never come back that way.
+ */
+internal fun trendShown(before: EarningsTrend?, next: Read<EarningsTrend>, selected: LocalDate): TrendShown {
+    val answer = next.data
+
+    return when {
+        answer != null -> TrendShown(answer.takeIf { Earnings.showsTrend(it, selected) }, settled = true)
+        next.state == LoadState.Loading -> TrendShown(before, settled = before != null)
+        else -> TrendShown(null, settled = true)
     }
 }
 

@@ -142,13 +142,12 @@ object Earnings {
     /**
      * Whether the bars have something to compare: two periods or more, some of them earned
      * something, and one of them is the [selected] period (its first day). Before the Stylist's
-     * first Appointment there is no bar for it, so none are shown. [selected] is null while the
-     * bars of other periods are kept until the next ones come.
+     * first Appointment there is no bar for it, so none are shown.
      */
-    fun showsTrend(trend: EarningsTrend, selected: LocalDate?): Boolean =
+    fun showsTrend(trend: EarningsTrend, selected: LocalDate): Boolean =
         trend.periods.size >= 2 &&
             trend.periods.any { it.earnedCents > 0 } &&
-            (selected == null || trend.periods.any { it.firstDay == selected.toString() })
+            trend.periods.any { it.firstDay == selected.toString() }
 
     /**
      * The heights of the bars, 0 to 1: the period that earned the most takes the whole height, the

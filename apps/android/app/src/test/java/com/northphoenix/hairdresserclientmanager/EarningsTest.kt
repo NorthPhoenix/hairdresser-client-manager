@@ -7,7 +7,8 @@ import com.northphoenix.hairdresserclientmanager.domain.Earnings
 import com.northphoenix.hairdresserclientmanager.domain.EarningsPeriod
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.state.Read
-import com.northphoenix.hairdresserclientmanager.state.TrendRead
+import com.northphoenix.hairdresserclientmanager.state.TrendShown
+import com.northphoenix.hairdresserclientmanager.state.trendShown
 import com.northphoenix.hairdresserclientmanager.data.hcmJson
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -176,17 +177,22 @@ class EarningsTest {
     }
 
     @Test
-    fun barsOfBeforeStayWhileTheNextOnesAreReadAndAreNotCurrent() {
-        val before = TrendRead(Read(LoadState.Loaded, EarningsTrend(listOf(EarningsTrend.Period("2026-10-01", earnedCents = 100)))))
-        val next = EarningsTrend(listOf(EarningsTrend.Period("2026-11-01", earnedCents = 200)))
+    fun barsOnScreenStayWhileTheNextOnesAreReadAndHiddenOnesNeverComeBack() {
+        fun bars(vararg months: Int) =
+            EarningsTrend(months.map { EarningsTrend.Period(LocalDate.of(2026, it, 1).toString(), earnedCents = it * 100L) })
+        val august = LocalDate.of(2026, 8, 1)
+        val shown = bars(8, 9, 10, 11)
 
-        // The next bars have nothing yet: the ones before stay, marked as not the ones asked for.
-        assertEquals(TrendRead(before.read, current = false), before.then(Read()))
-        // They come, or fail: shown as they are.
-        assertEquals(TrendRead(Read(LoadState.Loaded, next)), before.then(Read(LoadState.Loaded, next)))
-        assertEquals(TrendRead(Read(LoadState.Failed(0))), before.then(Read(LoadState.Failed(0))))
-        // Nothing shown before: nothing to keep.
-        assertEquals(TrendRead(Read()), TrendRead(Read()).then(Read()))
+        // The next bars have nothing yet: the ones on screen stay, and the summary need not wait.
+        assertEquals(TrendShown(shown, settled = true), trendShown(shown, Read(), LocalDate.of(2026, 3, 1)))
+        // They come: shown when the selected period is among them, else none.
+        assertEquals(TrendShown(bars(7, 8), settled = true), trendShown(shown, Read(LoadState.Loaded, bars(7, 8)), august))
+        assertEquals(TrendShown(null, settled = true), trendShown(shown, Read(LoadState.Loaded, bars(8, 9)), LocalDate.of(2026, 5, 1)))
+        // They fail: none, quietly.
+        assertEquals(TrendShown(null, settled = true), trendShown(shown, Read(LoadState.Failed(0)), august))
+        // None on screen (May, before the first Appointment): nothing comes back while the next ones load, and the
+        // summary waits a moment for them.
+        assertEquals(TrendShown(null, settled = false), trendShown(null, Read(), LocalDate.of(2026, 4, 1)))
     }
 
     @Test
@@ -209,11 +215,9 @@ class EarningsTest {
         // One period (a year, or a Stylist's first month), or nothing earned in any.
         assertFalse(Earnings.showsTrend(trend(12_000), october))
         assertFalse(Earnings.showsTrend(trend(0, 0, 0), october))
-        assertFalse(Earnings.showsTrend(EarningsTrend(), null))
+        assertFalse(Earnings.showsTrend(EarningsTrend(), october))
         // A period before the Stylist's first Appointment has no bar of its own: the bars after it are not shown.
         assertFalse(Earnings.showsTrend(trend(0, 12_000), october.minusMonths(1)))
-        // While the bars of before are kept, until the next ones come.
-        assertTrue(Earnings.showsTrend(trend(0, 12_000), null))
     }
 
     @Test
