@@ -8,24 +8,54 @@ import {
   localDateOf,
   parseLocalDate,
   periodBounds,
+  periodsUpTo,
   serviceRevenue,
   topServices,
+  type LocalDate,
   type RevenueLine
 } from "../earnings";
 import { createTRPCRouter, stylistProcedure } from "../trpc";
 
+// Any day of the period, "2026-10-21", on the Stylist's calendar. Left out: today.
+const dayInput = z
+  .string()
+  .refine((value) => {
+    const date = parseLocalDate(value);
+
+    return date !== null && date.year >= 2000 && date.year <= 2100;
+  }, "Date is not valid.")
+  .optional();
+
 const summaryInput = z.object({
   period: z.enum(earningsPeriods),
-  // Any day of the period, "2026-10-21", on the Stylist's calendar. Left out: today.
-  date: z
-    .string()
-    .refine((value) => {
-      const date = parseLocalDate(value);
-
-      return date !== null && date.year >= 2000 && date.year <= 2100;
-    }, "Date is not valid.")
-    .optional()
+  date: dayInput
 });
+
+/** The most periods `stats.trend` adds up at once, and how many it adds up when not told. */
+const trendMaxCount = 12;
+const trendDefaultCount = 6;
+
+const trendInput = z.object({
+  period: z.enum(earningsPeriods),
+  // A day of the newest period.
+  date: dayInput,
+  // How many periods, the newest included.
+  count: z.number().int().min(1).max(trendMaxCount).optional()
+});
+
+/** The day the request names, else today. */
+function dayOf(value: string | undefined, today: LocalDate) {
+  const date = value ? parseLocalDate(value) : today;
+
+  if (!date) {
+    const refusal = new TRPCError({ code: "BAD_REQUEST", message: "Date is not valid." });
+
+    recordError(refusal, { expected: true, reason: "stats_date_not_valid" });
+    throw refusal;
+  }
+
+  return date;
+}
 
 export const statsRouter = createTRPCRouter({
   /**
@@ -37,15 +67,7 @@ export const statsRouter = createTRPCRouter({
     const timezone = ctx.stylist.timezone;
     const now = new Date();
     const today = localDateOf(timezone, now);
-    const date = input.date ? parseLocalDate(input.date) : today;
-
-    if (!date) {
-      const refusal = new TRPCError({ code: "BAD_REQUEST", message: "Date is not valid." });
-
-      recordError(refusal, { expected: true, reason: "stats_date_not_valid" });
-      throw refusal;
-    }
-
+    const date = dayOf(input.date, today);
     const bounds = periodBounds(input.period, date, timezone);
     const inPeriod = { gte: bounds.startsAt, lt: bounds.endsAt };
     const stylistId = ctx.stylist.id;
@@ -204,5 +226,64 @@ export const statsRouter = createTRPCRouter({
         count: service.count
       }))
     };
+  }),
+
+  /**
+   * Earned in each of the last few periods, side by side: the period holding the date and the ones
+   * right before it, oldest first, each added up as Earned is in `stats.summary`. Periods that were
+   * over before the Stylist's first Appointment are left out, so there is no empty past before she
+   * used the app. Older apps do not ask for it.
+   */
+  trend: stylistProcedure.input(trendInput).query(async ({ ctx, input }) => {
+    const timezone = ctx.stylist.timezone;
+    const now = new Date();
+    const date = dayOf(input.date, localDateOf(timezone, now));
+    const count = input.count ?? trendDefaultCount;
+    const span = periodsUpTo(input.period, date, count, timezone);
+    const stylistId = ctx.stylist.id;
+
+    const [completed, firstAppointment] = await Promise.all([
+      ctx.db.appointment.findMany({
+        where: { stylistId, status: "completed", startsAt: { gte: span.startsAt, lt: span.endsAt } },
+        select: {
+          startsAt: true,
+          finalTotalCentsOverride: true,
+          tipCents: true,
+          services: { select: { priceCents: true } }
+        }
+      }),
+      ctx.db.appointment.findFirst({
+        where: { stylistId },
+        orderBy: { startsAt: "asc" },
+        select: { startsAt: true }
+      })
+    ]);
+    const periods = span.periods
+      .filter((period) => firstAppointment !== null && period.endsAt > firstAppointment.startsAt)
+      .map((period) => {
+        const inPeriod = completed.filter(
+          (appointment) => appointment.startsAt >= period.startsAt && appointment.startsAt < period.endsAt
+        );
+
+        return {
+          firstDay: formatLocalDate(period.firstDay),
+          lastDay: formatLocalDate(period.lastDay),
+          earnedCents: inPeriod.reduce((sum, appointment) => sum + appointmentAmount(appointment).totalCents, 0),
+          visits: inPeriod.length
+        };
+      });
+
+    annotate(() => ({
+      "stats.period": input.period,
+      "stats.has_date": input.date !== undefined,
+      // Of the newest period.
+      "stats.period_offset_days": Math.round((span.newest.startsAt.getTime() - now.getTime()) / 86_400_000),
+      "stats.trend_requested_count": count,
+      "stats.trend_period_count": periods.length,
+      "stats.trend_completed_count": completed.length,
+      "stats.trend_earned_minor": periods.reduce((sum, period) => sum + period.earnedCents, 0)
+    }));
+
+    return { period: input.period, periods };
   })
 });
