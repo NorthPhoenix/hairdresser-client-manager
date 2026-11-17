@@ -157,4 +157,24 @@ describe("wide events of the domain helpers and small routers", () => {
       "stats.is_empty": false
     });
   });
+
+  it("says how many periods the trend added up and what they earned", async () => {
+    const caller = callerFor({
+      appointment: {
+        findMany: vi.fn().mockResolvedValue([
+          { startsAt: new Date(), finalTotalCentsOverride: null, tipCents: 500, services: [{ priceCents: 5000 }] }
+        ]),
+        findFirst: vi.fn().mockResolvedValue({ startsAt: new Date("2020-01-01T00:00:00.000Z") })
+      }
+    });
+
+    expect(await eventOf(() => caller.stats.trend({ period: "month", count: 3 }))).toMatchObject({
+      "stats.period": "month",
+      "stats.has_date": false,
+      "stats.trend_requested_count": 3,
+      "stats.trend_period_count": 3,
+      "stats.trend_completed_count": 1,
+      "stats.trend_earned_minor": 5500
+    });
+  });
 });

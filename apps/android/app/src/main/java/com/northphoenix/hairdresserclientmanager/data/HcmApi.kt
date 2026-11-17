@@ -216,6 +216,17 @@ class HcmApi(private val trpc: TrpcClient) {
             },
         )
 
+    /** What each of [count] periods earned: the one that holds [date] and the ones right before it, oldest first. */
+    suspend fun earningsTrend(period: String, date: String, count: Int): EarningsTrend =
+        trpc.query(
+            "stats.trend",
+            buildJsonObject {
+                put("period", period)
+                put("date", date)
+                put("count", count)
+            },
+        )
+
     /** The names, as typed, of the Services that have a Color Formula, each once. */
     suspend fun listFormulaNames(): List<String> = trpc.query("serviceMenu.formulaNames")
 

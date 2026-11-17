@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { periodBounds, parseLocalDate, serviceRevenue, startOfLocalDay, topServices } from "./earnings";
+import { periodBounds, periodsUpTo, parseLocalDate, serviceRevenue, startOfLocalDay, topServices } from "./earnings";
 import { appRouter } from "./root";
 import type { TRPCContext } from "./context";
 
@@ -66,6 +66,26 @@ describe("periods of Итоги", () => {
     expect(startOfLocalDay("Asia/Tokyo", { year: 2026, month: 10, day: 21 }).toISOString()).toBe(
       "2026-10-20T15:00:00.000Z"
     );
+  });
+
+  it("lines up the periods that end with a date's, oldest first, across a year and a clock change", () => {
+    const days = (period: "week" | "month", date: string, count: number) => {
+      const span = periodsUpTo(period, parseLocalDate(date) ?? { year: 0, month: 0, day: 0 }, count, chicago);
+
+      return {
+        days: span.periods.map((bounds) => `${bounds.firstDay.month}/${bounds.firstDay.day}`),
+        startsAt: span.startsAt.toISOString(),
+        endsAt: span.endsAt.toISOString()
+      };
+    };
+
+    expect(days("week", "2026-11-04", 3)).toEqual({
+      days: ["10/19", "10/26", "11/2"],
+      startsAt: "2026-10-19T05:00:00.000Z",
+      endsAt: "2026-11-09T06:00:00.000Z"
+    });
+    expect(days("month", "2027-01-20", 3).days).toEqual(["11/1", "12/1", "1/1"]);
+    expect(days("month", "2027-01-20", 1).days).toEqual(["1/1"]);
   });
 
   it("refuses dates that do not exist", () => {
@@ -168,7 +188,7 @@ type Stored = {
   services?: { name: string; priceCents: number; menuItemId?: string | null }[];
 };
 
-/** Appointments in memory with the few queries `stats.summary` makes, filtered as Prisma would. */
+/** Appointments in memory with the few queries `stats.summary` and `stats.trend` make, filtered as Prisma would. */
 function createStatsDb(stored: Stored[], menuItems: { id: string; group: string | null }[] = []) {
   const matching = (where: {
     stylistId: string;
@@ -193,6 +213,14 @@ function createStatsDb(stored: Stored[], menuItems: { id: string; group: string 
           services: (appointment.services ?? []).map((service) => ({ menuItemId: null, ...service }))
         }))
       ),
+      findFirst: vi.fn(async ({ where }: { where: { stylistId: string } }) => {
+        const [first] = stored
+          .filter(() => where.stylistId === stylist.id)
+          .map((appointment) => new Date(appointment.startsAt))
+          .sort((a, b) => a.getTime() - b.getTime());
+
+        return first ? { startsAt: first } : null;
+      }),
       groupBy: vi.fn(async ({ where }: { where: Parameters<typeof matching>[0] }) => {
         const counts = new Map<string, number>();
 
@@ -477,5 +505,137 @@ describe("stats.summary", () => {
     await expect(
       caller.stats.summary({ period: "day" as unknown as "week" })
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+});
+
+describe("stats.trend", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // Wednesday 21 Oct 2026, 12:00 in Chicago.
+  const now = new Date("2026-10-21T17:00:00.000Z");
+  const visits: Stored[] = [
+    // The Stylist's first Appointment: Tuesday 22 Sep.
+    { status: "canceled", startsAt: "2026-09-22T20:00:00.000Z", services: [{ name: "A", priceCents: 9900 }] },
+    { status: "completed", startsAt: "2026-09-30T20:00:00.000Z", tipCents: 500, services: [{ name: "B", priceCents: 5000 }] },
+    // A custom total replaces the Services, and the Tip is added on top, as in Earned.
+    {
+      status: "completed",
+      startsAt: "2026-10-05T20:00:00.000Z",
+      finalTotalCentsOverride: 4000,
+      tipCents: 1000,
+      services: [{ name: "C", priceCents: 6000 }]
+    },
+    { status: "completed", startsAt: "2026-10-06T20:00:00.000Z", services: [{ name: "D", priceCents: 3000 }] },
+    // Sunday 18 Oct 23:30 in Chicago is already Monday 19 Oct in UTC: it belongs to the week of the 12th.
+    { status: "completed", startsAt: "2026-10-19T04:30:00.000Z", services: [{ name: "E", priceCents: 2500 }] },
+    // Not earned: waiting for an outcome, and booked.
+    { status: "scheduled", startsAt: "2026-10-20T20:00:00.000Z", services: [{ name: "F", priceCents: 7000 }] },
+    { status: "scheduled", startsAt: "2026-10-23T20:00:00.000Z", services: [{ name: "G", priceCents: 8000 }] }
+  ];
+
+  it("adds up Earned for each of the last weeks, oldest first, from the Stylist's first Appointment", async () => {
+    vi.useFakeTimers({ now, toFake: ["Date"] });
+
+    const { caller } = createStatsDb(visits);
+
+    // Six weeks would start on 14 Sep; the first Appointment is in the week of 21 Sep.
+    await expect(caller.stats.trend({ period: "week", count: 6 })).resolves.toEqual({
+      period: "week",
+      periods: [
+        { firstDay: "2026-09-21", lastDay: "2026-09-27", earnedCents: 0, visits: 0 },
+        { firstDay: "2026-09-28", lastDay: "2026-10-04", earnedCents: 5500, visits: 1 },
+        { firstDay: "2026-10-05", lastDay: "2026-10-11", earnedCents: 8000, visits: 2 },
+        { firstDay: "2026-10-12", lastDay: "2026-10-18", earnedCents: 2500, visits: 1 },
+        { firstDay: "2026-10-19", lastDay: "2026-10-25", earnedCents: 0, visits: 0 }
+      ]
+    });
+  });
+
+  it("ends with the period of the date asked for, and adds up months", async () => {
+    vi.useFakeTimers({ now, toFake: ["Date"] });
+
+    const { caller } = createStatsDb(visits);
+
+    await expect(caller.stats.trend({ period: "month", date: "2026-11-30", count: 3 })).resolves.toEqual({
+      period: "month",
+      periods: [
+        { firstDay: "2026-09-01", lastDay: "2026-09-30", earnedCents: 5500, visits: 1 },
+        { firstDay: "2026-10-01", lastDay: "2026-10-31", earnedCents: 10500, visits: 3 },
+        { firstDay: "2026-11-01", lastDay: "2026-11-30", earnedCents: 0, visits: 0 }
+      ]
+    });
+    // Six periods when the app does not say, for a Stylist whose first Appointment is older than them.
+    const { caller: longTime } = createStatsDb([
+      { status: "completed", startsAt: "2025-01-10T20:00:00.000Z", services: [{ name: "Old", priceCents: 1000 }] }
+    ]);
+    const weeks = await longTime.stats.trend({ period: "week" });
+
+    expect(weeks.periods.map((period) => period.firstDay)).toEqual([
+      "2026-09-14",
+      "2026-09-21",
+      "2026-09-28",
+      "2026-10-05",
+      "2026-10-12",
+      "2026-10-19"
+    ]);
+  });
+
+  it("adds up years", async () => {
+    vi.useFakeTimers({ now, toFake: ["Date"] });
+
+    const { caller } = createStatsDb([
+      { status: "completed", startsAt: "2025-03-10T20:00:00.000Z", tipCents: 500, services: [{ name: "A", priceCents: 4000 }] },
+      // New Year's Eve 23:00 in Chicago is already 2026 in UTC: it belongs to 2025.
+      { status: "completed", startsAt: "2026-01-01T05:00:00.000Z", services: [{ name: "B", priceCents: 1000 }] },
+      ...visits
+    ]);
+
+    await expect(caller.stats.trend({ period: "year", count: 6 })).resolves.toEqual({
+      period: "year",
+      periods: [
+        { firstDay: "2025-01-01", lastDay: "2025-12-31", earnedCents: 5500, visits: 2 },
+        { firstDay: "2026-01-01", lastDay: "2026-12-31", earnedCents: 16000, visits: 4 }
+      ]
+    });
+  });
+
+  it("answers no periods before the first Appointment, nor for a Stylist without one", async () => {
+    vi.useFakeTimers({ now, toFake: ["Date"] });
+
+    await expect(createStatsDb(visits).caller.stats.trend({ period: "week", date: "2026-09-13" })).resolves.toEqual({
+      period: "week",
+      periods: []
+    });
+    await expect(createStatsDb([]).caller.stats.trend({ period: "year" })).resolves.toEqual({ period: "year", periods: [] });
+  });
+
+  it("reads only this Stylist's completed Appointments of the periods asked for", async () => {
+    vi.useFakeTimers({ now, toFake: ["Date"] });
+
+    const { caller, db } = createStatsDb(visits);
+
+    await caller.stats.trend({ period: "month", count: 2 });
+
+    expect(db.appointment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          stylistId: "stylist_1",
+          status: "completed",
+          startsAt: { gte: new Date("2026-09-01T05:00:00.000Z"), lt: new Date("2026-11-01T05:00:00.000Z") }
+        }
+      })
+    );
+    expect(db.appointment.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { stylistId: "stylist_1" } }));
+  });
+
+  it("refuses a date that does not exist and a count it does not add up", async () => {
+    const { caller } = createStatsDb([]);
+
+    await expect(caller.stats.trend({ period: "week", date: "2026-02-31" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller.stats.trend({ period: "week", count: 0 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller.stats.trend({ period: "week", count: 13 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller.stats.trend({ period: "week", count: 2.5 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });

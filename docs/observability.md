@@ -530,15 +530,17 @@ What the code adds to the event for each part of the domain. Rows are sorted by 
 | `stats.at_home_count`, `stats.custom_total_count`, `stats.tip_count` | int | Completed Appointments at home, with a custom total, with a Tip. Written by `stats.summary`. |
 | `stats.completed_count`, `stats.canceled_count`, `stats.no_show_count`, `stats.scheduled_count`, `stats.booked_count`, `stats.unresolved_count` | int | Appointments of the period by outcome; booked = scheduled from now, unresolved = scheduled with a start in the past. Written by `stats.summary`. |
 | `stats.earned_minor`, `stats.services_minor`, `stats.tips_minor`, `stats.booked_minor`, `stats.unresolved_minor` | int | Amounts in minor units. Written by `stats.summary`. |
-| `stats.has_date` | bool | The request named a day (else today's period). Written by `stats.summary`. |
+| `stats.has_date` | bool | The request named a day (else today's period). Written by `stats.summary` and `stats.trend`. |
 | `stats.is_current_period` | bool | The period holds now. Written by `stats.summary`. |
 | `stats.is_empty` | bool | Nothing at all in the period. Written by `stats.summary`. |
 | `stats.menu_item_count`, `stats.grouped_item_count` | int | Distinct Service Menu items in the lines; those with a group. Written by `stats.summary`. |
-| `stats.period` | string | `week`, `month` or `year`. Written by `stats.summary`. |
-| `stats.period_offset_days` | int | Days from now to the period's start (negative: past). Written by `stats.summary`. |
+| `stats.period` | string | `week`, `month` or `year`. Written by `stats.summary` and `stats.trend`. |
+| `stats.period_offset_days` | int | Days from now to the period's start (negative: past); for `stats.trend`, the newest period's. Written by `stats.summary` and `stats.trend`. |
 | `stats.range_days` | int | Days the period covers. Written by `stats.summary`. |
 | `stats.service_line_count` | int | Service lines aggregated (also on span `stats.aggregate_period`, with `stats.appointment_count`). Written by `stats.summary`. |
 | `stats.top_service_count` | int | Entries in the top list (at most 5). Written by `stats.summary`. |
+| `stats.trend_requested_count`, `stats.trend_period_count` | int | Periods asked for, and periods answered (those over before the Stylist's first Appointment are left out). Written by `stats.trend`. |
+| `stats.trend_completed_count`, `stats.trend_earned_minor` | int | Completed Appointments in the periods answered and what they earned together, in minor units. Written by `stats.trend`. |
 | `stylist.changed_fields` | string[] | `language`, `timezone`, `salon_address`. Written by `stylist.saveSettings`. |
 | `stylist.has_expected_updated_at` | bool | The form sent `expectedUpdatedAt`. Written by `stylist.saveSettings`. |
 | `stylist.is_noop_save` | bool | Nothing changed. Written by `stylist.saveSettings`. |
