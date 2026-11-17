@@ -1,7 +1,7 @@
 // First: sets up telemetry before the first request (server/telemetry.ts says why).
 import "../../../../server/telemetry";
 // Second: connects to the database while the rest loads (server/warmDatabase.ts says why).
-import "../../../../server/warmDatabase";
+import { databaseWarmedUp } from "../../../../server/warmDatabase";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { auth } from "@clerk/nextjs/server";
 import { appRouter, appVersionFromHeaders, createPublishedReleaseReader, createTRPCContext, manifestUrlFor, recordProcedureError } from "@hcm/api";
@@ -34,8 +34,11 @@ function handler(request: Request) {
     endpoint: "/api/trpc",
     req: request,
     router: appRouter,
-    createContext: () =>
-      createTRPCContext({
+    createContext: async () => {
+      // The first request on a new instance takes the connection the warm-up opens.
+      await databaseWarmedUp;
+
+      return createTRPCContext({
         auth: async () => {
           const clerkAuth = await auth();
 
@@ -52,7 +55,8 @@ function handler(request: Request) {
         // The same address /download sends the browser to (next.config.mjs).
         appDownloadUrl: process.env.APP_DOWNLOAD_URL,
         publishedRelease
-      }),
+      });
+    },
     // The reply to an unexpected failure says nothing about it, so the request's event has to.
     onError: recordProcedureError
   });

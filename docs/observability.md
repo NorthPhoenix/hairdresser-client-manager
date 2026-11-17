@@ -35,6 +35,7 @@ Where it is wired:
 | --- | --- |
 | `packages/telemetry` (`@hcm/telemetry`) | The API (`annotate`, `increment`, `traced`, `recordError`, `traceRequest`, `hashPrefix`, `requestFields`), the processor, the event builder, the tail sampler and the privacy guard. `@hcm/telemetry/node` sets up the SDK (`registerTelemetry`). |
 | `apps/web/server/telemetry.ts` | Imported first by every `route.ts` and by proxy.ts: sets up telemetry when their module loads, before their first request (see above). |
+| `apps/web/server/warmDatabase.ts` | Imported second by the tRPC route: starts the database (`db.warm_up`, see "Child spans") when its module loads. |
 | `apps/web/instrumentation.ts` | `registerTelemetry({ serviceName: "hcm-web" })` at startup, unless a module above was first; `onRequestError` records errors that no code caught (pages, route handlers, proxy.ts). TRACE is still refused there before anything else; a refused TRACE has no event. |
 | `packages/api/src/trpc.ts` | The outermost procedure step names the procedure, the input's size and fields, the app version and whether the request is signed in. `stylistProcedure` adds the Stylist, `stylistTransactionProcedure` the transaction's timing. `recordProcedureError` is the `onError` of both servers. |
 | `apps/web/app/api/trpc/[trpc]/route.ts`, `apps/dev-backend/src/server.ts` | Request header facts (`requestFields`) and `onError: recordProcedureError`. The dev backend wraps each request in `traceRequest`, which replaces its old access log line. |
@@ -645,6 +646,7 @@ The domain's reason for a refusal or a handled error, from `recordError(…, { r
 | `copy_source_not_completed` | refusal | The Appointment to copy Services from is not Completed. |
 | `copy_source_not_found` | refusal | The Appointment to copy Services from is not there. |
 | `copy_target_not_found` | refusal | The Appointment to copy Services into is not there. |
+| `database_warm_up_failed` | unexpected | The tRPC route's first query on a new server instance (`db.warm_up`) did not reach the database; requests on that instance connect on their own. |
 | `distinct_from_self` | refusal | A Client cannot be marked as a different person from themselves. |
 | `end_not_after_start` | refusal | The Appointment would end at or before its start. |
 | `family_member_not_found` | refusal | The Client to add to the Family is not there. |
@@ -701,7 +703,7 @@ Spans written with `traced`; their attributes stay on the span, and their time c
 | `appointment.copy_services` | `copyServices`: the inserts of the copied Services with their Color Formulas. | `appointment_service.count`, `color_formula.count` |
 | `client.delete_appointments` | `delete`: the loop over the deleted Client's Appointments. | |
 | `client_merge.move_appointments` | `merge`: the loop over the removed Client's Appointments. | |
-| `db.warm_up` | The tRPC route's first query (`SELECT 1`), started as its module loads (`apps/web/server/warmDatabase.ts`) so that the first request on a new instance does not start Prisma and open the connection itself. Outside any request, so it is an `hcm.task` of its own, one for each new instance: its `duration_ms` is how long starting the database took there, and a failure to reach the database is its `outcome` `error`. | |
+| `db.warm_up` | `apps/web/server/warmDatabase.ts`: the tRPC route's first query (`SELECT 1`), started as its module loads, so that a new instance starts Prisma and opens its connection before the first request needs it; that request waits for it (2 s at most) and takes its connection. On Vercel and under `next start` it runs before any request, so it is not a child span but an `hcm.task` of its own, one for each new instance: its `duration_ms` is how long starting the database took there, and a failure to reach the database is its `outcome` `error` with `error.reason` `database_warm_up_failed`. Under `next dev` the route loads during its first request, so the warm-up is part of that request's event. | |
 | `photo_storage.delete_files` | The deletion of unused files after a commit. | |
 | `profile_share.load_content` | The three loads of a Profile Share's content. | |
 | `release.read_manifest` | Reading the published release manifest. | `release.manifest_status` |
