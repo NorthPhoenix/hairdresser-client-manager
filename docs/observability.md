@@ -12,7 +12,7 @@ The server is traced with OpenTelemetry. The request's **root span is the event*
 
 - `hcm.request`: a span of kind SERVER (Next.js's `BaseServer.handleRequest`, the dev backend's `traceRequest`), and the span in which Next.js runs proxy.ts (`next.span_type` `Middleware.execute`), which on Vercel is the root of a function of its own and of kind INTERNAL.
 - None: any other span of Next.js's own (tracer `next.js`, or with a `next.span_type`), such as the `start response` that Next.js sometimes begins after the request's span ended. It is the framework's work outside any request and says nothing about one; the spans under it open no event either.
-- `hcm.task`: anything else, such as work this app started with `traced` outside any request.
+- `hcm.task`: anything else, such as work this app started with `traced` outside any request: the `db.warm_up` of each new server instance of the tRPC route, for one.
 
 A span started under a request that already ended (a promise left running) adds nothing and opens nothing, and neither does any span started under it. Code anywhere in the call stack adds fields to the current request's event with `annotate`, which finds the event through the active OpenTelemetry context (AsyncLocalStorage), so nothing is passed around. Child spans (Prisma's queries, outgoing `fetch` calls, units of work wrapped in `traced`) are added up into the event: query count and time, operations by model, external calls, the slowest piece of work. When the root span ends, the event is built, the tail sampler decides whether to keep it, and it is printed with `console.log` as one line.
 
@@ -35,6 +35,7 @@ Where it is wired:
 | --- | --- |
 | `packages/telemetry` (`@hcm/telemetry`) | The API (`annotate`, `increment`, `traced`, `recordError`, `traceRequest`, `hashPrefix`, `requestFields`), the processor, the event builder, the tail sampler and the privacy guard. `@hcm/telemetry/node` sets up the SDK (`registerTelemetry`). |
 | `apps/web/server/telemetry.ts` | Imported first by every `route.ts` and by proxy.ts: sets up telemetry when their module loads, before their first request (see above). |
+| `apps/web/server/warmDatabase.ts` | Imported second by the tRPC route: starts the database when its module loads (`db.warm_up`), and the first signed-in request waits for that while it is under way (`db.warm_up_wait`); see "Child spans". |
 | `apps/web/instrumentation.ts` | `registerTelemetry({ serviceName: "hcm-web" })` at startup, unless a module above was first; `onRequestError` records errors that no code caught (pages, route handlers, proxy.ts). TRACE is still refused there before anything else; a refused TRACE has no event. |
 | `packages/api/src/trpc.ts` | The outermost procedure step names the procedure, the input's size and fields, the app version and whether the request is signed in. `stylistProcedure` adds the Stylist, `stylistTransactionProcedure` the transaction's timing. `recordProcedureError` is the `onError` of both servers. |
 | `apps/web/app/api/trpc/[trpc]/route.ts`, `apps/dev-backend/src/server.ts` | Request header facts (`requestFields`) and `onError: recordProcedureError`. The dev backend wraps each request in `traceRequest`, which replaces its old access log line. |
@@ -645,6 +646,7 @@ The domain's reason for a refusal or a handled error, from `recordError(…, { r
 | `copy_source_not_completed` | refusal | The Appointment to copy Services from is not Completed. |
 | `copy_source_not_found` | refusal | The Appointment to copy Services from is not there. |
 | `copy_target_not_found` | refusal | The Appointment to copy Services into is not there. |
+| `database_warm_up_failed` | handled | The tRPC route's first query on a new server instance (`db.warm_up`) failed; requests on that instance connect on their own. |
 | `distinct_from_self` | refusal | A Client cannot be marked as a different person from themselves. |
 | `end_not_after_start` | refusal | The Appointment would end at or before its start. |
 | `family_member_not_found` | refusal | The Client to add to the Family is not there. |
@@ -701,6 +703,8 @@ Spans written with `traced`; their attributes stay on the span, and their time c
 | `appointment.copy_services` | `copyServices`: the inserts of the copied Services with their Color Formulas. | `appointment_service.count`, `color_formula.count` |
 | `client.delete_appointments` | `delete`: the loop over the deleted Client's Appointments. | |
 | `client_merge.move_appointments` | `merge`: the loop over the removed Client's Appointments. | |
+| `db.warm_up` | `apps/web/server/warmDatabase.ts`: the tRPC route's first query (`SELECT 1`), started as its module loads, so that a new instance starts Prisma and opens its connection before the first request needs it. On Vercel and under `next start` it starts before any request, so it is not a child span but an `hcm.task` of its own, one for each new instance (under `next start` that is the server's start): its `duration_ms` is how long starting the database took there. A query that fails is its handled error `database_warm_up_failed`; one that never gets an answer leaves no event. Under `next dev` the route loads during its first request, so the warm-up is usually part of that request's event (one that outlasts the request is left out of it, and its failure is then a line of its own). | |
+| `db.warm_up_wait` | The first signed-in tRPC request on a new instance waiting for `db.warm_up` to end before its procedure uses the database, and then taking its connection; only while the warm-up is under way, and no longer than 2 s after it started. Requests that come along meanwhile do not wait and open connections of their own, as does any request once the warm-up's connection has been unused for 10 s and closed. | |
 | `photo_storage.delete_files` | The deletion of unused files after a commit. | |
 | `profile_share.load_content` | The three loads of a Profile Share's content. | |
 | `release.read_manifest` | Reading the published release manifest. | `release.manifest_status` |
