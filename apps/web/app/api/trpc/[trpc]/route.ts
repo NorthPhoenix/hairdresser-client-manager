@@ -1,6 +1,6 @@
 // First: sets up telemetry before the first request (server/telemetry.ts says why).
 import "../../../../server/telemetry";
-// Second: connects to the database while the rest loads (server/warmDatabase.ts says why).
+// Second: starts the database as soon as its client has loaded (server/warmDatabase.ts says why).
 import { untilDatabaseWarmedUp } from "../../../../server/warmDatabase";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { auth } from "@clerk/nextjs/server";
@@ -45,13 +45,17 @@ function handler(request: Request) {
     endpoint: "/api/trpc",
     req: request,
     router: appRouter,
-    createContext: async () => {
-      // A request on a new instance takes the connection the warm-up opens.
-      await untilDatabaseWarmedUp();
-
-      return createTRPCContext({
+    createContext: () =>
+      createTRPCContext({
         auth: async () => {
           const clerkAuth = await auth();
+
+          // Signed in, so its procedure uses the database next. On a new instance it waits for the
+          // warm-up while that is under way: Prisma has started by then, and one such request takes
+          // the warm-up's connection.
+          if (clerkAuth.userId) {
+            await untilDatabaseWarmedUp();
+          }
 
           return {
             userId: clerkAuth.userId
@@ -66,8 +70,7 @@ function handler(request: Request) {
         // The same address /download sends the browser to (next.config.mjs).
         appDownloadUrl: process.env.APP_DOWNLOAD_URL,
         publishedRelease
-      });
-    },
+      }),
     // The reply to an unexpected failure says nothing about it, so the request's event has to.
     onError: recordProcedureError
   });
