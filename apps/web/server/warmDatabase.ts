@@ -6,10 +6,10 @@
 // database (and waking the database when it was asleep), and the requests that come meanwhile wait
 // for it. On Vercel the first request comes at once: the framework calls the route's handler as
 // soon as its module has loaded. Started here, as soon as the database client has loaded, that work
-// is under way or done by the time the first request needs the database. Requests that come while
-// it is still under way wait for what is left of it, and the first of them takes the connection it
-// opened rather than opening one of its own beside it. The time it takes is the `db.warm_up` task in
-// the server log (docs/observability.md).
+// is under way or done by the time the first request needs the database. That request waits for
+// what is left of it and then takes the connection it opened, rather than opening one of its own
+// beside it; requests that come along meanwhile go ahead as they would without it. The time it takes
+// is the `db.warm_up` task in the server log (docs/observability.md).
 import { db } from "@hcm/db";
 import { recordError, traced } from "@hcm/telemetry";
 
@@ -28,6 +28,7 @@ function warmUp(): Promise<void> {
 }
 
 let settled = false;
+let awaited = false;
 
 // Settles when the warm-up has ended, whether or not it reached the database, or after
 // [waitAtMostMs], and never fails. Settled at once while `next build` loads the modules to collect
@@ -41,10 +42,18 @@ const warmedUp: Promise<void> = (
 });
 
 /**
- * For a request, before it uses the database: waits for the warm-up while it is still under way,
- * in a span of its own (`db.warm_up_wait`), so that the request's event shows the time it waited.
- * Once the warm-up has ended, nothing.
+ * For a request, before it uses the database: the first one to ask while the warm-up is under way
+ * waits for it, in a span of its own (`db.warm_up_wait`), whose time counts towards the request's
+ * `slowest_span`. Nothing for every other request, nor once the warm-up has ended or
+ * [waitAtMostMs] have passed: a request waiting behind another would only open its own connection
+ * later than it could have.
  */
 export function untilDatabaseWarmedUp(): Promise<void> | undefined {
-  return settled ? undefined : traced("db.warm_up_wait", () => warmedUp);
+  if (settled || awaited) {
+    return undefined;
+  }
+
+  awaited = true;
+
+  return traced("db.warm_up_wait", () => warmedUp);
 }

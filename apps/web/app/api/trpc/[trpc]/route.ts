@@ -21,14 +21,13 @@ let uploadThing: Promise<UTApi> | undefined;
 
 // The files of deleted Appointment Photos are deleted there too. The router logs a failure.
 async function deleteStoredFiles(fileKeys: string[]) {
-  uploadThing ??= import("uploadthing/server").then(
-    ({ UTApi }) => new UTApi(),
-    (error: unknown) => {
+  uploadThing ??= import("uploadthing/server")
+    .then(({ UTApi }) => new UTApi())
+    .catch((error: unknown) => {
       // Tried again with the next deletion.
       uploadThing = undefined;
       throw error;
-    }
-  );
+    });
 
   const { success } = await (await uploadThing).deleteFiles(fileKeys);
 
@@ -50,9 +49,8 @@ function handler(request: Request) {
         auth: async () => {
           const clerkAuth = await auth();
 
-          // Signed in, so its procedure uses the database next. On a new instance it waits for the
-          // warm-up while that is under way: Prisma has started by then, and one such request takes
-          // the warm-up's connection.
+          // Signed in, so its procedure uses the database next. The first such request on a new
+          // instance waits for the warm-up while that is under way, and takes its connection.
           if (clerkAuth.userId) {
             await untilDatabaseWarmedUp();
           }
