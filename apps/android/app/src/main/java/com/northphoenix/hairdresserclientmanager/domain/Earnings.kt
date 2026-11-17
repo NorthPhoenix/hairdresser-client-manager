@@ -1,6 +1,7 @@
 package com.northphoenix.hairdresserclientmanager.domain
 
 import com.northphoenix.hairdresserclientmanager.data.EarningsSummary
+import com.northphoenix.hairdresserclientmanager.data.EarningsTrend
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -104,6 +105,69 @@ object Earnings {
     }
 
     private const val MIN_BAR = 0.04f
+
+    /** How many periods the bars of Итоги show side by side, the selected one among them. */
+    const val TREND_PERIODS = 6
+
+    /**
+     * The first day of the newest period the bars show while [date]'s period is selected. They
+     * stay where they were ([shownNewest], the newest they showed) while the selected period is
+     * among them, and move just far enough to take it in when it is not, so an arrow past their
+     * end moves them by one. Shown first, they end with [today]'s period.
+     */
+    fun trendNewest(period: EarningsPeriod, date: LocalDate, today: LocalDate, shownNewest: LocalDate?): LocalDate {
+        val selected = span(period, date).first
+        val newest = span(period, shownNewest ?: today).first
+
+        return when {
+            selected > newest -> selected
+            selected < step(period, newest, -(TREND_PERIODS - 1)) -> step(period, selected, TREND_PERIODS - 1)
+            else -> newest
+        }
+    }
+
+    /**
+     * Whether the bars have something to compare: two periods or more, some of them earned
+     * something, and one of them is the [selected] period (its first day). Before the Stylist's
+     * first Appointment there is no bar for it, so none are shown. [selected] is null while the
+     * bars of other periods are kept until the next ones come.
+     */
+    fun showsTrend(trend: EarningsTrend, selected: LocalDate?): Boolean =
+        trend.periods.size >= 2 &&
+            trend.periods.any { it.earnedCents > 0 } &&
+            (selected == null || trend.periods.any { it.firstDay == selected.toString() })
+
+    /**
+     * The heights of the bars, 0 to 1: the period that earned the most takes the whole height, the
+     * others their share of it. A period that earned something is still a bar that can be seen; one
+     * that earned nothing has none.
+     */
+    fun trendFractions(periods: List<EarningsTrend.Period>): List<Float> {
+        val biggest = periods.maxOfOrNull { it.earnedCents }?.takeIf { it > 0 } ?: return periods.map { 0f }
+
+        return periods.map { if (it.earnedCents <= 0) 0f else (it.earnedCents.toFloat() / biggest).coerceIn(MIN_TREND_BAR, 1f) }
+    }
+
+    private const val MIN_TREND_BAR = 0.03f
+
+    /**
+     * What each bar says under it, for the periods starting on [firsts] side by side: a week its
+     * first day, with the month on the first bar and where the month changes ("12 окт.", "19", "26",
+     * "2 нояб."), a month its name ("нояб.", "Nov"), a year its number.
+     */
+    fun barLabels(period: EarningsPeriod, firsts: List<LocalDate>, locale: Locale): List<String> {
+        val dayAndMonth = DateTimeFormatter.ofPattern(if (locale.language == "ru") "d MMM" else "MMM d", locale)
+        val month = DateTimeFormatter.ofPattern("LLL", locale)
+
+        return firsts.mapIndexed { index, first ->
+            when (period) {
+                EarningsPeriod.WEEK ->
+                    if (index == 0 || firsts[index - 1].month != first.month) dayAndMonth.format(first) else first.dayOfMonth.toString()
+                EarningsPeriod.MONTH -> month.format(first)
+                EarningsPeriod.YEAR -> first.year.toString()
+            }
+        }
+    }
 
     /** Whether the period holds nothing at all: no outcome of any kind, nothing waiting for one, and nothing booked. */
     fun isEmpty(summary: EarningsSummary): Boolean =

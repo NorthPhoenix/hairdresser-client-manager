@@ -2,6 +2,7 @@ package com.northphoenix.hairdresserclientmanager
 
 import com.northphoenix.hairdresserclientmanager.data.EarningsSummary
 import com.northphoenix.hairdresserclientmanager.data.EarningsSummary.TopService
+import com.northphoenix.hairdresserclientmanager.data.EarningsTrend
 import com.northphoenix.hairdresserclientmanager.domain.Earnings
 import com.northphoenix.hairdresserclientmanager.domain.EarningsPeriod
 import com.northphoenix.hairdresserclientmanager.data.hcmJson
@@ -130,5 +131,77 @@ class EarningsTest {
         assertEquals(null, json.decodeFromString<EarningsSummary>("""{"firstDay":"a","lastDay":"b","upcoming":null}""").upcoming)
         // From a server before `unresolved` was sent.
         assertEquals(null, json.decodeFromString<EarningsSummary>("""{"firstDay":"a","lastDay":"b"}""").unresolved)
+    }
+
+    @Test
+    fun theBarsEndWithTodaysPeriodAndStayWhileTheSelectedOneIsAmongThem() {
+        val week = EarningsPeriod.WEEK
+        // Wednesday 21 Oct: the week of the 19th.
+        val thisWeek = LocalDate.of(2026, 10, 19)
+
+        assertEquals(thisWeek, Earnings.trendNewest(week, today, today, shownNewest = null))
+        // Three weeks back, five weeks back: still among the six bars, which do not move.
+        assertEquals(thisWeek, Earnings.trendNewest(week, LocalDate.of(2026, 9, 30), today, thisWeek))
+        assertEquals(thisWeek, Earnings.trendNewest(week, LocalDate.of(2026, 9, 14), today, thisWeek))
+        // One more step back moves them by one week, so the selected one is the oldest bar.
+        assertEquals(LocalDate.of(2026, 10, 12), Earnings.trendNewest(week, LocalDate.of(2026, 9, 7), today, thisWeek))
+        // From there, stepping forward keeps them until it passes their newest.
+        assertEquals(LocalDate.of(2026, 10, 12), Earnings.trendNewest(week, LocalDate.of(2026, 10, 12), today, LocalDate.of(2026, 10, 12)))
+        assertEquals(thisWeek, Earnings.trendNewest(week, LocalDate.of(2026, 10, 25), today, LocalDate.of(2026, 10, 12)))
+        // A week to come is the newest bar.
+        assertEquals(LocalDate.of(2026, 10, 26), Earnings.trendNewest(week, LocalDate.of(2026, 10, 28), today, thisWeek))
+        // Shown first on a period long ago, the bars end six periods after it, so it is the oldest one.
+        assertEquals(LocalDate.of(2026, 6, 1), Earnings.trendNewest(EarningsPeriod.MONTH, LocalDate.of(2026, 1, 20), today, null))
+        assertEquals(LocalDate.of(2026, 10, 1), Earnings.trendNewest(EarningsPeriod.MONTH, LocalDate.of(2026, 5, 20), today, null))
+    }
+
+    @Test
+    fun theTallestBarIsThePeriodThatEarnedMostAndNothingEarnedHasNoBar() {
+        fun bars(vararg cents: Long) = cents.map { EarningsTrend.Period(firstDay = "2026-10-01", earnedCents = it) }
+
+        assertEquals(listOf(0.5f, 1f, 0f, 0.03f), Earnings.trendFractions(bars(30_000, 60_000, 0, 500)))
+        assertEquals(listOf(0f, 0f), Earnings.trendFractions(bars(0, 0)))
+        assertEquals(emptyList<Float>(), Earnings.trendFractions(emptyList()))
+    }
+
+    @Test
+    fun theBarsShowOnlyWhenThereIsSomethingToCompareAndTheSelectedPeriodIsOne() {
+        val october = LocalDate.of(2026, 10, 1)
+        fun trend(vararg cents: Long) =
+            EarningsTrend(cents.mapIndexed { index, it -> EarningsTrend.Period(firstDay = october.plusMonths(index.toLong()).toString(), earnedCents = it) })
+
+        assertTrue(Earnings.showsTrend(trend(0, 12_000), october))
+        assertTrue(Earnings.showsTrend(trend(0, 12_000), october.plusMonths(1)))
+        // One period (a year, or a Stylist's first month), or nothing earned in any.
+        assertFalse(Earnings.showsTrend(trend(12_000), october))
+        assertFalse(Earnings.showsTrend(trend(0, 0, 0), october))
+        assertFalse(Earnings.showsTrend(EarningsTrend(), null))
+        // A period before the Stylist's first Appointment has no bar of its own: the bars after it are not shown.
+        assertFalse(Earnings.showsTrend(trend(0, 12_000), october.minusMonths(1)))
+        // While the bars of before are kept, until the next ones come.
+        assertTrue(Earnings.showsTrend(trend(0, 12_000), null))
+    }
+
+    @Test
+    fun aBarSaysItsWeeksFirstDayWithTheMonthWhereItChangesItsMonthOrItsYear() {
+        val mondays = (0L..3L).map { LocalDate.of(2026, 10, 19).plusWeeks(it) }
+
+        assertEquals(listOf("19 окт.", "26", "2 нояб.", "9"), Earnings.barLabels(EarningsPeriod.WEEK, mondays, ru))
+        assertEquals(listOf("Oct 19", "26", "Nov 2", "9"), Earnings.barLabels(EarningsPeriod.WEEK, mondays, en))
+        assertEquals(
+            listOf("дек.", "янв."),
+            Earnings.barLabels(EarningsPeriod.MONTH, listOf(LocalDate.of(2026, 12, 1), LocalDate.of(2027, 1, 1)), ru),
+        )
+        assertEquals(listOf("Nov"), Earnings.barLabels(EarningsPeriod.MONTH, listOf(LocalDate.of(2026, 11, 1)), en))
+        assertEquals(listOf("2026", "2027"), Earnings.barLabels(EarningsPeriod.YEAR, listOf(LocalDate.of(2026, 1, 1), LocalDate.of(2027, 1, 1)), ru))
+    }
+
+    @Test
+    fun theBarsAreReadWithoutFieldsTheAppDoesNotKnow() {
+        val trend = hcmJson.decodeFromString<EarningsTrend>(
+            """{"period":"week","periods":[{"firstDay":"2026-10-12","lastDay":"2026-10-18","earnedCents":26500,"visits":5,"extra":1}]}""",
+        )
+
+        assertEquals(EarningsTrend.Period("2026-10-12", "2026-10-18", 26_500, 5), trend.periods.single())
     }
 }

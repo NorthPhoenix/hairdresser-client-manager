@@ -623,6 +623,10 @@
     <string name="earnings_canceled">Canceled: %d</string>
     <string name="earnings_no_show">No-shows: %d</string>
     <string name="earnings_top_services">Revenue by service</string>
+    <string name="earnings_trend_week">Earned by week</string>
+    <string name="earnings_trend_month">Earned by month</string>
+    <string name="earnings_trend_year">Earned by year</string>
+    <string name="earnings_trend_bar">%1$s: %2$s</string>
     <string name="earnings_empty_title">Nothing here yet</string>
     <string name="earnings_empty_body">There are no Appointments in this period. Earnings show up once Appointments are completed.</string>
     <plurals name="earnings_booked_count">

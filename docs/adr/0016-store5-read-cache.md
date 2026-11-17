@@ -61,6 +61,8 @@ A key is a small data class with everything the answer depends on, and each read
 | The Client list (`clientProfile.list`) | `StylistKey(stylistId)` | 1 | 30 minutes |
 | A Client's Appointment history (`clientProfile.appointmentHistory`) | `ClientKey(id)` | 30 | 30 minutes |
 | The Service Menu (`serviceMenu.list`) | `StylistKey(stylistId)` | 1 | 30 minutes |
+| A period of Итоги (`stats.summary`) | `EarningsKey(period, first day)` | 20 | 30 minutes |
+| The bars of Итоги (`stats.trend`) | `EarningsKey(period, first day of the newest bar)` | 10 | 30 minutes |
 
 The timezone is part of a day's key, because the day's start and end are worked out in it: after a timezone change the lists are other keys and are loaded. The Clients of the Appointment are part of the copy sources' key, because a copy takes only the Services of Clients attached to both Appointments: when they change, the sheet reads another key and shows nothing of the list from before. The Stylist is the key of the two lists that are theirs as a whole, so one Stylist's list is another key than the next one's, on top of the cache being emptied at sign-out.
 
