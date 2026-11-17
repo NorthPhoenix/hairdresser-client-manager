@@ -241,6 +241,13 @@ export const statsRouter = createTRPCRouter({
     const count = input.count ?? trendDefaultCount;
     const span = periodsUpTo(input.period, date, count, timezone);
     const stylistId = ctx.stylist.id;
+    annotate(() => ({
+      "stats.period": input.period,
+      "stats.has_date": input.date !== undefined,
+      // Of the newest period.
+      "stats.period_offset_days": Math.round((span.newest.startsAt.getTime() - now.getTime()) / 86_400_000),
+      "stats.trend_requested_count": count
+    }));
 
     const [completed, firstAppointment] = await Promise.all([
       ctx.db.appointment.findMany({
@@ -274,11 +281,6 @@ export const statsRouter = createTRPCRouter({
       });
 
     annotate(() => ({
-      "stats.period": input.period,
-      "stats.has_date": input.date !== undefined,
-      // Of the newest period.
-      "stats.period_offset_days": Math.round((span.newest.startsAt.getTime() - now.getTime()) / 86_400_000),
-      "stats.trend_requested_count": count,
       "stats.trend_period_count": periods.length,
       "stats.trend_completed_count": completed.length,
       "stats.trend_earned_minor": periods.reduce((sum, period) => sum + period.earnedCents, 0)

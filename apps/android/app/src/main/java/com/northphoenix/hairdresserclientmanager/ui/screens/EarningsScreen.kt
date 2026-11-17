@@ -31,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -61,7 +62,7 @@ import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.LoadState
 import com.northphoenix.hairdresserclientmanager.state.Read
-import com.northphoenix.hairdresserclientmanager.state.keptWhileLoading
+import com.northphoenix.hairdresserclientmanager.state.TrendRead
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.components.CircleIconButton
 import com.northphoenix.hairdresserclientmanager.ui.components.EmptyState
@@ -179,27 +180,27 @@ private fun rememberEarnings(viewModel: AppViewModel, period: EarningsPeriod, da
     return read
 }
 
-/** The bars as [rememberTrend] shows them, and whether they are the ones asked for ([current]) rather than kept from before. */
-private data class TrendRead(val read: Read<EarningsTrend>, val current: Boolean)
-
 /**
  * The bars ending with the period that holds [newest], as the cache has them and each time they are
- * refreshed. When the bars move to other periods, the ones shown stay until those are read
- * ([keptWhileLoading]), so the card does not blink out under the finger.
+ * refreshed. When they move to other periods of the same length, the ones shown stay until those
+ * are read ([TrendRead.then]); bars of another length never do.
  */
 @Composable
 private fun rememberTrend(viewModel: AppViewModel, period: EarningsPeriod, newest: LocalDate): TrendRead {
     val first = Earnings.span(period, newest).first
-    val read by remember(viewModel, period, first) { viewModel.earningsTrend(period, first) }.collectWhileOpen(
-        initialValue = remember(viewModel, period, first) { viewModel.shownEarningsTrend(period, first) },
-    )
-    val last = remember(period) { arrayOfNulls<Read<EarningsTrend>>(1) }
-    val shown = last[0]?.keptWhileLoading(read) ?: read
+    // Keyed, so the first frame of other bars starts from their own cached answer, not the last bars' one.
+    val read = key(viewModel, period, first) {
+        remember { viewModel.earningsTrend(period, first) }.collectWhileOpen(
+            initialValue = remember { viewModel.shownEarningsTrend(period, first) },
+        ).value
+    }
+    val last = remember(period) { arrayOfNulls<TrendRead>(1) }
+    val shown = last[0]?.then(read) ?: TrendRead(read)
 
     SideEffect { last[0] = shown }
     LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.loadEarningsTrend(period, first) }
 
-    return TrendRead(shown, current = shown === read)
+    return shown
 }
 
 /**

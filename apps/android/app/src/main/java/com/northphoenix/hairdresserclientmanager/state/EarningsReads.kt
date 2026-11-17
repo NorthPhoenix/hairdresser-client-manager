@@ -4,6 +4,20 @@ import com.northphoenix.hairdresserclientmanager.data.EarningsSummary
 import com.northphoenix.hairdresserclientmanager.data.EarningsTrend
 import kotlinx.coroutines.CoroutineScope
 
+/**
+ * The bars of Итоги as the screen shows them ([read]), and whether they are the ones asked for
+ * ([current]) rather than the ones before, kept while those are read: when the bars move to other
+ * periods, the card does not blink out under the finger.
+ */
+internal data class TrendRead(val read: Read<EarningsTrend>, val current: Boolean = true) {
+    /** What is shown once [next] comes for the bars asked for now. */
+    fun then(next: Read<EarningsTrend>): TrendRead {
+        val shown = read.keptWhileLoading(next)
+
+        return TrendRead(shown, current = shown === next)
+    }
+}
+
 /** One period of Итоги: [period] is `week`, `month` or `year`, [date] a day of it ("2026-10-21"). For the bars, the newest period's. */
 internal data class EarningsKey(val period: String, val date: String)
 

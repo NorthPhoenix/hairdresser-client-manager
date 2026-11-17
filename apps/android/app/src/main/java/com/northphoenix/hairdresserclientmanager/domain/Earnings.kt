@@ -113,17 +113,20 @@ object Earnings {
      * The first day of the newest period the bars show while [date]'s period is selected. They
      * stay where they were ([shownNewest], the newest they showed) while the selected period is
      * among them, and move just far enough to take it in when it is not, so an arrow past their
-     * end moves them by one. Shown first, they end with [today]'s period.
+     * end moves them by one. Shown first, they end with [today]'s period. They never reach past
+     * both the selected period and today's, since periods to come have earned nothing yet.
      */
     fun trendNewest(period: EarningsPeriod, date: LocalDate, today: LocalDate, shownNewest: LocalDate?): LocalDate {
         val selected = span(period, date).first
+        val current = span(period, today).first
         val newest = span(period, shownNewest ?: today).first
-
-        return when {
+        val moved = when {
             selected > newest -> selected
             selected < step(period, newest, -(TREND_PERIODS - 1)) -> step(period, selected, TREND_PERIODS - 1)
             else -> newest
         }
+
+        return minOf(moved, maxOf(selected, current))
     }
 
     /**

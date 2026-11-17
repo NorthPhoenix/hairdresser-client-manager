@@ -1543,8 +1543,10 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     /** Those bars as they are without asking, for the first frame of the screen. */
     fun shownEarningsTrend(period: EarningsPeriod, newest: LocalDate): Read<EarningsTrend> = earningsReads.trend.now(earningsKey(period, newest))
 
-    /** Called each time Итоги comes into view, and by 'Try again', with [loadEarnings]. */
-    fun loadEarningsTrend(period: EarningsPeriod, newest: LocalDate) = loadShown(earningsReads.trend, earningsKey(period, newest))
+    /** Called each time Итоги comes into view, and by 'Try again', with [loadEarnings]. Quietly: without the bars the summary is still there. */
+    fun loadEarningsTrend(period: EarningsPeriod, newest: LocalDate) {
+        viewModelScope.launch { quietly { earningsReads.trend.refresh(earningsKey(period, newest)) } }
+    }
 
     private fun earningsKey(period: EarningsPeriod, date: LocalDate) = EarningsKey(period.wire, Earnings.span(period, date).first.toString())
 

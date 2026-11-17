@@ -5,6 +5,9 @@ import com.northphoenix.hairdresserclientmanager.data.EarningsSummary.TopService
 import com.northphoenix.hairdresserclientmanager.data.EarningsTrend
 import com.northphoenix.hairdresserclientmanager.domain.Earnings
 import com.northphoenix.hairdresserclientmanager.domain.EarningsPeriod
+import com.northphoenix.hairdresserclientmanager.state.LoadState
+import com.northphoenix.hairdresserclientmanager.state.Read
+import com.northphoenix.hairdresserclientmanager.state.TrendRead
 import com.northphoenix.hairdresserclientmanager.data.hcmJson
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -150,9 +153,28 @@ class EarningsTest {
         assertEquals(thisWeek, Earnings.trendNewest(week, LocalDate.of(2026, 10, 25), today, LocalDate.of(2026, 10, 12)))
         // A week to come is the newest bar.
         assertEquals(LocalDate.of(2026, 10, 26), Earnings.trendNewest(week, LocalDate.of(2026, 10, 28), today, thisWeek))
+        // Six weeks ahead and back to this week: the bars end with this week again, not with weeks to come.
+        assertEquals(LocalDate.of(2026, 11, 30), Earnings.trendNewest(week, LocalDate.of(2026, 12, 2), today, LocalDate.of(2026, 11, 23)))
+        assertEquals(thisWeek, Earnings.trendNewest(week, today, today, LocalDate.of(2026, 11, 30)))
+        // A week to come, stepped back from: the bars follow it back.
+        assertEquals(LocalDate.of(2026, 10, 26), Earnings.trendNewest(week, LocalDate.of(2026, 10, 26), today, LocalDate.of(2026, 11, 2)))
         // Shown first on a period long ago, the bars end six periods after it, so it is the oldest one.
         assertEquals(LocalDate.of(2026, 6, 1), Earnings.trendNewest(EarningsPeriod.MONTH, LocalDate.of(2026, 1, 20), today, null))
         assertEquals(LocalDate.of(2026, 10, 1), Earnings.trendNewest(EarningsPeriod.MONTH, LocalDate.of(2026, 5, 20), today, null))
+    }
+
+    @Test
+    fun barsOfBeforeStayWhileTheNextOnesAreReadAndAreNotCurrent() {
+        val before = TrendRead(Read(LoadState.Loaded, EarningsTrend(listOf(EarningsTrend.Period("2026-10-01", earnedCents = 100)))))
+        val next = EarningsTrend(listOf(EarningsTrend.Period("2026-11-01", earnedCents = 200)))
+
+        // The next bars have nothing yet: the ones before stay, marked as not the ones asked for.
+        assertEquals(TrendRead(before.read, current = false), before.then(Read()))
+        // They come, or fail: shown as they are.
+        assertEquals(TrendRead(Read(LoadState.Loaded, next)), before.then(Read(LoadState.Loaded, next)))
+        assertEquals(TrendRead(Read(LoadState.Failed(0))), before.then(Read(LoadState.Failed(0))))
+        // Nothing shown before: nothing to keep.
+        assertEquals(TrendRead(Read()), TrendRead(Read()).then(Read()))
     }
 
     @Test
