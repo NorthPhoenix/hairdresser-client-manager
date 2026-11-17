@@ -113,21 +113,31 @@ object Earnings {
      * The first day of the newest period the bars show while [date]'s period is selected. They
      * stay where they were ([shownNewest], the newest they showed) while the selected period is
      * among them, and move just far enough to take it in when it is not, so an arrow past their
-     * end moves them by one. Shown first, they end with [today]'s period. They never reach past
-     * both the selected period and today's, since periods to come have earned nothing yet.
+     * end moves them by one. Shown first, they end with [today]'s period. Moved back, they end no
+     * later than both the selected period and today's, since periods to come have earned nothing yet.
      */
     fun trendNewest(period: EarningsPeriod, date: LocalDate, today: LocalDate, shownNewest: LocalDate?): LocalDate {
         val selected = span(period, date).first
         val current = span(period, today).first
         val newest = span(period, shownNewest ?: today).first
-        val moved = when {
+        return when {
             selected > newest -> selected
-            selected < step(period, newest, -(TREND_PERIODS - 1)) -> step(period, selected, TREND_PERIODS - 1)
+            selected < step(period, newest, -(TREND_PERIODS - 1)) -> minOf(step(period, selected, TREND_PERIODS - 1), maxOf(selected, current))
             else -> newest
         }
-
-        return minOf(moved, maxOf(selected, current))
     }
+
+    /**
+     * The day Итоги shows once the bar of the period starting [tapped] is tapped while [date] is
+     * shown: null for the bar already selected, else today for today's period (so Неделя, Месяц and
+     * Год open on today from it, as on opening) and the period's first day for any other.
+     */
+    fun anchorForBar(period: EarningsPeriod, tapped: LocalDate, date: LocalDate, today: LocalDate): LocalDate? =
+        when {
+            date in span(period, tapped) -> null
+            today in span(period, tapped) -> today
+            else -> tapped
+        }
 
     /**
      * Whether the bars have something to compare: two periods or more, some of them earned

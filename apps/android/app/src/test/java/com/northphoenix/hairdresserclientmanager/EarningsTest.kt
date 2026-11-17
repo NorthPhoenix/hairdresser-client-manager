@@ -156,11 +156,23 @@ class EarningsTest {
         // Six weeks ahead and back to this week: the bars end with this week again, not with weeks to come.
         assertEquals(LocalDate.of(2026, 11, 30), Earnings.trendNewest(week, LocalDate.of(2026, 12, 2), today, LocalDate.of(2026, 11, 23)))
         assertEquals(thisWeek, Earnings.trendNewest(week, today, today, LocalDate.of(2026, 11, 30)))
-        // A week to come, stepped back from: the bars follow it back.
-        assertEquals(LocalDate.of(2026, 10, 26), Earnings.trendNewest(week, LocalDate.of(2026, 10, 26), today, LocalDate.of(2026, 11, 2)))
+        // A week to come among the bars, stepped back from: they stay put, as for any period among them.
+        assertEquals(LocalDate.of(2026, 11, 2), Earnings.trendNewest(week, LocalDate.of(2026, 10, 26), today, LocalDate.of(2026, 11, 2)))
         // Shown first on a period long ago, the bars end six periods after it, so it is the oldest one.
         assertEquals(LocalDate.of(2026, 6, 1), Earnings.trendNewest(EarningsPeriod.MONTH, LocalDate.of(2026, 1, 20), today, null))
         assertEquals(LocalDate.of(2026, 10, 1), Earnings.trendNewest(EarningsPeriod.MONTH, LocalDate.of(2026, 5, 20), today, null))
+    }
+
+    @Test
+    fun tappingABarSelectsItsPeriodTodayForTodaysAndNothingForTheSelectedOne() {
+        val month = EarningsPeriod.MONTH
+
+        assertEquals(LocalDate.of(2026, 8, 1), Earnings.anchorForBar(month, LocalDate.of(2026, 8, 1), today, today))
+        // Back to this month: today, so Неделя then opens on this week, not the month's first.
+        assertEquals(today, Earnings.anchorForBar(month, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 8, 1), today))
+        // The bar already selected changes nothing, whatever day of it is shown.
+        assertEquals(null, Earnings.anchorForBar(month, LocalDate.of(2026, 10, 1), today, today))
+        assertEquals(null, Earnings.anchorForBar(month, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 17), today))
     }
 
     @Test

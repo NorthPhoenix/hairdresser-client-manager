@@ -28,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -48,6 +49,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -75,6 +77,7 @@ import com.northphoenix.hairdresserclientmanager.ui.components.SideBySideOrStack
 import com.northphoenix.hairdresserclientmanager.ui.components.SubScreen
 import com.northphoenix.hairdresserclientmanager.ui.components.collectWhileOpen
 import com.northphoenix.hairdresserclientmanager.ui.theme.HcmColors
+import kotlinx.coroutines.delay
 import java.time.LocalDate
 import java.util.Locale
 
@@ -143,15 +146,30 @@ fun EarningsScreen(viewModel: AppViewModel, onBack: () -> Unit, onOpenToday: () 
             val summary = read.data
             val selected = Earnings.span(period, date).first
             val bars = trend.read.data?.takeIf { Earnings.showsTrend(it, selected.takeIf { trend.current }) }
-            // The first time, the summary waits for the bars, which come above it, so nothing is pushed down once shown.
+            // The summary waits a moment for bars still on their way, which come above it, so it is not pushed down
+            // once shown; not longer, since it does without them.
             val trendSettled = trend.read.data != null || trend.read.state !is LoadState.Loading
+            var barsLate by remember(period, newest) { mutableStateOf(false) }
+            LaunchedEffect(period, newest, summary != null && !trendSettled) {
+                if (summary != null && !trendSettled) {
+                    delay(BARS_WAIT_MS)
+                    barsLate = true
+                }
+            }
 
             if (bars != null) {
-                TrendCard(bars, period, selected, today, locale, onSelect = { anchor = it.toString() })
+                TrendCard(
+                    bars,
+                    period,
+                    selected,
+                    today,
+                    locale,
+                    onSelect = { first -> Earnings.anchorForBar(period, first, date, today)?.let { anchor = it.toString() } },
+                )
             }
 
             when {
-                summary != null && trendSettled -> Summary(summary, period, onOpenToday)
+                summary != null && (trendSettled || barsLate) -> Summary(summary, period, onOpenToday)
                 read.state is LoadState.Failed ->
                     LoadFailed(
                         (read.state as LoadState.Failed).message,
@@ -261,7 +279,9 @@ private fun TrendCard(
                             style = small.copy(color = ink, fontWeight = weight, textAlign = TextAlign.Center),
                             maxLines = 1,
                             softWrap = false,
-                            autoSize = TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = small.fontSize),
+                            // Smaller rather than cut: a cut amount would read as another number. What still does not fit ends in «…».
+                            overflow = TextOverflow.Ellipsis,
+                            autoSize = TextAutoSize.StepBased(minFontSize = 6.sp, maxFontSize = small.fontSize),
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
                         )
                         Spacer(Modifier.height(4.dp))
@@ -280,7 +300,8 @@ private fun TrendCard(
                                 style = small.copy(color = ink, fontWeight = weight, textAlign = TextAlign.Center),
                                 maxLines = 1,
                                 softWrap = false,
-                                autoSize = TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = small.fontSize),
+                                overflow = TextOverflow.Ellipsis,
+                                autoSize = TextAutoSize.StepBased(minFontSize = 6.sp, maxFontSize = small.fontSize),
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
                             )
                         }
@@ -290,6 +311,9 @@ private fun TrendCard(
         }
     }
 }
+
+/** How long a summary that is there waits for bars still on their way. */
+private const val BARS_WAIT_MS = 700L
 
 private val TREND_BAR_HEIGHT = 96.dp
 private val TREND_BAR_WIDTH = 28.dp

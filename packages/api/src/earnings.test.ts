@@ -566,10 +566,20 @@ describe("stats.trend", () => {
         { firstDay: "2026-11-01", lastDay: "2026-11-30", earnedCents: 0, visits: 0 }
       ]
     });
-    // Six periods when the app does not say.
-    await expect(caller.stats.trend({ period: "week" })).resolves.toMatchObject({
-      periods: expect.arrayContaining([expect.objectContaining({ firstDay: "2026-10-19" })])
-    });
+    // Six periods when the app does not say, for a Stylist whose first Appointment is older than them.
+    const { caller: longTime } = createStatsDb([
+      { status: "completed", startsAt: "2025-01-10T20:00:00.000Z", services: [{ name: "Old", priceCents: 1000 }] }
+    ]);
+    const weeks = await longTime.stats.trend({ period: "week" });
+
+    expect(weeks.periods.map((period) => period.firstDay)).toEqual([
+      "2026-09-14",
+      "2026-09-21",
+      "2026-09-28",
+      "2026-10-05",
+      "2026-10-12",
+      "2026-10-19"
+    ]);
   });
 
   it("answers no periods before the first Appointment, nor for a Stylist without one", async () => {
