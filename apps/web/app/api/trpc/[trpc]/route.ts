@@ -1,11 +1,12 @@
 // First: sets up telemetry before the first request (server/telemetry.ts says why).
 import "../../../../server/telemetry";
 // Second: connects to the database while the rest loads (server/warmDatabase.ts says why).
-import { databaseWarmedUp } from "../../../../server/warmDatabase";
+import { untilDatabaseWarmedUp } from "../../../../server/warmDatabase";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { auth } from "@clerk/nextjs/server";
 import { appRouter, appVersionFromHeaders, createPublishedReleaseReader, createTRPCContext, manifestUrlFor, recordProcedureError } from "@hcm/api";
 import { annotate, requestFields } from "@hcm/telemetry";
+import type { UTApi } from "uploadthing/server";
 import { accountName, photoOrigins, readSharePhoto } from "../../../../server/profileShare";
 
 // The release whose APK is published: latest.json beside APP_DOWNLOAD_URL, read at most once a
@@ -13,13 +14,23 @@ import { accountName, photoOrigins, readSharePhoto } from "../../../../server/pr
 const releaseManifestUrl = manifestUrlFor(process.env.APP_DOWNLOAD_URL);
 const publishedRelease = releaseManifestUrl ? createPublishedReleaseReader({ manifestUrl: releaseManifestUrl }) : null;
 
+// UploadThing's SDK, loaded the first time a file is deleted and not with the route: it is about a
+// sixth of what a new server instance loads before its first request, which nearly never deletes
+// a photo.
+let uploadThing: Promise<UTApi> | undefined;
+
 // The files of deleted Appointment Photos are deleted there too. The router logs a failure.
-// UploadThing's SDK is loaded here, the first time a file is deleted, and not with the route: it is
-// about a sixth of what a new server instance loads before its first request, which nearly never
-// deletes a photo.
 async function deleteStoredFiles(fileKeys: string[]) {
-  const { UTApi } = await import("uploadthing/server");
-  const { success } = await new UTApi().deleteFiles(fileKeys);
+  uploadThing ??= import("uploadthing/server").then(
+    ({ UTApi }) => new UTApi(),
+    (error: unknown) => {
+      // Tried again with the next deletion.
+      uploadThing = undefined;
+      throw error;
+    }
+  );
+
+  const { success } = await (await uploadThing).deleteFiles(fileKeys);
 
   if (!success) {
     throw new Error("UploadThing did not delete the files.");
@@ -35,8 +46,8 @@ function handler(request: Request) {
     req: request,
     router: appRouter,
     createContext: async () => {
-      // The first request on a new instance takes the connection the warm-up opens.
-      await databaseWarmedUp;
+      // A request on a new instance takes the connection the warm-up opens.
+      await untilDatabaseWarmedUp();
 
       return createTRPCContext({
         auth: async () => {
