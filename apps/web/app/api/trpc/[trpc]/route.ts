@@ -1,22 +1,35 @@
 // First: sets up telemetry before the first request (server/telemetry.ts says why).
 import "../../../../server/telemetry";
+// Second: starts the database as soon as its client has loaded (server/warmDatabase.ts says why).
+import { untilDatabaseWarmedUp } from "../../../../server/warmDatabase";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { auth } from "@clerk/nextjs/server";
 import { appRouter, appVersionFromHeaders, createPublishedReleaseReader, createTRPCContext, manifestUrlFor, recordProcedureError } from "@hcm/api";
 import { annotate, requestFields } from "@hcm/telemetry";
-import { UTApi } from "uploadthing/server";
+import type { UTApi } from "uploadthing/server";
 import { accountName, photoOrigins, readSharePhoto } from "../../../../server/profileShare";
-
-const uploadThing = new UTApi();
 
 // The release whose APK is published: latest.json beside APP_DOWNLOAD_URL, read at most once a
 // minute by each server instance (docs/adr/0018).
 const releaseManifestUrl = manifestUrlFor(process.env.APP_DOWNLOAD_URL);
 const publishedRelease = releaseManifestUrl ? createPublishedReleaseReader({ manifestUrl: releaseManifestUrl }) : null;
 
+// UploadThing's SDK, loaded the first time a file is deleted and not with the route: it is about a
+// sixth of what a new server instance loads before its first request, which nearly never deletes
+// a photo.
+let uploadThing: Promise<UTApi> | undefined;
+
 // The files of deleted Appointment Photos are deleted there too. The router logs a failure.
 async function deleteStoredFiles(fileKeys: string[]) {
-  const { success } = await uploadThing.deleteFiles(fileKeys);
+  uploadThing ??= import("uploadthing/server")
+    .then(({ UTApi }) => new UTApi())
+    .catch((error: unknown) => {
+      // Tried again with the next deletion.
+      uploadThing = undefined;
+      throw error;
+    });
+
+  const { success } = await (await uploadThing).deleteFiles(fileKeys);
 
   if (!success) {
     throw new Error("UploadThing did not delete the files.");
@@ -35,6 +48,12 @@ function handler(request: Request) {
       createTRPCContext({
         auth: async () => {
           const clerkAuth = await auth();
+
+          // Signed in, so its procedure uses the database next. The first such request on a new
+          // instance waits for the warm-up while that is under way, and takes its connection.
+          if (clerkAuth.userId) {
+            await untilDatabaseWarmedUp();
+          }
 
           return {
             userId: clerkAuth.userId
