@@ -13,7 +13,7 @@
 import { db } from "@hcm/db";
 import { recordError, traced } from "@hcm/telemetry";
 
-/** How long a request waits for the warm-up at most, before it connects on its own as it would without one. */
+/** How long after the warm-up started a request still waits for it; after that it connects on its own, as it would without one. */
 const waitAtMostMs = 2_000;
 
 function warmUp(): Promise<void> {
