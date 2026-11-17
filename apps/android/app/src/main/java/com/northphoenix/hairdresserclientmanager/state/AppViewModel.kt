@@ -28,6 +28,7 @@ import com.northphoenix.hairdresserclientmanager.data.CameraCaptures
 import com.northphoenix.hairdresserclientmanager.data.ClientFamily
 import com.northphoenix.hairdresserclientmanager.data.ClientHistoryEntry
 import com.northphoenix.hairdresserclientmanager.data.EarningsSummary
+import com.northphoenix.hairdresserclientmanager.data.EarningsTrend
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.ClientVisitDates
 import com.northphoenix.hairdresserclientmanager.data.CreateAppointmentResult
@@ -223,6 +224,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         viewModelScope,
         readChanges,
         fetch = { api.earningsSummary(it.period, it.date) },
+        fetchTrend = { api.earningsTrend(it.period, it.date, Earnings.TREND_PERIODS) },
     )
 
     // Each list comes with its load state, in one value. A screen says that a list is empty only when its state is Loaded.
@@ -1534,6 +1536,17 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     /** Called each time Итоги comes into view, and by 'Try again' (see [loadShown]). */
     fun loadEarnings(period: EarningsPeriod, date: LocalDate) = loadShown(earningsReads.summary, earningsKey(period, date))
+
+    /** The bars of Итоги: what each period earned, up to the one that holds [newest]. Read as [earnings] is. */
+    fun earningsTrend(period: EarningsPeriod, newest: LocalDate): Flow<Read<EarningsTrend>> = earningsReads.trend.watch(earningsKey(period, newest))
+
+    /** Those bars as they are without asking, for the first frame of the screen. */
+    fun shownEarningsTrend(period: EarningsPeriod, newest: LocalDate): Read<EarningsTrend> = earningsReads.trend.now(earningsKey(period, newest))
+
+    /** Called each time Итоги comes into view, and by 'Try again', with [loadEarnings]. Quietly: without the bars the summary is still there. */
+    fun loadEarningsTrend(period: EarningsPeriod, newest: LocalDate) {
+        viewModelScope.launch { quietly { earningsReads.trend.refresh(earningsKey(period, newest)) } }
+    }
 
     private fun earningsKey(period: EarningsPeriod, date: LocalDate) = EarningsKey(period.wire, Earnings.span(period, date).first.toString())
 

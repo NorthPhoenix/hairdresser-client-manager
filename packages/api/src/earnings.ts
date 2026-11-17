@@ -115,6 +115,23 @@ export function periodBounds(period: EarningsPeriod, date: LocalDate, timezone: 
   };
 }
 
+/**
+ * The `count` periods of the given kind that end with the one holding the date, oldest first (the
+ * date's period and the ones right before it), the newest, and the instants they span together.
+ */
+export function periodsUpTo(period: EarningsPeriod, date: LocalDate, count: number, timezone: string) {
+  const newest = periodBounds(period, date, timezone);
+  const periods = [newest];
+  let oldest = newest;
+
+  while (periods.length < count) {
+    oldest = periodBounds(period, addDays(oldest.firstDay, -1), timezone);
+    periods.unshift(oldest);
+  }
+
+  return { periods, newest, startsAt: oldest.startsAt, endsAt: newest.endsAt };
+}
+
 /** What an Appointment comes to: the price of its Services (the custom total when set) and its Tip. */
 export function appointmentAmount(appointment: {
   finalTotalCentsOverride: number | null;

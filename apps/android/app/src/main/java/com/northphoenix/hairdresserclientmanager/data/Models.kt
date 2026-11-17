@@ -408,6 +408,18 @@ data class EarningsSummary(
     data class TopService(val name: String, val revenueCents: Long = 0, val count: Int = 0)
 }
 
+/**
+ * What each of the last few weeks, months or years earned (`stats.trend`), oldest first: the
+ * period asked for and the ones right before it, without those over before the Stylist's first
+ * Appointment.
+ */
+@Serializable
+data class EarningsTrend(val periods: List<Period> = emptyList()) {
+    /** One period: [earnedCents] is Earned as in [EarningsSummary.Earned.totalCents], from [visits] completed Appointments. */
+    @Serializable
+    data class Period(val firstDay: String, val lastDay: String = firstDay, val earnedCents: Long = 0, val visits: Int = 0)
+}
+
 /** The Android app's releases (`app.releases`): the latest one, every release newest first, and where the app is downloaded from. */
 @Serializable
 data class AppReleases(
