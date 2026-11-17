@@ -8,23 +8,26 @@ import kotlinx.coroutines.CoroutineScope
 
 /**
  * The bars Итоги shows ([bars], null for none), and whether the summary under them may show
- * ([settled]) rather than wait a moment for bars still on their way.
+ * ([settled]) rather than wait a moment for bars still on their way. [answeredNone]: the last
+ * answer had no bars to show (or failed), so the next ones are not waited for.
  */
-internal data class TrendShown(val bars: EarningsTrend?, val settled: Boolean)
+internal data class TrendShown(val bars: EarningsTrend?, val settled: Boolean, val answeredNone: Boolean = false)
 
 /**
  * What Итоги shows once [next] comes for the bars asked for, while the period starting [selected]
- * is selected and [before] were the bars on screen. Bars on screen stay while the next ones are
+ * is selected and [before] is what it showed so far. Bars on screen stay while the next ones are
  * read, so the card does not blink out under the finger (also when the bars move to other periods);
- * bars that were not on screen never come back that way.
+ * bars that were not on screen never come back that way. The summary waits for bars on their way
+ * only when bars are expected: not after an answer without any.
  */
-internal fun trendShown(before: EarningsTrend?, next: Read<EarningsTrend>, selected: LocalDate): TrendShown {
+internal fun trendShown(before: TrendShown?, next: Read<EarningsTrend>, selected: LocalDate): TrendShown {
     val answer = next.data
+    val answeredNone = before?.answeredNone ?: false
 
     return when {
-        answer != null -> TrendShown(answer.takeIf { Earnings.showsTrend(it, selected) }, settled = true)
-        next.state == LoadState.Loading -> TrendShown(before, settled = before != null)
-        else -> TrendShown(null, settled = true)
+        answer != null -> answer.takeIf { Earnings.showsTrend(it, selected) }.let { TrendShown(it, settled = true, answeredNone = it == null) }
+        next.state == LoadState.Loading -> TrendShown(before?.bars, settled = before?.bars != null || answeredNone, answeredNone)
+        else -> TrendShown(null, settled = true, answeredNone = true)
     }
 }
 

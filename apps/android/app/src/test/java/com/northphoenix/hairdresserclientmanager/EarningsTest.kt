@@ -159,6 +159,9 @@ class EarningsTest {
         assertEquals(thisWeek, Earnings.trendNewest(week, today, today, LocalDate.of(2026, 11, 30)))
         // A week to come among the bars, stepped back from: they stay put, as for any period among them.
         assertEquals(LocalDate.of(2026, 11, 2), Earnings.trendNewest(week, LocalDate.of(2026, 10, 26), today, LocalDate.of(2026, 11, 2)))
+        // Bars from 26 Oct to 30 Nov (reaching into weeks to come), an arrow back past their oldest: they end with this
+        // week, not five weeks after the selected one.
+        assertEquals(thisWeek, Earnings.trendNewest(week, LocalDate.of(2026, 10, 19), today, LocalDate.of(2026, 11, 30)))
         // Shown first on a period long ago, the bars end six periods after it, so it is the oldest one.
         assertEquals(LocalDate.of(2026, 6, 1), Earnings.trendNewest(EarningsPeriod.MONTH, LocalDate.of(2026, 1, 20), today, null))
         assertEquals(LocalDate.of(2026, 10, 1), Earnings.trendNewest(EarningsPeriod.MONTH, LocalDate.of(2026, 5, 20), today, null))
@@ -184,15 +187,29 @@ class EarningsTest {
         val shown = bars(8, 9, 10, 11)
 
         // The next bars have nothing yet: the ones on screen stay, and the summary need not wait.
-        assertEquals(TrendShown(shown, settled = true), trendShown(shown, Read(), LocalDate.of(2026, 3, 1)))
+        val onScreen = TrendShown(shown, settled = true)
+        assertEquals(onScreen, trendShown(onScreen, Read(), LocalDate.of(2026, 3, 1)))
         // They come: shown when the selected period is among them, else none.
-        assertEquals(TrendShown(bars(7, 8), settled = true), trendShown(shown, Read(LoadState.Loaded, bars(7, 8)), august))
-        assertEquals(TrendShown(null, settled = true), trendShown(shown, Read(LoadState.Loaded, bars(8, 9)), LocalDate.of(2026, 5, 1)))
+        assertEquals(TrendShown(bars(7, 8), settled = true), trendShown(onScreen, Read(LoadState.Loaded, bars(7, 8)), august))
+        assertEquals(
+            TrendShown(null, settled = true, answeredNone = true),
+            trendShown(onScreen, Read(LoadState.Loaded, bars(8, 9)), LocalDate.of(2026, 5, 1)),
+        )
         // They fail: none, quietly.
-        assertEquals(TrendShown(null, settled = true), trendShown(shown, Read(LoadState.Failed(0)), august))
-        // None on screen (May, before the first Appointment): nothing comes back while the next ones load, and the
-        // summary waits a moment for them.
+        assertEquals(TrendShown(null, settled = true, answeredNone = true), trendShown(onScreen, Read(LoadState.Failed(0)), august))
+        // Nothing shown yet: the summary waits a moment for the bars.
         assertEquals(TrendShown(null, settled = false), trendShown(null, Read(), LocalDate.of(2026, 4, 1)))
+        // The last answer had no bars to show (May, before the first Appointment) or failed: nothing comes back while
+        // the next ones load, and the summary does not wait for them.
+        val none = trendShown(TrendShown(shown, settled = true), Read(LoadState.Loaded, bars(8, 9)), LocalDate.of(2026, 5, 1))
+        assertEquals(TrendShown(null, settled = true, answeredNone = true), none)
+        assertEquals(TrendShown(null, settled = true, answeredNone = true), trendShown(none, Read(), LocalDate.of(2026, 4, 1)))
+        assertEquals(
+            TrendShown(null, settled = true, answeredNone = true),
+            trendShown(trendShown(null, Read(LoadState.Failed(0)), august), Read(), august),
+        )
+        // Bars again: they are waited for again next time.
+        assertEquals(TrendShown(bars(8, 9), settled = true), trendShown(none, Read(LoadState.Loaded, bars(8, 9)), august))
     }
 
     @Test

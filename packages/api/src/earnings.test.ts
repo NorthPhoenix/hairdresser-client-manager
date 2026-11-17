@@ -582,6 +582,25 @@ describe("stats.trend", () => {
     ]);
   });
 
+  it("adds up years", async () => {
+    vi.useFakeTimers({ now, toFake: ["Date"] });
+
+    const { caller } = createStatsDb([
+      { status: "completed", startsAt: "2025-03-10T20:00:00.000Z", tipCents: 500, services: [{ name: "A", priceCents: 4000 }] },
+      // New Year's Eve 23:00 in Chicago is already 2026 in UTC: it belongs to 2025.
+      { status: "completed", startsAt: "2026-01-01T05:00:00.000Z", services: [{ name: "B", priceCents: 1000 }] },
+      ...visits
+    ]);
+
+    await expect(caller.stats.trend({ period: "year", count: 6 })).resolves.toEqual({
+      period: "year",
+      periods: [
+        { firstDay: "2025-01-01", lastDay: "2025-12-31", earnedCents: 5500, visits: 2 },
+        { firstDay: "2026-01-01", lastDay: "2026-12-31", earnedCents: 16000, visits: 4 }
+      ]
+    });
+  });
+
   it("answers no periods before the first Appointment, nor for a Stylist without one", async () => {
     vi.useFakeTimers({ now, toFake: ["Date"] });
 

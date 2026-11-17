@@ -213,10 +213,10 @@ private fun rememberTrend(viewModel: AppViewModel, period: EarningsPeriod, newes
             initialValue = remember { viewModel.shownEarningsTrend(period, first) },
         ).value
     }
-    val onScreen = remember(period) { arrayOfNulls<EarningsTrend>(1) }
-    val shown = trendShown(onScreen[0], read, selected)
+    val before = remember(period) { arrayOfNulls<TrendShown>(1) }
+    val shown = trendShown(before[0], read, selected)
 
-    SideEffect { onScreen[0] = shown.bars }
+    SideEffect { before[0] = shown }
     LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.loadEarningsTrend(period, first) }
 
     return shown
