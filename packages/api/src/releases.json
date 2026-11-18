@@ -323,5 +323,18 @@
         "Earnings now shows bars above the summary: what each of the last six weeks, months or years earned, side by side. Tap a bar to open that period"
       ]
     }
+  },
+  {
+    "versionCode": 24,
+    "versionName": "1.22.0",
+    "date": "2026-11-17",
+    "notes": {
+      "ru": [
+        "Предложение обновиться и «Что нового» видны на главном экране сразу при открытии приложения, а не появляются через мгновение над записями, сдвигая их вниз"
+      ],
+      "en": [
+        "The update offer and What's new are on Home as soon as the app opens, instead of appearing a moment later above the Appointments and pushing them down"
+      ]
+    }
   }
 ]
