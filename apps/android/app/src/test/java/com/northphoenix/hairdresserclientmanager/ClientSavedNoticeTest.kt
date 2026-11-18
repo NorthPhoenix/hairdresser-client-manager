@@ -16,7 +16,7 @@ class ClientSavedNoticeTest {
     @Test
     fun `a Client who was just created is offered for booking`() {
         val booked = mutableListOf<String>()
-        val notice = clientSavedNotice(vera, created = true) { booked += it }
+        val notice = clientSavedNotice(vera, offersBooking = true) { booked += it }
 
         assertEquals(R.string.client_saved, notice.message)
         assertFalse(notice.isError)
@@ -29,8 +29,8 @@ class ClientSavedNoticeTest {
     }
 
     @Test
-    fun `a save of a Client who was there before only says it is saved`() {
-        val notice = clientSavedNotice(vera, created = false) { error("Nothing is booked") }
+    fun `any other save only says it is saved`() {
+        val notice = clientSavedNotice(vera, offersBooking = false) { error("Nothing is booked") }
 
         assertEquals(R.string.client_saved, notice.message)
         assertNull(notice.action)

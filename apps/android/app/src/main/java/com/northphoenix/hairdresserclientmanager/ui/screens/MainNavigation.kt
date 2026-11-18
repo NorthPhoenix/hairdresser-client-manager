@@ -192,7 +192,7 @@ fun MainNavigation(viewModel: AppViewModel) {
             val top = navController.currentBackStackEntry
             val step = NewClientBooking.step(
                 clientId,
-                appointmentFormOpen = navController.currentBackStack.value.any { it.destination.route == Routes.NEW_APPOINTMENT },
+                appointmentFormOpen = navController.hasAppointmentForm(),
                 unchangedOnTop = top?.savedStateHandle?.get<String>(Routes.UNCHANGED_CLIENT),
             )
 
@@ -304,6 +304,8 @@ fun MainNavigation(viewModel: AppViewModel) {
                 ).takeIf { it.hasFields },
                 onBack = { navController.from(entry) { popBackStack() } },
                 onOpenAppointment = { id -> navController.from(entry) { navigate(Routes.appointment(id)) } },
+                // Not over a form of Appointment Creation (a shared contact opens on top of whatever is open): «Записать» would open none.
+                offersBooking = remember(entry) { !navController.hasAppointmentForm() },
                 onUnchanged = { id -> entry.savedStateHandle[Routes.UNCHANGED_CLIENT] = id },
                 // The Client Profile the editor was opened from has no Client left to show.
                 onDeleted = {
@@ -353,9 +355,9 @@ fun MainNavigation(viewModel: AppViewModel) {
  * Appointment Creation with that Client, on top of whatever is open. The Client form the Client
  * was saved in gives way to it when nothing has been changed in it since, so that Back from the
  * new Appointment goes where the Stylist came from and nothing typed is lost. While the form of
- * Appointment Creation is open already, anywhere under the top screen (a contact shared to the app
- * opens the Client form on top of it), nothing opens: a second one would leave the first behind
- * it, filled in, to be created again by mistake.
+ * Appointment Creation is open already, anywhere under the top screen, nothing opens: a second one
+ * would leave the first behind it, filled in, to be created again by mistake. A Client form opened
+ * on top of one (from a contact shared to the app) does not offer «Записать» at all.
  */
 internal object NewClientBooking {
     enum class Step {
@@ -376,6 +378,9 @@ internal object NewClientBooking {
         else -> Step.ON_TOP
     }
 }
+
+/** Whether a form of Appointment Creation is open, on top or under other screens. */
+private fun NavHostController.hasAppointmentForm(): Boolean = runCatching { getBackStackEntry(Routes.NEW_APPOINTMENT) }.isSuccess
 
 /**
  * Navigates from [entry]'s screen only while that screen is still the one on top. Every screen

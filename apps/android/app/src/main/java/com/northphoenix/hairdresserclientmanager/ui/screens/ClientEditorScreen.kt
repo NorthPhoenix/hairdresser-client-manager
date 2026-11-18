@@ -185,8 +185,9 @@ internal val ShareChoicesSaver = Saver<Set<ShareChoice>, String>(
  * A new Client is created here; an existing one is edited here from their Client Profile
  * ([ClientProfileScreen]). [onDeleted] closes it once the Client is deleted. A new Client opens with
  * the details of [shared], a contact shared to the app from another one, as if it had been imported here.
- * [onUnchanged] is told the id of the Client while the form shows that Client as saved, with nothing
- * changed in it since, and null while leaving it would lose something.
+ * With [offersBooking] the notice that a new Client is saved offers to book them. [onUnchanged] is told
+ * the id of the Client while the form shows that Client as saved, with nothing changed in it since,
+ * and null while leaving it would lose something.
  */
 @Composable
 fun ClientEditorScreen(
@@ -196,6 +197,7 @@ fun ClientEditorScreen(
     onOpenAppointment: (String) -> Unit,
     onDeleted: () -> Unit = onBack,
     shared: ImportedContact? = null,
+    offersBooking: Boolean = false,
     onUnchanged: (clientId: String?) -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -317,7 +319,7 @@ fun ClientEditorScreen(
 
         // One line each, as the save sends them and as the form takes them in.
         sentContent = UnsavedInput.clientForm(OneLine.clean(name), language, OneLine.clean(phone), email, address, note, referrerId)
-        viewModel.saveClient(currentId, name, language, phone, email, address, note, loadedVersion, requestKey, referrerId) { saved ->
+        viewModel.saveClient(currentId, name, language, phone, email, address, note, loadedVersion, requestKey, referrerId, offersBooking) { saved ->
             currentId = saved.id
             loadedFor = saved.id
             loadedVersion = saved.updatedAt

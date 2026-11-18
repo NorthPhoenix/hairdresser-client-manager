@@ -122,12 +122,12 @@ data class Notice(
 data class NoticeAction(@StringRes val label: Int, val run: () -> Unit)
 
 /**
- * The notice that [saved] is saved. That of a Client who has just been [created] has «Записать»,
- * which hands their id to [book], for Appointment Creation to open with them as the primary Client.
- * A save of a Client who was there before only says it is saved.
+ * The notice that [saved] is saved. With [offersBooking], for a Client who has just been created,
+ * it has «Записать», which hands their id to [book], for Appointment Creation to open with them as
+ * the primary Client. Any other save only says it is saved.
  */
-internal fun clientSavedNotice(saved: ClientProfile, created: Boolean, book: (clientId: String) -> Unit): Notice =
-    Notice(R.string.client_saved, action = if (created) NoticeAction(R.string.notice_book_client) { book(saved.id) } else null)
+internal fun clientSavedNotice(saved: ClientProfile, offersBooking: Boolean, book: (clientId: String) -> Unit): Notice =
+    Notice(R.string.client_saved, action = if (offersBooking) NoticeAction(R.string.notice_book_client) { book(saved.id) } else null)
 
 /**
  * How an import of several contacts ended: the contacts that became Clients, and those that did not
@@ -1175,12 +1175,14 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         loadedUpdatedAt: String?,
         requestKey: String,
         referredById: String? = null,
+        // Whether a new Client's notice offers to book them (see [clientSavedNotice]).
+        offersBooking: Boolean = false,
         onSuccess: (ClientProfile) -> Unit,
     ) {
         act(
             key = "saveClient:${id ?: "new"}",
             onSuccess = { saved: ClientProfile ->
-                noticeChannel.trySend(clientSavedNotice(saved, created = id == null, book = ::requestBooking))
+                noticeChannel.trySend(clientSavedNotice(saved, offersBooking = offersBooking && id == null, book = ::requestBooking))
                 onSuccess(saved)
             },
             // The Client's history names them too: the one on screen is under the form that was just saved.
