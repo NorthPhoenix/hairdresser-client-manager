@@ -18,6 +18,12 @@ The server reads `latest.json` from the folder of `APP_DOWNLOAD_URL`, at most on
 
 So the deploy and the APK can be published in either order. Nothing changes in the app: every app from 1.4.0 reads the same answer, with the same fields, and apps before 1.4.0 never asked.
 
+## The app keeps the last answer
+
+Reading `latest.json` makes `app.releases` the slowest read of an app start (p50 about 0.4 s in production, against about 0.08 s for Home's list), so the update card, and "What's new" after an update, used to slide in above the Appointments a moment after them. Since 2026-11 the app keeps the last answer in its preferences and starts from it; the server's answer replaces it, and is kept in turn when it differs. An answer from before the running version is not used, since it lacks some of the notes that version's "What's new" shows.
+
+This is not domain data (ADR 0009) and not part of the read cache (ADR 0016): it is the same for every Stylist, holds nothing of anyone's, and stays across sign-out. What the server offered once stays offered while the app cannot reach the server; a published APK is never replaced, so its download stays the version offered.
+
 ## Alternatives
 
 - **Mark a release as published in releases.json** with a second deploy after the APK is copied. No network read on the server, but every release takes two deploys, and a forgotten second one leaves the release unannounced.

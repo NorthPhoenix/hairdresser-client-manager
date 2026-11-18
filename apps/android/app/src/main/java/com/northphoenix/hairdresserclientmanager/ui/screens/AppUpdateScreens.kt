@@ -217,11 +217,10 @@ fun ReleasesScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     val openDownload = rememberOpenDownload(viewModel)
     val installed = viewModel.appVersionCode
 
-    // Opened while the releases are not there (offline at the start): asked again.
+    // Asked again on opening: what is shown may be the answer kept from an earlier start, or none
+    // (offline at the start). What is there stays on screen meanwhile.
     LaunchedEffect(Unit) {
-        if (read.data == null) {
-            viewModel.loadAppReleases()
-        }
+        viewModel.loadAppReleases()
     }
 
     SubScreen(title = stringResource(R.string.whats_new_entry), onBack = onBack) { padding ->
