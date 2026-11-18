@@ -52,6 +52,21 @@ class UnsavedInputTest {
         assertNotEquals(opened, UnsavedInput.clientForm("Lost", Language.RU, "555", "", "", "text"))
     }
 
+    @Test
+    fun `a Client form gives way only when it shows a saved Client with nothing to lose`() {
+        val saved = clientForm()
+
+        // Just created: the Client is in the list, and the form holds what was saved.
+        assertEquals("anna", UnsavedInput.unchangedClient("anna", listed = true, form = clientForm(name = " Anna Petrova "), saved = saved, sending = false))
+        // Typed in since the save.
+        assertEquals(null, UnsavedInput.unchangedClient("anna", listed = true, form = clientForm(note = "Short layers"), saved = saved, sending = false))
+        // Another save of it is on its way.
+        assertEquals(null, UnsavedInput.unchangedClient("anna", listed = true, form = saved, saved = saved, sending = true))
+        // Not created yet, or no longer in the list.
+        assertEquals(null, UnsavedInput.unchangedClient(null, listed = false, form = saved, saved = saved, sending = false))
+        assertEquals(null, UnsavedInput.unchangedClient("anna", listed = false, form = saved, saved = saved, sending = false))
+    }
+
     // --- New Appointment draft ---
 
     private fun draft(

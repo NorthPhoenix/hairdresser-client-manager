@@ -84,9 +84,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -117,6 +120,14 @@ data class Notice(
 
 /** A button on a notice: [label] says what [run] does. It can be tapped for as long as the notice is shown, and at most once. */
 data class NoticeAction(@StringRes val label: Int, val run: () -> Unit)
+
+/**
+ * The notice that [saved] is saved. That of a Client who has just been [created], from a Client form
+ * that [offersToBook], has «Записать», which hands their id to [book], for Appointment Creation to
+ * open with them as the primary Client. Any other save only says it is saved.
+ */
+internal fun clientSavedNotice(saved: ClientProfile, created: Boolean, offersToBook: Boolean, book: (clientId: String) -> Unit): Notice =
+    Notice(R.string.client_saved, action = if (created && offersToBook) NoticeAction(R.string.notice_book_client) { book(saved.id) } else null)
 
 /**
  * How an import of several contacts ended: the contacts that became Clients, and those that did not
@@ -380,6 +391,12 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     private val noticeChannel = Channel<Notice>(Channel.BUFFERED)
     val notices = noticeChannel.receiveAsFlow()
+
+    // Without a buffer for later: a request that no screen is there to take is dropped, not taken up by a screen that comes afterwards.
+    private val _appointmentCreationRequests = MutableSharedFlow<String>(extraBufferCapacity = 1)
+
+    /** The id of each Client to open Appointment Creation for, as the Stylist asks for it on the notice that a new Client is saved. */
+    val appointmentCreationRequests: SharedFlow<String> = _appointmentCreationRequests.asSharedFlow()
 
     private var calendarJob: Job? = null
 
@@ -1158,12 +1175,16 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         loadedUpdatedAt: String?,
         requestKey: String,
         referredById: String? = null,
+        // Whether a new Client's notice offers to book them (see [clientSavedNotice]).
+        offersToBook: Boolean = false,
         onSuccess: (ClientProfile) -> Unit,
     ) {
         act(
             key = "saveClient:${id ?: "new"}",
-            successNotice = R.string.client_saved,
-            onSuccess = onSuccess,
+            onSuccess = { saved: ClientProfile ->
+                noticeChannel.trySend(clientSavedNotice(saved, created = id == null, offersToBook = offersToBook, book = ::requestAppointmentCreation))
+                onSuccess(saved)
+            },
             // The Client's history names them too: the one on screen is under the form that was just saved.
             reload = { together({ loadClients() }, { if (id != null) together(::loadAppointmentLists, clientReads.history::refreshShown) }) },
             touched = { clientReads.changed(id) },
@@ -1177,6 +1198,16 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                 // them now, and no cached day is served as it was before the save, so no reminder goes to the old number.
                 appointmentReads.clientSaved(saved)
             }
+        }
+    }
+
+    /**
+     * «Записать» on the notice that [clientId] is saved. A notice can outlast what it was about: a
+     * Client who is no longer in the list (deleted since, or of a Stylist who has signed out) is booked by nobody.
+     */
+    private fun requestAppointmentCreation(clientId: String) {
+        if (_clients.value.data.orEmpty().any { it.id == clientId }) {
+            _appointmentCreationRequests.tryEmit(clientId)
         }
     }
 

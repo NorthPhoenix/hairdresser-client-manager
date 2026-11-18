@@ -90,6 +90,12 @@ private object Routes {
     const val CLIENT = "client?id={id}&name={name}&phone={phone}&email={email}&address={address}"
     const val CONTACT_IMPORT = "clients-import"
 
+    /**
+     * Set on a Client editor's entry by the editor: the id of the Client its form shows while the
+     * Client is saved and nothing has been changed in the form since; null otherwise.
+     */
+    const val UNCHANGED_CLIENT = "unchangedClient"
+
     /** The Client Profile, read-only, with the way to the editor. */
     const val CLIENT_PROFILE = "client-profile/{id}"
 
@@ -177,6 +183,25 @@ fun MainNavigation(viewModel: AppViewModel) {
             navController.navigate(Routes.newClient(shared))
         } else {
             viewModel.notify(R.string.share_contact_empty, isError = true)
+        }
+    }
+
+    // «Записать» on the notice that a new Client is saved (see [BookNewClient]).
+    LaunchedEffect(viewModel) {
+        viewModel.appointmentCreationRequests.collect { clientId ->
+            val top = navController.currentBackStackEntry
+            val step = BookNewClient.step(
+                clientId,
+                appointmentFormOpen = navController.hasAppointmentForm(),
+                unchangedOnTop = top?.savedStateHandle?.get<String>(Routes.UNCHANGED_CLIENT),
+            )
+
+            if (step == BookNewClient.Step.IN_PLACE_OF_FORM) {
+                navController.popBackStack()
+            }
+            if (step != BookNewClient.Step.NONE) {
+                navController.navigate(Routes.newAppointment(null, clientId))
+            }
         }
     }
 
@@ -279,6 +304,9 @@ fun MainNavigation(viewModel: AppViewModel) {
                 ).takeIf { it.hasFields },
                 onBack = { navController.from(entry) { popBackStack() } },
                 onOpenAppointment = { id -> navController.from(entry) { navigate(Routes.appointment(id)) } },
+                // Not over a form of Appointment Creation (a shared contact opens on top of whatever is open): «Записать» would open none.
+                offersToBook = remember(entry) { !navController.hasAppointmentForm() },
+                onUnchanged = { id -> entry.savedStateHandle[Routes.UNCHANGED_CLIENT] = id },
                 // The Client Profile the editor was opened from has no Client left to show.
                 onDeleted = {
                     navController.from(entry) {
@@ -321,6 +349,38 @@ fun MainNavigation(viewModel: AppViewModel) {
         }
     }
 }
+
+/**
+ * What «Записать» on the notice that a new Client is saved does with the screens that are open:
+ * Appointment Creation with that Client, on top of whatever is open. The Client form the Client
+ * was saved in gives way to it when nothing has been changed in it since, so that Back from the
+ * new Appointment goes where the Stylist came from and nothing typed is lost. While the form of
+ * Appointment Creation is open already, anywhere under the top screen, nothing opens: a second one
+ * would leave the first behind it, filled in, to be created again by mistake. A Client form opened
+ * on top of one (from a contact shared to the app) does not offer «Записать» at all.
+ */
+internal object BookNewClient {
+    enum class Step {
+        /** Appointment Creation on top of what is open. */
+        ON_TOP,
+
+        /** Appointment Creation in place of the Client form on top. */
+        IN_PLACE_OF_FORM,
+
+        /** Nothing. */
+        NONE,
+    }
+
+    /** [unchangedOnTop]: the Client the screen on top shows as saved with nothing changed, when it is a Client form. */
+    fun step(clientId: String, appointmentFormOpen: Boolean, unchangedOnTop: String?): Step = when {
+        appointmentFormOpen -> Step.NONE
+        unchangedOnTop == clientId -> Step.IN_PLACE_OF_FORM
+        else -> Step.ON_TOP
+    }
+}
+
+/** Whether a form of Appointment Creation is open, on top or under other screens. */
+private fun NavHostController.hasAppointmentForm(): Boolean = runCatching { getBackStackEntry(Routes.NEW_APPOINTMENT) }.isSuccess
 
 /**
  * Navigates from [entry]'s screen only while that screen is still the one on top. Every screen

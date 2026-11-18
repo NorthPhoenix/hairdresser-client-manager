@@ -185,6 +185,9 @@ internal val ShareChoicesSaver = Saver<Set<ShareChoice>, String>(
  * A new Client is created here; an existing one is edited here from their Client Profile
  * ([ClientProfileScreen]). [onDeleted] closes it once the Client is deleted. A new Client opens with
  * the details of [shared], a contact shared to the app from another one, as if it had been imported here.
+ * With [offersToBook] the notice that a new Client is saved offers to book them. [onUnchanged] is told
+ * the id of the Client while the form shows that Client as saved, with nothing changed in it since,
+ * and null while leaving it would lose something.
  */
 @Composable
 fun ClientEditorScreen(
@@ -194,6 +197,8 @@ fun ClientEditorScreen(
     onOpenAppointment: (String) -> Unit,
     onDeleted: () -> Unit = onBack,
     shared: ImportedContact? = null,
+    offersToBook: Boolean = false,
+    onUnchanged: (clientId: String?) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -314,7 +319,7 @@ fun ClientEditorScreen(
 
         // One line each, as the save sends them and as the form takes them in.
         sentContent = UnsavedInput.clientForm(OneLine.clean(name), language, OneLine.clean(phone), email, address, note, referrerId)
-        viewModel.saveClient(currentId, name, language, phone, email, address, note, loadedVersion, requestKey, referrerId) { saved ->
+        viewModel.saveClient(currentId, name, language, phone, email, address, note, loadedVersion, requestKey, referrerId, offersToBook) { saved ->
             currentId = saved.id
             loadedFor = saved.id
             loadedVersion = saved.updatedAt
@@ -352,6 +357,11 @@ fun ClientEditorScreen(
         }
     }
 
+    val formContent = UnsavedInput.clientForm(name, language, phone, email, address, note, referredId)
+    val unchangedId = UnsavedInput.unchangedClient(currentId, listed = existing != null, formContent, savedContent, sending = sentContent != null)
+
+    LaunchedEffect(unchangedId) { onUnchanged(unchangedId) }
+
     // A profile opened for a Client who is not in the list. The list may be older than the Client,
     // or the Client may have been deleted: it is loaded again, and until then this is not a form.
     val absentId = currentId.takeIf { existing == null }
@@ -381,7 +391,7 @@ fun ClientEditorScreen(
         title = stringResource(if (existing != null) R.string.client_edit_title else R.string.new_client_title),
         onBack = onBack,
         saving = saving,
-        unsaved = UnsavedInput.clientForm(name, language, phone, email, address, note, referredId) != savedContent,
+        unsaved = formContent != savedContent,
         bottomBar = {
             BottomActionBar {
                 PrimaryButton(
