@@ -305,17 +305,29 @@ class AppUpdatesTest {
 
     @Test
     fun aKeptAnswerFromBeforeThisVersionWaitsForTheServer() = runTest(UnconfinedTestDispatcher()) {
-        // Updated past what the kept answer knows, as from a download the app never offered.
-        val store = MemoryStore(lastSeenVersionCode = 6, kept = releases(5, 6))
+        // Updated past what the kept answer knows, as from a download the app never offered:
+        // it knows 1.4.0 (6) of the two releases since the one last seen, not 1.5.0 (7).
+        val store = MemoryStore(lastSeenVersionCode = 5, kept = releases(5, 6))
+        val notices = AppUpdateNotices(store, 7, { true }, backgroundScope)
+
+        // No card with half the notes, nothing counted as seen, and no release list from it.
+        assertNull(notices.homeCard.value)
+        assertEquals(5, store.lastSeenVersionCode)
+        assertNull(notices.releases.value.data)
+
+        notices.load { releases(5, 6, 7) }
+
+        assertEquals(listOf(7, 6), (notices.homeCard.value as AppUpdates.HomeCard.WhatsNew).releases.map { it.versionCode })
+    }
+
+    @Test
+    fun aKeptAnswerThatKnowsNothingNewerStillShowsNothing() = runTest(UnconfinedTestDispatcher()) {
+        val store = MemoryStore(lastSeenVersionCode = 7, kept = releases(6, 7))
         val notices = AppUpdateNotices(store, 7, { true }, backgroundScope)
 
         assertNull(notices.homeCard.value)
-        // Not counted as seen: the notes of 1.5.0 come with the server's answer.
-        assertEquals(6, store.lastSeenVersionCode)
-
-        notices.load { releases(6, 7) }
-
-        assertEquals(listOf(7), (notices.homeCard.value as AppUpdates.HomeCard.WhatsNew).releases.map { it.versionCode })
+        assertNull(notices.newer.value)
+        assertEquals(7, store.lastSeenVersionCode)
     }
 
     @Test

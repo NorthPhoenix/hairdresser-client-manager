@@ -33,7 +33,7 @@ interface AppUpdateStore {
  * The update offer and "What's new" of Home, and the release list of the Profile tab, for the app
  * running as [current]. [updated] says whether this install was an update of an earlier one
  * (only asked while no version is stored as seen). Until the server answers, the releases are
- * what it said last time, kept on the device. A failure to load them keeps those, shows nothing
+ * what it said last time, kept on the device, when that knew this version. A failure to load them keeps those, shows nothing
  * on Home when there are none, and is never reported: the app works as before without them.
  */
 class AppUpdateNotices(
@@ -42,7 +42,10 @@ class AppUpdateNotices(
     private val updated: () -> Boolean,
     scope: CoroutineScope,
 ) {
-    private val _releases = MutableStateFlow(store.lastReleases?.let { Read(LoadState.Loaded, it) } ?: Read())
+    // One from before this version knows only some of the releases it was updated past, and would
+    // show part of "What's new": that waits for the server, as with nothing kept.
+    private val _releases =
+        MutableStateFlow(store.lastReleases?.takeIf { it.latest.versionCode >= current }?.let { Read(LoadState.Loaded, it) } ?: Read())
     val releases: StateFlow<Read<AppReleases>> = _releases.asStateFlow()
 
     private val lastSeen = MutableStateFlow(store.lastSeenVersionCode)
