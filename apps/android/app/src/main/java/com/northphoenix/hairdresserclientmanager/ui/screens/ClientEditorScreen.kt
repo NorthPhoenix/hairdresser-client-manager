@@ -355,11 +355,8 @@ fun ClientEditorScreen(
         }
     }
 
-    val unsaved = UnsavedInput.clientForm(name, language, phone, email, address, note, referredId) != savedContent
-
-    // Whether leaving the form now would lose nothing: then it is the saved Client's, and that Client is
-    // all there is to it (see [onUnchanged]).
-    val unchangedId = currentId.takeIf { existing != null && !unsaved && sentContent == null }
+    val formContent = UnsavedInput.clientForm(name, language, phone, email, address, note, referredId)
+    val unchangedId = UnsavedInput.unchangedClient(currentId, listed = existing != null, formContent, savedContent, sending = sentContent != null)
 
     LaunchedEffect(unchangedId) { onUnchanged(unchangedId) }
 
@@ -392,7 +389,7 @@ fun ClientEditorScreen(
         title = stringResource(if (existing != null) R.string.client_edit_title else R.string.new_client_title),
         onBack = onBack,
         saving = saving,
-        unsaved = unsaved,
+        unsaved = formContent != savedContent,
         bottomBar = {
             BottomActionBar {
                 PrimaryButton(

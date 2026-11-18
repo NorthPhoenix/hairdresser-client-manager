@@ -84,9 +84,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -119,9 +122,9 @@ data class Notice(
 data class NoticeAction(@StringRes val label: Int, val run: () -> Unit)
 
 /**
- * The notice that [saved] is saved. A Client who has just been [created] is nearly always booked
- * next, so it has «Записать», which hands their id to [book]: Appointment Creation then opens
- * with them. A save of a Client who was there before only says it is saved.
+ * The notice that [saved] is saved. That of a Client who has just been [created] has «Записать»,
+ * which hands their id to [book], for Appointment Creation to open with them as the primary Client.
+ * A save of a Client who was there before only says it is saved.
  */
 internal fun clientSavedNotice(saved: ClientProfile, created: Boolean, book: (clientId: String) -> Unit): Notice =
     Notice(R.string.client_saved, action = if (created) NoticeAction(R.string.notice_book_client) { book(saved.id) } else null)
@@ -389,11 +392,11 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     private val noticeChannel = Channel<Notice>(Channel.BUFFERED)
     val notices = noticeChannel.receiveAsFlow()
 
-    // The Clients that «Записать» on the notice of a new Client asked to book, for the navigation to open the form with.
-    private val bookingChannel = Channel<String>(Channel.CONFLATED)
+    // Without a buffer for later: a request that no screen is there to take is dropped, not taken up by a screen that comes afterwards.
+    private val _bookingRequests = MutableSharedFlow<String>(extraBufferCapacity = 1)
 
     /** The id of each Client to open Appointment Creation for, as the Stylist asks for it on the notice that a new Client is saved. */
-    val bookingRequests = bookingChannel.receiveAsFlow()
+    val bookingRequests: SharedFlow<String> = _bookingRequests.asSharedFlow()
 
     private var calendarJob: Job? = null
 
@@ -1177,7 +1180,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         act(
             key = "saveClient:${id ?: "new"}",
             onSuccess = { saved: ClientProfile ->
-                noticeChannel.trySend(clientSavedNotice(saved, created = id == null) { bookingChannel.trySend(it) })
+                noticeChannel.trySend(clientSavedNotice(saved, created = id == null, book = ::requestBooking))
                 onSuccess(saved)
             },
             // The Client's history names them too: the one on screen is under the form that was just saved.
@@ -1193,6 +1196,16 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                 // them now, and no cached day is served as it was before the save, so no reminder goes to the old number.
                 appointmentReads.clientSaved(saved)
             }
+        }
+    }
+
+    /**
+     * «Записать» on the notice that [clientId] is saved. A notice can outlast what it was about: a
+     * Client who is no longer in the list (deleted since, or of a Stylist who has signed out) is booked by nobody.
+     */
+    private fun requestBooking(clientId: String) {
+        if (_clients.value.data.orEmpty().any { it.id == clientId }) {
+            _bookingRequests.tryEmit(clientId)
         }
     }
 
