@@ -119,6 +119,14 @@ data class Notice(
 data class NoticeAction(@StringRes val label: Int, val run: () -> Unit)
 
 /**
+ * The notice that [saved] is saved. A Client who has just been [created] is nearly always booked
+ * next, so it has «Записать», which hands their id to [book]: Appointment Creation then opens
+ * with them. A save of a Client who was there before only says it is saved.
+ */
+internal fun clientSavedNotice(saved: ClientProfile, created: Boolean, book: (clientId: String) -> Unit): Notice =
+    Notice(R.string.client_saved, action = if (created) NoticeAction(R.string.notice_book_client) { book(saved.id) } else null)
+
+/**
  * How an import of several contacts ended: the contacts that became Clients, and those that did not
  * ([reason] says why the first of them failed, in the words of the app's error messages).
  */
@@ -380,6 +388,12 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     private val noticeChannel = Channel<Notice>(Channel.BUFFERED)
     val notices = noticeChannel.receiveAsFlow()
+
+    // The Clients that «Записать» on the notice of a new Client asked to book, for the navigation to open the form with.
+    private val bookingChannel = Channel<String>(Channel.CONFLATED)
+
+    /** The id of each Client to open Appointment Creation for, as the Stylist asks for it on the notice that a new Client is saved. */
+    val bookingRequests = bookingChannel.receiveAsFlow()
 
     private var calendarJob: Job? = null
 
@@ -1162,8 +1176,10 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     ) {
         act(
             key = "saveClient:${id ?: "new"}",
-            successNotice = R.string.client_saved,
-            onSuccess = onSuccess,
+            onSuccess = { saved: ClientProfile ->
+                noticeChannel.trySend(clientSavedNotice(saved, created = id == null) { bookingChannel.trySend(it) })
+                onSuccess(saved)
+            },
             // The Client's history names them too: the one on screen is under the form that was just saved.
             reload = { together({ loadClients() }, { if (id != null) together(::loadAppointmentLists, clientReads.history::refreshShown) }) },
             touched = { clientReads.changed(id) },

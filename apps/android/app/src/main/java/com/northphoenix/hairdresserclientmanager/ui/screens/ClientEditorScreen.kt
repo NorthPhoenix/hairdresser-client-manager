@@ -185,6 +185,8 @@ internal val ShareChoicesSaver = Saver<Set<ShareChoice>, String>(
  * A new Client is created here; an existing one is edited here from their Client Profile
  * ([ClientProfileScreen]). [onDeleted] closes it once the Client is deleted. A new Client opens with
  * the details of [shared], a contact shared to the app from another one, as if it had been imported here.
+ * [onUnchanged] is told the id of the Client while the form shows that Client as saved, with nothing
+ * changed in it since, and null while leaving it would lose something.
  */
 @Composable
 fun ClientEditorScreen(
@@ -194,6 +196,7 @@ fun ClientEditorScreen(
     onOpenAppointment: (String) -> Unit,
     onDeleted: () -> Unit = onBack,
     shared: ImportedContact? = null,
+    onUnchanged: (clientId: String?) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -352,6 +355,14 @@ fun ClientEditorScreen(
         }
     }
 
+    val unsaved = UnsavedInput.clientForm(name, language, phone, email, address, note, referredId) != savedContent
+
+    // Whether leaving the form now would lose nothing: then it is the saved Client's, and that Client is
+    // all there is to it (see [onUnchanged]).
+    val unchangedId = currentId.takeIf { existing != null && !unsaved && sentContent == null }
+
+    LaunchedEffect(unchangedId) { onUnchanged(unchangedId) }
+
     // A profile opened for a Client who is not in the list. The list may be older than the Client,
     // or the Client may have been deleted: it is loaded again, and until then this is not a form.
     val absentId = currentId.takeIf { existing == null }
@@ -381,7 +392,7 @@ fun ClientEditorScreen(
         title = stringResource(if (existing != null) R.string.client_edit_title else R.string.new_client_title),
         onBack = onBack,
         saving = saving,
-        unsaved = UnsavedInput.clientForm(name, language, phone, email, address, note, referredId) != savedContent,
+        unsaved = unsaved,
         bottomBar = {
             BottomActionBar {
                 PrimaryButton(

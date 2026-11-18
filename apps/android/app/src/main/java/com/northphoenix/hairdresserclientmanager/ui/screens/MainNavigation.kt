@@ -90,6 +90,12 @@ private object Routes {
     const val CLIENT = "client?id={id}&name={name}&phone={phone}&email={email}&address={address}"
     const val CONTACT_IMPORT = "clients-import"
 
+    /**
+     * Set on a Client editor's entry by the editor: the id of the Client its form shows while the
+     * Client is saved and nothing has been changed in the form since; null otherwise.
+     */
+    const val UNCHANGED_CLIENT = "unchangedClient"
+
     /** The Client Profile, read-only, with the way to the editor. */
     const val CLIENT_PROFILE = "client-profile/{id}"
 
@@ -177,6 +183,18 @@ fun MainNavigation(viewModel: AppViewModel) {
             navController.navigate(Routes.newClient(shared))
         } else {
             viewModel.notify(R.string.share_contact_empty, isError = true)
+        }
+    }
+
+    // «Записать» on the notice that a new Client is saved: Appointment Creation with that Client, on top of
+    // whatever is open. The editor the Client was saved in gives way to it when nothing has been changed in
+    // it since, so that Back from the booking goes where the Stylist came from and nothing typed is lost.
+    LaunchedEffect(viewModel) {
+        viewModel.bookingRequests.collect { clientId ->
+            if (navController.currentBackStackEntry?.savedStateHandle?.get<String>(Routes.UNCHANGED_CLIENT) == clientId) {
+                navController.popBackStack()
+            }
+            navController.navigate(Routes.newAppointment(null, clientId))
         }
     }
 
@@ -279,6 +297,7 @@ fun MainNavigation(viewModel: AppViewModel) {
                 ).takeIf { it.hasFields },
                 onBack = { navController.from(entry) { popBackStack() } },
                 onOpenAppointment = { id -> navController.from(entry) { navigate(Routes.appointment(id)) } },
+                onUnchanged = { id -> entry.savedStateHandle[Routes.UNCHANGED_CLIENT] = id },
                 // The Client Profile the editor was opened from has no Client left to show.
                 onDeleted = {
                     navController.from(entry) {
