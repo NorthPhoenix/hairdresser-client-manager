@@ -3,6 +3,7 @@ package com.northphoenix.hairdresserclientmanager
 import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.data.AppRelease
 import com.northphoenix.hairdresserclientmanager.data.AppReleases
+import com.northphoenix.hairdresserclientmanager.data.KeptReleases
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.LatestRelease
 import com.northphoenix.hairdresserclientmanager.data.ReleaseNotes
@@ -182,7 +183,19 @@ class AppUpdatesTest {
 
     // --- what the device remembers ---
 
-    private class MemoryStore(override var lastSeenVersionCode: Int? = null, override var dismissedVersionCode: Int? = null) : AppUpdateStore
+    private class MemoryStore(
+        override var lastSeenVersionCode: Int? = null,
+        override var dismissedVersionCode: Int? = null,
+        kept: AppReleases? = null,
+    ) : AppUpdateStore {
+        var releaseWrites = 0
+
+        override var lastReleases: AppReleases? = kept
+            set(value) {
+                releaseWrites++
+                field = value
+            }
+    }
 
     @Test
     fun aFreshInstallCountsItsVersionAsSeenAtOnce() = runTest(UnconfinedTestDispatcher()) {
@@ -267,5 +280,145 @@ class AppUpdatesTest {
         notices.later(7)
 
         assertTrue(notices.homeCard.value is AppUpdates.HomeCard.WhatsNew)
+    }
+
+    // --- the answer kept for the next start ---
+
+    @Test
+    fun theKeptAnswerOffersTheUpdateBeforeTheServerAnswers() = runTest(UnconfinedTestDispatcher()) {
+        val notices = AppUpdateNotices(MemoryStore(lastSeenVersionCode = 6, kept = releases(6, 7)), 6, { true }, backgroundScope)
+
+        // Nothing loaded yet: the card is there when Home first shows.
+        assertEquals(7, (notices.homeCard.value as AppUpdates.HomeCard.Update).offer.versionCode)
+        assertEquals(7, notices.newer.value?.versionCode)
+        assertEquals(LoadState.Loaded, notices.releases.value.state)
+    }
+
+    @Test
+    fun theKeptAnswerShowsWhatsNewRightAfterTheUpdate() = runTest(UnconfinedTestDispatcher()) {
+        // Kept while 1.4.0 (6) offered 1.5.0 (7); this is the first start of 1.5.0.
+        val store = MemoryStore(lastSeenVersionCode = 6, kept = releases(5, 6, 7))
+        val notices = AppUpdateNotices(store, 7, { true }, backgroundScope)
+
+        assertEquals(listOf(7), (notices.homeCard.value as AppUpdates.HomeCard.WhatsNew).releases.map { it.versionCode })
+        assertEquals(6, store.lastSeenVersionCode)
+    }
+
+    @Test
+    fun aKeptAnswerFromBeforeThisVersionWaitsForTheServer() = runTest(UnconfinedTestDispatcher()) {
+        // Updated past what the kept answer knows, as from a download the app never offered:
+        // it knows 1.4.0 (6) of the two releases since the one last seen, not 1.5.0 (7).
+        val store = MemoryStore(lastSeenVersionCode = 5, kept = releases(5, 6))
+        val notices = AppUpdateNotices(store, 7, { true }, backgroundScope)
+
+        // No card with half the notes, nothing counted as seen, and no release list from it.
+        assertNull(notices.homeCard.value)
+        assertEquals(5, store.lastSeenVersionCode)
+        assertNull(notices.releases.value.data)
+
+        notices.load { releases(5, 6, 7) }
+
+        assertEquals(listOf(7, 6), (notices.homeCard.value as AppUpdates.HomeCard.WhatsNew).releases.map { it.versionCode })
+    }
+
+    @Test
+    fun aKeptAnswerThatKnowsNothingNewerStillShowsNothing() = runTest(UnconfinedTestDispatcher()) {
+        val store = MemoryStore(lastSeenVersionCode = 7, kept = releases(6, 7))
+        val notices = AppUpdateNotices(store, 7, { true }, backgroundScope)
+
+        assertNull(notices.homeCard.value)
+        assertNull(notices.newer.value)
+        assertEquals(7, store.lastSeenVersionCode)
+    }
+
+    @Test
+    fun theServersAnswerReplacesTheKeptOneAndIsKept() = runTest(UnconfinedTestDispatcher()) {
+        val store = MemoryStore(lastSeenVersionCode = 6, kept = releases(6, 7))
+        val notices = AppUpdateNotices(store, 6, { true }, backgroundScope)
+
+        notices.load { releases(6, 7, 8) }
+
+        assertEquals(8, (notices.homeCard.value as AppUpdates.HomeCard.Update).offer.versionCode)
+        assertEquals(8, store.lastReleases?.latest?.versionCode)
+        assertEquals(1, store.releaseWrites)
+
+        // The same answer again: nothing to write.
+        notices.load { releases(6, 7, 8) }
+
+        assertEquals(1, store.releaseWrites)
+    }
+
+    @Test
+    fun aFailedLoadKeepsTheKeptAnswer() = runTest(UnconfinedTestDispatcher()) {
+        val store = MemoryStore(lastSeenVersionCode = 6, kept = releases(6, 7))
+        val notices = AppUpdateNotices(store, 6, { true }, backgroundScope)
+
+        notices.load { throw ApiException("offline", code = "NETWORK", isNetwork = true) }
+
+        assertEquals(LoadState.Loaded, notices.releases.value.state)
+        assertEquals(7, (notices.homeCard.value as AppUpdates.HomeCard.Update).offer.versionCode)
+        assertEquals(7, store.lastReleases?.latest?.versionCode)
+        assertEquals(0, store.releaseWrites)
+    }
+
+    @Test
+    fun theFirstAnswerIsKept() = runTest(UnconfinedTestDispatcher()) {
+        val store = MemoryStore(lastSeenVersionCode = 6)
+        val notices = AppUpdateNotices(store, 6, { true }, backgroundScope)
+
+        assertNull(notices.homeCard.value)
+
+        notices.load { releases(6, 7) }
+
+        assertEquals(releases(6, 7), store.lastReleases)
+    }
+
+    @Test
+    fun aKeptAnswerWithoutItsLatestReleaseIsNotUsed() = runTest(UnconfinedTestDispatcher()) {
+        // As a later version might read one an earlier version wrote, with the list lost.
+        val partial = releases(6, 7).copy(releases = emptyList())
+        val store = MemoryStore(lastSeenVersionCode = 6, kept = partial)
+        val notices = AppUpdateNotices(store, 7, { true }, backgroundScope)
+
+        // Not counted as seen before the server answers.
+        assertNull(notices.homeCard.value)
+        assertEquals(6, store.lastSeenVersionCode)
+        assertNull(notices.releases.value.data)
+    }
+
+    @Test
+    fun theKeptOfferPutOffWithLaterKeepsTheCornerButton() = runTest(UnconfinedTestDispatcher()) {
+        val notices = AppUpdateNotices(MemoryStore(lastSeenVersionCode = 6, dismissedVersionCode = 7, kept = releases(6, 7)), 6, { true }, backgroundScope)
+
+        assertNull(notices.homeCard.value)
+        assertEquals(7, notices.newer.value?.versionCode)
+    }
+
+    @Test
+    fun anAnswerOfferingNothingTakesTheKeptOfferAway() = runTest(UnconfinedTestDispatcher()) {
+        // A server that cannot tell what is published offers nothing newer than the app that asks.
+        val store = MemoryStore(lastSeenVersionCode = 6, kept = releases(6, 7))
+        val notices = AppUpdateNotices(store, 6, { true }, backgroundScope)
+
+        notices.load { releases(5, 6) }
+
+        assertNull(notices.homeCard.value)
+        assertNull(notices.newer.value)
+        assertEquals(6, store.lastReleases?.latest?.versionCode)
+    }
+
+    @Test
+    fun theKeptAnswerReadsBackAsItWasWritten() {
+        for (answer in listOf(releases(5, 6, 7), releases(5, 6, downloadUrl = null))) {
+            assertEquals(answer, KeptReleases.read(KeptReleases.write(answer)))
+        }
+    }
+
+    @Test
+    fun aKeptAnswerThisVersionCannotReadCountsAsNone() {
+        assertNull(KeptReleases.read(null))
+        assertNull(KeptReleases.read(""))
+        assertNull(KeptReleases.read("not json"))
+        assertNull(KeptReleases.read("""{"releases":[]}"""))
     }
 }

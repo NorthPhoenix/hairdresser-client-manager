@@ -304,7 +304,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     val appVersionName: String = BuildConfig.VERSION_NAME
     val appVersionCode: Int = BuildConfig.VERSION_CODE
 
-    /** The app's releases, newest first. Not loaded, or failed: Home shows no card, the release list says so. */
+    /** The app's releases, newest first, at first as the server last told them. Without any (not loaded yet, or failed): Home shows no card, the release list says so. */
     val appReleases: StateFlow<Read<AppReleases>> = updates.releases
 
     /** The card at the top of Home: a newer version to update to, else "What's new" after an update. */

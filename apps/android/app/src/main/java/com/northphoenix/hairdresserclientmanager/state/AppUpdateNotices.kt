@@ -21,13 +21,20 @@ interface AppUpdateStore {
 
     /** The version the Stylist said "Later" to. */
     var dismissedVersionCode: Int?
+
+    /**
+     * The releases as the server last told them, so Home has its card as soon as the app starts
+     * instead of a moment after the Appointments, above them. Null before the first answer.
+     */
+    var lastReleases: AppReleases?
 }
 
 /**
  * The update offer and "What's new" of Home, and the release list of the Profile tab, for the app
  * running as [current]. [updated] says whether this install was an update of an earlier one
- * (only asked while no version is stored as seen). A failure to load the releases shows nothing
- * on Home and is never reported: the app works as before without them.
+ * (only asked while no version is stored as seen). Until the server answers, the releases are
+ * what it said last time, kept on the device, when that knew this version. A failure to load them keeps those, shows nothing
+ * on Home when there are none, and is never reported: the app works as before without them.
  */
 class AppUpdateNotices(
     private val store: AppUpdateStore,
@@ -35,7 +42,16 @@ class AppUpdateNotices(
     private val updated: () -> Boolean,
     scope: CoroutineScope,
 ) {
-    private val _releases = MutableStateFlow(Read<AppReleases>())
+    // One from before this version knows only some of the releases it was updated past, and would
+    // show part of "What's new": that waits for the server, as with nothing kept. So does one that
+    // does not list its own latest release, as the server always does: it was not read whole.
+    private val _releases =
+        MutableStateFlow(
+            store.lastReleases
+                ?.takeIf { kept -> kept.latest.versionCode >= current && kept.releases.any { it.versionCode == kept.latest.versionCode } }
+                ?.let { Read(LoadState.Loaded, it) }
+                ?: Read(),
+        )
     val releases: StateFlow<Read<AppReleases>> = _releases.asStateFlow()
 
     private val lastSeen = MutableStateFlow(store.lastSeenVersionCode)
@@ -59,14 +75,22 @@ class AppUpdateNotices(
         settle()
     }
 
-    /** Asks the server for the releases. What was loaded before stays when this fails. */
+    /** Asks the server for the releases, and keeps the answer for the next start. What was loaded before stays when this fails. */
     suspend fun load(fetch: suspend () -> AppReleases) {
-        if (_releases.value.data == null) {
+        val before = _releases.value.data
+
+        if (before == null) {
             _releases.value = Read(LoadState.Loading)
         }
 
         try {
-            _releases.value = Read(LoadState.Loaded, fetch())
+            val answer = fetch()
+
+            _releases.value = Read(LoadState.Loaded, answer)
+            // Most answers are the one kept already: written only when something changed.
+            if (answer != before) {
+                store.lastReleases = answer
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
