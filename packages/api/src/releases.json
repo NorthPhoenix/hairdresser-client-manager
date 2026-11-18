@@ -336,5 +336,18 @@
         "The update offer and What's new are on Home as soon as the app opens, instead of appearing a moment later above the Appointments and pushing them down"
       ]
     }
+  },
+  {
+    "versionCode": 25,
+    "versionName": "1.23.0",
+    "date": "2026-11-18",
+    "notes": {
+      "ru": [
+        "После создания клиента в сообщении «Клиент сохранён.» есть кнопка «Записать»: она сразу открывает новую запись с этим клиентом"
+      ],
+      "en": [
+        "After you create a Client, the Client saved notice has a Book button that opens a new Appointment with that Client right away"
+      ]
+    }
   }
 ]
