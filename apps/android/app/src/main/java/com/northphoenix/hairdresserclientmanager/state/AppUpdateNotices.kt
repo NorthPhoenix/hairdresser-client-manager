@@ -43,9 +43,15 @@ class AppUpdateNotices(
     scope: CoroutineScope,
 ) {
     // One from before this version knows only some of the releases it was updated past, and would
-    // show part of "What's new": that waits for the server, as with nothing kept.
+    // show part of "What's new": that waits for the server, as with nothing kept. So does one that
+    // does not list its own latest release, as the server always does: it was not read whole.
     private val _releases =
-        MutableStateFlow(store.lastReleases?.takeIf { it.latest.versionCode >= current }?.let { Read(LoadState.Loaded, it) } ?: Read())
+        MutableStateFlow(
+            store.lastReleases
+                ?.takeIf { kept -> kept.latest.versionCode >= current && kept.releases.any { it.versionCode == kept.latest.versionCode } }
+                ?.let { Read(LoadState.Loaded, it) }
+                ?: Read(),
+        )
     val releases: StateFlow<Read<AppReleases>> = _releases.asStateFlow()
 
     private val lastSeen = MutableStateFlow(store.lastSeenVersionCode)
