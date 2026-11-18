@@ -26,6 +26,14 @@ object UnsavedInput {
     ): List<String> =
         listOf(name, language.name, phone, email, address, note, referredById.orEmpty()).map(String::trim)
 
+    /**
+     * The Client a Client form is about, when leaving the form would lose nothing: [clientId] once that
+     * Client is saved and in the list ([listed]), while the [form] holds what was [saved] and no save
+     * of it is on its way ([sending]). Null for a form with something to lose, or of a Client not created yet.
+     */
+    fun unchangedClient(clientId: String?, listed: Boolean, form: List<String>, saved: List<String>, sending: Boolean): String? =
+        clientId.takeIf { listed && form == saved && !sending }
+
     /** [address] counts only at home, the one place where the form shows and sends it. */
     fun newAppointment(
         primaryClientId: String?,
