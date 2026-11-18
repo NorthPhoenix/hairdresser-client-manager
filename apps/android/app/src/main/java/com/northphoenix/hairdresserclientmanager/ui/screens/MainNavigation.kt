@@ -186,22 +186,22 @@ fun MainNavigation(viewModel: AppViewModel) {
         }
     }
 
-    // «Записать» on the notice that a new Client is saved: Appointment Creation with that Client, on top of
-    // whatever is open. The editor the Client was saved in gives way to it when nothing has been changed in
-    // it since, so that Back from the booking goes where the Stylist came from and nothing typed is lost.
-    // A booking form that is open already stays the only one: a second on top of it would leave the first
-    // behind it, filled in, to be created again by mistake.
+    // «Записать» on the notice that a new Client is saved (see [NewClientBooking]).
     LaunchedEffect(viewModel) {
         viewModel.bookingRequests.collect { clientId ->
             val top = navController.currentBackStackEntry
+            val step = NewClientBooking.step(
+                clientId,
+                appointmentFormOpen = navController.currentBackStack.value.any { it.destination.route == Routes.NEW_APPOINTMENT },
+                unchangedOnTop = top?.savedStateHandle?.get<String>(Routes.UNCHANGED_CLIENT),
+            )
 
-            if (top?.destination?.route == Routes.NEW_APPOINTMENT) {
-                return@collect
-            }
-            if (top?.savedStateHandle?.get<String>(Routes.UNCHANGED_CLIENT) == clientId) {
+            if (step == NewClientBooking.Step.IN_PLACE_OF_FORM) {
                 navController.popBackStack()
             }
-            navController.navigate(Routes.newAppointment(null, clientId))
+            if (step != NewClientBooking.Step.NONE) {
+                navController.navigate(Routes.newAppointment(null, clientId))
+            }
         }
     }
 
@@ -345,6 +345,35 @@ fun MainNavigation(viewModel: AppViewModel) {
                 },
             )
         }
+    }
+}
+
+/**
+ * What «Записать» on the notice that a new Client is saved does with the screens that are open:
+ * Appointment Creation with that Client, on top of whatever is open. The Client form the Client
+ * was saved in gives way to it when nothing has been changed in it since, so that Back from the
+ * new Appointment goes where the Stylist came from and nothing typed is lost. While the form of
+ * Appointment Creation is open already, anywhere under the top screen (a contact shared to the app
+ * opens the Client form on top of it), nothing opens: a second one would leave the first behind
+ * it, filled in, to be created again by mistake.
+ */
+internal object NewClientBooking {
+    enum class Step {
+        /** Appointment Creation on top of what is open. */
+        ON_TOP,
+
+        /** Appointment Creation in place of the Client form on top. */
+        IN_PLACE_OF_FORM,
+
+        /** Nothing. */
+        NONE,
+    }
+
+    /** [unchangedOnTop]: the Client the screen on top shows as saved with nothing changed, when it is a Client form. */
+    fun step(clientId: String, appointmentFormOpen: Boolean, unchangedOnTop: String?): Step = when {
+        appointmentFormOpen -> Step.NONE
+        unchangedOnTop == clientId -> Step.IN_PLACE_OF_FORM
+        else -> Step.ON_TOP
     }
 }
 

@@ -3,6 +3,8 @@ package com.northphoenix.hairdresserclientmanager
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.state.clientSavedNotice
+import com.northphoenix.hairdresserclientmanager.ui.screens.NewClientBooking
+import com.northphoenix.hairdresserclientmanager.ui.screens.NewClientBooking.Step
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -32,5 +34,24 @@ class ClientSavedNoticeTest {
 
         assertEquals(R.string.client_saved, notice.message)
         assertNull(notice.action)
+    }
+
+    @Test
+    fun `«Записать» opens the form in place of the Client form that has nothing to lose`() {
+        assertEquals(Step.IN_PLACE_OF_FORM, NewClientBooking.step("vera", appointmentFormOpen = false, unchangedOnTop = "vera"))
+    }
+
+    @Test
+    fun `«Записать» opens the form on top of a Client form with changes, or of another screen`() {
+        // Typed in since the save: the Client form stays under the new one.
+        assertEquals(Step.ON_TOP, NewClientBooking.step("vera", appointmentFormOpen = false, unchangedOnTop = null))
+        // The Client form of another Client, or the Clients View after Back.
+        assertEquals(Step.ON_TOP, NewClientBooking.step("vera", appointmentFormOpen = false, unchangedOnTop = "anna"))
+    }
+
+    @Test
+    fun `«Записать» opens no second form while one is open, also under the Client form`() {
+        assertEquals(Step.NONE, NewClientBooking.step("vera", appointmentFormOpen = true, unchangedOnTop = "vera"))
+        assertEquals(Step.NONE, NewClientBooking.step("vera", appointmentFormOpen = true, unchangedOnTop = null))
     }
 }
