@@ -186,20 +186,20 @@ fun MainNavigation(viewModel: AppViewModel) {
         }
     }
 
-    // «Записать» on the notice that a new Client is saved (see [NewClientBooking]).
+    // «Записать» on the notice that a new Client is saved (see [BookNewClient]).
     LaunchedEffect(viewModel) {
-        viewModel.bookingRequests.collect { clientId ->
+        viewModel.appointmentCreationRequests.collect { clientId ->
             val top = navController.currentBackStackEntry
-            val step = NewClientBooking.step(
+            val step = BookNewClient.step(
                 clientId,
                 appointmentFormOpen = navController.hasAppointmentForm(),
                 unchangedOnTop = top?.savedStateHandle?.get<String>(Routes.UNCHANGED_CLIENT),
             )
 
-            if (step == NewClientBooking.Step.IN_PLACE_OF_FORM) {
+            if (step == BookNewClient.Step.IN_PLACE_OF_FORM) {
                 navController.popBackStack()
             }
-            if (step != NewClientBooking.Step.NONE) {
+            if (step != BookNewClient.Step.NONE) {
                 navController.navigate(Routes.newAppointment(null, clientId))
             }
         }
@@ -305,7 +305,7 @@ fun MainNavigation(viewModel: AppViewModel) {
                 onBack = { navController.from(entry) { popBackStack() } },
                 onOpenAppointment = { id -> navController.from(entry) { navigate(Routes.appointment(id)) } },
                 // Not over a form of Appointment Creation (a shared contact opens on top of whatever is open): «Записать» would open none.
-                offersBooking = remember(entry) { !navController.hasAppointmentForm() },
+                offersToBook = remember(entry) { !navController.hasAppointmentForm() },
                 onUnchanged = { id -> entry.savedStateHandle[Routes.UNCHANGED_CLIENT] = id },
                 // The Client Profile the editor was opened from has no Client left to show.
                 onDeleted = {
@@ -359,7 +359,7 @@ fun MainNavigation(viewModel: AppViewModel) {
  * would leave the first behind it, filled in, to be created again by mistake. A Client form opened
  * on top of one (from a contact shared to the app) does not offer «Записать» at all.
  */
-internal object NewClientBooking {
+internal object BookNewClient {
     enum class Step {
         /** Appointment Creation on top of what is open. */
         ON_TOP,
