@@ -189,9 +189,16 @@ fun MainNavigation(viewModel: AppViewModel) {
     // «Записать» on the notice that a new Client is saved: Appointment Creation with that Client, on top of
     // whatever is open. The editor the Client was saved in gives way to it when nothing has been changed in
     // it since, so that Back from the booking goes where the Stylist came from and nothing typed is lost.
+    // A booking form that is open already stays the only one: a second on top of it would leave the first
+    // behind it, filled in, to be created again by mistake.
     LaunchedEffect(viewModel) {
         viewModel.bookingRequests.collect { clientId ->
-            if (navController.currentBackStackEntry?.savedStateHandle?.get<String>(Routes.UNCHANGED_CLIENT) == clientId) {
+            val top = navController.currentBackStackEntry
+
+            if (top?.destination?.route == Routes.NEW_APPOINTMENT) {
+                return@collect
+            }
+            if (top?.savedStateHandle?.get<String>(Routes.UNCHANGED_CLIENT) == clientId) {
                 navController.popBackStack()
             }
             navController.navigate(Routes.newAppointment(null, clientId))
