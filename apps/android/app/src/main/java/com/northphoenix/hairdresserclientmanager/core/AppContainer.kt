@@ -50,7 +50,7 @@ class AppContainer(context: Context) {
 
     // Every request names the app's version, so the server can tell which app a Stylist uses.
     val api = HcmApi(TrpcClient(config.trpcUrl, http, TrpcClient.versionHeaders(BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME), tokenProvider))
-    val uploads = UploadThingClient(config.uploadThingUrl, http) { tokenProvider(false) }
+    val uploads = UploadThingClient(config.uploadThingUrl, http, tokenProvider)
 
     /** What this device remembers about app updates: the version whose notes were seen, and the one put off. */
     val appUpdateStore by lazy { SharedPreferencesAppUpdateStore(appContext) }

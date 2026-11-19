@@ -1,6 +1,5 @@
 package com.northphoenix.hairdresserclientmanager.data
 
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
@@ -26,9 +25,11 @@ class TrpcClient(
     http: OkHttpClient,
     /** Sent with every request: the app's version (`X-App-Version-Code`, `X-App-Version-Name`), which the server keeps per Stylist. */
     private val appHeaders: Map<String, String> = emptyMap(),
-    /** The sign-in token for a request, or null without one. `fresh` asks the sign-in provider for a new one (see [call]). */
-    private val tokenProvider: suspend (fresh: Boolean) -> String?,
+    /** The sign-in token for a request, or null without one. `fresh` asks the sign-in provider for a new one (see [SignInTokens]). */
+    tokenProvider: suspend (fresh: Boolean) -> String?,
 ) {
+    private val signIn = SignInTokens(tokenProvider)
+
     // A network interceptor runs once a connection exists, just before the request is written to it.
     // A failure after that point no longer proves that the server did not get the request.
     private val http = http.newBuilder()
@@ -44,35 +45,10 @@ class TrpcClient(
     suspend inline fun <reified T> mutation(path: String, input: JsonElement? = null): T =
         call(path, input, isMutation = true, serializer<T>())
 
-    /**
-     * Sends one call. When the API refuses it for its sign-in, it is sent once more with a token the
-     * sign-in provider has just issued: the token the provider keeps can be missing or out of date
-     * while the session is alive (when the app opens after a long pause, the provider can fail to
-     * give one at first). The API refuses such a request before it runs any of it
-     * (`protectedProcedure`), so a change is not made twice. A second refusal, or no new token, is
-     * the caller's to report (see `AppViewModel.report`).
-     */
+    /** Sends one call, once more with a new sign-in token when the API refuses it for its sign-in (see [SignInTokens]). */
     suspend fun <T> call(path: String, input: JsonElement?, isMutation: Boolean, output: KSerializer<T>): T =
         withContext(Dispatchers.IO) {
-            try {
-                send(path, input, isMutation, output, tokenProvider(false))
-            } catch (refused: ApiException) {
-                if (!refused.isUnauthorized) {
-                    throw refused
-                }
-
-                send(path, input, isMutation, output, freshToken() ?: throw refused)
-            }
-        }
-
-    /** A new token from the sign-in provider, or null when it gave none: the refusal then stands. */
-    private suspend fun freshToken(): String? =
-        try {
-            tokenProvider(true)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: Exception) {
-            null
+            signIn.sending { token -> send(path, input, isMutation, output, token) }
         }
 
     private suspend fun <T> send(path: String, input: JsonElement?, isMutation: Boolean, output: KSerializer<T>, token: String?): T {

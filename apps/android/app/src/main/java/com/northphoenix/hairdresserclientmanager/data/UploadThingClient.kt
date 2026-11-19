@@ -31,8 +31,11 @@ data class UploadedFile(val key: String, val ufsUrl: String, val serverData: Jso
 class UploadThingClient(
     private val routeUrl: String,
     private val http: OkHttpClient,
-    private val tokenProvider: suspend () -> String?,
+    /** The sign-in token for the route, or null without one. `fresh` asks the sign-in provider for a new one (see [SignInTokens]). */
+    tokenProvider: suspend (fresh: Boolean) -> String?,
 ) {
+    private val signIn = SignInTokens(tokenProvider)
+
     suspend fun upload(slug: String, input: JsonObject, fileName: String, mimeType: String, bytes: ByteArray): UploadedFile =
         withContext(Dispatchers.IO) {
             val trace = TraceHeaders.generate()
@@ -97,20 +100,25 @@ class UploadThingClient(
                 },
             )
         }
-        val request = Request.Builder()
-            .url(url)
-            .post(payload.toString().toRequestBody("application/json".toMediaType()))
-            .header("x-uploadthing-package", CLIENT_PACKAGE)
-            .header("x-uploadthing-version", CLIENT_VERSION)
-            .header("b3", trace.b3)
-            .header("traceparent", trace.traceparent)
-            .apply { tokenProvider()?.let { header("Authorization", "Bearer $it") } }
-            .build()
-        val (status, body) = execute(request)
+        // Refused for its sign-in, it is sent once more with a new token: the route refuses before it hands out anything.
+        val body = signIn.sending { token ->
+            val request = Request.Builder()
+                .url(url)
+                .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                .header("x-uploadthing-package", CLIENT_PACKAGE)
+                .header("x-uploadthing-version", CLIENT_VERSION)
+                .header("b3", trace.b3)
+                .header("traceparent", trace.traceparent)
+                .apply { token?.let { header("Authorization", "Bearer $it") } }
+                .build()
+            val (status, answer) = execute(request)
 
-        if (status !in 200..299) {
-            val message = parseObject(body)?.get("message").textOrNull()
-            throw ApiException(message ?: "Upload could not start ($status).", code = refusalCode(status, message))
+            if (status !in 200..299) {
+                val message = parseObject(answer)?.get("message").textOrNull()
+                throw ApiException(message ?: "Upload could not start ($status).", code = refusalCode(status, message))
+            }
+
+            answer
         }
 
         return try {

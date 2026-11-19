@@ -13,11 +13,20 @@ import com.northphoenix.hairdresserclientmanager.data.TrpcClient
 import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
 import com.northphoenix.hairdresserclientmanager.domain.MenuItemValues
 import com.northphoenix.hairdresserclientmanager.i18n.messageRes
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import mockwebserver3.RecordedRequest
 import mockwebserver3.SocketEffect
 import okhttp3.OkHttpClient
 import org.junit.After
@@ -259,6 +268,104 @@ class ApiClientTest {
 
         assertEquals(1, server.requestCount)
         assertEquals(listOf("kept"), tokens.asked)
+    }
+
+    @Test
+    fun `requests refused at the same moment share one new token`() = runTest {
+        // As when the app comes back to the front and reloads its lists at once, with no token at first.
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse =
+                if (request.headers["Authorization"] == null) {
+                    MockResponse.Builder().code(401).body(REFUSED_SIGN_IN).build()
+                } else {
+                    MockResponse.Builder().body("""{"result":{"data":[]}}""").build()
+                }
+        }
+        val allRefused = CompletableDeferred<Unit>()
+        var issued = 0
+        val client = HcmApi(
+            TrpcClient(server.url("/api/trpc").toString(), http) { fresh ->
+                if (fresh) {
+                    // Issued once every request has been refused, so that all of them wait for it.
+                    allRefused.await()
+                    issued++
+                    "token-$issued"
+                } else {
+                    null
+                }
+            },
+        )
+
+        val lists = List(5) { async(Dispatchers.IO) { client.listClients() } }
+        repeat(5) { assertNull(server.takeRequest().headers["Authorization"]) }
+        allRefused.complete(Unit)
+
+        assertTrue(lists.awaitAll().all { it.isEmpty() })
+        assertEquals(1, issued)
+        repeat(5) { assertEquals("Bearer token-1", server.takeRequest().headers["Authorization"]) }
+        assertEquals(10, server.requestCount)
+    }
+
+    @Test
+    fun `a call that is cancelled while it waits for a new token ends there`() = runTest {
+        val asked = CompletableDeferred<Unit>()
+        val client = HcmApi(
+            TrpcClient(server.url("/api/trpc").toString(), http) { fresh ->
+                if (fresh) {
+                    asked.complete(Unit)
+                    awaitCancellation()
+                }
+                null
+            },
+        )
+
+        enqueue(REFUSED_SIGN_IN, code = 401)
+        val call = launch(Dispatchers.IO) { client.deleteAppointment("a1") }
+        asked.await()
+        call.cancelAndJoin()
+
+        assertTrue(call.isCancelled)
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun `a change sent again whose reply is lost has an unknown outcome`() = runTest {
+        enqueue(REFUSED_SIGN_IN, code = 401)
+        enqueueNoReply()
+
+        try {
+            HcmApi(TrpcClient(server.url("/api/trpc").toString(), http.newBuilder().readTimeout(300, TimeUnit.MILLISECONDS).build()) { fresh -> if (fresh) "token-2" else null })
+                .deleteAppointment("a1")
+            fail("expected an ApiException")
+        } catch (error: ApiException) {
+            assertTrue(error.outcomeUnknown)
+        }
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun `an upload refused for its sign-in is asked for once more with a new token`() = runTest {
+        val tokens = Tokens(kept = null) { "token-2" }
+        val uploads = UploadThingClient(server.url("/api/uploadthing").toString(), http, tokens::token)
+
+        enqueue("""{"message":"Authentication required."}""", code = 403)
+        enqueue("""[{"url":"${server.url("/ingest/key-1")}","key":"key-1"}]""")
+        server.enqueue(MockResponse.Builder().code(200).build())
+        enqueue("""{"ufsUrl":"https://ufs/key-1","serverData":null}""")
+
+        val uploaded = uploads.upload("appointmentPhoto", buildJsonObject {}, "photo.jpg", "image/jpeg", ByteArray(1))
+        val refused = server.takeRequest()
+        val again = server.takeRequest()
+
+        assertEquals("key-1", uploaded.key)
+        assertNull(refused.headers["Authorization"])
+        assertEquals("POST", again.method)
+        assertEquals("Bearer token-2", again.headers["Authorization"])
+        assertEquals(refused.body?.utf8(), again.body?.utf8())
+        assertEquals(listOf("kept", "fresh"), tokens.asked)
+        // Only the start goes to our server with the token; the file goes to the address it handed out.
+        assertEquals("HEAD", server.takeRequest().method)
+        assertNull(server.takeRequest().headers["Authorization"])
     }
 
     @Test
@@ -1122,8 +1229,8 @@ class ApiClientTest {
     fun `the route's refusals of a sign-in and of a deleted Appointment are the API's own`() = runTest {
         val uploads = UploadThingClient(server.url("/api/uploadthing").toString(), http) { "token-1" }
 
-        suspend fun refusal(message: String?, status: Int): ApiException {
-            enqueue(message?.let { """{"message":"$it"}""" } ?: "<html>refused</html>", code = status)
+        suspend fun refusal(message: String?, status: Int, times: Int = 1): ApiException {
+            repeat(times) { enqueue(message?.let { """{"message":"$it"}""" } ?: "<html>refused</html>", code = status) }
 
             return try {
                 uploads.upload("appointmentPhoto", buildJsonObject {}, "photo.jpg", "image/jpeg", ByteArray(1))
@@ -1134,7 +1241,8 @@ class ApiClientTest {
         }
 
         // L89: the session has ended. The route answers 403 for it; a 401 can only come from something in between.
-        listOf(refusal("Authentication required.", status = 403), refusal(null, status = 401)).forEach { ended ->
+        // Each is asked for once more with a new token, and refused again.
+        listOf(refusal("Authentication required.", status = 403, times = 2), refusal(null, status = 401, times = 2)).forEach { ended ->
             assertTrue(ended.isUnauthorized)
             assertEquals(R.string.error_sign_in_rejected, ended.messageRes())
         }
