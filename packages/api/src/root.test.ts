@@ -36,6 +36,27 @@ describe("stylist bootstrap", () => {
     });
   });
 
+  it("refuses a caller who is not signed in before anything touches the database", async () => {
+    // The Android app sends a request refused so once more with a new sign-in token, which is safe
+    // only while nothing has been read or written for it.
+    const touched: string[] = [];
+    const db = new Proxy(
+      {},
+      {
+        get(_target, key) {
+          touched.push(String(key));
+          throw new Error("The database was touched.");
+        }
+      }
+    );
+    const caller = appRouter.createCaller(createContext({ db: db as unknown as TRPCContext["db"] }));
+
+    await expect(caller.stylist.bootstrap()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(caller.appointment.delete({ id: "appointment_1" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(caller.clientProfile.list({})).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    expect(touched).toEqual([]);
+  });
+
   it("lazily creates the minimum Stylist without completing onboarding", async () => {
     const upsert = vi.fn().mockResolvedValue({
       id: "stylist_1",

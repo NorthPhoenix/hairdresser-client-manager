@@ -33,7 +33,7 @@ class TrpcClient(
         http: OkHttpClient,
         appHeaders: Map<String, String> = emptyMap(),
         tokenProvider: suspend (fresh: Boolean) -> String?,
-    ) : this(baseUrl, http, appHeaders, SignInTokens(tokenProvider))
+    ) : this(baseUrl, http, appHeaders, SignInTokens(provider = tokenProvider))
 
     // A network interceptor runs once a connection exists, just before the request is written to it.
     // A failure after that point no longer proves that the server did not get the request.

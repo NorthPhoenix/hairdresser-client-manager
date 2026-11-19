@@ -76,6 +76,27 @@ class SignInTokensTest {
     }
 
     @Test
+    fun `a request refused after a sign-out or another sign-in is not sent again`() = runTest {
+        listOf(null, "user-b").forEach { signedInMeanwhile ->
+            var account: String? = "user-a"
+            val sent = mutableListOf<String?>()
+            val tokens = SignInTokens(account = { account }) { fresh -> if (fresh) "token-of-$account" else null }
+
+            val refused = runCatching {
+                tokens.sending { token ->
+                    sent += token
+                    // While the request is on its way.
+                    account = signedInMeanwhile
+                    server()(token)
+                }
+            }
+
+            assertEquals(refusal, refused.exceptionOrNull())
+            assertEquals(listOf<String?>(null), sent)
+        }
+    }
+
+    @Test
     fun `a provider that gives the same token again has none newer, and the refusal stands`() = runTest {
         var sent = 0
         val tokens = SignInTokens { "token-1" }

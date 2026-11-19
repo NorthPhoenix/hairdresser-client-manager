@@ -35,7 +35,7 @@ class UploadThingClient(
 ) {
     /** [tokenProvider] gives the sign-in token for the route, or null without one; `fresh` asks the sign-in provider for a new one. */
     constructor(routeUrl: String, http: OkHttpClient, tokenProvider: suspend (fresh: Boolean) -> String?) :
-        this(routeUrl, http, SignInTokens(tokenProvider))
+        this(routeUrl, http, SignInTokens(provider = tokenProvider))
 
     suspend fun upload(slug: String, input: JsonObject, fileName: String, mimeType: String, bytes: ByteArray): UploadedFile =
         withContext(Dispatchers.IO) {

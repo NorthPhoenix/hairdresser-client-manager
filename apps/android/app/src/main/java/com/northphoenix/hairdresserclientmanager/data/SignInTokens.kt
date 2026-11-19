@@ -17,7 +17,11 @@ import kotlinx.coroutines.sync.withLock
  * refusal, or no new token, is the caller's to report (see `AppViewModel.report`), which asks the
  * provider whether the session has ended.
  */
-class SignInTokens(private val provider: suspend (fresh: Boolean) -> String?) {
+class SignInTokens(
+    /** Who is signed in now, null for nobody: a refused request is sent again only for whoever it was sent for. */
+    private val account: () -> String? = { null },
+    private val provider: suspend (fresh: Boolean) -> String?,
+) {
     private val issuing = Mutex()
 
     // The last request for a new token: how many there have been, and what it was given (null for nothing). Written under [issuing].
@@ -32,6 +36,7 @@ class SignInTokens(private val provider: suspend (fresh: Boolean) -> String?) {
      */
     suspend fun <T> sending(send: suspend (token: String?) -> T): T {
         val seen = issued.count
+        val sender = account()
         val token = ask(fresh = false)
 
         return try {
@@ -42,7 +47,14 @@ class SignInTokens(private val provider: suspend (fresh: Boolean) -> String?) {
             }
 
             // A provider that gives the same token again (the debug builds' dev sign-in does) has none newer.
-            send(issuedSince(seen, refusedToken = token)?.takeUnless { it == token } ?: throw refused)
+            val fresh = issuedSince(seen, refusedToken = token)?.takeUnless { it == token }
+
+            // Signed out since, or someone else signed in: their token would make the change in their account.
+            if (fresh == null || account() != sender) {
+                throw refused
+            }
+
+            send(fresh)
         }
     }
 

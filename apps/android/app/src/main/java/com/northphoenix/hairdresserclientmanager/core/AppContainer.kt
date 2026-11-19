@@ -3,6 +3,7 @@ package com.northphoenix.hairdresserclientmanager.core
 import android.content.Context
 import com.northphoenix.hairdresserclientmanager.BuildConfig
 import com.northphoenix.hairdresserclientmanager.auth.AuthGateway
+import com.northphoenix.hairdresserclientmanager.auth.AuthState
 import com.northphoenix.hairdresserclientmanager.auth.ClerkAuthGateway
 import com.northphoenix.hairdresserclientmanager.auth.createDevAuthGateway
 import com.northphoenix.hairdresserclientmanager.data.AndroidPhoneCalendarStore
@@ -48,7 +49,7 @@ class AppContainer(context: Context) {
         .build()
 
     // One for both clients, so that requests refused at the same moment share one new token.
-    private val signIn = SignInTokens { fresh -> auth?.token(fresh) }
+    private val signIn = SignInTokens(account = { (auth?.state?.value as? AuthState.SignedIn)?.userId }) { fresh -> auth?.token(fresh) }
 
     // Every request names the app's version, so the server can tell which app a Stylist uses.
     val api = HcmApi(TrpcClient(config.trpcUrl, http, TrpcClient.versionHeaders(BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME), signIn))
