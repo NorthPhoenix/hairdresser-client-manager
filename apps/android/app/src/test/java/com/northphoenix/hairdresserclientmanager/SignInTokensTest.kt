@@ -65,6 +65,17 @@ class SignInTokensTest {
     }
 
     @Test
+    fun `a provider that gives the same token again has none newer, and the refusal stands`() = runTest {
+        var sent = 0
+        val tokens = SignInTokens { "token-1" }
+
+        val refused = runCatching { tokens.sending { token -> sent++; server("token-1")(token) } }
+
+        assertEquals(refusal, refused.exceptionOrNull())
+        assertEquals(1, sent)
+    }
+
+    @Test
     fun `requests that waited behind a cancelled one ask for a new token themselves`() = runTest {
         var freshAsked = 0
         val tokens = SignInTokens { fresh ->

@@ -55,6 +55,7 @@ export async function authorizePhotoUpload(
     "auth.signed_in": Boolean(clerkUserId)
   });
 
+  // First: the Android app asks again with a new sign-in token after this refusal (its SignInTokens).
   if (!clerkUserId) {
     return refuse("not_signed_in", {
       code: "FORBIDDEN",

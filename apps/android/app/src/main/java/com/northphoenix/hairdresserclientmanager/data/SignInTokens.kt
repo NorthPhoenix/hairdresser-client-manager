@@ -6,7 +6,8 @@ import kotlinx.coroutines.sync.withLock
 
 /**
  * The sign-in tokens that the app's requests to the server carry, from the sign-in provider
- * through [provider] (`fresh` asks it for a new one instead of the one it keeps).
+ * through [provider] (`fresh` asks it for a new one instead of the one it keeps). The app has one,
+ * shared by its API client and its upload client.
  *
  * A request that the server refuses for its sign-in is sent once more with a new token (see
  * [sending]). The token the provider keeps can be missing or out of date while the session is
@@ -35,7 +36,8 @@ class SignInTokens(private val provider: suspend (fresh: Boolean) -> String?) {
                 throw refused
             }
 
-            send(issuedSince(seen, refusedToken = token) ?: throw refused)
+            // A provider that gives the same token again (the debug builds' dev sign-in does) has none newer.
+            send(issuedSince(seen, refusedToken = token)?.takeUnless { it == token } ?: throw refused)
         }
     }
 

@@ -31,10 +31,11 @@ data class UploadedFile(val key: String, val ufsUrl: String, val serverData: Jso
 class UploadThingClient(
     private val routeUrl: String,
     private val http: OkHttpClient,
-    /** The sign-in token for the route, or null without one. `fresh` asks the sign-in provider for a new one (see [SignInTokens]). */
-    tokenProvider: suspend (fresh: Boolean) -> String?,
+    private val signIn: SignInTokens,
 ) {
-    private val signIn = SignInTokens(tokenProvider)
+    /** [tokenProvider] gives the sign-in token for the route, or null without one; `fresh` asks the sign-in provider for a new one. */
+    constructor(routeUrl: String, http: OkHttpClient, tokenProvider: suspend (fresh: Boolean) -> String?) :
+        this(routeUrl, http, SignInTokens(tokenProvider))
 
     suspend fun upload(slug: String, input: JsonObject, fileName: String, mimeType: String, bytes: ByteArray): UploadedFile =
         withContext(Dispatchers.IO) {

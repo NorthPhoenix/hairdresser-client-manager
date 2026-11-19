@@ -25,10 +25,15 @@ class TrpcClient(
     http: OkHttpClient,
     /** Sent with every request: the app's version (`X-App-Version-Code`, `X-App-Version-Name`), which the server keeps per Stylist. */
     private val appHeaders: Map<String, String> = emptyMap(),
-    /** The sign-in token for a request, or null without one. `fresh` asks the sign-in provider for a new one (see [SignInTokens]). */
-    tokenProvider: suspend (fresh: Boolean) -> String?,
+    private val signIn: SignInTokens,
 ) {
-    private val signIn = SignInTokens(tokenProvider)
+    /** [tokenProvider] gives the sign-in token for a request, or null without one; `fresh` asks the sign-in provider for a new one. */
+    constructor(
+        baseUrl: String,
+        http: OkHttpClient,
+        appHeaders: Map<String, String> = emptyMap(),
+        tokenProvider: suspend (fresh: Boolean) -> String?,
+    ) : this(baseUrl, http, appHeaders, SignInTokens(tokenProvider))
 
     // A network interceptor runs once a connection exists, just before the request is written to it.
     // A failure after that point no longer proves that the server did not get the request.

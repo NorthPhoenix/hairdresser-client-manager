@@ -151,9 +151,8 @@ class ApiClientTest {
         }
         assertEquals(4, server.requestCount)
 
-        // Any other failure is not about the timezone and is not asked again without it. A refused
-        // sign-in is sent once more with a new token, and that is all.
-        enqueue(REFUSED_SIGN_IN, code = 401)
+        // Any other failure is not about the timezone and is not asked again. (A refused sign-in is
+        // sent again only with a newer token, which this provider never has.)
         enqueue(REFUSED_SIGN_IN, code = 401)
         try {
             api.bootstrap(Language.RU, "Europe/Moscow")
@@ -161,7 +160,7 @@ class ApiClientTest {
         } catch (error: ApiException) {
             assertTrue(error.isUnauthorized)
         }
-        assertEquals(6, server.requestCount)
+        assertEquals(5, server.requestCount)
     }
 
     /** A sign-in provider that gives [kept] as the token it keeps and [issued] when asked for a new one, and says which it was asked for. */
@@ -1229,8 +1228,8 @@ class ApiClientTest {
     fun `the route's refusals of a sign-in and of a deleted Appointment are the API's own`() = runTest {
         val uploads = UploadThingClient(server.url("/api/uploadthing").toString(), http) { "token-1" }
 
-        suspend fun refusal(message: String?, status: Int, times: Int = 1): ApiException {
-            repeat(times) { enqueue(message?.let { """{"message":"$it"}""" } ?: "<html>refused</html>", code = status) }
+        suspend fun refusal(message: String?, status: Int): ApiException {
+            enqueue(message?.let { """{"message":"$it"}""" } ?: "<html>refused</html>", code = status)
 
             return try {
                 uploads.upload("appointmentPhoto", buildJsonObject {}, "photo.jpg", "image/jpeg", ByteArray(1))
@@ -1241,8 +1240,7 @@ class ApiClientTest {
         }
 
         // L89: the session has ended. The route answers 403 for it; a 401 can only come from something in between.
-        // Each is asked for once more with a new token, and refused again.
-        listOf(refusal("Authentication required.", status = 403, times = 2), refusal(null, status = 401, times = 2)).forEach { ended ->
+        listOf(refusal("Authentication required.", status = 403), refusal(null, status = 401)).forEach { ended ->
             assertTrue(ended.isUnauthorized)
             assertEquals(R.string.error_sign_in_rejected, ended.messageRes())
         }
