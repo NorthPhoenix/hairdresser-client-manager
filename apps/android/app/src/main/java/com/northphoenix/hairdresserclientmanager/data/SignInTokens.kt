@@ -35,21 +35,22 @@ class SignInTokens(private val provider: suspend (fresh: Boolean) -> String?) {
                 throw refused
             }
 
-            send(issuedSince(seen) ?: throw refused)
+            send(issuedSince(seen, refusedToken = token) ?: throw refused)
         }
     }
 
     /**
-     * A new token for a refused request, or null when the provider gave none. Requests refused at
-     * the same moment (the app reloads its lists all at once) share one request for it: a new token
-     * asked for after this request was sent, with an older one, is what it takes too, and so is
-     * the provider giving none then.
+     * A new token for a request refused with [refusedToken], or null when the provider gave none.
+     * Requests refused at the same moment (the app reloads its lists all at once) share one request
+     * for it: when a new token has been asked for since this request was sent, this one takes what
+     * that request got, also nothing. It asks for another only when that token is the one it was
+     * refused with (the provider already kept it when this request went out).
      */
-    private suspend fun issuedSince(seen: Int): String? =
+    private suspend fun issuedSince(seen: Int, refusedToken: String?): String? =
         issuing.withLock {
             val latest = issued
 
-            if (latest.count != seen) {
+            if (latest.count != seen && (latest.token == null || latest.token != refusedToken)) {
                 latest.token
             } else {
                 ask(fresh = true).also { issued = Issued(latest.count + 1, it) }

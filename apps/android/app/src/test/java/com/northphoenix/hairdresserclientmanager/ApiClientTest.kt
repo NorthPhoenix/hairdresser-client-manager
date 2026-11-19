@@ -286,7 +286,7 @@ class ApiClientTest {
         val client = HcmApi(
             TrpcClient(server.url("/api/trpc").toString(), http) { fresh ->
                 if (fresh) {
-                    // Issued once every request has been refused, so that all of them wait for it.
+                    // Issued once every request has reached the server, so that all of them wait for it.
                     allRefused.await()
                     issued++
                     "token-$issued"
