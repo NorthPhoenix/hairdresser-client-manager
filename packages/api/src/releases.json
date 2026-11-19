@@ -349,5 +349,18 @@
         "After you create a Client, the Client saved notice has a Book button that opens a new Appointment with that Client right away"
       ]
     }
+  },
+  {
+    "versionCode": 26,
+    "versionName": "1.24.0",
+    "date": "2026-11-18",
+    "notes": {
+      "ru": [
+        "Если при открытии приложения вход не прошёл с первого раза, приложение само пробует ещё раз и открывает данные, без экрана «Сервер не принял ваш вход»"
+      ],
+      "en": [
+        "If signing in doesn't go through on the first try as the app opens, the app tries again by itself and opens your data, without the \"server didn't accept your sign-in\" screen"
+      ]
+    }
   }
 ]
