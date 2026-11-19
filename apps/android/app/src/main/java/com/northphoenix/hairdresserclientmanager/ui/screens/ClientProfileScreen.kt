@@ -75,10 +75,10 @@ import java.time.LocalDate
 
 /**
  * The Client Profile as it opens from the Clients View or an Appointment: read-only. The Client's
- * name, ways to call, text and find them, "Book again", how often they come, their next
- * Appointment, their details and Client Note, and their Appointment history. The pencil opens
- * the editor ([ClientEditorScreen]), which has everything that can be changed, the Profile Share
- * and deleting the Client.
+ * name, ways to call, text and find them, "Book" ("Book again" once they have had a visit), how
+ * often they come, their next Appointment, their details and Client Note, and their Appointment
+ * history. The pencil opens the editor ([ClientEditorScreen]), which has everything that can be
+ * changed, the Profile Share and deleting the Client.
  */
 @Composable
 fun ClientProfileScreen(
@@ -115,6 +115,10 @@ fun ClientProfileScreen(
     val entries = history.data
     // The day is part of the key: a profile left open over midnight says "yesterday" for the visit of today.
     val summary = remember(entries, today, format.zone) { entries?.let { ClientVisits.summary(it, Instant.now(), format.zone) } }
+    // What the Clients View knew when the profile opened, so the button's label is right before the history is there.
+    // Not watched: that would ask the server for every Client's dates on each profile.
+    val listedVisitDates = remember(viewModel) { viewModel.shownClientVisitDates().data }
+    val booksAgain = ClientVisits.booksAgain(client.id, entries, listedVisitDates)
 
     SubScreen(
         title = stringResource(R.string.edit_client_title),
@@ -165,7 +169,7 @@ fun ClientProfileScreen(
 
             // Until the history has loaded there is no last visit to go by, and the form opens as it always does.
             PrimaryButton(
-                stringResource(R.string.client_book_again),
+                stringResource(if (booksAgain) R.string.client_book_again else R.string.client_book),
                 onClick = { onBookAgain(entries?.let { ClientVisits.rebooking(it, client.id) }) },
                 modifier = Modifier.fillMaxWidth(),
                 icon = Icons.Rounded.Add,

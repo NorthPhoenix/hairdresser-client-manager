@@ -2,13 +2,16 @@ package com.northphoenix.hairdresserclientmanager
 
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.ClientHistoryEntry
+import com.northphoenix.hairdresserclientmanager.data.ClientVisitDates
 import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.domain.ClientVisits
 import com.northphoenix.hairdresserclientmanager.domain.ClientVisits.Rebooking
 import com.northphoenix.hairdresserclientmanager.domain.ClientVisits.Span
 import com.northphoenix.hairdresserclientmanager.domain.ClientVisits.SpanUnit
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
 import java.time.LocalDate
@@ -207,5 +210,54 @@ class ClientVisitsTest {
         assertNull(ClientVisits.rebooking(listOf(entry("canceled", "2026-10-01T18:00:00Z", AppointmentStatus.CANCELED)), "anna"))
         // An older server does not say where it was.
         assertNull(ClientVisits.rebooking(listOf(entry("old", "2026-10-01T18:00:00Z", locationType = null)), "anna"))
+    }
+
+    // --- the button's label ---
+
+    @Test
+    fun `the button books again only once the Client has had a visit`() {
+        assertTrue(ClientVisits.booksAgain("anna", listOf(entry("done", "2026-10-01T18:00:00Z")), visitDates = null))
+        assertFalse(ClientVisits.booksAgain("anna", emptyList(), visitDates = null))
+    }
+
+    @Test
+    fun `a booking ahead, a cancellation or a no-show is not a visit to book again`() {
+        val entries = listOf(
+            entry("first", "2026-11-20T18:00:00Z", AppointmentStatus.SCHEDULED),
+            entry("canceled", "2026-10-10T18:00:00Z", AppointmentStatus.CANCELED),
+            entry("no-show", "2026-10-03T18:00:00Z", AppointmentStatus.NO_SHOW),
+            entry("unresolved", "2026-10-01T18:00:00Z", AppointmentStatus.SCHEDULED),
+        )
+
+        assertFalse(ClientVisits.booksAgain("anna", entries, visitDates = null))
+    }
+
+    @Test
+    fun `before the history is there the Clients View's visit dates tell`() {
+        val dates = listOf(
+            ClientVisitDates("anna", lastVisitAt = "2026-10-01T18:00:00Z"),
+            ClientVisitDates("olga", nextAppointmentAt = "2026-11-20T18:00:00Z"),
+        )
+
+        assertTrue(ClientVisits.booksAgain("anna", history = null, visitDates = dates))
+        // Only a booking ahead: no visit yet.
+        assertFalse(ClientVisits.booksAgain("olga", history = null, visitDates = dates))
+        // The server lists only Clients with a visit or a booking ahead.
+        assertFalse(ClientVisits.booksAgain("sofia", history = null, visitDates = dates))
+    }
+
+    @Test
+    fun `the history goes before the visit dates, which may be older`() {
+        val dates = listOf(ClientVisitDates("anna", lastVisitAt = "2026-10-01T18:00:00Z"))
+
+        // The visit was set back to scheduled since the dates were read.
+        assertFalse(ClientVisits.booksAgain("anna", listOf(entry("back", "2026-10-01T18:00:00Z", AppointmentStatus.SCHEDULED)), dates))
+        // A visit marked completed since.
+        assertTrue(ClientVisits.booksAgain("sofia", listOf(entry("done", "2026-11-18T18:00:00Z", primaryClientId = "sofia")), visitDates = emptyList()))
+    }
+
+    @Test
+    fun `with nothing known yet the button says Book`() {
+        assertFalse(ClientVisits.booksAgain("anna", history = null, visitDates = null))
     }
 }

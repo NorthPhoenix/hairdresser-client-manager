@@ -2,6 +2,7 @@ package com.northphoenix.hairdresserclientmanager.domain
 
 import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.ClientHistoryEntry
+import com.northphoenix.hairdresserclientmanager.data.ClientVisitDates
 import com.northphoenix.hairdresserclientmanager.data.LocationType
 import java.time.Instant
 import java.time.LocalDate
@@ -97,6 +98,19 @@ object ClientVisits {
                 },
             )
         }
+    }
+
+    /**
+     * Whether the profile's button books the Client "again" («Записать снова»): only once they have
+     * had a visit, as the stats count them. Before their first visit it says «Записать». Told by
+     * the Client's [history] once it is there, else by the Clients View's [visitDates] (a Client
+     * they do not list has had none), so that a profile opened from that list says it from its
+     * first frame. With neither, no visit is known yet, and «Записать» is never wrong.
+     */
+    fun booksAgain(clientId: String, history: List<ClientHistoryEntry>?, visitDates: List<ClientVisitDates>?): Boolean = when {
+        history != null -> history.any { it.status == AppointmentStatus.COMPLETED }
+        visitDates != null -> visitDates.any { it.clientId == clientId && it.lastVisitAt != null }
+        else -> false
     }
 
     private fun median(values: List<Long>): Double? {
