@@ -1,5 +1,6 @@
 package com.northphoenix.hairdresserclientmanager.data
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
@@ -25,7 +26,8 @@ class TrpcClient(
     http: OkHttpClient,
     /** Sent with every request: the app's version (`X-App-Version-Code`, `X-App-Version-Name`), which the server keeps per Stylist. */
     private val appHeaders: Map<String, String> = emptyMap(),
-    private val tokenProvider: suspend () -> String?,
+    /** The sign-in token for a request, or null without one. `fresh` asks the sign-in provider for a new one (see [call]). */
+    private val tokenProvider: suspend (fresh: Boolean) -> String?,
 ) {
     // A network interceptor runs once a connection exists, just before the request is written to it.
     // A failure after that point no longer proves that the server did not get the request.
@@ -42,33 +44,63 @@ class TrpcClient(
     suspend inline fun <reified T> mutation(path: String, input: JsonElement? = null): T =
         call(path, input, isMutation = true, serializer<T>())
 
+    /**
+     * Sends one call. When the API refuses it for its sign-in, it is sent once more with a token the
+     * sign-in provider has just issued: the token the provider keeps can be missing or out of date
+     * while the session is alive (when the app opens after a long pause, the provider can fail to
+     * give one at first). The API refuses such a request before it runs any of it
+     * (`protectedProcedure`), so a change is not made twice. A second refusal, or no new token, is
+     * the caller's to report (see `AppViewModel.report`).
+     */
     suspend fun <T> call(path: String, input: JsonElement?, isMutation: Boolean, output: KSerializer<T>): T =
         withContext(Dispatchers.IO) {
-            val url = "$baseUrl/$path".toHttpUrl().newBuilder().apply {
-                if (!isMutation && input != null) {
-                    addQueryParameter("input", input.toString())
-                }
-            }.build()
-            val sent = Sent()
-            val request = Request.Builder().url(url).tag(Sent::class.java, sent).apply {
-                appHeaders.forEach { (name, value) -> header(name, value) }
-                tokenProvider()?.let { header("Authorization", "Bearer $it") }
-                if (isMutation) {
-                    post((input?.toString() ?: "").toRequestBody(jsonMediaType))
-                }
-            }.build()
-
             try {
-                http.newCall(request).await().use { decode(it.body.string(), it.code, isMutation, output) }
-            } catch (error: IOException) {
-                throw if (isMutation && sent.get()) {
-                    // The change may have been saved: only the reply is missing.
-                    ApiException("No reply from the server.", code = ApiException.NO_REPLY, cause = error)
-                } else {
-                    ApiException("Network request failed.", code = "NETWORK", isNetwork = true, cause = error)
+                send(path, input, isMutation, output, tokenProvider(false))
+            } catch (refused: ApiException) {
+                if (!refused.isUnauthorized) {
+                    throw refused
                 }
+
+                send(path, input, isMutation, output, freshToken() ?: throw refused)
             }
         }
+
+    /** A new token from the sign-in provider, or null when it gave none: the refusal then stands. */
+    private suspend fun freshToken(): String? =
+        try {
+            tokenProvider(true)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            null
+        }
+
+    private suspend fun <T> send(path: String, input: JsonElement?, isMutation: Boolean, output: KSerializer<T>, token: String?): T {
+        val url = "$baseUrl/$path".toHttpUrl().newBuilder().apply {
+            if (!isMutation && input != null) {
+                addQueryParameter("input", input.toString())
+            }
+        }.build()
+        val sent = Sent()
+        val request = Request.Builder().url(url).tag(Sent::class.java, sent).apply {
+            appHeaders.forEach { (name, value) -> header(name, value) }
+            token?.let { header("Authorization", "Bearer $it") }
+            if (isMutation) {
+                post((input?.toString() ?: "").toRequestBody(jsonMediaType))
+            }
+        }.build()
+
+        return try {
+            http.newCall(request).await().use { decode(it.body.string(), it.code, isMutation, output) }
+        } catch (error: IOException) {
+            throw if (isMutation && sent.get()) {
+                // The change may have been saved: only the reply is missing.
+                ApiException("No reply from the server.", code = ApiException.NO_REPLY, cause = error)
+            } else {
+                ApiException("Network request failed.", code = "NETWORK", isNetwork = true, cause = error)
+            }
+        }
+    }
 
     /**
      * Other software can answer in the API's place (a gateway, a rate limiter, the dev backend's

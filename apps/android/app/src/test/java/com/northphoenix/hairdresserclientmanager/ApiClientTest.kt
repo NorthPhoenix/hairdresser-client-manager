@@ -50,6 +50,9 @@ class ApiClientTest {
     private companion object {
         /** The key of one form or sheet, as `rememberRequestKey` makes it. */
         const val KEY = "3f0c1b6e-0000-4000-8000-000000000001"
+
+        /** The API's answer to a request without a valid sign-in token. */
+        const val REFUSED_SIGN_IN = """{"error":{"message":"Authentication required.","code":-32001,"data":{"code":"UNAUTHORIZED","httpStatus":401}}}"""
     }
 
     private fun enqueue(body: String, code: Int = 200) {
@@ -139,15 +142,123 @@ class ApiClientTest {
         }
         assertEquals(4, server.requestCount)
 
-        // Any other failure is not about the timezone and is not asked again.
-        enqueue("""{"error":{"message":"Authentication required.","code":-32001,"data":{"code":"UNAUTHORIZED","httpStatus":401}}}""", code = 401)
+        // Any other failure is not about the timezone and is not asked again without it. A refused
+        // sign-in is sent once more with a new token, and that is all.
+        enqueue(REFUSED_SIGN_IN, code = 401)
+        enqueue(REFUSED_SIGN_IN, code = 401)
         try {
             api.bootstrap(Language.RU, "Europe/Moscow")
             fail("expected ApiException")
         } catch (error: ApiException) {
             assertTrue(error.isUnauthorized)
         }
-        assertEquals(5, server.requestCount)
+        assertEquals(6, server.requestCount)
+    }
+
+    /** A sign-in provider that gives [kept] as the token it keeps and [issued] when asked for a new one, and says which it was asked for. */
+    private class Tokens(private val kept: String?, private val issued: () -> String?) {
+        val asked = mutableListOf<String>()
+
+        suspend fun token(fresh: Boolean): String? {
+            asked += if (fresh) "fresh" else "kept"
+            return if (fresh) issued() else kept
+        }
+    }
+
+    private fun apiWith(tokens: Tokens) = HcmApi(TrpcClient(server.url("/api/trpc").toString(), http, tokenProvider = tokens::token))
+
+    @Test
+    fun `a request refused for its sign-in is sent once more with a token the provider has just issued`() = runTest {
+        // As when the app opens after a long pause: the provider gives no token at first, and the
+        // request goes out without one.
+        val tokens = Tokens(kept = null) { "token-2" }
+
+        enqueue(REFUSED_SIGN_IN, code = 401)
+        enqueue("""{"result":{"data":{"id":"s1","language":"ru","timezone":"America/Chicago","salonAddress":"","onboardingCompletedAt":"2026-10-01T12:00:00.000Z"}}}""")
+
+        val stylist = apiWith(tokens).bootstrap(Language.RU, "America/Chicago")
+        val refused = server.takeRequest()
+        val again = server.takeRequest()
+
+        assertEquals("s1", stylist.id)
+        assertTrue(stylist.onboardingComplete)
+        assertNull(refused.headers["Authorization"])
+        assertEquals("Bearer token-2", again.headers["Authorization"])
+        assertEquals(refused.url, again.url)
+        assertEquals(listOf("kept", "fresh"), tokens.asked)
+        assertEquals(2, server.requestCount)
+
+        // A token that has run out is refused like none at all.
+        val expired = Tokens(kept = "token-1") { "token-3" }
+
+        enqueue(REFUSED_SIGN_IN, code = 401)
+        enqueue("""{"result":{"data":[]}}""")
+
+        assertTrue(apiWith(expired).listClients().isEmpty())
+        assertEquals("Bearer token-1", server.takeRequest().headers["Authorization"])
+        assertEquals("Bearer token-3", server.takeRequest().headers["Authorization"])
+    }
+
+    @Test
+    fun `a change refused for its sign-in is sent once more as it was, since the API made none of it`() = runTest {
+        val tokens = Tokens(kept = null) { "token-2" }
+
+        enqueue(REFUSED_SIGN_IN, code = 401)
+        enqueue("""{"result":{"data":{}}}""")
+
+        apiWith(tokens).deleteAppointment("a1")
+        val refused = server.takeRequest()
+        val again = server.takeRequest()
+
+        assertEquals("POST", again.method)
+        assertEquals("/api/trpc/appointment.delete", again.url.encodedPath)
+        assertEquals(refused.body?.utf8(), again.body?.utf8())
+        assertEquals("""{"id":"a1"}""", again.body?.utf8())
+        assertEquals("Bearer token-2", again.headers["Authorization"])
+    }
+
+    @Test
+    fun `a second refusal, or no new token, is the refusal the caller reports`() = runTest {
+        suspend fun refusal(tokens: Tokens): ApiException =
+            try {
+                apiWith(tokens).deleteAppointment("a1")
+                throw AssertionError("expected an ApiException")
+            } catch (error: ApiException) {
+                error
+            }
+
+        // Refused with the new token too: the session has ended, or the API cannot check it.
+        enqueue(REFUSED_SIGN_IN, code = 401)
+        enqueue(REFUSED_SIGN_IN, code = 401)
+        assertTrue(refusal(Tokens(kept = "token-1") { "token-2" }).isUnauthorized)
+        assertEquals(2, server.requestCount)
+
+        // The provider issues none (signed out, or its servers did not answer), or fails to: nothing is sent again.
+        val none = Tokens(kept = "token-1") { null }
+        val failing = Tokens(kept = "token-1") { throw ApiException("The sign-in provider dropped the token request.", code = "TOKEN_REQUEST_DROPPED") }
+
+        listOf(none, failing).forEach { tokens ->
+            enqueue(REFUSED_SIGN_IN, code = 401)
+            assertTrue(refusal(tokens).isUnauthorized)
+            assertEquals(listOf("kept", "fresh"), tokens.asked)
+        }
+        assertEquals(4, server.requestCount)
+    }
+
+    @Test
+    fun `only a refused sign-in is sent again`() = runTest {
+        val tokens = Tokens(kept = "token-1") { "token-2" }
+
+        enqueue("""{"error":{"message":"Appointment not found.","code":-32004,"data":{"code":"NOT_FOUND","httpStatus":404}}}""", code = 404)
+        try {
+            apiWith(tokens).deleteAppointment("a1")
+            fail("expected ApiException")
+        } catch (error: ApiException) {
+            assertTrue(error.isNotFound)
+        }
+
+        assertEquals(1, server.requestCount)
+        assertEquals(listOf("kept"), tokens.asked)
     }
 
     @Test

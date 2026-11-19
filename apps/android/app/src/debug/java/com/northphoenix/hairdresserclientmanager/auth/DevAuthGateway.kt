@@ -35,7 +35,7 @@ private class DevAuthGateway(context: Context, userId: String) : AuthGateway {
 
     override val state: StateFlow<AuthState> = mutableState
 
-    override suspend fun token(): String? = if (mutableState.value is AuthState.SignedIn) token else null
+    override suspend fun token(fresh: Boolean): String? = if (mutableState.value is AuthState.SignedIn) token else null
 
     override suspend fun signOut() = setSignedIn(false)
 

@@ -93,7 +93,8 @@ class ClerkAuthGateway(
         start()
     }
 
-    override suspend fun token(): String? = askingAgainWhenDropped { Clerk.auth.getToken().successOrNull() }
+    override suspend fun token(fresh: Boolean): String? =
+        askingAgainWhenDropped { Clerk.auth.getToken(GetTokenOptions(skipCache = fresh)).successOrNull() }
 
     override suspend fun signOut() {
         val thrown =
