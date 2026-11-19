@@ -101,17 +101,25 @@ object ClientVisits {
     }
 
     /**
-     * Whether the profile's button books the Client "again" («Записать снова»): only once they have
-     * had a visit, as the stats count them. Before their first visit it says «Записать». Told by
-     * the Client's [history] once it is there, else by the Clients View's [visitDates] (a Client
-     * they do not list has had none), so that a profile opened from that list says it from its
-     * first frame. With neither, no visit is known yet, and «Записать» is never wrong.
+     * Whether the Client has had a visit, as the stats count them: told by the Client's [history]
+     * once it is there, else by the Clients View's [visitDates] (a Client they do not list has had
+     * none), so that a profile opened from that list knows it from its first frame. Null while
+     * neither is there, such as after any change, until the history has been read anew.
      */
-    fun booksAgain(clientId: String, history: List<ClientHistoryEntry>?, visitDates: List<ClientVisitDates>?): Boolean = when {
+    fun hadVisit(clientId: String, history: List<ClientHistoryEntry>?, visitDates: List<ClientVisitDates>?): Boolean? = when {
         history != null -> history.any { it.status == AppointmentStatus.COMPLETED }
         visitDates != null -> visitDates.any { it.clientId == clientId && it.lastVisitAt != null }
-        else -> false
+        else -> null
     }
+
+    /**
+     * Whether the profile's button books the Client "again" («Записать снова») rather than for the
+     * first time («Записать»): once they have had a visit ([hadVisit]). While that is not known,
+     * what the screen last knew of it ([lastKnown]), else "again": most Clients a profile opens
+     * for without a current history (from an Appointment, say) have had a visit, so the label
+     * rarely changes once the history is there.
+     */
+    fun booksAgain(hadVisit: Boolean?, lastKnown: Boolean?): Boolean = hadVisit ?: lastKnown ?: true
 
     private fun median(values: List<Long>): Double? {
         if (values.isEmpty()) {

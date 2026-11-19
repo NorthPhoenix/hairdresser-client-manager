@@ -215,13 +215,13 @@ class ClientVisitsTest {
     // --- the button's label ---
 
     @Test
-    fun `the button books again only once the Client has had a visit`() {
-        assertTrue(ClientVisits.booksAgain("anna", listOf(entry("done", "2026-10-01T18:00:00Z")), visitDates = null))
-        assertFalse(ClientVisits.booksAgain("anna", emptyList(), visitDates = null))
+    fun `a visit is a Completed Appointment in the history`() {
+        assertEquals(true, ClientVisits.hadVisit("anna", listOf(entry("done", "2026-10-01T18:00:00Z")), visitDates = null))
+        assertEquals(false, ClientVisits.hadVisit("anna", emptyList(), visitDates = null))
     }
 
     @Test
-    fun `a booking ahead, a cancellation or a no-show is not a visit to book again`() {
+    fun `a booking ahead, a cancellation or a no-show is not a visit`() {
         val entries = listOf(
             entry("first", "2026-11-20T18:00:00Z", AppointmentStatus.SCHEDULED),
             entry("canceled", "2026-10-10T18:00:00Z", AppointmentStatus.CANCELED),
@@ -229,7 +229,7 @@ class ClientVisitsTest {
             entry("unresolved", "2026-10-01T18:00:00Z", AppointmentStatus.SCHEDULED),
         )
 
-        assertFalse(ClientVisits.booksAgain("anna", entries, visitDates = null))
+        assertEquals(false, ClientVisits.hadVisit("anna", entries, visitDates = null))
     }
 
     @Test
@@ -239,11 +239,11 @@ class ClientVisitsTest {
             ClientVisitDates("olga", nextAppointmentAt = "2026-11-20T18:00:00Z"),
         )
 
-        assertTrue(ClientVisits.booksAgain("anna", history = null, visitDates = dates))
+        assertEquals(true, ClientVisits.hadVisit("anna", history = null, visitDates = dates))
         // Only a booking ahead: no visit yet.
-        assertFalse(ClientVisits.booksAgain("olga", history = null, visitDates = dates))
+        assertEquals(false, ClientVisits.hadVisit("olga", history = null, visitDates = dates))
         // The server lists only Clients with a visit or a booking ahead.
-        assertFalse(ClientVisits.booksAgain("sofia", history = null, visitDates = dates))
+        assertEquals(false, ClientVisits.hadVisit("sofia", history = null, visitDates = dates))
     }
 
     @Test
@@ -251,13 +251,28 @@ class ClientVisitsTest {
         val dates = listOf(ClientVisitDates("anna", lastVisitAt = "2026-10-01T18:00:00Z"))
 
         // The visit was set back to scheduled since the dates were read.
-        assertFalse(ClientVisits.booksAgain("anna", listOf(entry("back", "2026-10-01T18:00:00Z", AppointmentStatus.SCHEDULED)), dates))
+        assertEquals(false, ClientVisits.hadVisit("anna", listOf(entry("back", "2026-10-01T18:00:00Z", AppointmentStatus.SCHEDULED)), dates))
         // A visit marked completed since.
-        assertTrue(ClientVisits.booksAgain("sofia", listOf(entry("done", "2026-11-18T18:00:00Z", primaryClientId = "sofia")), visitDates = emptyList()))
+        assertEquals(true, ClientVisits.hadVisit("sofia", listOf(entry("done", "2026-11-18T18:00:00Z", primaryClientId = "sofia")), visitDates = emptyList()))
     }
 
     @Test
-    fun `with nothing known yet the button says Book`() {
-        assertFalse(ClientVisits.booksAgain("anna", history = null, visitDates = null))
+    fun `with neither the history nor the visit dates nothing is known`() {
+        assertNull(ClientVisits.hadVisit("anna", history = null, visitDates = null))
+    }
+
+    @Test
+    fun `the button says Book only for a Client known to have had no visit`() {
+        assertTrue(ClientVisits.booksAgain(hadVisit = true, lastKnown = false))
+        assertFalse(ClientVisits.booksAgain(hadVisit = false, lastKnown = true))
+    }
+
+    @Test
+    fun `while it is not known the button keeps what the screen last knew, else says Book again`() {
+        // Read anew after a change: what was known before stays.
+        assertFalse(ClientVisits.booksAgain(hadVisit = null, lastKnown = false))
+        assertTrue(ClientVisits.booksAgain(hadVisit = null, lastKnown = true))
+        // Nothing known at all: most such Clients have had a visit.
+        assertTrue(ClientVisits.booksAgain(hadVisit = null, lastKnown = null))
     }
 }

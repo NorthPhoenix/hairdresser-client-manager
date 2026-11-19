@@ -118,7 +118,12 @@ fun ClientProfileScreen(
     // What the Clients View knew when the profile opened, so the button's label is right before the history is there.
     // Not watched: that would ask the server for every Client's dates on each profile.
     val listedVisitDates = remember(viewModel) { viewModel.shownClientVisitDates().data }
-    val booksAgain = ClientVisits.booksAgain(client.id, entries, listedVisitDates)
+    val hadVisit = ClientVisits.hadVisit(client.id, entries, listedVisitDates)
+    // Kept while the history is read anew after a change, also over a trip to another screen and back
+    // (booking, editing), so that the label does not switch back and forth.
+    var lastKnownVisit by rememberSaveable(clientId) { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(hadVisit) { hadVisit?.let { lastKnownVisit = it } }
+    val booksAgain = ClientVisits.booksAgain(hadVisit, lastKnownVisit)
 
     SubScreen(
         title = stringResource(R.string.edit_client_title),
