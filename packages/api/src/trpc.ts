@@ -132,6 +132,8 @@ export const publicProcedure = observedProcedure.use(async ({ next }) => {
 export const protectedProcedure = publicProcedure.use(({ ctx, next }) => {
   const clerkUserId = ctx.clerkAuth.userId;
 
+  // Before the procedure does anything: the Android app sends a request refused here once more,
+  // with a new sign-in token (its SignInTokens), so nothing may be written before this refusal.
   if (!clerkUserId) {
     throw new TRPCError({
       code: "UNAUTHORIZED",
