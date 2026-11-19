@@ -3,6 +3,7 @@ package com.northphoenix.hairdresserclientmanager.core
 import android.content.Context
 import com.northphoenix.hairdresserclientmanager.BuildConfig
 import com.northphoenix.hairdresserclientmanager.auth.AuthGateway
+import com.northphoenix.hairdresserclientmanager.auth.AuthState
 import com.northphoenix.hairdresserclientmanager.auth.ClerkAuthGateway
 import com.northphoenix.hairdresserclientmanager.auth.createDevAuthGateway
 import com.northphoenix.hairdresserclientmanager.data.AndroidPhoneCalendarStore
@@ -11,6 +12,7 @@ import com.northphoenix.hairdresserclientmanager.data.HcmApi
 import com.northphoenix.hairdresserclientmanager.data.SharedPreferencesAppUpdateStore
 import com.northphoenix.hairdresserclientmanager.data.SharedPreferencesCalendarConnectionStore
 import com.northphoenix.hairdresserclientmanager.data.SharedPreferencesReminderStore
+import com.northphoenix.hairdresserclientmanager.data.SignInTokens
 import com.northphoenix.hairdresserclientmanager.data.TrpcClient
 import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
 import com.northphoenix.hairdresserclientmanager.data.wasUpdatedInPlace
@@ -46,11 +48,12 @@ class AppContainer(context: Context) {
         .writeTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    private val tokenProvider: suspend () -> String? = { auth?.token() }
+    // One for both clients, so that requests refused at the same moment share one new token.
+    private val signIn = SignInTokens(account = { (auth?.state?.value as? AuthState.SignedIn)?.userId }) { fresh -> auth?.token(fresh) }
 
     // Every request names the app's version, so the server can tell which app a Stylist uses.
-    val api = HcmApi(TrpcClient(config.trpcUrl, http, TrpcClient.versionHeaders(BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME), tokenProvider))
-    val uploads = UploadThingClient(config.uploadThingUrl, http, tokenProvider)
+    val api = HcmApi(TrpcClient(config.trpcUrl, http, TrpcClient.versionHeaders(BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME), signIn))
+    val uploads = UploadThingClient(config.uploadThingUrl, http, signIn)
 
     /** What this device remembers about app updates: the version whose notes were seen, and the one put off. */
     val appUpdateStore by lazy { SharedPreferencesAppUpdateStore(appContext) }

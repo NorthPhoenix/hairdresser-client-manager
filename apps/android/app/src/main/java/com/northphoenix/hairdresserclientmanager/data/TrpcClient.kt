@@ -25,8 +25,16 @@ class TrpcClient(
     http: OkHttpClient,
     /** Sent with every request: the app's version (`X-App-Version-Code`, `X-App-Version-Name`), which the server keeps per Stylist. */
     private val appHeaders: Map<String, String> = emptyMap(),
-    private val tokenProvider: suspend () -> String?,
+    private val signIn: SignInTokens,
 ) {
+    /** [tokenProvider] gives the sign-in token for a request, or null without one; `fresh` asks the sign-in provider for a new one. */
+    constructor(
+        baseUrl: String,
+        http: OkHttpClient,
+        appHeaders: Map<String, String> = emptyMap(),
+        tokenProvider: suspend (fresh: Boolean) -> String?,
+    ) : this(baseUrl, http, appHeaders, SignInTokens(provider = tokenProvider))
+
     // A network interceptor runs once a connection exists, just before the request is written to it.
     // A failure after that point no longer proves that the server did not get the request.
     private val http = http.newBuilder()
@@ -42,33 +50,38 @@ class TrpcClient(
     suspend inline fun <reified T> mutation(path: String, input: JsonElement? = null): T =
         call(path, input, isMutation = true, serializer<T>())
 
+    /** Sends one call, once more with a new sign-in token when the API refuses it for its sign-in (see [SignInTokens]). */
     suspend fun <T> call(path: String, input: JsonElement?, isMutation: Boolean, output: KSerializer<T>): T =
         withContext(Dispatchers.IO) {
-            val url = "$baseUrl/$path".toHttpUrl().newBuilder().apply {
-                if (!isMutation && input != null) {
-                    addQueryParameter("input", input.toString())
-                }
-            }.build()
-            val sent = Sent()
-            val request = Request.Builder().url(url).tag(Sent::class.java, sent).apply {
-                appHeaders.forEach { (name, value) -> header(name, value) }
-                tokenProvider()?.let { header("Authorization", "Bearer $it") }
-                if (isMutation) {
-                    post((input?.toString() ?: "").toRequestBody(jsonMediaType))
-                }
-            }.build()
+            signIn.sending { token -> send(path, input, isMutation, output, token) }
+        }
 
-            try {
-                http.newCall(request).await().use { decode(it.body.string(), it.code, isMutation, output) }
-            } catch (error: IOException) {
-                throw if (isMutation && sent.get()) {
-                    // The change may have been saved: only the reply is missing.
-                    ApiException("No reply from the server.", code = ApiException.NO_REPLY, cause = error)
-                } else {
-                    ApiException("Network request failed.", code = "NETWORK", isNetwork = true, cause = error)
-                }
+    private suspend fun <T> send(path: String, input: JsonElement?, isMutation: Boolean, output: KSerializer<T>, token: String?): T {
+        val url = "$baseUrl/$path".toHttpUrl().newBuilder().apply {
+            if (!isMutation && input != null) {
+                addQueryParameter("input", input.toString())
+            }
+        }.build()
+        val sent = Sent()
+        val request = Request.Builder().url(url).tag(Sent::class.java, sent).apply {
+            appHeaders.forEach { (name, value) -> header(name, value) }
+            token?.let { header("Authorization", "Bearer $it") }
+            if (isMutation) {
+                post((input?.toString() ?: "").toRequestBody(jsonMediaType))
+            }
+        }.build()
+
+        return try {
+            http.newCall(request).await().use { decode(it.body.string(), it.code, isMutation, output) }
+        } catch (error: IOException) {
+            throw if (isMutation && sent.get()) {
+                // The change may have been saved: only the reply is missing.
+                ApiException("No reply from the server.", code = ApiException.NO_REPLY, cause = error)
+            } else {
+                ApiException("Network request failed.", code = "NETWORK", isNetwork = true, cause = error)
             }
         }
+    }
 
     /**
      * Other software can answer in the API's place (a gateway, a rate limiter, the dev backend's
