@@ -24,10 +24,15 @@ class SignInTokens(private val provider: suspend (fresh: Boolean) -> String?) {
     @Volatile
     private var issued = Issued(count = 0, token = null)
 
-    /** Runs [send] with the token the provider keeps, and once more with a new one when the server refuses it for its sign-in. */
+    /**
+     * Runs [send] with the token the provider keeps, and once more with a new one when the server
+     * refuses it for its sign-in. When the provider fails to give the token it keeps (it can drop
+     * the request as the app comes back to the front, see `askingAgainWhenDropped`), the request
+     * goes out without one, like when it has none.
+     */
     suspend fun <T> sending(send: suspend (token: String?) -> T): T {
         val seen = issued.count
-        val token = provider(false)
+        val token = ask(fresh = false)
 
         return try {
             send(token)

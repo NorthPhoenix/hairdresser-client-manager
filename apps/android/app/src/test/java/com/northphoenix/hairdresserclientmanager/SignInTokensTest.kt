@@ -65,6 +65,17 @@ class SignInTokensTest {
     }
 
     @Test
+    fun `a kept token the provider fails to give is sent as none, and then a new one`() = runTest {
+        val sent = mutableListOf<String?>()
+        val tokens = SignInTokens { fresh ->
+            if (fresh) "token-2" else throw ApiException("The sign-in provider dropped the token request.", code = "TOKEN_REQUEST_DROPPED")
+        }
+
+        assertEquals("answered with token-2", tokens.sending { token -> sent += token; server()(token) })
+        assertEquals(listOf(null, "token-2"), sent)
+    }
+
+    @Test
     fun `a provider that gives the same token again has none newer, and the refusal stands`() = runTest {
         var sent = 0
         val tokens = SignInTokens { "token-1" }

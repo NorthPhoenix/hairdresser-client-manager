@@ -296,12 +296,12 @@ class ApiClientTest {
         )
 
         val lists = List(5) { async(Dispatchers.IO) { client.listClients() } }
-        repeat(5) { assertNull(server.takeRequest().headers["Authorization"]) }
+        repeat(5) { assertNull(server.takeRequest(5, TimeUnit.SECONDS)!!.headers["Authorization"]) }
         allRefused.complete(Unit)
 
         assertTrue(lists.awaitAll().all { it.isEmpty() })
         assertEquals(1, issued)
-        repeat(5) { assertEquals("Bearer token-1", server.takeRequest().headers["Authorization"]) }
+        repeat(5) { assertEquals("Bearer token-1", server.takeRequest(5, TimeUnit.SECONDS)!!.headers["Authorization"]) }
         assertEquals(10, server.requestCount)
     }
 
@@ -365,6 +365,30 @@ class ApiClientTest {
         // Only the start goes to our server with the token; the file goes to the address it handed out.
         assertEquals("HEAD", server.takeRequest().method)
         assertNull(server.takeRequest().headers["Authorization"])
+    }
+
+    @Test
+    fun `an upload start is asked for again only after a refused sign-in, and only once`() = runTest {
+        val uploads = UploadThingClient(server.url("/api/uploadthing").toString(), http) { fresh -> if (fresh) "token-2" else "token-1" }
+
+        suspend fun refusal(): ApiException =
+            try {
+                uploads.upload("appointmentPhoto", buildJsonObject {}, "photo.jpg", "image/jpeg", ByteArray(1))
+                throw AssertionError("expected an ApiException")
+            } catch (error: ApiException) {
+                error
+            }
+
+        // The Appointment was deleted: a new token would change nothing.
+        enqueue("""{"message":"Appointment not found."}""", code = 404)
+        assertTrue(refusal().isNotFound)
+        assertEquals(1, server.requestCount)
+
+        // The session has ended: refused with the new token too, and that refusal stands.
+        enqueue("""{"message":"Authentication required."}""", code = 403)
+        enqueue("""{"message":"Authentication required."}""", code = 403)
+        assertTrue(refusal().isUnauthorized)
+        assertEquals(3, server.requestCount)
     }
 
     @Test
