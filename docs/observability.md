@@ -36,6 +36,7 @@ Where it is wired:
 | `packages/telemetry` (`@hcm/telemetry`) | The API (`annotate`, `increment`, `traced`, `recordError`, `traceRequest`, `hashPrefix`, `requestFields`), the processor, the event builder, the tail sampler and the privacy guard. `@hcm/telemetry/node` sets up the SDK (`registerTelemetry`). |
 | `apps/web/server/telemetry.ts` | Imported first by every `route.ts` and by proxy.ts: sets up telemetry when their module loads, before their first request (see above). |
 | `apps/web/server/warmDatabase.ts` | Imported second by the tRPC route: starts the database when its module loads (`db.warm_up`), and the first signed-in request waits for that while it is under way (`db.warm_up_wait`); see "Child spans". |
+| `apps/web/server/publishedRelease.ts` | Imported third by the tRPC route: starts reading the published release manifest when its module loads (`release.read_manifest`), and the first request keeps the instance running until that has ended (`after`); see "Child spans". |
 | `apps/web/instrumentation.ts` | `registerTelemetry({ serviceName: "hcm-web" })` at startup, unless a module above was first; `onRequestError` records errors that no code caught (pages, route handlers, proxy.ts). TRACE is still refused there before anything else; a refused TRACE has no event. |
 | `packages/api/src/trpc.ts` | The outermost procedure step names the procedure, the input's size and fields, the app version and whether the request is signed in. `stylistProcedure` adds the Stylist, `stylistTransactionProcedure` the transaction's timing. `recordProcedureError` is the `onError` of both servers. |
 | `apps/web/app/api/trpc/[trpc]/route.ts`, `apps/dev-backend/src/server.ts` | Request header facts (`requestFields`) and `onError: recordProcedureError`. The dev backend wraps each request in `traceRequest`, which replaces its old access log line. |
@@ -599,8 +600,9 @@ What the code adds to the event for each part of the domain. Rows are sorted by 
 | `release.is_capped`, `release.capped_at_version_code` | bool, int | Releases newer than the published APK were held back (ADR 0018). Written by `releasesSince`. |
 | `release.is_oldest_standing_in` | bool | Nothing was published at or below the cap; the oldest release stood in. Written by `releasesSince`. |
 | `release.latest_version_code`, `release.count`, `release.since_version_code` | int | Latest offered release, how many newer releases were returned, and the app's own version. Written by `releasesSince`. |
+| `release.manifest_age_ms` | int | How long ago the release in an answer from the cache was read from the manifest: up to half an hour while it names the newest release the server knows, which is most of the time, up to a minute while it names an older one (a deploy before its APK; ADR 0018), and more while it stands in for a manifest that could not be read since. Written by published release reader. |
 | `release.manifest_result` | string | `read`, `failed_used_stale`, `failed_none`. Written by reader. |
-| `release.manifest_source` | string | `cache` (fresh answer reused), `fetched` (this request started a read), `joined_reading` (waited for another's read). Written by published release reader. |
+| `release.manifest_source` | string | `cache` (fresh answer reused, also one read ahead as the instance started), `fetched` (this request started a read, also after waiting for an instance's read ahead that had been frozen with the instance and failed), `joined_reading` (waited for another's read, also the instance's read ahead). Written by published release reader. |
 | `release.manifest_status` | int | HTTP status of the manifest (on its span). Written by reader. |
 | `release.published_version_code` | int | Version code the server believes is published. Written by reader. |
 | `share_image.height_px` | int | Height of the picture. Written by `buildShareImageSvg`. |
@@ -678,6 +680,7 @@ The domain's reason for a refusal or a handled error, from `recordError(…, { r
 | `primary_client_not_found` | refusal | The primary Client is not there. |
 | `profile_share_not_found` | refusal | The Client has no active Profile Share to change. |
 | `referrer_not_found` | refusal | The Referrer sent is not a Client of the Stylist. |
+| `release_read_ahead_not_kept` | handled | Next.js could not keep the tRPC route's new instance running after its first response (`after` threw), so its read ahead of the release manifest may stop half-way; the request is answered as before. |
 | `removed_client_not_found` | refusal | The Client to merge away is not there and no such merge was done. |
 | `service_client_not_attached` | refusal | The Service's Client is not on the Appointment. |
 | `service_menu_item_not_found` | refusal | The Service Menu item is not there. |
@@ -709,7 +712,8 @@ Spans written with `traced`; their attributes stay on the span, and their time c
 | `db.warm_up_wait` | The first signed-in tRPC request on a new instance waiting for `db.warm_up` to end before its procedure uses the database, and then taking its connection; only while the warm-up is under way, and no longer than 2 s after it started. Requests that come along meanwhile do not wait and open connections of their own, as does any request once the warm-up's connection has been unused for 10 s and closed. | |
 | `photo_storage.delete_files` | The deletion of unused files after a commit. | |
 | `profile_share.load_content` | The three loads of a Profile Share's content. | |
-| `release.read_manifest` | Reading the published release manifest. | `release.manifest_status` |
+| `release.read_manifest` | Reading the published release manifest (`latest.json`). Usually started as the tRPC route's module loads (`apps/web/server/publishedRelease.ts`): on Vercel and under `next start` that is before any request, so it is an `hcm.task` of its own, one for each new instance, with `release.manifest_result` and `release.published_version_code` on it. A failed one (`manifest_timeout`, for one) is kept only by a request that waited while it failed; with nobody waiting, the next request reads again, and a request that waited for one that had been frozen with the instance reads for itself. Under `next dev` the route loads during its first request, whatever its procedure, so the reading is usually part of that request's event, with `release.manifest_result` and `release.published_version_code` on it (one that outlasts the request is left out of it). A reading that a request starts later, once the answer is no longer fresh, is a child span of that request. | `release.manifest_status` |
+| `release.read_manifest_wait` | A request waiting for a reading of the manifest that another started: the instance's read ahead, or another request's reading. | |
 | `share_image.build` | Reading photos and drawing a Share Image. | |
 | `share_image.read_photo` | One photo for a Share Image. | `photo.storage_status`, `photo.source_bytes`, `photo.output_bytes` |
 | `stats.aggregate_period` | `stats.summary`: adding up the period's service lines. | `stats.appointment_count`, `stats.service_line_count` |
