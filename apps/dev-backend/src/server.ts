@@ -33,7 +33,9 @@ import { createRouteHandler, createUploadthing, UploadThingError, type FileRoute
 import { z } from "zod";
 import { getDevUserId } from "./auth.ts";
 
-// As on the web server: what is offered is capped by the latest.json beside APP_DOWNLOAD_URL (docs/adr/0018).
+// As on the web server: what is offered is capped by the latest.json beside APP_DOWNLOAD_URL (docs/adr/0018),
+// read at most once a minute, or once every half hour while it names the newest release in releases.json
+// (a local latest.json changed meanwhile shows after that, or after a restart). There is no read ahead here.
 const releaseManifestUrl = manifestUrlFor(process.env.APP_DOWNLOAD_URL);
 const publishedRelease = releaseManifestUrl ? createPublishedReleaseReader({ manifestUrl: releaseManifestUrl }) : null;
 

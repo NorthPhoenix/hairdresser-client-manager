@@ -362,5 +362,20 @@
         "If signing in doesn't go through on the first try as the app opens, the app tries again by itself and opens your data, without the \"server didn't accept your sign-in\" screen"
       ]
     }
+  },
+  {
+    "versionCode": 27,
+    "versionName": "1.25.0",
+    "date": "2026-11-20",
+    "notes": {
+      "ru": [
+        "На странице клиента, у которого ещё не было визитов, кнопка называется «Записать», а не «Записать снова»",
+        "Когда сервер отвечает медленно, например после перерыва, списки обновляются примерно на секунду быстрее"
+      ],
+      "en": [
+        "On the profile of a Client who hasn't had a visit yet, the button says Book instead of Book again",
+        "When the server is slow to answer, as after a break, the lists refresh about a second sooner"
+      ]
+    }
   }
 ]

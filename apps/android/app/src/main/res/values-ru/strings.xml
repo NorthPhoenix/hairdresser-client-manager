@@ -483,6 +483,7 @@
     <string name="travel_fee_suggestion_no">Нет</string>
     <string name="travel_fee_marked">«%1$s» — теперь плата за выезд</string>
     <string name="calls_unavailable">На устройстве нет приложения для звонков.</string>
+    <string name="client_book">Записать</string>
     <string name="client_book_again">Записать снова</string>
     <string name="client_call">Позвонить</string>
     <string name="client_edit_action">Изменить</string>

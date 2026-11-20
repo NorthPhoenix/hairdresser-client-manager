@@ -469,6 +469,7 @@
     <string name="travel_fee_suggestion_no">No</string>
     <string name="travel_fee_marked">“%1$s” is now the travel fee</string>
     <string name="calls_unavailable">There is no phone app on this device.</string>
+    <string name="client_book">Book</string>
     <string name="client_book_again">Book again</string>
     <string name="client_call">Call</string>
     <string name="client_edit_action">Edit</string>
