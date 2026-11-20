@@ -7,10 +7,36 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.Dispatcher
+import okhttp3.OkHttpClient
 import okhttp3.Response
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+
+/**
+ * How many requests to one server the app lets run at once. OkHttp's own limit is 5 and holds
+ * the others back until one of them is answered, while a reload of the lists asks for about a
+ * dozen things together (the settings, the update offer, Today, Tomorrow, the Calendar's day and
+ * months, the Client list, the Service Menu and its formula names, the screen that is open), up
+ * to about 20 with every screen open. On a server that has just woken up each of the first five
+ * takes about a second, so what came sixth or later, Today's list among them, left the phone only
+ * then. This leaves room for a whole reload.
+ */
+const val MAX_REQUESTS_PER_HOST = 32
+
+/**
+ * The client of all the app's requests: to the API and to photo storage. A whole reload goes to
+ * the server at once (see [MAX_REQUESTS_PER_HOST]); over HTTP/2 its requests share one connection.
+ */
+fun appHttpClient(): OkHttpClient =
+    OkHttpClient.Builder()
+        .dispatcher(Dispatcher().apply { maxRequestsPerHost = MAX_REQUESTS_PER_HOST })
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
+        .build()
 
 val hcmJson: Json = Json {
     ignoreUnknownKeys = true

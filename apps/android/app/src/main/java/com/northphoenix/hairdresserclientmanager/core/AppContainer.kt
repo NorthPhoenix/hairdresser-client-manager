@@ -15,6 +15,7 @@ import com.northphoenix.hairdresserclientmanager.data.SharedPreferencesReminderS
 import com.northphoenix.hairdresserclientmanager.data.SignInTokens
 import com.northphoenix.hairdresserclientmanager.data.TrpcClient
 import com.northphoenix.hairdresserclientmanager.data.UploadThingClient
+import com.northphoenix.hairdresserclientmanager.data.appHttpClient
 import com.northphoenix.hairdresserclientmanager.data.wasUpdatedInPlace
 import com.northphoenix.hairdresserclientmanager.domain.ImportedContact
 import com.northphoenix.hairdresserclientmanager.i18n.AndroidAppLocales
@@ -24,8 +25,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
-import okhttp3.OkHttpClient
-import java.util.concurrent.TimeUnit
 
 /** Hand-wired dependencies. The app is small enough that a DI framework would only add ceremony. */
 class AppContainer(context: Context) {
@@ -42,11 +41,7 @@ class AppContainer(context: Context) {
         else -> null
     }
 
-    private val http = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
-        .build()
+    private val http = appHttpClient()
 
     // One for both clients, so that requests refused at the same moment share one new token.
     private val signIn = SignInTokens(account = { (auth?.state?.value as? AuthState.SignedIn)?.userId }) { fresh -> auth?.token(fresh) }
