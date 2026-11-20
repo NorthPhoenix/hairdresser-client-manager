@@ -163,6 +163,8 @@ Vercel keeps runtime logs for an hour on the Hobby plan. A cron job on the maint
 
 Timestamps in events are UTC. On Vercel the spans are in the project's Traces page once a sampling rule is set (Settings → Tracing); search them by the same field names, such as `trpc.procedure:clientProfile.save`.
 
+The Android app reloads its lists with a dozen or more requests at once. Apps up to 1.24.0 let only 5 of a phone's requests run at a time (OkHttp's default for one server), so their reloads show as 5 requests and then the rest, each sent once one of the 5 is answered, which on a cold server is about a second later. Later apps send a whole reload together (`appHttpClient` in the Android app's `data/Http.kt`).
+
 ### Configuration
 
 | Variable | Default | Meaning |
