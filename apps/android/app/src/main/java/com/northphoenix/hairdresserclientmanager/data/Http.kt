@@ -27,8 +27,11 @@ import kotlin.coroutines.resumeWithException
 const val MAX_REQUESTS_PER_HOST = 32
 
 /**
- * The client of all the app's requests: to the API and to photo storage. A whole reload goes to
- * the server at once (see [MAX_REQUESTS_PER_HOST]); over HTTP/2 its requests share one connection.
+ * The client of the app's own requests: to the API and the photo uploads (pictures are shown
+ * through Coil's client, and the sign-in provider has one of its own). A whole reload goes to the
+ * server at once (see [MAX_REQUESTS_PER_HOST]). Over HTTP/2 the requests share the connection
+ * once one is open; when none is, as after a pause, several may open at the same moment and
+ * OkHttp keeps one of them.
  */
 fun appHttpClient(): OkHttpClient =
     OkHttpClient.Builder()

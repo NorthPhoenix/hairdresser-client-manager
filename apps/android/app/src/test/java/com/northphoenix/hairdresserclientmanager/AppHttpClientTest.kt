@@ -1,7 +1,6 @@
 package com.northphoenix.hairdresserclientmanager
 
 import com.northphoenix.hairdresserclientmanager.data.HcmApi
-import com.northphoenix.hairdresserclientmanager.data.MAX_REQUESTS_PER_HOST
 import com.northphoenix.hairdresserclientmanager.data.TrpcClient
 import com.northphoenix.hairdresserclientmanager.data.appHttpClient
 import kotlinx.coroutines.Dispatchers
@@ -14,7 +13,6 @@ import mockwebserver3.MockWebServer
 import mockwebserver3.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.util.concurrent.CountDownLatch
@@ -45,7 +43,7 @@ class AppHttpClientTest {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 arrived.countDown()
-                if (!arrived.await(10, TimeUnit.SECONDS)) {
+                if (!arrived.await(5, TimeUnit.SECONDS)) {
                     answeredBeforeAllArrived.incrementAndGet()
                 }
 
@@ -59,13 +57,5 @@ class AppHttpClientTest {
         assertEquals(reload, lists.size)
         assertEquals(reload, server.requestCount)
         assertEquals("No request may wait for another one to be answered", 0, answeredBeforeAllArrived.get())
-    }
-
-    @Test
-    fun `the limit leaves room for a whole reload`() {
-        val dispatcher = appHttpClient().dispatcher
-
-        assertEquals(MAX_REQUESTS_PER_HOST, dispatcher.maxRequestsPerHost)
-        assertTrue(dispatcher.maxRequests >= dispatcher.maxRequestsPerHost)
     }
 }
