@@ -42,7 +42,8 @@ Home offers the update; after an update, Home shows what changed ("Что нов
    point), and then `latest.json`. Within a minute the server offers the new release, with a link to its own file.
 
 Steps 3 and 4 can happen in either order. An APK published before the deploy is offered under the newest release the
-server knows until the deploy brings its notes; a deploy before the APK offers nothing new until the APK is there. If
+server knows until the deploy brings its notes (a server instance that has read `latest.json` already may take up to half
+an hour to see it, see docs/adr/0018); a deploy before the APK offers nothing new until the APK is there. If
 the server cannot read `latest.json` (the download server is off), it keeps what it read last for an hour, and after
 that offers no update at all: never one it cannot see. Apps before 1.4.0 offer nothing either way.
 
