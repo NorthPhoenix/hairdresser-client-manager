@@ -1,5 +1,6 @@
 package com.northphoenix.hairdresserclientmanager.domain
 
+import com.northphoenix.hairdresserclientmanager.data.AppointmentService
 import com.northphoenix.hairdresserclientmanager.data.ServiceMenuItem
 
 /**
@@ -23,19 +24,32 @@ object ServiceEdit {
     fun isPriceRefused(price: String): Boolean = Money.parse(price).isRefused()
 
     /**
-     * What a save of the form sends, or null while its name or its price is refused. [pickedItemId]
-     * is the variant picked in the form and [ownItemId] the Service's own item: only another one is sent.
+     * What a save of the form sends, or null while its name or its price is refused. [switchTo] is
+     * the variant the Service is switched to (see [switchTo]), null to keep its own item.
      */
-    fun values(name: String, price: String, note: String, pickedItemId: String? = null, ownItemId: String? = null): Values? {
+    fun values(name: String, price: String, note: String, switchTo: String? = null): Values? {
         val amount = Money.parse(price) as? Amount.Valid
 
-        return if (amount == null || isNameRefused(name)) {
-            null
-        } else {
-            Values(OneLine.clean(name), amount.cents, note.trim(), pickedItemId?.takeIf { it != ownItemId })
-        }
+        return if (amount == null || isNameRefused(name)) null else Values(OneLine.clean(name), amount.cents, note.trim(), switchTo)
     }
 
-    /** What the form holds once the variant [item] is picked: its name and its default price, as the price field writes it. */
-    fun picked(item: ServiceMenuItem): Pair<String, String> = item.name to Money.centsToPrice(item.defaultPriceCents)
+    /**
+     * The item a save switches [service] to: [pickedItemId], the variant picked in the form, when
+     * it is another than the Service's own and still one of its [variants]. A variant that left the
+     * menu while the form was open is not sent, so the form can still be saved.
+     */
+    fun switchTo(pickedItemId: String?, service: AppointmentService, variants: List<ServiceMenuItem>): String? =
+        pickedItemId?.takeIf { id -> id != service.menuItemId && variants.any { it.id == id } }
+
+    /**
+     * What the form holds, as name and price text, once the variant [item] is picked: its name and
+     * its default price. The Service's own item puts back the Service's own name and price, so
+     * picking it again undoes another pick and never loses a price that was set by hand.
+     */
+    fun picked(item: ServiceMenuItem, service: AppointmentService): Pair<String, String> =
+        if (item.id == service.menuItemId) {
+            service.name to Money.centsToPrice(service.priceCents)
+        } else {
+            item.name to Money.centsToPrice(item.defaultPriceCents)
+        }
 }
