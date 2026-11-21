@@ -697,6 +697,7 @@ The domain's reason for a refusal or a handled error, from `recordError(…, { r
 | `share_photo_unreadable` | unexpected | A Profile Share photo could not be read; the Client's phone gets a 502. |
 | `stats_date_not_valid` | refusal | The day sent to the stats is not a date. |
 | `stored_photo_without_file` | refusal | A stored Appointment Photo came without its file details. |
+| `travel_fee_switch` | refusal | An edit would switch a Service onto the Travel Fee item or off it (`updateService`). |
 | `unhandled_in_<route_type>` | unexpected | Next.js caught an error nothing else did (`render`, `route`, `action`, `proxy`). |
 
 Reasons that a rare path may add are named where they are thrown; a search can list the ones in use with `jq` on `error.reason`.

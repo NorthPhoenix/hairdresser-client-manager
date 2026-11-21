@@ -222,7 +222,7 @@ describe("the wide event of the appointment router", () => {
     const service = { ...appointmentRow.services[0], appointment: { services: appointmentRow.services } };
     const caller = callerFor({
       appointmentService: { findFirst: vi.fn().mockResolvedValue(service), update: vi.fn().mockResolvedValue({}) },
-      serviceMenuItem: { findFirst: vi.fn().mockResolvedValue({ id: "menu_2", stylistId: "stylist_1" }) },
+      serviceMenuItem: { findMany: vi.fn().mockResolvedValue([{ id: "menu_2", stylistId: "stylist_1", travelFee: false }]) },
       appointment: { findUniqueOrThrow: vi.fn().mockResolvedValue(appointmentRow) }
     });
 

@@ -1683,17 +1683,26 @@ export const appointmentRouter = createTRPCRouter({
     // Only an item of the Stylist's own menu. Its name and price are not taken from it: the edit
     // states both, as the Stylist saw them in the form.
     const switchesItem = input.menuItemId !== undefined && input.menuItemId !== service.menuItemId;
-    const menuItem = switchesItem
-      ? await ctx.db.serviceMenuItem.findFirst({
+    const items = switchesItem
+      ? await ctx.db.serviceMenuItem.findMany({
           where: {
-            id: input.menuItemId,
+            id: {
+              in: [input.menuItemId ?? "", ...(service.menuItemId ? [service.menuItemId] : [])]
+            },
             stylistId: ctx.stylist.id
           }
         })
-      : null;
+      : [];
+    const menuItem = items.find((item) => item.id === input.menuItemId) ?? null;
 
     if (switchesItem && !menuItem) {
       throw refusal("NOT_FOUND", "Service Menu Item not found.", "menu_item_not_found");
+    }
+
+    // The Travel Fee is added and removed with the Appointment's place by its item: a Service is
+    // not switched onto it, nor off it, or a move to the salon would remove the wrong Service.
+    if (items.some((item) => item.travelFee)) {
+      throw refusal("BAD_REQUEST", "Travel Fee Service cannot be switched.", "travel_fee_switch");
     }
 
     annotate(() => {
