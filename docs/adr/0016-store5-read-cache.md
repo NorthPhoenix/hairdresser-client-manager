@@ -74,7 +74,7 @@ The age counts from the answer. Every key that is shown is asked again anyway, s
 
 `stylist.bootstrap` is the one query that does not go through a Store. It is not a read of something the app then shows by key:
 
-- Its first call creates the Stylist, and its answer decides whether there is an app to show at all (sign-in, onboarding, the timezone every other key is worked out in). There is no screen that could show a cached copy before it has answered, and the memory is empty at every start.
+- Its first call creates the Stylist (or a read that a start sends with it, carrying the same defaults: see below), and its answer decides whether there is an app to show at all (sign-in, onboarding, the timezone every other key is worked out in; before it has come, a start makes the keys from what the device kept, below). There is no screen that could show a cached copy before it has answered, and the memory is empty at every start.
 - After that, the settings on screen are mostly what a save answered, not what a read did. Saves and fetches of the settings are kept in a strict order (`SettingsRequests`: one save at a time, each built from the reply before it, a fetch dropped when a save overtook it). A memory-only Store can only be filled by its fetcher, so the reply of a save would have to live beside it anyway.
 - What the owner asked of a read already holds for them: the settings are shown from memory with no loading state, asked again behind that when the app comes back or is pulled to refresh, and kept when that fails.
 

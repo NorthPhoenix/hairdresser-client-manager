@@ -562,6 +562,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                 api.stopCarryingDeviceDefaults()
                 if (early == null) {
                     loadAppReleases()
+                } else {
+                    viewModelScope.launch { early.releasesAgain(earlyReloads) }
                 }
                 // What was still on its way when the app was last closed goes on.
                 photos.open(stylist.id)
@@ -579,16 +581,16 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                     val after = early?.let { StartingReads.afterSettings(it.lists, stylist) }
 
                     if (early != null && (after == AfterSettings.STAND || after == AfterSettings.DAYS_AGAIN)) {
-                        refreshAll { early.reloadAfter(daysAgain = after == AfterSettings.DAYS_AGAIN) }
+                        refreshAll { early.reloadAfter(daysAgain = after == AfterSettings.DAYS_AGAIN, now = today.value to _calendarDate.value, earlyReloads) }
                     } else {
-                        early?.cancel()
+                        early?.cancelLists()
                         refreshAll(::loadAll)
                     }
                 } else {
-                    early?.cancel()
+                    early?.cancelLists()
                 }
             } catch (error: CancellationException) {
-                early?.cancel()
+                early?.cancelLists()
                 throw error
             } catch (error: Exception) {
                 val failure = error.toApiException()
@@ -600,55 +602,18 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         }
     }
 
-    /**
-     * The lists that went out with the settings ([lists]): those of the Stylist alone ([ofStylist])
-     * and the day lists ([ofDays]), asked for on [days] (today, and the Calendar's day).
-     */
-    private class EarlyReads(val lists: ListsOf, val days: Pair<LocalDate, LocalDate>, val ofStylist: Deferred<Unit>, val ofDays: Deferred<Unit>) {
-        fun cancel() {
-            ofStylist.cancel()
-            ofDays.cancel()
-        }
-    }
+    /** What the reload after the settings asks for again (see [EarlyReads]). */
+    private val earlyReloads = object : EarlyReads.Reloads {
+        override suspend fun stylistLists() = loadStylistLists()
 
-    /**
-     * The reload once the settings of the same Stylist have come ([AfterSettings.STAND], or
-     * [AfterSettings.DAYS_AGAIN] with [daysAgain]): the lists that went out with
-     * them, and what they could not have known asked for now, as it would have been then. Each of
-     * the two parts that failed is asked for again as soon as it has: the server has just
-     * answered. The day lists are asked for again under the settings' timezone when it is another
-     * one (the Client list and the Service Menu are of the Stylist alone, so those answers stand),
-     * and a day the settings moved to (midnight, or the Calendar's day Android restores) is asked
-     * for at once, with its watcher: the watcher alone would not say that it failed.
-     */
-    private suspend fun EarlyReads.reloadAfter(daysAgain: Boolean) {
-        together(
-            { if (!ofStylist.succeeded()) loadStylistLists() },
-            {
-                if (daysAgain) {
-                    ofDays.cancel()
-                    loadAppointmentLists()
-                } else {
-                    together(
-                        { if (!ofDays.succeeded()) loadAppointmentLists() },
-                        { if (today.value != days.first) together(::loadHome, ::loadTomorrow) },
-                        { if (_calendarDate.value != days.second) loadCalendarDay() },
-                    )
-                }
-            },
-        )
-    }
+        override suspend fun dayLists() = loadAppointmentLists()
 
-    /** Waits for a read that went out early: false when it failed. */
-    private suspend fun Deferred<Unit>.succeeded(): Boolean =
-        try {
-            await()
-            true
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: Exception) {
-            false
-        }
+        override suspend fun todayLists() = together(::loadHome, ::loadTomorrow)
+
+        override suspend fun calendarDay() = loadCalendarDay()
+
+        override suspend fun releases() = updates.load(api::appReleases)
+    }
 
     /**
      * When the device kept whose lists to read for [account], asks for them and for the releases
@@ -672,14 +637,19 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         // saved of that day ([showCalendarDay] saves only under the Stylist of the session): which day Android restores is
         // the settings' to say, once they have come.
         followDay()
-        loadAppReleases()
 
-        // A failure is the reload's to handle once the settings have come (see [reloadAfter]).
+        // A failure is the reload's to handle once the settings have come (see [EarlyReads.reloadAfter]).
         return EarlyReads(
             lists,
             days = today.value to _calendarDate.value,
             ofStylist = viewModelScope.async { loadStylistLists() },
             ofDays = viewModelScope.async { loadAppointmentLists() },
+            releases = viewModelScope.async {
+                var loaded = false
+
+                updates.load { api.appReleases().also { loaded = true } }
+                loaded
+            },
         )
     }
 
