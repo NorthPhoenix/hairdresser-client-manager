@@ -11,6 +11,7 @@ import com.northphoenix.hairdresserclientmanager.data.AndroidSmsGateway
 import com.northphoenix.hairdresserclientmanager.data.HcmApi
 import com.northphoenix.hairdresserclientmanager.data.SharedPreferencesAppUpdateStore
 import com.northphoenix.hairdresserclientmanager.data.SharedPreferencesCalendarConnectionStore
+import com.northphoenix.hairdresserclientmanager.data.SharedPreferencesKeptStylistStore
 import com.northphoenix.hairdresserclientmanager.data.SharedPreferencesReminderStore
 import com.northphoenix.hairdresserclientmanager.data.SignInTokens
 import com.northphoenix.hairdresserclientmanager.data.TrpcClient
@@ -52,6 +53,9 @@ class AppContainer(context: Context) {
 
     /** What this device remembers about app updates: the version whose notes were seen, and the one put off. */
     val appUpdateStore by lazy { SharedPreferencesAppUpdateStore(appContext) }
+
+    /** Whose lists to read, as the server last said for the account signed in on this device, so that a start of the app asks for them at once (see `StartingReads`). */
+    val keptStylist by lazy { SharedPreferencesKeptStylistStore(appContext) }
 
     /** Whether this install was an update of an earlier version, not a fresh one. */
     fun wasUpdatedInPlace(): Boolean = appContext.wasUpdatedInPlace()
