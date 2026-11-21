@@ -192,30 +192,33 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         _stylist.map { zoneOrSystem(it?.timezone) }.stateIn(viewModelScope, SharingStarted.Eagerly, ZoneId.systemDefault())
 
     /**
-     * At a start of the app, while the settings are on their way: whose lists went out with them,
-     * from what the device kept (see [StartingReads]). Null once the settings have come, and when
-     * nothing was kept. It is never the Stylist of the session: only the lists' keys are made from it.
+     * At a start of the app, until the settings have come: whose lists went out with them, from
+     * what the device kept (see [StartingReads]). Null once the settings are in place, and when
+     * nothing was kept; it stays while 'Try again' is on screen, which asks for these lists again.
+     * It is never the Stylist of the session: only the lists' keys are made from it.
      */
     private val earlyLists = MutableStateFlow<ListsOf?>(null)
 
     /** Whose lists the screens read, and in which timezone (see [StartingReads.listsOf]). Null: no lists. */
     private fun listsOf(): ListsOf? = StartingReads.listsOf(_stylist.value, earlyLists.value)
 
-    // Locale-independent: only used here for day boundaries. Straight from the loaded Stylist:
-    // [zone] follows a moment later, and a day worked out right after a save must be in the new timezone.
+    // Locale-independent: only used here for day boundaries. Straight from the loaded Stylist (before she has
+    // come, the timezone of [earlyLists]): [zone] follows a moment later, and a day worked out right after a save
+    // must be in the new timezone.
     private val clock: TimeFormat get() = TimeFormat(Locale.ROOT, zoneOrSystem(_stylist.value?.timezone ?: earlyLists.value?.timezone))
 
     private val listsOfFlow: Flow<ListsOf?> = combine(_stylist, earlyLists) { stylist, early -> StartingReads.listsOf(stylist, early) }.distinctUntilChanged()
 
     /**
-     * The timezone the Appointment lists are of. Null while there is no Stylist to show them to:
-     * signed out, or still in onboarding. Nothing watches the lists then.
+     * The timezone the Appointment lists are of. Null while there are no lists to show: signed
+     * out, still in onboarding, or at a start with nothing kept until the settings have come.
+     * Nothing watches the lists then.
      */
     private val listsZone: Flow<ZoneId?> = listsOfFlow.map { lists -> lists?.let { zoneOrSystem(it.timezone) } }.distinctUntilChanged()
 
     /**
      * The key of what is read of the Stylist as a whole: the Client list and the Service Menu.
-     * Null while there is no Stylist to show them to, as for [listsZone].
+     * Null while there are no lists to show, as for [listsZone].
      */
     private val listsOwner: Flow<StylistKey?> = listsOfFlow.map { lists -> lists?.let { StylistKey(it.stylistId) } }.distinctUntilChanged()
 
@@ -570,9 +573,9 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                     if (zoneOrNull(stylist.timezone) == null) {
                         notify(R.string.error_timezone_unusable, isError = true)
                     }
-                    // The settings have just been loaded: only the lists, unless they went out with the settings.
-                    if (early != null && early.lists == StartingReads.listsOf(stylist)) {
-                        refreshAll { early.listsOrAgain() }
+                    // The settings have just been loaded: only the lists, those that went out with them as far as they are hers.
+                    if (early != null && early.lists.stylistId == stylist.id) {
+                        refreshAll { early.reloadAfter(stylist) }
                     } else {
                         early?.reads?.cancel()
                         refreshAll(::loadAll)
@@ -597,12 +600,15 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     private class EarlyReads(val lists: ListsOf, val days: Pair<LocalDate, LocalDate>, val reads: Deferred<Unit>)
 
     /**
-     * Waits for the lists that went out with the settings. When one of them failed they are all
-     * asked for again, as they would have been once the settings had come: the server has just
-     * answered. So are the day lists when the settings moved today or the Calendar to another day
-     * (midnight, or the day Android restores), whose watchers alone would not say that they failed.
+     * The reload once the settings of the same Stylist have come: the lists that went out with
+     * them, with what they could not have known asked for now, as it would have been then. When
+     * one of them failed they are all asked for again: the server has just answered. The day lists
+     * are asked for again under the settings' timezone when it is another one (the Client list and
+     * the Service Menu are of the Stylist alone, so those answers stand), and a day the settings
+     * moved to (midnight, or the Calendar's day Android restores) is asked for itself: its watcher
+     * alone would not say that it failed.
      */
-    private suspend fun EarlyReads.listsOrAgain() {
+    private suspend fun EarlyReads.reloadAfter(settings: Stylist) {
         try {
             reads.await()
         } catch (error: CancellationException) {
@@ -611,8 +617,12 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             loadAll()
             return
         }
-        if (days != today.value to _calendarDate.value) {
-            loadAppointmentLists()
+        when {
+            settings.timezone != lists.timezone -> loadAppointmentLists()
+            else -> together(
+                { if (today.value != days.first) together(::loadHome, ::loadTomorrow) },
+                { if (_calendarDate.value != days.second) loadCalendarDay() },
+            )
         }
     }
 
@@ -631,8 +641,10 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         val lists = StartingReads.early(keptStylist.kept, account) ?: return null
 
         earlyLists.value = lists
-        // Today in that timezone, before the keys are made from it. Not [followDay]: the Calendar's day is the settings' to restore.
-        day.follow(clock.zone)
+        // Today in that timezone, before the keys are made from it, and a Calendar on today along with it. Nothing is
+        // saved of that day ([showCalendarDay] saves only under the Stylist of the session): which day Android restores is
+        // the settings' to say, once they have come.
+        followDay()
         loadAppReleases()
 
         // A failure is the reload's to handle once the settings have come (see [listsOrAgain]).
@@ -765,7 +777,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     private suspend fun loadAll() = together({ loadClients() }, ::loadServiceMenu, ::loadAppointmentLists, ::loadShownClientVisitDates)
 
-    /** The key of the Client list and of the Service Menu: the Stylist. Null while there is no Stylist to show them to. */
+    /** The key of the Client list and of the Service Menu: the Stylist. Null while there are no lists to show (see [listsOf]). */
     private fun ownerKey(): StylistKey? = listsOf()?.let { StylistKey(it.stylistId) }
 
     /** Asks for the Client list again. The answer goes into the cache and onto the screen; what was on screen stays when it fails. */
@@ -1127,6 +1139,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                             known = latest,
                             load = { api.bootstrap(container.appLanguage.device(), ZoneId.systemDefault().id).also { settingsLoaded = true } },
                         ) { settings -> api.saveSettings(next, settings.timezone, settings.salonAddress, settings.updatedAt) }
+                        // It may have brought a timezone saved on another device.
+                        _stylist.value?.let(::keep)
                     }
                 }
             }
