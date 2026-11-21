@@ -569,10 +569,11 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
             try {
                 val stylist = api.bootstrap(container.appLanguage.device(), ZoneId.systemDefault().id)
-                showStylist(stylist)
-                // From here on the lists are hers (see [listsOf]), and the server has her.
-                earlyLists.value = null
+                // The server has her: the reads her settings start now carry their own input alone.
                 api.stopCarryingDeviceDefaults()
+                showStylist(stylist)
+                // From here on the lists are hers (see [listsOf]).
+                earlyLists.value = null
                 if (early == null) {
                     loadAppReleases()
                 } else {
