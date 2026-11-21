@@ -80,6 +80,8 @@ The age counts from the answer. Every key that is shown is asked again anyway, s
 
 So the view model keeps the Stylist of the session as before. It is the session's state, which the keys of the reads are made from, and it is emptied with them at sign-out.
 
+The device keeps one thing of it between starts: the Stylist as the server last sent her, with the sign-in account she came for (`StartingReads`, `KeptStylistStore`). It is not a cached read and not a setting of the device (ADR 0009). A start of the app puts her in place only so that the lists' keys can be made, and asks for the lists and the releases together with `stylist.bootstrap` instead of after it; after a pause the server is cold and each round trip takes a second or more. The app still shows nothing until `stylist.bootstrap` has answered, and nothing is saved from what was kept. When the answer has the same Stylist, onboarded, in the same timezone, the lists already on their way are the reload (those that failed are asked again); otherwise the lists are asked for under the answer's keys, as when nothing was kept, and what went out early is never shown. Another account, a Stylist still in onboarding, or nothing kept starts as before. It is written from each answer of `stylist.bootstrap` and deleted at sign-out.
+
 ## Consequences
 
 - Right after a change, a cached day that held what changed shows a loading state once, and so do a Client's history and a copy sheet after any change. This is deliberate: the alternative is to show something known to be possibly wrong.
