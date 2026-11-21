@@ -419,6 +419,19 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     private var calendarJob: Job? = null
 
+    /** What the reload after the settings asks for again (see [EarlyReads]). Above `init`, which can start [loadStylist]. */
+    private val earlyReloads = object : EarlyReads.Reloads {
+        override suspend fun stylistLists() = loadStylistLists()
+
+        override suspend fun dayLists() = loadAppointmentLists()
+
+        override suspend fun todayLists() = together(::loadHome, ::loadTomorrow)
+
+        override suspend fun calendarDay() = loadCalendarDay()
+
+        override suspend fun releases() = updates.load(api::appReleases)
+    }
+
     init {
         viewModelScope.launch(Dispatchers.IO) { captures.deleteStale() }
         // The calendar is of the Stylist signed in now, and her timezone and language are in its events.
@@ -600,19 +613,6 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                 message?.let { _bootstrap.value = BootstrapState.Failed(it) }
             }
         }
-    }
-
-    /** What the reload after the settings asks for again (see [EarlyReads]). */
-    private val earlyReloads = object : EarlyReads.Reloads {
-        override suspend fun stylistLists() = loadStylistLists()
-
-        override suspend fun dayLists() = loadAppointmentLists()
-
-        override suspend fun todayLists() = together(::loadHome, ::loadTomorrow)
-
-        override suspend fun calendarDay() = loadCalendarDay()
-
-        override suspend fun releases() = updates.load(api::appReleases)
     }
 
     /**
