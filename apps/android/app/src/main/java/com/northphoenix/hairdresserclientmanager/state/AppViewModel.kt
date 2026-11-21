@@ -634,7 +634,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      * have answered, as always.
      */
     private fun startReadsEarly(account: String?): EarlyReads? {
-        // The settings are already in place ('Try again' never finds them, but nothing is to be guessed then).
+        // The settings are in place already: there is nothing to go by but them.
         if (_stylist.value != null) {
             return null
         }
@@ -647,7 +647,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         followDay()
         loadAppReleases()
 
-        // A failure is the reload's to handle once the settings have come (see [listsOrAgain]).
+        // A failure is the reload's to handle once the settings have come (see [reloadAfter]).
         return EarlyReads(lists, today.value to _calendarDate.value, viewModelScope.async { loadAll() })
     }
 
