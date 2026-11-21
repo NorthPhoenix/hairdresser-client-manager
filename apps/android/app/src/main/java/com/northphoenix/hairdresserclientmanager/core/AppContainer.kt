@@ -54,7 +54,7 @@ class AppContainer(context: Context) {
     /** What this device remembers about app updates: the version whose notes were seen, and the one put off. */
     val appUpdateStore by lazy { SharedPreferencesAppUpdateStore(appContext) }
 
-    /** The Stylist the server last sent for the account signed in on this device, so that a start of the app asks for her lists at once (see `StartingReads`). */
+    /** Whose lists to read, as the server last said for the account signed in on this device, so that a start of the app asks for them at once (see `StartingReads`). */
     val keptStylist by lazy { SharedPreferencesKeptStylistStore(appContext) }
 
     /** Whether this install was an update of an earlier version, not a fresh one. */
