@@ -78,10 +78,12 @@ import java.time.ZoneId
 import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -156,6 +158,9 @@ sealed interface BootstrapState {
  */
 class AppViewModel(private val container: AppContainer, val auth: AuthGateway, savedState: SavedStateHandle) : ViewModel() {
     private val api = container.api
+
+    /** The Stylist the server last sent for the signed-in account, which a start of the app asks for the lists of (see [StartingReads]). */
+    private val keptStylist: KeptStylistStore = container.keptStylist
 
     /** Client Reminders sent from the phone, and which Appointments were reminded (kept on this device only). */
     val reminders: ReminderOutbox get() = container.reminders
@@ -523,15 +528,24 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     // --- loading ---
 
-    /** Resolves (or lazily creates) the Stylist for the signed-in user, then loads their data. */
+    /**
+     * Resolves (or lazily creates) the Stylist for the signed-in user, then loads their data. When
+     * the device kept that Stylist from last time, her lists are asked for together with her
+     * settings (see [StartingReads]).
+     */
     fun loadStylist() {
         viewModelScope.launch {
             _bootstrap.value = BootstrapState.Loading
+            val account = signedInAccount()
+            val early = startReadsEarly(account)
 
             try {
                 val stylist = api.bootstrap(container.appLanguage.device(), ZoneId.systemDefault().id)
+                keep(account, stylist)
                 showStylist(stylist)
-                loadAppReleases()
+                if (early == null) {
+                    loadAppReleases()
+                }
                 // What was still on its way when the app was last closed goes on.
                 photos.open(stylist.id)
                 // The day that was selected when Android killed the app in the background, today otherwise.
@@ -544,10 +558,18 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                     if (zoneOrNull(stylist.timezone) == null) {
                         notify(R.string.error_timezone_unusable, isError = true)
                     }
-                    // The settings have just been loaded: only the lists.
-                    refreshAll(::loadAll)
+                    // The settings have just been loaded: only the lists, unless they went out with the settings.
+                    if (early != null && StartingReads.sameLists(early.stylist, stylist)) {
+                        refreshAll { early.listsOrAgain() }
+                    } else {
+                        early?.lists?.cancel()
+                        refreshAll(::loadAll)
+                    }
+                } else {
+                    early?.lists?.cancel()
                 }
             } catch (error: CancellationException) {
+                early?.lists?.cancel()
                 throw error
             } catch (error: Exception) {
                 val failure = error.toApiException()
@@ -556,6 +578,55 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
                 message?.let { _bootstrap.value = BootstrapState.Failed(it) }
             }
+        }
+    }
+
+    /** The lists asked for with the settings, and the Stylist they were asked for as. */
+    private class EarlyReads(val stylist: Stylist, val lists: Deferred<Unit>)
+
+    /**
+     * Waits for the lists that went out with the settings. Those that failed are asked for again,
+     * as they would have been once the settings had come: the server has just answered.
+     */
+    private suspend fun EarlyReads.listsOrAgain() {
+        try {
+            lists.await()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            loadAll()
+        }
+    }
+
+    /**
+     * When the device kept the Stylist of [account] from last time, puts her in place for the
+     * lists' keys and asks for the lists and the releases now, while her settings are on their way.
+     * The app shows nothing of her until those have come (`BootstrapState.Loading`). Null when there
+     * is nothing to ask for yet: the lists then go out once the settings have answered, as always.
+     */
+    private fun startReadsEarly(account: String?): EarlyReads? {
+        val stylist = StartingReads.early(keptStylist.kept, account) ?: return null
+
+        // Signed in just now, or 'Try again' after the settings failed with these lists asked for.
+        if (_stylist.value != null && _stylist.value != stylist) {
+            return null
+        }
+        _stylist.value = stylist
+        // Today in her timezone, before the lists' keys are made from it.
+        followDay()
+        loadAppReleases()
+
+        // A failure is the reload's to handle once the settings have come (see [listsOrAgain]).
+        return EarlyReads(stylist, viewModelScope.async { loadAll() })
+    }
+
+    /** Who is signed in now; null for nobody. */
+    private fun signedInAccount(): String? = (authState.value as? AuthState.SignedIn)?.userId
+
+    /** Keeps [stylist] on the device for [account], the account she was asked for, while it is still the one signed in (see [StartingReads]). */
+    private fun keep(account: String?, stylist: Stylist) {
+        if (account != null && account == signedInAccount()) {
+            keptStylist.kept = KeptStylist(account, stylist)
         }
     }
 
@@ -583,10 +654,12 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      * device has overtaken is dropped (see [SettingsRequests]).
      */
     private suspend fun refreshSettings() {
+        val account = signedInAccount()
         val loaded = settingsRequests.fetch { api.bootstrap(container.appLanguage.device(), ZoneId.systemDefault().id) } ?: return
 
         // Not for a Stylist who has signed out in the meantime.
         if (_stylist.value?.id == loaded.id) {
+            keep(account, loaded)
             showStylist(loaded)
         }
     }
@@ -1134,11 +1207,13 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      * The Stylist has signed out, as they asked: the pictures of their Clients that the app kept on
      * this device are deleted. Those are the photos still on their way to the server, what the
      * camera left, the Share Image that was handed to another app, and the image loader's copies of
-     * the photos it has shown. Appointment Photos live in photo storage and nowhere else.
+     * the photos it has shown. Appointment Photos live in photo storage and nowhere else. The
+     * Stylist the device kept for the next start goes too.
      * A session that ended on its own deletes nothing: that Stylist is expected back.
      */
     private fun forgetDevice() {
         photos.forget()
+        keptStylist.kept = null
         viewModelScope.launch {
             // Also when the app is going away.
             withContext(NonCancellable + Dispatchers.IO) {
