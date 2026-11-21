@@ -78,10 +78,12 @@ import java.time.ZoneId
 import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -157,6 +159,9 @@ sealed interface BootstrapState {
 class AppViewModel(private val container: AppContainer, val auth: AuthGateway, savedState: SavedStateHandle) : ViewModel() {
     private val api = container.api
 
+    /** Whose lists a start of the app asks for together with the settings (see [StartingReads]). */
+    private val keptStylist: KeptStylistStore = container.keptStylist
+
     /** Client Reminders sent from the phone, and which Appointments were reminded (kept on this device only). */
     val reminders: ReminderOutbox get() = container.reminders
 
@@ -186,22 +191,36 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     val zone: StateFlow<ZoneId> =
         _stylist.map { zoneOrSystem(it?.timezone) }.stateIn(viewModelScope, SharingStarted.Eagerly, ZoneId.systemDefault())
 
-    // Locale-independent: only used here for day boundaries. Straight from the loaded Stylist:
-    // [zone] follows a moment later, and a day worked out right after a save must be in the new timezone.
-    private val clock: TimeFormat get() = TimeFormat(Locale.ROOT, zoneOrSystem(_stylist.value?.timezone))
+    /**
+     * At a start of the app, until the settings have come: whose lists went out with them, from
+     * what the device kept (see [StartingReads]). Null once the settings are in place, and when
+     * nothing was kept; it stays while 'Try again' is on screen, which asks for these lists again.
+     * It is never the Stylist of the session: only the lists' keys are made from it.
+     */
+    private val earlyLists = MutableStateFlow<ListsOf?>(null)
+
+    /** Whose lists the screens read, and in which timezone (see [StartingReads.listsOf]). Null: no lists. */
+    private fun listsOf(): ListsOf? = StartingReads.listsOf(_stylist.value, earlyLists.value)
+
+    // Locale-independent: only used here for day boundaries. Straight from the loaded Stylist (before she has
+    // come, the timezone of [earlyLists]): [zone] follows a moment later, and a day worked out right after a save
+    // must be in the new timezone.
+    private val clock: TimeFormat get() = TimeFormat(Locale.ROOT, zoneOrSystem(_stylist.value?.timezone ?: earlyLists.value?.timezone))
+
+    private val listsOfFlow: Flow<ListsOf?> = combine(_stylist, earlyLists) { stylist, early -> StartingReads.listsOf(stylist, early) }.distinctUntilChanged()
 
     /**
-     * The timezone the Appointment lists are of. Null while there is no Stylist to show them to:
-     * signed out, or still in onboarding. Nothing watches the lists then.
+     * The timezone the Appointment lists are of. Null while there are no lists to show: signed
+     * out, still in onboarding, or at a start with nothing kept until the settings have come.
+     * Nothing watches the lists then.
      */
-    private val listsZone: Flow<ZoneId?> =
-        _stylist.map { stylist -> stylist?.takeIf { it.onboardingComplete }?.let { zoneOrSystem(it.timezone) } }.distinctUntilChanged()
+    private val listsZone: Flow<ZoneId?> = listsOfFlow.map { lists -> lists?.let { zoneOrSystem(it.timezone) } }.distinctUntilChanged()
 
     /**
      * The key of what is read of the Stylist as a whole: the Client list and the Service Menu.
-     * Null while there is no Stylist to show them to, as for [listsZone].
+     * Null while there are no lists to show, as for [listsZone].
      */
-    private val listsOwner: Flow<StylistKey?> = _stylist.map { ownerKey(it) }.distinctUntilChanged()
+    private val listsOwner: Flow<StylistKey?> = listsOfFlow.map { lists -> lists?.let { StylistKey(it.stylistId) } }.distinctUntilChanged()
 
     private val day = StylistDay()
 
@@ -400,6 +419,19 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     private var calendarJob: Job? = null
 
+    /** What the reload after the settings asks for again (see [EarlyReads]). Above `init`, which can start [loadStylist]. */
+    private val earlyReloads = object : EarlyReads.Reloads {
+        override suspend fun stylistLists() = loadStylistLists()
+
+        override suspend fun dayLists() = loadAppointmentLists()
+
+        override suspend fun todayLists() = together(::loadHome, ::loadTomorrow)
+
+        override suspend fun calendarDay() = loadCalendarDay()
+
+        override suspend fun releases() = updates.load(api::appReleases)
+    }
+
     init {
         viewModelScope.launch(Dispatchers.IO) { captures.deleteStale() }
         // The calendar is of the Stylist signed in now, and her timezone and language are in its events.
@@ -509,6 +541,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         calendarJob?.cancel()
         // Without a Stylist nothing here watches the reads any more (see [listsZone] and [listsOwner]): the lists are loading again.
         _stylist.value = null
+        earlyLists.value = null
+        api.stopCarryingDeviceDefaults()
         _bootstrap.value = BootstrapState.Loading
         // In this order: from here on no answer of the previous Stylist is shown or cached, also one that is still on its way.
         readChanges.startOver()
@@ -523,15 +557,28 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     // --- loading ---
 
-    /** Resolves (or lazily creates) the Stylist for the signed-in user, then loads their data. */
+    /**
+     * Resolves (or lazily creates) the Stylist for the signed-in user, then loads their data. When
+     * the device kept that Stylist from last time, her lists are asked for together with her
+     * settings (see [StartingReads]).
+     */
     fun loadStylist() {
         viewModelScope.launch {
             _bootstrap.value = BootstrapState.Loading
+            val early = startReadsEarly(signedInAccount())
 
             try {
                 val stylist = api.bootstrap(container.appLanguage.device(), ZoneId.systemDefault().id)
+                // The server has her: the reads her settings start now carry their own input alone.
+                api.stopCarryingDeviceDefaults()
                 showStylist(stylist)
-                loadAppReleases()
+                // From here on the lists are hers (see [listsOf]).
+                earlyLists.value = null
+                if (early == null) {
+                    loadAppReleases()
+                } else {
+                    viewModelScope.launch { early.releasesAgain(earlyReloads) }
+                }
                 // What was still on its way when the app was last closed goes on.
                 photos.open(stylist.id)
                 // The day that was selected when Android killed the app in the background, today otherwise.
@@ -544,10 +591,20 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                     if (zoneOrNull(stylist.timezone) == null) {
                         notify(R.string.error_timezone_unusable, isError = true)
                     }
-                    // The settings have just been loaded: only the lists.
-                    refreshAll(::loadAll)
+                    // The settings have just been loaded: only the lists, those that went out with them as far as they stand.
+                    val after = early?.let { StartingReads.afterSettings(it.lists, stylist) }
+
+                    if (early != null && (after == AfterSettings.STAND || after == AfterSettings.DAYS_AGAIN)) {
+                        refreshAll { early.reloadAfter(daysAgain = after == AfterSettings.DAYS_AGAIN, now = today.value to _calendarDate.value, earlyReloads) }
+                    } else {
+                        early?.cancelLists()
+                        refreshAll(::loadAll)
+                    }
+                } else {
+                    early?.cancelLists()
                 }
             } catch (error: CancellationException) {
+                early?.cancelLists()
                 throw error
             } catch (error: Exception) {
                 val failure = error.toApiException()
@@ -556,6 +613,57 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
                 message?.let { _bootstrap.value = BootstrapState.Failed(it) }
             }
+        }
+    }
+
+    /**
+     * When the device kept whose lists to read for [account], asks for them and for the releases
+     * now, while the settings are on their way (see [StartingReads]). The app shows nothing until
+     * those have come (`BootstrapState.Loading`), and nothing but the lists' keys is made from what
+     * was kept. Null when there is nothing to ask for yet: the lists then go out once the settings
+     * have answered, as always.
+     */
+    private fun startReadsEarly(account: String?): EarlyReads? {
+        // The settings are in place already: there is nothing to go by but them.
+        if (_stylist.value != null) {
+            return null
+        }
+        val lists = StartingReads.early(keptStylist.kept, account) ?: return null
+
+        earlyLists.value = lists
+        // Any of these reads can reach the server before the settings: should the server not have the Stylist (any more),
+        // the first creates her as the settings would, from the device's language and timezone. Until the settings have come.
+        api.carryDeviceDefaults(container.appLanguage.device(), ZoneId.systemDefault().id)
+        // Today in that timezone, before the keys are made from it, and a Calendar on today along with it. Nothing is
+        // saved of that day ([showCalendarDay] saves only under the Stylist of the session): which day Android restores is
+        // the settings' to say, once they have come.
+        followDay()
+
+        // A failure is the reload's to handle once the settings have come (see [EarlyReads.reloadAfter]).
+        return EarlyReads(
+            lists,
+            days = today.value to _calendarDate.value,
+            ofStylist = viewModelScope.async { loadStylistLists() },
+            ofDays = viewModelScope.async { loadAppointmentLists() },
+            releases = viewModelScope.async {
+                var loaded = false
+
+                updates.load { api.appReleases().also { loaded = true } }
+                loaded
+            },
+        )
+    }
+
+    /** Who is signed in now; null for nobody. */
+    private fun signedInAccount(): String? = (authState.value as? AuthState.SignedIn)?.userId
+
+    /** Keeps whose lists [stylist]'s are on the device, for the account signed in now (see [StartingReads]). */
+    private fun keep(stylist: Stylist) {
+        val kept = StartingReads.toKeep(signedInAccount() ?: return, stylist)
+
+        // Every return to the app fetches the settings again, nearly always the same.
+        if (keptStylist.kept != kept) {
+            keptStylist.kept = kept
         }
     }
 
@@ -573,6 +681,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     /** Puts a Stylist the server has just sent in place, and the app in that Stylist's language. */
     private fun showStylist(stylist: Stylist) {
         _stylist.value = stylist
+        keep(stylist)
         followLanguage()
     }
 
@@ -669,12 +778,13 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      */
     private suspend fun loadEverything() = withSettings({ clock.zone }, ::refreshSettings, ::loadAll, ::loadAppointmentLists)
 
-    private suspend fun loadAll() = together({ loadClients() }, ::loadServiceMenu, ::loadAppointmentLists, ::loadShownClientVisitDates)
+    private suspend fun loadAll() = together(::loadStylistLists, ::loadAppointmentLists)
 
-    /** The key of the Client list and of the Service Menu: the Stylist. Null while there is no Stylist to show them to. */
-    private fun ownerKey(): StylistKey? = ownerKey(_stylist.value)
+    /** The lists that are of the Stylist alone, whatever the day or the timezone: the Client list (with its visit dates) and the Service Menu. */
+    private suspend fun loadStylistLists() = together({ loadClients() }, ::loadServiceMenu, ::loadShownClientVisitDates)
 
-    private fun ownerKey(stylist: Stylist?): StylistKey? = stylist?.takeIf { it.onboardingComplete }?.let { StylistKey(it.id) }
+    /** The key of the Client list and of the Service Menu: the Stylist. Null while there are no lists to show (see [listsOf]). */
+    private fun ownerKey(): StylistKey? = listsOf()?.let { StylistKey(it.stylistId) }
 
     /** Asks for the Client list again. The answer goes into the cache and onto the screen; what was on screen stays when it fails. */
     private suspend fun loadClients(): Read<List<ClientProfile>> = ownerKey()?.let { clientReads.list.refresh(it) } ?: Read()
@@ -715,7 +825,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     /** The key of the day in [calendarDate]. */
     private fun calendarKey(): DayKey? = listsDay(_calendarDate.value)
 
-    private fun listsDay(day: LocalDate): DayKey? = _stylist.value?.takeIf { it.onboardingComplete }?.let { DayKey(day, zoneOrSystem(it.timezone)) }
+    private fun listsDay(day: LocalDate): DayKey? = listsOf()?.let { DayKey(day, zoneOrSystem(it.timezone)) }
 
     private fun dayRange(key: DayKey): Pair<Instant, Instant> = TimeFormat(Locale.ROOT, key.zone).dayRange(key.day)
 
@@ -879,7 +989,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      * picker, so that a month the screen under it has loaded is marked from the start.
      */
     fun shownMonthAppointments(month: YearMonth): Read<List<Appointment>> =
-        _stylist.value?.takeIf { it.onboardingComplete }?.let { appointmentReads.months.now(MonthKey(month, zoneOrSystem(it.timezone))) } ?: Read()
+        listsOf()?.let { appointmentReads.months.now(MonthKey(month, zoneOrSystem(it.timezone))) } ?: Read()
 
     /** Makes [date] the Calendar's day. It is another key to read (see [calendarKey]): what is on its way for the day before is not shown. */
     private fun showCalendarDay(date: LocalDate) {
@@ -1035,6 +1145,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                             known = latest,
                             load = { api.bootstrap(container.appLanguage.device(), ZoneId.systemDefault().id).also { settingsLoaded = true } },
                         ) { settings -> api.saveSettings(next, settings.timezone, settings.salonAddress, settings.updatedAt) }
+                        // It may have brought a timezone saved on another device.
+                        _stylist.value?.let(::keep)
                     }
                 }
             }
@@ -1134,11 +1246,13 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      * The Stylist has signed out, as they asked: the pictures of their Clients that the app kept on
      * this device are deleted. Those are the photos still on their way to the server, what the
      * camera left, the Share Image that was handed to another app, and the image loader's copies of
-     * the photos it has shown. Appointment Photos live in photo storage and nowhere else.
+     * the photos it has shown. Appointment Photos live in photo storage and nowhere else. Whose
+     * lists the next start would ask for goes too.
      * A session that ended on its own deletes nothing: that Stylist is expected back.
      */
     private fun forgetDevice() {
         photos.forget()
+        keptStylist.kept = null
         viewModelScope.launch {
             // Also when the app is going away.
             withContext(NonCancellable + Dispatchers.IO) {
