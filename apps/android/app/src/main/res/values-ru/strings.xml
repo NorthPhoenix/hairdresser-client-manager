@@ -78,10 +78,10 @@
     <string name="appointment_service_name_label">Услуга</string>
     <string name="appointment_service_note_label">Заметка к услуге</string>
     <string name="appointment_service_price_label">Цена</string>
-    <string name="appointment_service_variant_label">Вариант</string>
     <string name="appointment_service_saved">Услуга добавлена.</string>
     <string name="appointment_service_total">Сумма услуг</string>
     <string name="appointment_service_updated">Услуга сохранена.</string>
+    <string name="appointment_service_variant_label">Вариант</string>
     <string name="appointment_services_added">Добавлено услуг: %1$d.</string>
     <string name="appointment_services_title">Услуги</string>
     <string name="appointment_start_label">Начало</string>

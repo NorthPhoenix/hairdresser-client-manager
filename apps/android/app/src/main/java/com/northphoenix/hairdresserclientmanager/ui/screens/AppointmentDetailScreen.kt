@@ -1670,8 +1670,8 @@ private fun RowScope.UploadTile(upload: PhotoUpload, tagStyle: TextStyle, onOpen
  * saved together, as the form shows them. Its Client and its Color Formulas are not part of it.
  * [variants] are the items of its menu item's group (see [MenuPicker.variants]): a chip each, the
  * Service's own picked, and a tap on another puts that item's name and default price into the
- * form (on its own, the Service's own name and price again); the save then switches the Service to
- * the one picked, and it keeps its note and Color Formulas.
+ * form (on its own, the Service's own name and price again; on the chip picked already, nothing);
+ * the save then switches the Service to the one picked, and it keeps its note and Color Formulas.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -1705,10 +1705,13 @@ private fun EditServiceSheet(
                             selected = item.id == itemId,
                             wraps = true,
                             onClick = {
-                                itemId = item.id
-                                ServiceEdit.picked(item, service).let { (pickedName, pickedPrice) ->
-                                    name = pickedName
-                                    price = pickedPrice
+                                // The chip picked already keeps what was typed since.
+                                if (item.id != itemId) {
+                                    itemId = item.id
+                                    ServiceEdit.picked(item, service).let { (pickedName, pickedPrice) ->
+                                        name = pickedName
+                                        price = pickedPrice
+                                    }
                                 }
                             },
                         )
