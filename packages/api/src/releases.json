@@ -377,5 +377,18 @@
         "When the server is slow to answer, as after a break, the lists refresh about a second sooner"
       ]
     }
+  },
+  {
+    "versionCode": 28,
+    "versionName": "1.26.0",
+    "date": "2026-11-20",
+    "notes": {
+      "ru": [
+        "Когда приложение открывается после перерыва, главный экран с записями появляется примерно на секунду быстрее"
+      ],
+      "en": [
+        "When the app opens after a break, Home with its Appointments appears about a second sooner"
+      ]
+    }
   }
 ]
