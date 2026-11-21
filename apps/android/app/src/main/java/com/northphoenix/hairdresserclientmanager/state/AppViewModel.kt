@@ -529,6 +529,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         // Without a Stylist nothing here watches the reads any more (see [listsZone] and [listsOwner]): the lists are loading again.
         _stylist.value = null
         earlyLists.value = null
+        api.stopCarryingDeviceDefaults()
         _bootstrap.value = BootstrapState.Loading
         // In this order: from here on no answer of the previous Stylist is shown or cached, also one that is still on its way.
         readChanges.startOver()
@@ -556,8 +557,9 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             try {
                 val stylist = api.bootstrap(container.appLanguage.device(), ZoneId.systemDefault().id)
                 showStylist(stylist)
-                // From here on the lists are hers (see [listsOf]).
+                // From here on the lists are hers (see [listsOf]), and the server has her.
                 earlyLists.value = null
+                api.stopCarryingDeviceDefaults()
                 if (early == null) {
                     loadAppReleases()
                 }
@@ -573,18 +575,20 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                     if (zoneOrNull(stylist.timezone) == null) {
                         notify(R.string.error_timezone_unusable, isError = true)
                     }
-                    // The settings have just been loaded: only the lists, those that went out with them as far as they are hers.
-                    if (early != null && early.lists.stylistId == stylist.id) {
-                        refreshAll { early.reloadAfter(stylist) }
+                    // The settings have just been loaded: only the lists, those that went out with them as far as they stand.
+                    val after = early?.let { StartingReads.afterSettings(it.lists, stylist) }
+
+                    if (early != null && (after == AfterSettings.STAND || after == AfterSettings.DAYS_AGAIN)) {
+                        refreshAll { early.reloadAfter(daysAgain = after == AfterSettings.DAYS_AGAIN) }
                     } else {
-                        early?.reads?.cancel()
+                        early?.cancel()
                         refreshAll(::loadAll)
                     }
                 } else {
-                    early?.reads?.cancel()
+                    early?.cancel()
                 }
             } catch (error: CancellationException) {
-                early?.reads?.cancel()
+                early?.cancel()
                 throw error
             } catch (error: Exception) {
                 val failure = error.toApiException()
@@ -596,35 +600,55 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         }
     }
 
-    /** The lists that went out with the settings ([lists]), and the days they were asked for: today and the Calendar's. */
-    private class EarlyReads(val lists: ListsOf, val days: Pair<LocalDate, LocalDate>, val reads: Deferred<Unit>)
+    /**
+     * The lists that went out with the settings ([lists]): those of the Stylist alone ([ofStylist])
+     * and the day lists ([ofDays]), asked for on [days] (today, and the Calendar's day).
+     */
+    private class EarlyReads(val lists: ListsOf, val days: Pair<LocalDate, LocalDate>, val ofStylist: Deferred<Unit>, val ofDays: Deferred<Unit>) {
+        fun cancel() {
+            ofStylist.cancel()
+            ofDays.cancel()
+        }
+    }
 
     /**
-     * The reload once the settings of the same Stylist have come: the lists that went out with
-     * them, with what they could not have known asked for now, as it would have been then. When
-     * one of them failed they are all asked for again: the server has just answered. The day lists
-     * are asked for again under the settings' timezone when it is another one (the Client list and
-     * the Service Menu are of the Stylist alone, so those answers stand), and a day the settings
-     * moved to (midnight, or the Calendar's day Android restores) is asked for itself: its watcher
-     * alone would not say that it failed.
+     * The reload once the settings of the same Stylist have come ([AfterSettings.STAND], or
+     * [AfterSettings.DAYS_AGAIN] with [daysAgain]): the lists that went out with
+     * them, and what they could not have known asked for now, as it would have been then. Each of
+     * the two parts that failed is asked for again as soon as it has: the server has just
+     * answered. The day lists are asked for again under the settings' timezone when it is another
+     * one (the Client list and the Service Menu are of the Stylist alone, so those answers stand),
+     * and a day the settings moved to (midnight, or the Calendar's day Android restores) is asked
+     * for at once, with its watcher: the watcher alone would not say that it failed.
      */
-    private suspend fun EarlyReads.reloadAfter(settings: Stylist) {
+    private suspend fun EarlyReads.reloadAfter(daysAgain: Boolean) {
+        together(
+            { if (!ofStylist.succeeded()) loadStylistLists() },
+            {
+                if (daysAgain) {
+                    ofDays.cancel()
+                    loadAppointmentLists()
+                } else {
+                    together(
+                        { if (!ofDays.succeeded()) loadAppointmentLists() },
+                        { if (today.value != days.first) together(::loadHome, ::loadTomorrow) },
+                        { if (_calendarDate.value != days.second) loadCalendarDay() },
+                    )
+                }
+            },
+        )
+    }
+
+    /** Waits for a read that went out early: false when it failed. */
+    private suspend fun Deferred<Unit>.succeeded(): Boolean =
         try {
-            reads.await()
+            await()
+            true
         } catch (error: CancellationException) {
             throw error
         } catch (_: Exception) {
-            loadAll()
-            return
+            false
         }
-        when {
-            settings.timezone != lists.timezone -> loadAppointmentLists()
-            else -> together(
-                { if (today.value != days.first) together(::loadHome, ::loadTomorrow) },
-                { if (_calendarDate.value != days.second) loadCalendarDay() },
-            )
-        }
-    }
 
     /**
      * When the device kept whose lists to read for [account], asks for them and for the releases
@@ -641,6 +665,9 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         val lists = StartingReads.early(keptStylist.kept, account) ?: return null
 
         earlyLists.value = lists
+        // Any of these reads can reach the server before the settings: should the server not have the Stylist (any more),
+        // the first creates her as the settings would, from the device's language and timezone. Until the settings have come.
+        api.carryDeviceDefaults(container.appLanguage.device(), ZoneId.systemDefault().id)
         // Today in that timezone, before the keys are made from it, and a Calendar on today along with it. Nothing is
         // saved of that day ([showCalendarDay] saves only under the Stylist of the session): which day Android restores is
         // the settings' to say, once they have come.
@@ -648,7 +675,12 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         loadAppReleases()
 
         // A failure is the reload's to handle once the settings have come (see [reloadAfter]).
-        return EarlyReads(lists, today.value to _calendarDate.value, viewModelScope.async { loadAll() })
+        return EarlyReads(
+            lists,
+            days = today.value to _calendarDate.value,
+            ofStylist = viewModelScope.async { loadStylistLists() },
+            ofDays = viewModelScope.async { loadAppointmentLists() },
+        )
     }
 
     /** Who is signed in now; null for nobody. */
@@ -775,7 +807,10 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      */
     private suspend fun loadEverything() = withSettings({ clock.zone }, ::refreshSettings, ::loadAll, ::loadAppointmentLists)
 
-    private suspend fun loadAll() = together({ loadClients() }, ::loadServiceMenu, ::loadAppointmentLists, ::loadShownClientVisitDates)
+    private suspend fun loadAll() = together(::loadStylistLists, ::loadAppointmentLists)
+
+    /** The lists that are of the Stylist alone, whatever the day or the timezone: the Client list (with its visit dates) and the Service Menu. */
+    private suspend fun loadStylistLists() = together({ loadClients() }, ::loadServiceMenu, ::loadShownClientVisitDates)
 
     /** The key of the Client list and of the Service Menu: the Stylist. Null while there are no lists to show (see [listsOf]). */
     private fun ownerKey(): StylistKey? = listsOf()?.let { StylistKey(it.stylistId) }

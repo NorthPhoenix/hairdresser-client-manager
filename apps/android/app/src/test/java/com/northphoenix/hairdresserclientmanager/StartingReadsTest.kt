@@ -3,11 +3,11 @@ package com.northphoenix.hairdresserclientmanager
 import com.northphoenix.hairdresserclientmanager.data.KeptStylists
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.Stylist
+import com.northphoenix.hairdresserclientmanager.state.AfterSettings
 import com.northphoenix.hairdresserclientmanager.state.KeptStylist
 import com.northphoenix.hairdresserclientmanager.state.ListsOf
 import com.northphoenix.hairdresserclientmanager.state.StartingReads
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -61,10 +61,19 @@ class StartingReadsTest {
     }
 
     @Test
-    fun theEarlyListsAreTheSettingsListsOnlyForTheSameStylistInTheSameTimezone() {
-        assertEquals(hers, StartingReads.listsOf(onboarded.copy(language = Language.EN, salonAddress = "2 Oak Ave")))
-        assertNotEquals(hers, StartingReads.listsOf(onboarded.copy(timezone = "America/New_York")))
-        assertNotEquals(hers, StartingReads.listsOf(onboarded.copy(id = "stylist-2")))
+    fun theEarlyListsStandForTheSameStylistInTheSameTimezoneWhateverElseChanged() {
+        assertEquals(AfterSettings.STAND, StartingReads.afterSettings(hers, onboarded))
+        assertEquals(AfterSettings.STAND, StartingReads.afterSettings(hers, onboarded.copy(language = Language.EN, salonAddress = "2 Oak Ave", updatedAt = null)))
+    }
+
+    @Test
+    fun anotherTimezoneAsksForTheDayListsAgainAndAnotherStylistForAll() {
+        assertEquals(AfterSettings.DAYS_AGAIN, StartingReads.afterSettings(hers, onboarded.copy(timezone = "America/New_York")))
+        assertEquals(AfterSettings.ALL_AGAIN, StartingReads.afterSettings(hers, onboarded.copy(id = "stylist-2")))
+        // Another Stylist in another timezone: all of them.
+        assertEquals(AfterSettings.ALL_AGAIN, StartingReads.afterSettings(hers, onboarded.copy(id = "stylist-2", timezone = "America/New_York")))
+        // Onboarding again (a Stylist made anew): there are no lists.
+        assertEquals(AfterSettings.NO_LISTS, StartingReads.afterSettings(hers, onboarded.copy(id = "stylist-2", onboardingCompletedAt = null)))
     }
 
     @Test

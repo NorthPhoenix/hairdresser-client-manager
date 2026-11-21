@@ -163,6 +163,50 @@ class ApiClientTest {
         assertEquals(5, server.requestCount)
     }
 
+    @Test
+    fun `while a start carries the device's defaults, every query carries them with its own input`() = runTest {
+        // ADR 0011: whichever call reaches the server first creates a Stylist it does not have, from the defaults that call carries.
+        api.carryDeviceDefaults(Language.EN, "America/Chicago")
+
+        enqueue("""{"result":{"data":[]}}""")
+        api.homeAppointments(Instant.parse("2026-11-20T06:00:00Z"), Instant.parse("2026-11-21T06:00:00Z"))
+        assertEquals(
+            """{"deviceLanguage":"en","deviceTimezone":"America/Chicago","start":"2026-11-20T06:00:00Z","end":"2026-11-21T06:00:00Z"}""",
+            server.takeRequest().url.queryParameter("input"),
+        )
+        // A query without an input of its own sends them alone.
+        enqueue("""{"result":{"data":[]}}""")
+        api.clientVisitDates()
+        assertEquals("""{"deviceLanguage":"en","deviceTimezone":"America/Chicago"}""", server.takeRequest().url.queryParameter("input"))
+
+        // stylist.bootstrap names its own, also when it asks again without a timezone the server refused: none are added.
+        val refused = """{"error":{"message":"[{\"code\":\"custom\",\"path\":[\"deviceTimezone\"],\"message\":\"Timezone is not valid.\"}]","code":-32600,"data":{"code":"BAD_REQUEST","httpStatus":400,"path":"stylist.bootstrap"}}}"""
+        enqueue(refused, code = 400)
+        enqueue("""{"result":{"data":{"id":"s1","language":"ru","timezone":"UTC","salonAddress":""}}}""")
+        api.bootstrap(Language.RU, "GMT+03:00")
+        assertEquals("""{"deviceLanguage":"ru","deviceTimezone":"GMT+03:00"}""", server.takeRequest().url.queryParameter("input"))
+        assertEquals("""{"deviceLanguage":"ru"}""", server.takeRequest().url.queryParameter("input"))
+
+        // A change carries none.
+        enqueue("""{"result":{"data":{"id":"s1","language":"en","timezone":"UTC","salonAddress":""}}}""")
+        api.saveSettings(Language.EN, "UTC", "", loadedUpdatedAt = null)
+        assertEquals("""{"language":"en","timezone":"UTC","salonAddress":""}""", server.takeRequest().body?.utf8())
+
+        api.stopCarryingDeviceDefaults()
+        enqueue("""{"result":{"data":[]}}""")
+        api.clientVisitDates()
+        assertNull(server.takeRequest().url.queryParameter("input"))
+    }
+
+    @Test
+    fun `a blank device timezone is carried as none`() = runTest {
+        api.carryDeviceDefaults(Language.RU, "")
+
+        enqueue("""{"result":{"data":[]}}""")
+        api.listClients()
+        assertEquals("""{"deviceLanguage":"ru"}""", server.takeRequest().url.queryParameter("input"))
+    }
+
     /** A sign-in provider that gives [kept] as the token it keeps and [issued] when asked for a new one, and says which it was asked for. */
     private class Tokens(private val kept: String?, private val issued: () -> String?) {
         val asked = mutableListOf<String>()

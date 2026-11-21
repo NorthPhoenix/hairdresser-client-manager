@@ -30,13 +30,30 @@ class HcmApi(private val trpc: TrpcClient) {
         }
 
     private suspend fun stylist(deviceLanguage: Language, timezone: String?): Stylist =
-        trpc.query(
-            "stylist.bootstrap",
-            buildJsonObject {
-                put("deviceLanguage", deviceLanguage.tag)
-                timezone?.let { put("deviceTimezone", it) }
-            },
-        )
+        trpc.query("stylist.bootstrap", deviceDefaults(deviceLanguage, timezone))
+
+    private fun deviceDefaults(deviceLanguage: Language, timezone: String?): JsonObject =
+        buildJsonObject {
+            put("deviceLanguage", deviceLanguage.tag)
+            timezone?.let { put("deviceTimezone", it) }
+        }
+
+    /**
+     * Every query carries the device's language and timezone, as [bootstrap] does, until
+     * [stopCarryingDeviceDefaults]. For a start of the app that asks for the lists before
+     * `stylist.bootstrap` has answered (`StartingReads`): whichever call reaches the server first
+     * creates a Stylist it does not have, from the defaults that call carries (docs/adr/0011).
+     * For a Stylist who exists the server does not read them, and a timezone it does not know
+     * refuses no call of hers.
+     */
+    fun carryDeviceDefaults(deviceLanguage: Language, deviceTimezone: String) {
+        trpc.queryDefaults = deviceDefaults(deviceLanguage, deviceTimezone.takeIf(String::isNotBlank))
+    }
+
+    /** Queries carry their own input alone again (see [carryDeviceDefaults]). */
+    fun stopCarryingDeviceDefaults() {
+        trpc.queryDefaults = null
+    }
 
     /**
      * A save sends all three settings. [loadedUpdatedAt] is the [Stylist.updatedAt] of the settings

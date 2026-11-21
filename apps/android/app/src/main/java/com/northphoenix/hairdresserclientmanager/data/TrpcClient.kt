@@ -44,6 +44,15 @@ class TrpcClient(
         }
         .build()
 
+    /**
+     * Fields that every query carries in its input besides its own while this is set: the device's
+     * language and timezone while the server may not have the Stylist yet (see
+     * [HcmApi.carryDeviceDefaults]). A query whose input names a device default of its own
+     * (`stylist.bootstrap`) carries none of these, nor does a change. Null: none.
+     */
+    @Volatile
+    var queryDefaults: JsonObject? = null
+
     suspend inline fun <reified T> query(path: String, input: JsonElement? = null): T =
         call(path, input, isMutation = false, serializer<T>())
 
@@ -51,10 +60,25 @@ class TrpcClient(
         call(path, input, isMutation = true, serializer<T>())
 
     /** Sends one call, once more with a new sign-in token when the API refuses it for its sign-in (see [SignInTokens]). */
-    suspend fun <T> call(path: String, input: JsonElement?, isMutation: Boolean, output: KSerializer<T>): T =
-        withContext(Dispatchers.IO) {
-            signIn.sending { token -> send(path, input, isMutation, output, token) }
+    suspend fun <T> call(path: String, input: JsonElement?, isMutation: Boolean, output: KSerializer<T>): T {
+        // Taken as the call starts, so that a call sent again (see [SignInTokens]) is the same call.
+        val sent = if (isMutation) input else withQueryDefaults(input)
+
+        return withContext(Dispatchers.IO) {
+            signIn.sending { token -> send(path, sent, isMutation, output, token) }
         }
+    }
+
+    private fun withQueryDefaults(input: JsonElement?): JsonElement? {
+        val defaults = queryDefaults ?: return input
+
+        return when {
+            input == null -> defaults
+            input !is JsonObject -> input
+            defaults.keys.any(input::containsKey) -> input
+            else -> JsonObject(defaults + input)
+        }
+    }
 
     private suspend fun <T> send(path: String, input: JsonElement?, isMutation: Boolean, output: KSerializer<T>, token: String?): T {
         val url = "$baseUrl/$path".toHttpUrl().newBuilder().apply {
