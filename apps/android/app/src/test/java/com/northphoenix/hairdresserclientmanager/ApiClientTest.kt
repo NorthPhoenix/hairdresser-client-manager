@@ -856,6 +856,18 @@ class ApiClientTest {
     }
 
     @Test
+    fun `an edit that switches a Service to another variant sends the item with the form`() = runTest {
+        enqueue("""{"result":{"data":{}}}""")
+
+        api.updateService("s1", name = "Color long", priceCents = 7_000, note = "", menuItemId = "item_long")
+
+        assertEquals(
+            """{"id":"s1","name":"Color long","priceCents":7000,"note":"","menuItemId":"item_long"}""",
+            server.takeRequest().body?.utf8(),
+        )
+    }
+
+    @Test
     fun `the copy sheet asks for what can be copied into its Appointment and reads what each source copies`() = runTest {
         // L25: only sources with something to copy, each with how many Services and whose.
         enqueue(

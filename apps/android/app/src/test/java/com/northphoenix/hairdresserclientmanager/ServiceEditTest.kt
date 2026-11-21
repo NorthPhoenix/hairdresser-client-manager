@@ -1,5 +1,6 @@
 package com.northphoenix.hairdresserclientmanager
 
+import com.northphoenix.hairdresserclientmanager.data.ServiceMenuItem
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.ServiceEdit
 import org.junit.Assert.assertEquals
@@ -52,6 +53,32 @@ class ServiceEditTest {
             assertNull(ServiceEdit.values(name, "10", "note"))
         }
         assertFalse(ServiceEdit.isNameRefused("Cut"))
+    }
+
+    @Test
+    fun `a variant picked in the form fills its name and default price, and the save switches the Service to it`() {
+        val longer = ServiceMenuItem(id = "item_long", name = "Покраска в один цвет длинные", defaultPriceCents = 7_050, group = "Покраска в один цвет")
+        val (name, price) = ServiceEdit.picked(longer)
+
+        assertEquals("Покраска в один цвет длинные" to "70.50", name to price)
+        assertEquals(
+            ServiceEdit.Values("Покраска в один цвет длинные", 7_050, "Без аммиака", menuItemId = "item_long"),
+            ServiceEdit.values(name, price, "Без аммиака", pickedItemId = "item_long", ownItemId = "item_short"),
+        )
+    }
+
+    @Test
+    fun `a save without another variant keeps the Service's own item`() {
+        // Its own chip, tapped again or never left; and a Service without an item, which has no chips.
+        assertNull(ServiceEdit.values("Fix Me", "10", "", pickedItemId = "item_short", ownItemId = "item_short")?.menuItemId)
+        assertNull(ServiceEdit.values("Fix Me", "10", "", pickedItemId = null, ownItemId = null)?.menuItemId)
+        assertNull(ServiceEdit.values("Fix Me", "10", "")?.menuItemId)
+    }
+
+    @Test
+    fun `a picked variant is not saved while the name or the price is refused`() {
+        assertNull(ServiceEdit.values("Fix Me", "", "", pickedItemId = "item_long", ownItemId = "item_short"))
+        assertNull(ServiceEdit.values(" ", "10", "", pickedItemId = "item_long", ownItemId = "item_short"))
     }
 
     @Test

@@ -79,6 +79,7 @@
     <string name="appointment_service_name_label">Service</string>
     <string name="appointment_service_note_label">Service note</string>
     <string name="appointment_service_price_label">Price</string>
+    <string name="appointment_service_variant_label">Variant</string>
     <string name="appointment_service_saved">Service added.</string>
     <string name="appointment_service_total">Services total</string>
     <string name="appointment_service_updated">Service saved.</string>

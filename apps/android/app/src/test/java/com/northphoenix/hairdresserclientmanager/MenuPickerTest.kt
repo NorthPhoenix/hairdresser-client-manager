@@ -162,6 +162,33 @@ class MenuPickerTest {
     }
 
     @Test
+    fun `a Service's variants are the items of its item's group, its own among them, in the menu's order`() {
+        val short = item("Покраска в один цвет короткие", "Покраска в один цвет", price = 5_000)
+        val cut = item("Стрижка мужская", "Стрижки")
+        val long = item("Покраска в один цвет длинные", " покраска  в один цвет", price = 7_000)
+        val travel = item("Выезд на дом")
+        val medium = item("Покраска в один цвет средние", "Покраска в один цвет", price = 6_000)
+        val menu = listOf(short, cut, long, travel, medium)
+
+        assertEquals(listOf(short, long, medium), MenuPicker.variants(menu, long.id))
+    }
+
+    @Test
+    fun `a Service has no variants without an item, with an item gone from the menu, without a group, or alone in its group`() {
+        val alone = item("Стрижка мужская", "Стрижки")
+        val travel = item("Выезд на дом")
+        val emptyGroup = item("Мытьё головы", "  ")
+        val menu = listOf(alone, travel, emptyGroup, item("Мытьё и сушка", " "))
+
+        assertEquals(emptyList<ServiceMenuItem>(), MenuPicker.variants(menu, null))
+        assertEquals(emptyList<ServiceMenuItem>(), MenuPicker.variants(menu, "item_gone"))
+        assertEquals(emptyList<ServiceMenuItem>(), MenuPicker.variants(menu, travel.id))
+        // A group of spaces is no group: the two items are not variants of each other.
+        assertEquals(emptyList<ServiceMenuItem>(), MenuPicker.variants(menu, emptyGroup.id))
+        assertEquals(emptyList<ServiceMenuItem>(), MenuPicker.variants(menu, alone.id))
+    }
+
+    @Test
     fun `the item editor saves its name and its group as one line each, and an empty group as none`() {
         assertEquals(MenuItemValues("Короткие", 5_000, "Покраска в один цвет"), MenuItemValues.of(" Короткие ", 5_000, "  Покраска в один цвет\n"))
         assertEquals("", MenuItemValues.of("Стрижка", 3_000, "   ")?.group)

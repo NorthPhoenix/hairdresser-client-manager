@@ -82,6 +82,18 @@ object MenuPicker {
         return words.all { it in text }
     }
 
+    /**
+     * The variants a Service started from [menuItemId] can be switched to while it is edited: the
+     * items of that item's group, itself among them, in the menu's order. None when the Service has
+     * no item, its item is no longer in the menu or has no group, or it is the only one of its group.
+     */
+    fun variants(items: List<ServiceMenuItem>, menuItemId: String?): List<ServiceMenuItem> {
+        val key = items.firstOrNull { it.id == menuItemId }?.let { groupKey(it.group) } ?: return emptyList()
+        val group = items.filter { groupKey(it.group) == key }
+
+        return if (group.size < 2) emptyList() else group
+    }
+
     /** [layout] of the items that [matches] finds. */
     fun search(items: List<ServiceMenuItem>, query: String): Layout = layout(items.filter { matches(it, query) })
 

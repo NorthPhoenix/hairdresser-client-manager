@@ -112,6 +112,7 @@ import com.northphoenix.hairdresserclientmanager.domain.AppointmentDraft
 import com.northphoenix.hairdresserclientmanager.domain.AppointmentTotals
 import com.northphoenix.hairdresserclientmanager.domain.ClientReminder
 import com.northphoenix.hairdresserclientmanager.domain.ColorFormulaOffer
+import com.northphoenix.hairdresserclientmanager.domain.MenuPicker
 import com.northphoenix.hairdresserclientmanager.domain.Money
 import com.northphoenix.hairdresserclientmanager.domain.NightStart
 import com.northphoenix.hairdresserclientmanager.domain.ReminderLog
@@ -838,6 +839,7 @@ private fun AppointmentDetail(
             } else {
                 EditServiceSheet(
                     service = service,
+                    variants = remember(serviceMenu, service.menuItemId) { MenuPicker.variants(serviceMenu, service.menuItemId) },
                     clientName = appointment.participants.firstOrNull { it.clientId == service.clientId }?.name.takeIf { isGroup },
                     busy = busy,
                     onDismiss = { sheet = null },
@@ -1666,10 +1668,15 @@ private fun RowScope.UploadTile(upload: PhotoUpload, tagStyle: TextStyle, onOpen
 /**
  * Edit Service: the name, the price and the note of a Service that is on the Appointment. They are
  * saved together, as the form shows them. Its Client and its Color Formulas are not part of it.
+ * [variants] are the items of its menu item's group (see [MenuPicker.variants]): a chip each, the
+ * Service's own picked, and a tap on another puts that item's name and default price into the
+ * form; the save then switches the Service to it, and it keeps its note and Color Formulas.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun EditServiceSheet(
     service: AppointmentService,
+    variants: List<ServiceMenuItem>,
     clientName: String?,
     busy: Boolean,
     onDismiss: () -> Unit,
@@ -1679,11 +1686,35 @@ private fun EditServiceSheet(
     var name by rememberSaveable(service.id) { mutableStateOf(service.name) }
     var price by rememberSaveable(service.id) { mutableStateOf(Money.centsToPrice(service.priceCents)) }
     var note by rememberSaveable(service.id) { mutableStateOf(service.note) }
+    // The variant picked: the Service's own item until another chip is tapped.
+    var itemId by rememberSaveable(service.id) { mutableStateOf(service.menuItemId) }
     // The texts a save was refused for. Each reason stays under its field for as long as the text is that one.
     var refusedName by rememberSaveable(service.id) { mutableStateOf<String?>(null) }
     var refusedPrice by rememberSaveable(service.id) { mutableStateOf<String?>(null) }
 
     HcmBottomSheet(title = stringResource(R.string.edit_appointment_service), subtitle = clientName, onDismiss = onDismiss) {
+        if (variants.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text(stringResource(R.string.appointment_service_variant_label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    variants.forEach { item ->
+                        ChoiceChip(
+                            // As in the add-service sheet: the price stays with its dot when a long name wraps.
+                            MenuPicker.variantLabel(item) + " · " + Money.formatShort(item.defaultPriceCents),
+                            selected = item.id == itemId,
+                            wraps = true,
+                            onClick = {
+                                itemId = item.id
+                                ServiceEdit.picked(item).let { (pickedName, pickedPrice) ->
+                                    name = pickedName
+                                    price = pickedPrice
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+        }
         HcmTextField(
             name,
             { name = it },
@@ -1705,7 +1736,7 @@ private fun EditServiceSheet(
             onClick = {
                 refusedName = name.takeIf(ServiceEdit::isNameRefused)
                 refusedPrice = price.takeIf(ServiceEdit::isPriceRefused)
-                ServiceEdit.values(name, price, note)?.let(onSave)
+                ServiceEdit.values(name, price, note, pickedItemId = itemId, ownItemId = service.menuItemId)?.let(onSave)
             },
             modifier = Modifier.fillMaxWidth(),
             loading = busy,

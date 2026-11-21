@@ -360,7 +360,7 @@ What the code adds to the event for each part of the domain. Rows are sorted by 
 | `appointment.travel_fee_service_count` | int | Services the Travel Fee added or removed. `create`, `update`. |
 | `appointment.unresolved_count` | int | Of them, past Appointments still Scheduled (waiting for an outcome). `home`. |
 | `appointment_service.added_minor` | int | Default prices of the Services added, together. `addMenuServices`. |
-| `appointment_service.changed_fields` | string[] | Fields the edit changed: `name`, `price`, `note`. `updateService`. |
+| `appointment_service.changed_fields` | string[] | Fields the edit changed: `name`, `price`, `note`, `menu_item` (switched to another Service Menu Item, such as another variant of its group). `updateService`. |
 | `appointment_service.client_id` | string | The Client it is for. `addService`, `updateService`, `deleteService`. |
 | `appointment_service.color_formula_count` | int | Color Formulas the Service had before this one. `addColorFormula`. |
 | `appointment_service.copied_client_count` | int | Clients they are for. `copyServices`. |
@@ -372,12 +372,13 @@ What the code adds to the event for each part of the domain. Rows are sorted by 
 | `appointment_service.is_repeat` | bool | The request key matched Services added before: the request sent again. Only when a request key was sent. `addService`, `addMenuServices`, `copyServices`. |
 | `appointment_service.is_travel_fee` | bool | Its item is the Travel Fee. `addService` with an item. |
 | `appointment_service.menu_item_count` | int | Distinct Service Menu Items picked. `addMenuServices`. |
-| `appointment_service.menu_item_id` | string | Its Service Menu Item, when it has one. `addService`, `updateService`, `deleteService`, `addColorFormula`. |
+| `appointment_service.menu_item_id` | string | Its Service Menu Item, when it has one (after the edit for `updateService`). `addService`, `updateService`, `deleteService`, `addColorFormula`. |
 | `appointment_service.menu_item_ids` | string[] | Their ids (at most 20): which items are added together. `addMenuServices`. |
 | `appointment_service.name_length`, `appointment_service.note_length` | int | Characters of its name (when sent) and note. `addService`, `updateService`. |
 | `appointment_service.pick_client_count` | int | Clients they are for. `addMenuServices`. |
 | `appointment_service.pick_count` | int | Services asked for. `addMenuServices`. |
 | `appointment_service.picks_kind` | string | Form of the input: `one_client` (clientId and menuItemIds) or `clients` (several Clients at once). `addMenuServices`. |
+| `appointment_service.previous_menu_item_id` | string | The Service Menu Item it had before an edit that switched it to another one; absent when it had none or kept its own. `updateService`. |
 | `appointment_service.previous_price_minor` | int | Its price before the edit. `updateService`. |
 | `appointment_service.price_minor` | int | Its price (after the edit for `updateService`). `addService`, `updateService`, `deleteService`. |
 | `appointment_service.price_source` | string | `sent` (the app sent a price), `menu_default` (the item's default price), `none` (neither: 0). `addService`. |

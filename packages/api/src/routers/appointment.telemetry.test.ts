@@ -218,6 +218,27 @@ describe("the wide event of the appointment router", () => {
     });
   });
 
+  it("tells an edit that switched a Service to another item of the menu, and from which", async () => {
+    const service = { ...appointmentRow.services[0], appointment: { services: appointmentRow.services } };
+    const caller = callerFor({
+      appointmentService: { findFirst: vi.fn().mockResolvedValue(service), update: vi.fn().mockResolvedValue({}) },
+      serviceMenuItem: { findFirst: vi.fn().mockResolvedValue({ id: "menu_2", stylistId: "stylist_1" }) },
+      appointment: { findUniqueOrThrow: vi.fn().mockResolvedValue(appointmentRow) }
+    });
+
+    expect(
+      await eventOf(() => caller.appointment.updateService({ id: "service_1", name: "Longer touch-up", priceCents: 10500, menuItemId: "menu_2" }))
+    ).toMatchObject({
+      outcome: "success",
+      "appointment_service.changed_fields": ["name", "price", "menu_item"],
+      "appointment_service.menu_item_id": "menu_2",
+      "appointment_service.previous_menu_item_id": "menu_1",
+      "appointment_service.previous_price_minor": 9000,
+      "appointment_service.price_minor": 10500,
+      "appointment_service.is_noop_save": false
+    });
+  });
+
   it("counts what Appointment Copying copied", async () => {
     const caller = callerFor({
       appointment: {
