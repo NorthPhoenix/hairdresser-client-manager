@@ -625,8 +625,11 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     /** Keeps [stylist] on the device for [account], the account she was asked for, while it is still the one signed in (see [StartingReads]). */
     private fun keep(account: String?, stylist: Stylist) {
-        if (account != null && account == signedInAccount()) {
-            keptStylist.kept = KeptStylist(account, stylist)
+        val kept = KeptStylist(account ?: return, stylist)
+
+        // Every return to the app fetches the settings again, nearly always the same.
+        if (account == signedInAccount() && keptStylist.kept != kept) {
+            keptStylist.kept = kept
         }
     }
 
