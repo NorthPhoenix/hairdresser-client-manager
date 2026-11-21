@@ -189,6 +189,19 @@ class MenuPickerTest {
     }
 
     @Test
+    fun `the Travel Fee is not switched to or from, also when it sits in a group`() {
+        val near = ServiceMenuItem(id = "near", name = "Выезд близко", defaultPriceCents = 2_000, group = "Выезд", travelFee = true)
+        val far = item("Выезд далеко", "Выезд", price = 3_000)
+        val farther = item("Выезд очень далеко", "Выезд", price = 4_000)
+        val menu = listOf(near, far, farther)
+
+        assertEquals(emptyList<ServiceMenuItem>(), MenuPicker.variants(menu, near.id))
+        assertEquals(listOf(far, farther), MenuPicker.variants(menu, far.id))
+        // With the Travel Fee left out, a group of it and one other item has nothing to switch to.
+        assertEquals(emptyList<ServiceMenuItem>(), MenuPicker.variants(listOf(near, far), far.id))
+    }
+
+    @Test
     fun `the item editor saves its name and its group as one line each, and an empty group as none`() {
         assertEquals(MenuItemValues("Короткие", 5_000, "Покраска в один цвет"), MenuItemValues.of(" Короткие ", 5_000, "  Покраска в один цвет\n"))
         assertEquals("", MenuItemValues.of("Стрижка", 3_000, "   ")?.group)

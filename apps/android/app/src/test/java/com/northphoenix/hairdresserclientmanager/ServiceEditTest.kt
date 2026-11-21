@@ -83,7 +83,7 @@ class ServiceEditTest {
 
     @Test
     fun `picking the Service's own variant puts back its own name and price, not the menu's`() {
-        // Tapped while picked already, or after another variant to undo it: a price set by hand is not lost.
+        // Picked again after another variant, to undo it: a price set by hand is not lost.
         assertEquals("Покраска короткие + тон" to "55.00", ServiceEdit.picked(short, service))
     }
 
