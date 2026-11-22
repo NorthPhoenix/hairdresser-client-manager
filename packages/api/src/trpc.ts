@@ -170,12 +170,12 @@ function isUniqueViolation(error: unknown) {
 /**
  * The Stylist of the signed-in account, made from the device's defaults when there is none yet
  * (docs/adr/0011). Every request asks, so a Stylist who exists costs one query, a `findUnique`:
- * Prisma's `upsert` would send five (BEGIN, three SELECTs, COMMIT) even when it writes nothing.
+ * Prisma's `upsert` sends BEGIN, three SELECTs and COMMIT even when it writes nothing.
  * Without `defaults` (they were not valid) no Stylist is made, and null says there is none.
  *
  * Two first requests of a new account can both find none. The one whose create loses on the
  * unique Clerk id takes the Stylist the other made, so neither fails, and only the request that
- * made the Stylist says it did.
+ * made the Stylist says it did; the other records the refused create as handled.
  */
 async function findOrCreateStylist(
   db: TRPCContext["db"],
@@ -205,6 +205,9 @@ async function findOrCreateStylist(
     if (!madeMeanwhile) {
       throw error;
     }
+
+    // Kept in the event, so that the logs can tell how often first requests overlap.
+    recordError(error, { handled: true, reason: "stylist_created_meanwhile" });
 
     return { stylist: madeMeanwhile, created: false };
   }

@@ -695,6 +695,7 @@ The domain's reason for a refusal or a handled error, from `recordError(…, { r
 | `share_photo_reader_threw` | handled | The photo reader of a Share Image threw; the picture is drawn without that photo. |
 | `share_photo_unreadable` | unexpected | A Profile Share photo could not be read; the Client's phone gets a 502. |
 | `stats_date_not_valid` | refusal | The day sent to the stats is not a date. |
+| `stylist_created_meanwhile` | handled | Two first requests of a new account overlapped: this one's create of the Stylist was refused on the unique Clerk id, and it took the Stylist the other request had just made. |
 | `stored_photo_without_file` | refusal | A stored Appointment Photo came without its file details. |
 | `unhandled_in_<route_type>` | unexpected | Next.js caught an error nothing else did (`render`, `route`, `action`, `proxy`). |
 

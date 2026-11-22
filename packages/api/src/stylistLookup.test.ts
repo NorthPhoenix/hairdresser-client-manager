@@ -155,8 +155,15 @@ describe("the Stylist of a request", () => {
     expect(table.rows.size).toBe(1);
     // The request whose create lost found the Stylist again, after the create.
     expect(table.findUnique).toHaveBeenCalledTimes(3);
-    // Only the request that made the Stylist says it did.
-    expect(telemetry.events().map((event) => event["stylist.just_created"]).sort()).toEqual([false, true]);
+    // Only the request that made the Stylist says it did; the other one keeps the refused create.
+    const events = telemetry.events();
+    expect(events.map((event) => event["stylist.just_created"]).sort()).toEqual([false, true]);
+    expect(events.find((event) => event["stylist.just_created"] === false)).toMatchObject({
+      outcome: "success",
+      "error.reason": "stylist_created_meanwhile",
+      "error.handled": true
+    });
+    expect(events.find((event) => event["stylist.just_created"] === true)).not.toHaveProperty("error.reason");
   });
 
   it("fails as before when the create fails for another reason, and is not looked for again", async () => {
