@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { phonePattern } from "./testSupport";
 
 describe("phonePattern", () => {
-  it("finds a phone however it was written, also cut short", () => {
+  it("finds a phone however it was written, also cut short to seven digits in a row", () => {
     const pattern = phonePattern("+1 312 555 0100");
     const written = [
       "+1 312 555 0100",
@@ -12,6 +12,7 @@ describe("phonePattern", () => {
       "312.555.0100",
       "312/555-0100",
       "312 – 555 – 0100",
+      "+1\u2011312\u2011555\u20110100",
       "555 0100",
       "555\u00a00100",
       "55-50-100",
@@ -35,6 +36,8 @@ describe("phonePattern", () => {
     expect(line).not.toMatch(pattern);
     expect("+1 415 555 0199").not.toMatch(pattern);
     expect("555, 0100").not.toMatch(pattern);
+    // Six digits are not looked for: random ids would hold them too often.
+    expect("(312) 555-…").not.toMatch(pattern);
   });
 
   it("refuses a number too short to look for without matching ids by chance", () => {
