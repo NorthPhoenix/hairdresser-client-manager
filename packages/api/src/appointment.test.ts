@@ -29,7 +29,7 @@ function createContext(db: TRPCContext["db"], photoOrigins: string[] = []): TRPC
 function createDb(appointment: Record<string, unknown>, client: Record<string, unknown> = {}) {
   return {
     stylist: {
-      upsert: vi.fn().mockResolvedValue(stylist),
+      findUnique: vi.fn().mockResolvedValue(stylist),
       findUniqueOrThrow: vi.fn().mockResolvedValue(stylist)
     },
     appointment,
@@ -89,7 +89,7 @@ function createGroupDb(clientIds: string[]) {
   });
   const db = {
     stylist: {
-      upsert: vi.fn().mockResolvedValue(stylist)
+      findUnique: vi.fn().mockResolvedValue(stylist)
     },
     appointment: {
       findFirst: vi.fn(async () => read()),
@@ -813,7 +813,7 @@ describe("appointment router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue(stylist)
+          findUnique: vi.fn().mockResolvedValue(stylist)
         },
         appointment: {
           findFirst: vi.fn().mockResolvedValue({
@@ -912,7 +912,7 @@ describe("appointment router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue(stylist)
+          findUnique: vi.fn().mockResolvedValue(stylist)
         },
         appointment: {
           findFirst: vi.fn().mockResolvedValue({
@@ -1164,7 +1164,7 @@ describe("appointment router", () => {
     );
     const db = {
       stylist: {
-        upsert: vi.fn().mockResolvedValue(stylist)
+        findUnique: vi.fn().mockResolvedValue(stylist)
       },
       appointment: {
         findUniqueOrThrow: readAppointment
@@ -1404,7 +1404,7 @@ describe("appointment router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue(stylist)
+          findUnique: vi.fn().mockResolvedValue(stylist)
         },
         appointment: {
           findUniqueOrThrow: appointmentFindUniqueOrThrow
@@ -1522,7 +1522,7 @@ describe("appointment router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue(stylist)
+          findUnique: vi.fn().mockResolvedValue(stylist)
         },
         appointment: {
           findFirst: appointmentFindFirst,
@@ -1646,7 +1646,7 @@ describe("appointment router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue(stylist)
+          findUnique: vi.fn().mockResolvedValue(stylist)
         },
         appointment: {
           findFirst: appointmentFindFirst,
@@ -1703,7 +1703,7 @@ describe("appointment router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue(stylist)
+          findUnique: vi.fn().mockResolvedValue(stylist)
         },
         appointment: {
           findFirst: vi.fn()
@@ -1825,7 +1825,7 @@ describe("appointment router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue(stylist)
+          findUnique: vi.fn().mockResolvedValue(stylist)
         },
         appointment: {
           findFirst: vi.fn().mockResolvedValue(scheduledAppointment),
@@ -1868,7 +1868,7 @@ describe("appointment router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue(stylist)
+          findUnique: vi.fn().mockResolvedValue(stylist)
         },
         appointment: {
           findFirst: vi.fn().mockResolvedValue({
@@ -1988,7 +1988,7 @@ describe("appointment router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue(stylist)
+          findUnique: vi.fn().mockResolvedValue(stylist)
         },
         appointment: {
           findFirst: vi.fn().mockResolvedValue({
@@ -2088,7 +2088,7 @@ describe("appointment router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue(stylist)
+          findUnique: vi.fn().mockResolvedValue(stylist)
         },
         appointment: {
           findFirst: vi.fn().mockResolvedValue({
@@ -2549,7 +2549,7 @@ describe("appointment router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue(stylist)
+          findUnique: vi.fn().mockResolvedValue(stylist)
         },
         appointment: {
           findFirst,
@@ -2643,7 +2643,7 @@ describe("appointment router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue(stylist)
+          findUnique: vi.fn().mockResolvedValue(stylist)
         },
         appointment: {
           findFirst: vi.fn().mockResolvedValue({
@@ -2818,7 +2818,7 @@ describe("appointment router", () => {
     });
     const db = {
       stylist: {
-        upsert: vi.fn().mockResolvedValue(stylist)
+        findUnique: vi.fn().mockResolvedValue(stylist)
       },
       appointment: {
         findFirst: vi.fn(() => Promise.resolve(read())),
@@ -2987,7 +2987,7 @@ describe("appointment router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue(stylist)
+          findUnique: vi.fn().mockResolvedValue(stylist)
         },
         appointment: {
           findFirst: appointmentFindFirst,
@@ -3027,7 +3027,7 @@ describe("appointment router", () => {
       createContext(
         {
           stylist: {
-            upsert: vi.fn().mockResolvedValue(stylist)
+            findUnique: vi.fn().mockResolvedValue(stylist)
           },
           appointment: {
             findFirst: vi.fn().mockResolvedValue({

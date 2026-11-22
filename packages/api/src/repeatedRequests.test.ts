@@ -85,7 +85,7 @@ function createMemoryDb() {
   };
   const db = withTransaction({
     stylist: {
-      upsert: vi.fn().mockResolvedValue(stylist),
+      findUnique: vi.fn().mockResolvedValue(stylist),
       findUniqueOrThrow: vi.fn().mockResolvedValue(stylist)
     },
     client: {

@@ -90,7 +90,7 @@ function createTipDb(stored: { finalTotalCentsOverride?: number | null; tipCents
   });
   const db = {
     stylist: {
-      upsert: vi.fn().mockResolvedValue(stylist),
+      findUnique: vi.fn().mockResolvedValue(stylist),
       findUniqueOrThrow: vi.fn().mockResolvedValue(stylist)
     },
     appointment: {
@@ -279,7 +279,7 @@ describe("tips", () => {
     const caller = appRouter.createCaller({
       clerkAuth: { userId: "clerk_1" },
       db: {
-        stylist: { upsert: vi.fn().mockResolvedValue(stylist) },
+        stylist: { findUnique: vi.fn().mockResolvedValue(stylist) },
         appointment: { findMany: vi.fn().mockResolvedValue([appointment(1500), appointment(null)]) }
       },
       photoOrigins: [],

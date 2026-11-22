@@ -220,7 +220,7 @@ The Android app reloads its lists with a dozen or more requests at once. Apps up
 | `db.query_ms` | number | Their total time. |
 | `db.slowest_query_ms` | number | The slowest one. |
 | `db.operation_count` | int | Prisma Client operations (`prisma:client:operation`), such as one `findMany`. |
-| `db.operations` | object | Operations by name: `{"Client.findMany": 2, "Stylist.upsert": 1, "executeRaw": 1}` (at most 40 names). |
+| `db.operations` | object | Operations by name: `{"Client.findMany": 2, "Stylist.findUnique": 1, "executeRaw": 1}` (at most 40 names). |
 | `db.transaction_count` | int | Prisma transactions. |
 | `external.call_count` | int | Outgoing HTTP calls (`fetch` spans): UploadThing, Clerk, the release manifest. |
 | `external.call_ms` | number | Their total time. |
@@ -288,7 +288,7 @@ The Android app reloads its lists with a dozen or more requests at once. Apps up
 | `app.version_code` | int | `X-App-Version-Code` of the Android app. |
 | `app.version` | string | `X-App-Version-Name`: `1.16.0`. |
 | `stylist.id` | string | The Stylist of the request (`stylistProcedure` and below). |
-| `stylist.just_created` | bool | The request created the Stylist (the first request of a new account). Two first requests of a new account that overlap are both `true`: the upsert's answer does not tell an insert from an update. |
+| `stylist.just_created` | bool | The request created the Stylist (the first request of a new account). Of two first requests of a new account that overlap, only the one whose create went through says so. |
 | `stylist.device_defaults_valid` | bool | Whether the device's language and timezone in the input were valid. |
 | `tx.outcome` | string | `committed` or `rolled_back` (`stylistTransactionProcedure`). |
 | `tx.begin_ms` | int | Time until the transaction had begun (waiting for a connection). |

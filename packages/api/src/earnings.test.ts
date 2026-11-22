@@ -202,7 +202,7 @@ function createStatsDb(stored: Stored[], menuItems: { id: string; group: string 
       return statuses.includes(appointment.status) && startsAt >= where.startsAt.gte && startsAt < where.startsAt.lt;
     });
   const db = {
-    stylist: { upsert: vi.fn().mockResolvedValue(stylist) },
+    stylist: { findUnique: vi.fn().mockResolvedValue(stylist) },
     appointment: {
       findMany: vi.fn(async ({ where }: { where: Parameters<typeof matching>[0] }) =>
         matching(where).map((appointment) => ({

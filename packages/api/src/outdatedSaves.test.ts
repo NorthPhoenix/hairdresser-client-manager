@@ -58,7 +58,7 @@ describe("saving a Client Profile from a form", () => {
       update,
       db: {
         stylist: {
-          upsert: vi.fn().mockResolvedValue({
+          findUnique: vi.fn().mockResolvedValue({
             id: "stylist_1",
             language: "en"
           })
@@ -155,7 +155,7 @@ describe("saving the Stylist's settings from a form", () => {
       db: {
         stylist: {
           // What the request read before it waited for the lock: already out of date.
-          upsert: vi.fn().mockResolvedValue({
+          findUnique: vi.fn().mockResolvedValue({
             ...storedStylist,
             timezone: "UTC",
             salonAddress: "12 Salon Street",

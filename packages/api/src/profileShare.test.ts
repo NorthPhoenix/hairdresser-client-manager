@@ -492,7 +492,7 @@ describe("Profile Share procedures", () => {
       },
       db: withTransaction({
         stylist: {
-          upsert: vi.fn().mockResolvedValue({
+          findUnique: vi.fn().mockResolvedValue({
             ...client.stylist,
             language: "ru",
             onboardingCompletedAt: createdAt

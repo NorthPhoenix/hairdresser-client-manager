@@ -53,7 +53,7 @@ describe("service menu router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue(stylist)
+          findUnique: vi.fn().mockResolvedValue(stylist)
         },
         serviceMenuItem: {
           create,
@@ -153,7 +153,7 @@ describe("service menu router", () => {
     });
     const caller = appRouter.createCaller(
       createContext({
-        stylist: { upsert: vi.fn().mockResolvedValue(stylist) },
+        stylist: { findUnique: vi.fn().mockResolvedValue(stylist) },
         serviceMenuItem: {
           findMany: vi.fn().mockResolvedValue([item("item_cut", "Haircut"), item("item_color", "Color"), item("item_new", "Gloss")])
         },
@@ -176,7 +176,7 @@ describe("service menu router", () => {
       .mockResolvedValue([{ name: "Ламинирование" }, { name: "Покраска" }, { name: "Ламинирование" }, { name: "ламинирование " }]);
     const caller = appRouter.createCaller(
       createContext({
-        stylist: { upsert: vi.fn().mockResolvedValue(stylist) },
+        stylist: { findUnique: vi.fn().mockResolvedValue(stylist) },
         appointmentService: { findMany }
       } as unknown as TRPCContext["db"])
     );
@@ -197,7 +197,7 @@ describe("service menu router", () => {
   it("lists no names for a Stylist without a Color Formula", async () => {
     const caller = appRouter.createCaller(
       createContext({
-        stylist: { upsert: vi.fn().mockResolvedValue(stylist) },
+        stylist: { findUnique: vi.fn().mockResolvedValue(stylist) },
         appointmentService: { findMany: vi.fn().mockResolvedValue([]) }
       } as unknown as TRPCContext["db"])
     );
@@ -225,7 +225,7 @@ describe("service menu router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue(stylist)
+          findUnique: vi.fn().mockResolvedValue(stylist)
         },
         serviceMenuItem: {
           findFirst,
@@ -276,7 +276,7 @@ describe("service menu router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue(stylist)
+          findUnique: vi.fn().mockResolvedValue(stylist)
         },
         serviceMenuItem: {
           findFirst: vi.fn().mockResolvedValue({ id: "service_1", stylistId: "stylist_1" }),

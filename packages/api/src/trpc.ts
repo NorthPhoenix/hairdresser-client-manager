@@ -159,42 +159,70 @@ const deviceDefaultsInput = z.object({
   deviceTimezone: timezoneText.optional()
 });
 
-// Whether the upsert created the Stylist: the first request of a new account (docs/adr/0011).
-// Prisma Client sets `createdAt` (`@default(now())`) with this server's clock, so a Stylist created
-// by this upsert has a `createdAt` no earlier than the moment before it. Two first requests of the
-// same account that overlap both see a Stylist made after they started, and both say so: the
-// upsert's answer does not tell an insert from an update, and telling them apart for certain
-// would cost a query on every request.
-function wasCreatedSince(stylist: { createdAt?: unknown }, since: number) {
-  return stylist.createdAt instanceof Date && stylist.createdAt.getTime() >= since;
+// Whether a database failure is the unique constraint's (Prisma's P2002), recognised by shape as in
+// `getDatabaseFailure`.
+function isUniqueViolation(error: unknown) {
+  const cause = error as { name?: unknown; code?: unknown } | null;
+
+  return cause?.name === "PrismaClientKnownRequestError" && cause.code === "P2002";
+}
+
+/**
+ * The Stylist of the signed-in account, made from the device's defaults when there is none yet
+ * (docs/adr/0011). Every request asks, so a Stylist who exists costs one query, a `findUnique`:
+ * Prisma's `upsert` would send five (BEGIN, three SELECTs, COMMIT) even when it writes nothing.
+ * Without `defaults` (they were not valid) no Stylist is made, and null says there is none.
+ *
+ * Two first requests of a new account can both find none. The one whose create loses on the
+ * unique Clerk id takes the Stylist the other made, so neither fails, and only the request that
+ * made the Stylist says it did.
+ */
+async function findOrCreateStylist(
+  db: TRPCContext["db"],
+  clerkId: string,
+  defaults: z.infer<typeof deviceDefaultsInput> | null
+) {
+  const where = { clerkId };
+  const existing = await db.stylist.findUnique({ where });
+
+  if (existing || !defaults) {
+    return { stylist: existing, created: false };
+  }
+
+  try {
+    const stylist = await db.stylist.create({
+      data: {
+        ...where,
+        language: defaults.deviceLanguage ?? "ru",
+        timezone: defaults.deviceTimezone ?? "UTC"
+      }
+    });
+
+    return { stylist, created: true };
+  } catch (error) {
+    const madeMeanwhile = isUniqueViolation(error) ? await db.stylist.findUnique({ where }) : null;
+
+    if (!madeMeanwhile) {
+      throw error;
+    }
+
+    return { stylist: madeMeanwhile, created: false };
+  }
 }
 
 export const stylistProcedure = protectedProcedure.use(async ({ ctx, getRawInput, next }) => {
-  const where = {
-    clerkId: ctx.clerkAuth.userId
-  };
   const rawInput = await getRawInput();
-  // Whole milliseconds, as the database keeps them.
-  const upsertStartedAt = Math.floor(Date.now());
   const deviceDefaults = deviceDefaultsInput.safeParse(
     rawInput && typeof rawInput === "object" && !Array.isArray(rawInput) ? rawInput : {}
   );
   // Defaults that are not valid create no Stylist. A Stylist who already exists does not need
   // them and is not held up by them, for instance on a device whose timezone this server does
   // not know.
-  const stylist = deviceDefaults.success
-    ? await ctx.db.stylist.upsert({
-        where,
-        update: {},
-        create: {
-          ...where,
-          language: deviceDefaults.data.deviceLanguage ?? "ru",
-          timezone: deviceDefaults.data.deviceTimezone ?? "UTC"
-        }
-      })
-    : await ctx.db.stylist.findUnique({
-        where
-      });
+  const { stylist, created } = await findOrCreateStylist(
+    ctx.db,
+    ctx.clerkAuth.userId,
+    deviceDefaults.success ? deviceDefaults.data : null
+  );
 
   if (!stylist) {
     annotate({ "stylist.device_defaults_valid": false });
@@ -206,7 +234,7 @@ export const stylistProcedure = protectedProcedure.use(async ({ ctx, getRawInput
 
   annotate({
     "stylist.id": stylist.id,
-    "stylist.just_created": wasCreatedSince(stylist, upsertStartedAt),
+    "stylist.just_created": created,
     "stylist.device_defaults_valid": deviceDefaults.success
   });
 

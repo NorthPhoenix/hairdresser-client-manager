@@ -1,9 +1,11 @@
 # Lazily create Stylists from Clerk identity
 
-In v1, Clerk is the authentication provider and the database Stylist is the app-domain identity. The backend lazily upserts a Stylist by Clerk user id on the first authenticated mobile API call, using request-provided defaults such as language and timezone when needed, and domain records then relate to the database Stylist id rather than storing Clerk ids directly.
+In v1, Clerk is the authentication provider and the database Stylist is the app-domain identity. The backend lazily creates a Stylist by Clerk user id on the first authenticated mobile API call, using request-provided defaults such as language and timezone when needed, and domain records then relate to the database Stylist id rather than storing Clerk ids directly.
 
 Stylist domain state, including language, timezone, salon address, and onboarding completion, lives in the app database rather than Clerk metadata. Clerk metadata can be considered later only for tiny auth-adjacent claims if a proven hot path needs them, but it is not the source of truth for Stylist settings.
 
 Lazy creation creates only the minimum valid Stylist record, using Clerk id plus initial language and timezone defaults when available. It does not mark onboarding complete; `onboardingCompletedAt` is set only by an explicit onboarding or settings mutation after the Stylist confirms the required setup fields.
 
 The defaults are checked when they are used: a language the app does not have, or a timezone that is not an IANA timezone the server knows, is refused as invalid input and creates no Stylist. For a Stylist who already exists the defaults are not used and never refuse a call, so a device whose timezone the server does not know cannot lock its Stylist out.
+
+Every authenticated call looks the Stylist up by Clerk user id, so the lookup is one query: a Stylist who exists is found and nothing is written, and only when there is none is one created. It is not a Prisma `upsert`, which sends five statements (BEGIN, three SELECTs, COMMIT) for a Stylist who exists, about a third of the queries of a typical call. Two first calls of a new account can both find none; the one whose create is refused on the unique Clerk id takes the Stylist the other created, so neither fails.

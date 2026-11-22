@@ -145,7 +145,7 @@ function createDay() {
       .map(read);
   const db = withTransaction({
     stylist: {
-      upsert: vi.fn().mockResolvedValue(stylist)
+      findUnique: vi.fn().mockResolvedValue(stylist)
     },
     appointment: {
       findFirst: vi.fn(async (args: { where: AppointmentWhere }) => find(args)[0] ?? null),

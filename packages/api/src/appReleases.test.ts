@@ -41,17 +41,17 @@ function caller(options: {
   executeRaw?: ReturnType<typeof vi.fn>;
 }) {
   const executeRaw = options.executeRaw ?? vi.fn().mockResolvedValue(1);
-  const upsert = vi.fn().mockResolvedValue(options.stylist ?? storedStylist());
+  const findUnique = vi.fn().mockResolvedValue(options.stylist ?? storedStylist());
   const ctx = {
     clerkAuth: { userId: options.userId === undefined ? "clerk_1" : options.userId },
-    db: { stylist: { upsert, findUnique: upsert }, $executeRaw: executeRaw },
+    db: { stylist: { findUnique }, $executeRaw: executeRaw },
     photoOrigins: [],
     appVersion: options.appVersion ?? null,
     appDownloadUrl: options.appDownloadUrl ?? null,
     publishedRelease: options.publishedRelease ?? null
   } as unknown as TRPCContext;
 
-  return { caller: appRouter.createCaller(ctx), executeRaw, upsert };
+  return { caller: appRouter.createCaller(ctx), executeRaw };
 }
 
 function headers(values: Record<string, string>) {

@@ -102,7 +102,7 @@ function createStore(options: { menu?: MenuItem[]; appointment?: Record<string, 
     (where.id === undefined || where.id.in.includes(service.id));
   const db = {
     stylist: {
-      upsert: vi.fn().mockResolvedValue(stylist),
+      findUnique: vi.fn().mockResolvedValue(stylist),
       findUniqueOrThrow: vi.fn().mockResolvedValue(stylist)
     },
     client: {
@@ -321,7 +321,7 @@ describe("Travel Fee item", () => {
       },
       db: withTransaction({
         stylist: {
-          upsert: vi.fn().mockResolvedValue(stylist)
+          findUnique: vi.fn().mockResolvedValue(stylist)
         },
         serviceMenuItem: {
           findFirst: vi.fn().mockResolvedValue(item),
