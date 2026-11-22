@@ -53,3 +53,16 @@ export function tearDownTelemetry() {
   context.disable();
   propagation.disable();
 }
+
+/**
+ * Finds `phone` in a printed event or span, however it got written there: as typed, with its
+ * digits run together ("+13125550100"), or grouped another way ("555-01-00"). It looks for the
+ * number's last seven digits with nothing but separators between them. A test must not look for a
+ * shorter piece such as "555": the same line holds random trace and span ids and timings, which
+ * contain any three digits now and then.
+ */
+export function phonePattern(phone: string): RegExp {
+  const lastSeven = phone.replace(/\D/g, "").slice(-7);
+
+  return new RegExp(lastSeven.split("").join("[\\s().-]*"));
+}
