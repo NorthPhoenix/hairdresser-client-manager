@@ -29,7 +29,6 @@ function createCaller() {
   };
   const db = {
     stylist: {
-      upsert: vi.fn().mockResolvedValue(stylist),
       findUnique: vi.fn().mockResolvedValue(stylist),
       update: vi.fn().mockResolvedValue(stylist)
     },

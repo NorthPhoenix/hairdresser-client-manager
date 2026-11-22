@@ -11,7 +11,7 @@ function createContext(overrides: Partial<TRPCContext>): TRPCContext {
     },
     db: {
       stylist: {
-        upsert: vi.fn(),
+        findUnique: vi.fn(),
         update: vi.fn()
       }
     },
@@ -58,7 +58,8 @@ describe("stylist bootstrap", () => {
   });
 
   it("lazily creates the minimum Stylist without completing onboarding", async () => {
-    const upsert = vi.fn().mockResolvedValue({
+    const findUnique = vi.fn().mockResolvedValue(null);
+    const create = vi.fn().mockResolvedValue({
       id: "stylist_1",
       clerkId: "clerk_1",
       language: "ru",
@@ -73,7 +74,8 @@ describe("stylist bootstrap", () => {
       },
       db: {
         stylist: {
-          upsert,
+          findUnique,
+          create,
           update: vi.fn()
         }
       } as unknown as TRPCContext["db"]
@@ -88,12 +90,13 @@ describe("stylist bootstrap", () => {
       onboardingCompletedAt: null,
       onboardingComplete: false
     });
-    expect(upsert).toHaveBeenCalledWith({
+    expect(findUnique).toHaveBeenCalledWith({
       where: {
         clerkId: "clerk_1"
-      },
-      update: {},
-      create: {
+      }
+    });
+    expect(create).toHaveBeenCalledWith({
+      data: {
         clerkId: "clerk_1",
         language: "ru",
         timezone: "UTC"
@@ -102,7 +105,7 @@ describe("stylist bootstrap", () => {
   });
 
   it("uses device defaults when lazily creating a Stylist", async () => {
-    const upsert = vi.fn().mockResolvedValue({
+    const create = vi.fn().mockResolvedValue({
       id: "stylist_1",
       clerkId: "clerk_1",
       language: "en",
@@ -117,7 +120,8 @@ describe("stylist bootstrap", () => {
       },
       db: {
         stylist: {
-          upsert,
+          findUnique: vi.fn().mockResolvedValue(null),
+          create,
           update: vi.fn()
         }
       } as unknown as TRPCContext["db"]
@@ -129,12 +133,8 @@ describe("stylist bootstrap", () => {
       deviceTimezone: "America/Chicago"
     });
 
-    expect(upsert).toHaveBeenCalledWith({
-      where: {
-        clerkId: "clerk_1"
-      },
-      update: {},
-      create: {
+    expect(create).toHaveBeenCalledWith({
+      data: {
         clerkId: "clerk_1",
         language: "en",
         timezone: "America/Chicago"
@@ -142,9 +142,9 @@ describe("stylist bootstrap", () => {
     });
   });
 
-  it("loads an existing Stylist and returns onboarding status", async () => {
+  it("loads an existing Stylist with one query and returns onboarding status", async () => {
     const onboardingCompletedAt = new Date("2026-06-13T12:00:00.000Z");
-    const upsert = vi.fn().mockResolvedValue({
+    const findUnique = vi.fn().mockResolvedValue({
       id: "stylist_1",
       clerkId: "clerk_1",
       language: "en",
@@ -153,13 +153,15 @@ describe("stylist bootstrap", () => {
       onboardingCompletedAt,
       updatedAt
     });
+    const create = vi.fn();
     const ctx = createContext({
       clerkAuth: {
         userId: "clerk_1"
       },
       db: {
         stylist: {
-          upsert,
+          findUnique,
+          create,
           update: vi.fn()
         }
       } as unknown as TRPCContext["db"]
@@ -174,6 +176,9 @@ describe("stylist bootstrap", () => {
       onboardingCompletedAt: "2026-06-13T12:00:00.000Z",
       onboardingComplete: true
     });
+    // No transaction and no write for a Stylist who exists: one SELECT per request.
+    expect(findUnique).toHaveBeenCalledTimes(1);
+    expect(create).not.toHaveBeenCalled();
   });
 
   it("says whether this server has photo storage, also in the reply to saved settings", async () => {
@@ -194,7 +199,7 @@ describe("stylist bootstrap", () => {
           },
           db: withTransaction({
             stylist: {
-              upsert: vi.fn().mockResolvedValue(stylistRow),
+              findUnique: vi.fn().mockResolvedValue(stylistRow),
               update: vi.fn().mockResolvedValue(stylistRow)
             },
             appointment: {
@@ -241,7 +246,7 @@ describe("stylist bootstrap", () => {
       },
       db: withTransaction({
         stylist: {
-          upsert: vi.fn().mockResolvedValue({
+          findUnique: vi.fn().mockResolvedValue({
             id: "stylist_1",
             clerkId: "clerk_1",
             language: "ru",
@@ -299,7 +304,7 @@ describe("stylist bootstrap", () => {
     const update = vi.fn().mockRejectedValue(new Error("connection lost"));
     const db = withTransaction({
       stylist: {
-        upsert: vi.fn().mockResolvedValue({
+        findUnique: vi.fn().mockResolvedValue({
           id: "stylist_1",
           clerkId: "clerk_1",
           language: "ru",
@@ -352,8 +357,8 @@ describe("stylist bootstrap", () => {
         },
         db: {
           stylist: {
-            upsert: vi.fn().mockRejectedValue(
-              Object.assign(new Error("Invalid `ctx.db.stylist.upsert()` invocation in /srv/app/trpc.ts"), {
+            findUnique: vi.fn().mockRejectedValue(
+              Object.assign(new Error("Invalid `ctx.db.stylist.findUnique()` invocation in /srv/app/trpc.ts"), {
                 name: "PrismaClientKnownRequestError",
                 code: prismaCode
               })
@@ -376,7 +381,7 @@ describe("stylist bootstrap", () => {
     ["a timezone that is not text", { deviceTimezone: 12345 }, "deviceTimezone"],
     ["a timezone that does not exist", { deviceTimezone: "Mars/Phobos" }, "deviceTimezone"]
   ])("creates no Stylist from %s", async (_label, input, field) => {
-    const upsert = vi.fn();
+    const create = vi.fn();
     const caller = appRouter.createCaller(
       createContext({
         clerkAuth: {
@@ -384,7 +389,7 @@ describe("stylist bootstrap", () => {
         },
         db: {
           stylist: {
-            upsert,
+            create,
             findUnique: vi.fn().mockResolvedValue(null)
           },
           client: {
@@ -399,7 +404,7 @@ describe("stylist bootstrap", () => {
       code: "BAD_REQUEST",
       field
     });
-    expect(upsert).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
   });
 
   it("says that the device timezone is not one when it refuses to create the Stylist", async () => {
@@ -410,7 +415,7 @@ describe("stylist bootstrap", () => {
         },
         db: {
           stylist: {
-            upsert: vi.fn(),
+            create: vi.fn(),
             findUnique: vi.fn().mockResolvedValue(null)
           }
         } as unknown as TRPCContext["db"]
@@ -425,7 +430,7 @@ describe("stylist bootstrap", () => {
   });
 
   it("does not hold up an existing Stylist whose device reports a timezone the server does not know", async () => {
-    const upsert = vi.fn();
+    const create = vi.fn();
     const findUnique = vi.fn().mockResolvedValue({
       id: "stylist_1",
       clerkId: "clerk_1",
@@ -442,7 +447,7 @@ describe("stylist bootstrap", () => {
         },
         db: {
           stylist: {
-            upsert,
+            create,
             findUnique
           }
         } as unknown as TRPCContext["db"]
@@ -458,7 +463,7 @@ describe("stylist bootstrap", () => {
         clerkId: "clerk_1"
       }
     });
-    expect(upsert).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
   });
 });
 
@@ -511,7 +516,7 @@ describe("error replies", () => {
       },
       withTransaction({
         stylist: {
-          upsert: vi.fn().mockResolvedValue(existingStylist)
+          findUnique: vi.fn().mockResolvedValue(existingStylist)
         },
         serviceMenuItem: {
           create: vi.fn().mockRejectedValue(Object.assign(new Error(databaseText), { name: "PrismaClientValidationError" }))
@@ -544,7 +549,7 @@ describe("error replies", () => {
       },
       withTransaction({
         stylist: {
-          upsert: vi.fn().mockResolvedValue(existingStylist)
+          findUnique: vi.fn().mockResolvedValue(existingStylist)
         },
         serviceMenuItem: {
           findFirst: vi.fn().mockResolvedValue(null)
@@ -576,7 +581,7 @@ describe("error replies", () => {
       },
       withTransaction({
         stylist: {
-          upsert: vi.fn().mockResolvedValue(existingStylist)
+          findUnique: vi.fn().mockResolvedValue(existingStylist)
         },
         serviceMenuItem: {
           create

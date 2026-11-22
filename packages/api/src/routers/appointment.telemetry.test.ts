@@ -79,7 +79,7 @@ afterEach(tearDownTelemetry);
 function callerFor(models: Record<string, unknown>) {
   const db = withTransaction({
     stylist: {
-      upsert: vi.fn().mockResolvedValue(stylist),
+      findUnique: vi.fn().mockResolvedValue(stylist),
       findUniqueOrThrow: vi.fn().mockResolvedValue(stylist)
     },
     serviceMenuItem: {

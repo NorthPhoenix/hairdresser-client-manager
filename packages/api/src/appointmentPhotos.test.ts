@@ -94,7 +94,7 @@ function createPhotoCaller(photos: PhotoRow[], deleteStoredFiles = vi.fn().mockR
   });
   const db = withTransaction({
     stylist: {
-      upsert: vi.fn().mockResolvedValue(stylist)
+      findUnique: vi.fn().mockResolvedValue(stylist)
     },
     appointment: {
       findFirst: vi.fn(async ({ where }: { where: { id: string } }) => ({

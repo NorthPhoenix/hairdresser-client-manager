@@ -87,7 +87,7 @@ function createStore(initial: Partial<State>) {
   const tx = {
     $executeRaw: vi.fn().mockResolvedValue(1),
     stylist: {
-      upsert: vi.fn(async ({ where }: { where: { clerkId: string } }) => ({
+      findUnique: vi.fn(async ({ where }: { where: { clerkId: string } }) => ({
         id: where.clerkId === "clerk_2" ? "stylist_2" : "stylist_1",
         clerkId: where.clerkId,
         language: "ru",
