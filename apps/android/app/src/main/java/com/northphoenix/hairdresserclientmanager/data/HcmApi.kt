@@ -489,9 +489,10 @@ class HcmApi(private val trpc: TrpcClient) {
 
     /**
      * An edit of a Service is a save of its whole form: the name, the price and the note are sent
-     * together, and an empty note clears the note.
+     * together, and an empty note clears the note. [menuItemId] is the Service Menu Item the
+     * Service is switched to, such as another variant of its group; left out, it keeps its own.
      */
-    suspend fun updateService(id: String, name: String, priceCents: Long, note: String) {
+    suspend fun updateService(id: String, name: String, priceCents: Long, note: String, menuItemId: String? = null) {
         trpc.mutation<JsonObject>(
             "appointment.updateService",
             buildJsonObject {
@@ -499,6 +500,7 @@ class HcmApi(private val trpc: TrpcClient) {
                 put("name", name)
                 put("priceCents", priceCents)
                 put("note", note)
+                menuItemId?.let { put("menuItemId", it) }
             },
         )
     }

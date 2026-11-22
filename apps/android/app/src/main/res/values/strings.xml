@@ -82,6 +82,7 @@
     <string name="appointment_service_saved">Service added.</string>
     <string name="appointment_service_total">Services total</string>
     <string name="appointment_service_updated">Service saved.</string>
+    <string name="appointment_service_variant_label">Variant</string>
     <string name="appointment_services_added">Services added: %1$d.</string>
     <string name="appointment_services_title">Services</string>
     <string name="appointment_start_label">Start time</string>
