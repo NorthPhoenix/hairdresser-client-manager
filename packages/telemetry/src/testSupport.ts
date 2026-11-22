@@ -56,13 +56,20 @@ export function tearDownTelemetry() {
 
 /**
  * Finds `phone` in a printed event or span, however it got written there: as typed, with its
- * digits run together ("+13125550100"), or grouped another way ("555-01-00"). It looks for the
- * number's last seven digits with nothing but separators between them. A test must not look for a
- * shorter piece such as "555": the same line holds random trace and span ids and timings, which
- * contain any three digits now and then.
+ * digits run together ("+13125550100"), grouped another way ("555-01-00"), or cut short
+ * ("+1 312 555 ****"). It looks for any seven of the number's digits in a row, with nothing but
+ * separators between them. A test must not look for a shorter piece such as "555": the same line
+ * holds random trace and span ids and timings, which contain any three digits now and then. So
+ * a number with fewer than seven digits is refused.
  */
 export function phonePattern(phone: string): RegExp {
-  const lastSeven = phone.replace(/\D/g, "").slice(-7);
+  const digits = phone.replace(/\D/g, "");
 
-  return new RegExp(lastSeven.split("").join("[\\s().-]*"));
+  if (digits.length < 7) {
+    throw new Error(`A phone to look for needs seven digits or more: "${phone}" has ${digits.length}.`);
+  }
+
+  const runs = Array.from({ length: digits.length - 6 }, (_, start) => digits.slice(start, start + 7).split("").join("[\\s()./+\u2013\u2014-]*"));
+
+  return new RegExp(runs.join("|"));
 }
