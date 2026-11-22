@@ -60,8 +60,9 @@ export function tearDownTelemetry() {
  * seven of its digits are left ("+1 312 555 ****"). It looks for seven digits that follow each
  * other in the number, with nothing but separators between them, so a piece of six digits or fewer
  * ("312 555") is not found. A test must not look for one: the same line holds random trace and
- * span ids and timings, which contain any three digits now and then. So a number with fewer than
- * seven digits is refused.
+ * span ids and timings, and the shorter the piece, the more often they hold it by chance. Three
+ * digits ("555") failed one test run in twelve; seven match about one line in a million. So a
+ * number with fewer than seven digits is refused.
  */
 export function phonePattern(phone: string): RegExp {
   const digits = phone.replace(/\D/g, "");
@@ -70,7 +71,7 @@ export function phonePattern(phone: string): RegExp {
     throw new Error(`A phone to look for needs seven digits or more: "${phone}" has ${digits.length}.`);
   }
 
-  const runs = Array.from({ length: digits.length - 6 }, (_, start) => digits.slice(start, start + 7).split("").join("[\\s()./+\u2011\u2013\u2014\u2212-]*"));
+  const runs = Array.from({ length: digits.length - 6 }, (_, start) => digits.slice(start, start + 7).split("").join("[\\s()./+\u2010-\u2014\u2212-]*"));
 
   return new RegExp(runs.join("|"));
 }
