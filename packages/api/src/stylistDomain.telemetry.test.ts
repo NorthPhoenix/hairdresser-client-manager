@@ -28,7 +28,7 @@ afterEach(tearDownTelemetry);
 
 function callerFor(models: Record<string, unknown>) {
   const db = withTransaction({
-    stylist: { upsert: vi.fn().mockResolvedValue(stylist), findUniqueOrThrow: vi.fn().mockResolvedValue(stylist) },
+    stylist: { findUnique: vi.fn().mockResolvedValue(stylist), findUniqueOrThrow: vi.fn().mockResolvedValue(stylist) },
     ...models
   });
 
@@ -85,7 +85,7 @@ describe("wide events of the domain helpers and small routers", () => {
 
   it("records the settings an edit changed, and an outdated save", async () => {
     const caller = callerFor({
-      stylist: { update: vi.fn().mockResolvedValue({ ...stylist, language: "ru" }), upsert: vi.fn().mockResolvedValue(stylist), findUniqueOrThrow: vi.fn().mockResolvedValue(stylist) },
+      stylist: { update: vi.fn().mockResolvedValue({ ...stylist, language: "ru" }), findUnique: vi.fn().mockResolvedValue(stylist), findUniqueOrThrow: vi.fn().mockResolvedValue(stylist) },
       appointment: { updateMany: vi.fn().mockResolvedValue({ count: 2 }) }
     });
 

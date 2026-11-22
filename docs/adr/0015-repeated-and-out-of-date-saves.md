@@ -22,6 +22,6 @@ A key names one intended creation. The caller keeps it for as long as it retries
 
 Saving a Client Profile or the Stylist's settings writes every field of the form. A form that was loaded before another device saved would silently put the old values back. Both saves therefore take an optional `expectedUpdatedAt`: the `updatedAt` of the record the form was loaded from. When the stored record has another `updatedAt` and the save would change it, the save is refused with `CONFLICT` and nothing is written; the app reloads and the Stylist decides. A save that would change nothing passes whatever version it names, so the same save sent again after a lost reply is not reported as a conflict with itself.
 
-`updatedAt` serves as the version because every write of these two records goes through one mutation each, under the Stylist lock, and the lazy Stylist upsert of ADR 0011 writes nothing for an existing Stylist. A separate version counter would say the same thing.
+`updatedAt` serves as the version because every write of these two records goes through one mutation each, under the Stylist lock, and the lazy Stylist lookup of ADR 0011 writes nothing for an existing Stylist. A separate version counter would say the same thing.
 
 Both parameters are optional. A caller that sends neither gets the behaviour from before: every creating call creates, and the last save wins.

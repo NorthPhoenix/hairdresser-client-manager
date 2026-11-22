@@ -31,7 +31,7 @@ function createContext(db: TRPCContext["db"]): TRPCContext {
 function createDb(client: Record<string, unknown>) {
   return {
     stylist: {
-      upsert: vi.fn().mockResolvedValue({
+      findUnique: vi.fn().mockResolvedValue({
         id: "stylist_1",
         clerkId: "clerk_1",
         language: "ru",
@@ -225,7 +225,7 @@ describe("client router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue({
+          findUnique: vi.fn().mockResolvedValue({
             id: "stylist_1",
             clerkId: "clerk_1",
             language: "ru",
@@ -288,7 +288,7 @@ describe("client router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue({
+          findUnique: vi.fn().mockResolvedValue({
             id: "stylist_1",
             clerkId: "clerk_1",
             language: "ru",
@@ -334,7 +334,7 @@ describe("client router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue({
+          findUnique: vi.fn().mockResolvedValue({
             id: "stylist_1",
             clerkId: "clerk_1",
             language: "ru",
@@ -437,7 +437,7 @@ describe("client router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue({
+          findUnique: vi.fn().mockResolvedValue({
             id: "stylist_1",
             clerkId: "clerk_1",
             language: "ru",
@@ -608,7 +608,7 @@ describe("client router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue({
+          findUnique: vi.fn().mockResolvedValue({
             id: "stylist_1",
             clerkId: "clerk_1",
             language: "ru",
@@ -730,7 +730,7 @@ describe("client router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue({
+          findUnique: vi.fn().mockResolvedValue({
             id: "stylist_1",
             clerkId: "clerk_1",
             language: "ru",
@@ -774,7 +774,7 @@ describe("client router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue({
+          findUnique: vi.fn().mockResolvedValue({
             id: "stylist_1",
             clerkId: "clerk_1",
             language: "ru",
@@ -833,7 +833,7 @@ describe("client router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue({
+          findUnique: vi.fn().mockResolvedValue({
             id: "stylist_1",
             clerkId: "clerk_1",
             language: "ru",
@@ -882,7 +882,7 @@ describe("client router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue({
+          findUnique: vi.fn().mockResolvedValue({
             id: "stylist_1",
             clerkId: "clerk_1",
             language: "ru",
@@ -961,7 +961,7 @@ describe("client router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue({
+          findUnique: vi.fn().mockResolvedValue({
             id: "stylist_1",
             clerkId: "clerk_1"
           })
@@ -1012,7 +1012,7 @@ describe("client router", () => {
     const caller = appRouter.createCaller(
       createContext({
         stylist: {
-          upsert: vi.fn().mockResolvedValue({
+          findUnique: vi.fn().mockResolvedValue({
             id: "stylist_1",
             clerkId: "clerk_1"
           })
@@ -1075,7 +1075,7 @@ describe("client router", () => {
     const appointmentDelete = vi.fn();
     const context = createContext({
       stylist: {
-        upsert: vi.fn().mockResolvedValue({
+        findUnique: vi.fn().mockResolvedValue({
           id: "stylist_1",
           clerkId: "clerk_1"
         })
