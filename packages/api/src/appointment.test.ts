@@ -1083,7 +1083,7 @@ describe("appointment router", () => {
 
   // An Appointment with two Services, a Color Formula on the first and one stored photo, kept
   // in memory with just the calls updateService makes.
-  function createEditableServiceDb() {
+  function createEditableServiceDb(secondServiceMenuItemId: string | null = null) {
     const addedAt = (second: number) => new Date(Date.UTC(2026, 5, 13, 15, 0, second));
     const services = [
       {
@@ -1110,7 +1110,7 @@ describe("appointment router", () => {
         id: "service_2",
         appointmentId: "appointment_1",
         clientId: "client_1",
-        menuItemId: null,
+        menuItemId: secondServiceMenuItemId,
         name: "Trim",
         priceCents: 3000,
         note: "",
@@ -1162,6 +1162,16 @@ describe("appointment router", () => {
         ...(include.photos ? { photos: [photo] } : {})
       })
     );
+    // The Stylist's menu has a second variant of the first Service's item; another Stylist's has a third.
+    const menuItems = [
+      { id: "menu_1", stylistId: "stylist_1", name: "Fix Me", defaultPriceCents: 1000, group: "Fix" },
+      { id: "menu_2", stylistId: "stylist_1", name: "Fix Me long", defaultPriceCents: 1500, group: "Fix" },
+      { id: "menu_of_someone_else", stylistId: "stylist_2", name: "Theirs", defaultPriceCents: 900, group: "Fix" },
+      { id: "menu_travel", stylistId: "stylist_1", name: "Trip", defaultPriceCents: 2000, group: "Fix", travelFee: true }
+    ].map((item) => ({ travelFee: false, ...item }));
+    const findMenuItems = vi.fn(({ where }: { where: { id: { in: string[] }; stylistId: string } }) =>
+      Promise.resolve(menuItems.filter((item) => where.id.in.includes(item.id) && item.stylistId === where.stylistId))
+    );
     const db = {
       stylist: {
         findUnique: vi.fn().mockResolvedValue(stylist)
@@ -1172,15 +1182,145 @@ describe("appointment router", () => {
       appointmentService: {
         findFirst: findService,
         update
+      },
+      serviceMenuItem: {
+        findMany: findMenuItems
       }
     };
 
     return {
       findService,
+      findMenuItems,
       update,
       caller: appRouter.createCaller(createContext(db as unknown as TRPCContext["db"]))
     };
   }
+
+  it("switches a Service to another item of the Stylist's menu, keeping its note and Color Formulas", async () => {
+    const { caller, findMenuItems, update } = createEditableServiceDb();
+
+    await expect(
+      caller.appointment.updateService({
+        id: "service_1",
+        name: "Fix Me long",
+        priceCents: 1500,
+        note: "old note",
+        menuItemId: "menu_2"
+      })
+    ).resolves.toMatchObject({
+      services: [
+        {
+          id: "service_1",
+          menuItemId: "menu_2",
+          name: "Fix Me long",
+          priceCents: 1500,
+          note: "old note",
+          colorFormulas: [{ id: "formula_1", formula: "4N base" }]
+        },
+        {
+          id: "service_2"
+        }
+      ],
+      serviceTotalCents: 4500
+    });
+    // The new item and the Service's own, both of the Stylist's menu, in one read.
+    expect(findMenuItems).toHaveBeenCalledWith({
+      where: {
+        id: {
+          in: ["menu_2", "menu_1"]
+        },
+        stylistId: "stylist_1"
+      }
+    });
+    expect(update).toHaveBeenCalledWith({
+      where: {
+        id: "service_1"
+      },
+      data: {
+        name: "Fix Me long",
+        priceCents: 1500,
+        note: "old note",
+        menuItemId: "menu_2"
+      }
+    });
+  });
+
+  it("takes the name and price the edit states, not the new item's", async () => {
+    const { caller, update } = createEditableServiceDb();
+
+    await caller.appointment.updateService({ id: "service_1", name: "Fix Me long, thick", priceCents: 1800, menuItemId: "menu_2" });
+
+    expect(update).toHaveBeenCalledWith({
+      where: {
+        id: "service_1"
+      },
+      data: {
+        name: "Fix Me long, thick",
+        priceCents: 1800,
+        note: "",
+        menuItemId: "menu_2"
+      }
+    });
+  });
+
+  it.each([
+    ["an item of another Stylist", "menu_of_someone_else"],
+    ["an item that is gone", "menu_gone"]
+  ])("refuses to switch a Service to %s and changes nothing", async (_label, menuItemId) => {
+    const { caller, update } = createEditableServiceDb();
+
+    await expect(caller.appointment.updateService({ id: "service_1", name: "Fix Me", priceCents: 1000, menuItemId })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "Service Menu Item not found."
+    });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("writes no item when the edit names the one the Service already has", async () => {
+    const { caller, findMenuItems, update } = createEditableServiceDb();
+
+    await caller.appointment.updateService({ id: "service_1", name: "Fix Me", priceCents: 1200, note: "old note", menuItemId: "menu_1" });
+
+    expect(findMenuItems).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith({
+      where: {
+        id: "service_1"
+      },
+      data: {
+        name: "Fix Me",
+        priceCents: 1200,
+        note: "old note"
+      }
+    });
+  });
+
+  it("refuses to switch a Service onto the Travel Fee or off it, and changes nothing", async () => {
+    const onto = createEditableServiceDb();
+
+    await expect(onto.caller.appointment.updateService({ id: "service_1", name: "Trip", priceCents: 2000, menuItemId: "menu_travel" })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "Travel Fee Service cannot be switched."
+    });
+    expect(onto.update).not.toHaveBeenCalled();
+
+    // A Service of the Travel Fee, as the move to the salon finds it by its item.
+    const off = createEditableServiceDb("menu_travel");
+
+    await expect(off.caller.appointment.updateService({ id: "service_2", name: "Fix Me long", priceCents: 1500, menuItemId: "menu_2" })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "Travel Fee Service cannot be switched."
+    });
+    expect(off.update).not.toHaveBeenCalled();
+  });
+
+  it("links an ad hoc Service to an item of the menu", async () => {
+    const { caller, update } = createEditableServiceDb();
+
+    await expect(caller.appointment.updateService({ id: "service_2", name: "Fix Me", priceCents: 1000, menuItemId: "menu_1" })).resolves.toMatchObject({
+      services: [{ id: "service_1" }, { id: "service_2", menuItemId: "menu_1" }]
+    });
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ menuItemId: "menu_1" }) }));
+  });
 
   it("edits the name, price and note of a Service in place and answers with the whole Appointment", async () => {
     const { caller, findService, update } = createEditableServiceDb();

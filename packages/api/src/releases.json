@@ -390,5 +390,18 @@
         "When the app opens after a break, Home with its Appointments appears about a second sooner"
       ]
     }
+  },
+  {
+    "versionCode": 29,
+    "versionName": "1.27.0",
+    "date": "2026-11-22",
+    "notes": {
+      "ru": [
+        "Услугу в записи можно заменить другим вариантом из той же группы меню: нажмите карандаш у услуги и выберите вариант в строке «Вариант». Название и цена подставятся сами, а заметка и формулы окрашивания останутся"
+      ],
+      "en": [
+        "A Service on an Appointment can be switched to another variant of its menu group: tap the pencil on the Service and pick one under Variant. The name and price fill in, and the note and Color Formulas stay"
+      ]
+    }
   }
 ]
