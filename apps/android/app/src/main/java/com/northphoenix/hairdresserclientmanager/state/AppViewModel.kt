@@ -2155,12 +2155,31 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
     /**
      * Saves an edit of a Service: its name, its price and its note, all three as the form has
-     * them (see [ServiceEdit]). Its Client, its Color Formulas and its place among the Services stay.
+     * them, and the variant it is switched to, if any (see [ServiceEdit]). Its Client, its Color
+     * Formulas and its place among the Services stay. A switch changes which items the Stylist uses
+     * most, so the menu is read again with the Appointment, as after an add.
      */
-    fun updateService(appointmentId: String, serviceId: String, edit: ServiceEdit.Values, onSuccess: () -> Unit) =
-        actOnAppointment(appointmentId, "updateService:$serviceId", R.string.appointment_service_updated, onSuccess) {
-            api.updateService(serviceId, edit.name, edit.priceCents, edit.note)
+    fun updateService(appointmentId: String, serviceId: String, edit: ServiceEdit.Values, onSuccess: () -> Unit) {
+        val switches = edit.menuItemId != null
+
+        actOnAppointment(
+            appointmentId,
+            "updateService:$serviceId",
+            R.string.appointment_service_updated,
+            onSuccess,
+            touched = {
+                readChanges.changed(appointmentId)
+                if (switches) {
+                    serviceMenuReads.changed()
+                }
+            },
+            reload = {
+                if (switches) together({ reloadAppointmentAndLists(appointmentId) }, ::loadServiceMenu) else reloadAppointmentAndLists(appointmentId)
+            },
+        ) {
+            api.updateService(serviceId, edit.name, edit.priceCents, edit.note, edit.menuItemId)
         }
+    }
 
     // A delete the Stylist has confirmed is not waited for: the item is gone at once, with what
     // follows from it (the totals), and is back in its place when the delete fails.

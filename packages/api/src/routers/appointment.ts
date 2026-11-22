@@ -202,7 +202,10 @@ const appointmentServiceUpdateInput = z.object({
   id: z.string(),
   name: nameText,
   priceCents: amountCents,
-  note: text(textLimits.note).optional()
+  note: text(textLimits.note).optional(),
+  // Another Service Menu Item the Service now counts as started from, such as another variant of
+  // its group. Left out: it keeps its own. Older apps never send it.
+  menuItemId: z.string().optional()
 });
 
 const appointmentServiceDeleteInput = z.object({
@@ -1677,17 +1680,44 @@ export const appointmentRouter = createTRPCRouter({
       throw refusal("NOT_FOUND", "Appointment Service not found.", "service_not_found");
     }
 
+    // Only an item of the Stylist's own menu. Its name and price are not taken from it: the edit
+    // states both, as the Stylist saw them in the form.
+    const switchesItem = input.menuItemId !== undefined && input.menuItemId !== service.menuItemId;
+    const items = switchesItem
+      ? await ctx.db.serviceMenuItem.findMany({
+          where: {
+            id: {
+              in: [input.menuItemId ?? "", ...(service.menuItemId ? [service.menuItemId] : [])]
+            },
+            stylistId: ctx.stylist.id
+          }
+        })
+      : [];
+    const menuItem = items.find((item) => item.id === input.menuItemId) ?? null;
+
+    if (switchesItem && !menuItem) {
+      throw refusal("NOT_FOUND", "Service Menu Item not found.", "menu_item_not_found");
+    }
+
+    // The Travel Fee is added and removed with the Appointment's place by its item: a Service is
+    // not switched onto it, nor off it, or a move to the salon would remove the wrong Service.
+    if (items.some((item) => item.travelFee)) {
+      throw refusal("BAD_REQUEST", "Travel Fee Service cannot be switched.", "travel_fee_switch");
+    }
+
     annotate(() => {
       const changedFields = [
         input.name !== service.name && "name",
         input.priceCents !== service.priceCents && "price",
-        (input.note ?? "") !== (service.note ?? "") && "note"
+        (input.note ?? "") !== (service.note ?? "") && "note",
+        menuItem && "menu_item"
       ].filter((field): field is string => typeof field === "string");
 
       return {
         "appointment.id": service.appointmentId,
         "appointment_service.client_id": service.clientId,
-        "appointment_service.menu_item_id": service.menuItemId ?? undefined,
+        "appointment_service.menu_item_id": (menuItem?.id ?? service.menuItemId) ?? undefined,
+        "appointment_service.previous_menu_item_id": menuItem ? (service.menuItemId ?? undefined) : undefined,
         "appointment_service.previous_price_minor": service.priceCents,
         "appointment_service.price_minor": input.priceCents,
         "appointment_service.name_length": input.name.length,
@@ -1706,7 +1736,9 @@ export const appointmentRouter = createTRPCRouter({
       data: {
         name: input.name,
         priceCents: input.priceCents,
-        note: input.note ?? ""
+        note: input.note ?? "",
+        // Its Color Formulas and its note stay: the Service is the same one, now of another item.
+        ...(menuItem ? { menuItemId: menuItem.id } : {})
       }
     });
 
