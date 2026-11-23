@@ -1,6 +1,6 @@
 /// <reference types="node" />
 
-import { createSign, generateKeyPairSync, type KeyObject } from "node:crypto";
+import { createSign, generateKeyPairSync, randomUUID, type KeyObject } from "node:crypto";
 import { traceRequest } from "@hcm/telemetry";
 import { setUpTelemetry, tearDownTelemetry } from "@hcm/telemetry/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -140,14 +140,16 @@ describe("the sign-in of a tRPC request", () => {
 });
 
 describe("the sign-in of a tRPC request, read by Clerk's own client", () => {
-  // A development instance's keys, made up, and a signing key of its own: nothing here reaches
-  // Clerk, since the tokens are checked with CLERK_JWT_KEY.
+  // A development instance's keys, made up, and a signing key of its own, which a stand-in for
+  // Clerk's API hands out as it does in production (`GET /v1/jwks` with the secret key). Clerk
+  // keeps the keys it fetched for the process, so the key's id is new for each run.
   const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const otherKey = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey;
+  const kid = `ins_madeup_${randomUUID()}`;
 
   function token(claims: Record<string, unknown>, key: KeyObject = privateKey) {
     const part = (value: object) => Buffer.from(JSON.stringify(value)).toString("base64url");
-    const signed = `${part({ alg: "RS256", typ: "JWT", kid: "ins_madeup" })}.${part(claims)}`;
+    const signed = `${part({ alg: "RS256", typ: "JWT", kid })}.${part(claims)}`;
 
     return `${signed}.${createSign("RSA-SHA256").update(signed).sign(key).toString("base64url")}`;
   }
@@ -158,31 +160,56 @@ describe("the sign-in of a tRPC request, read by Clerk's own client", () => {
     return { sub: "user_madeup", sid: "sess_madeup", iss: "https://made-up.clerk.accounts.dev", iat: now - 5, nbf: now - 5, exp: now + 60, v: 2, ...overrides };
   }
 
+  /** Clerk's API as far as checking a token needs it: its signing keys, for the instance's secret key. */
+  function clerkApi() {
+    return vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const address = String(url instanceof Request ? url.url : url);
+      const authorization = new Headers(init?.headers).get("authorization");
+
+      if (address !== "https://api.clerk.com/v1/jwks" || authorization !== "Bearer sk_test_madeup") {
+        return Response.json({ errors: [{ code: "not_found" }] }, { status: 404 });
+      }
+
+      return Response.json({ keys: [{ ...publicKey.export({ format: "jwk" }), kid, alg: "RS256", use: "sig" }] });
+    });
+  }
+
   async function loadWithKeys() {
     vi.stubEnv("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", `pk_test_${Buffer.from("made-up.clerk.accounts.dev$").toString("base64")}`);
     vi.stubEnv("CLERK_SECRET_KEY", "sk_test_madeup");
-    vi.stubEnv("CLERK_JWT_KEY", publicKey.export({ type: "spki", format: "pem" }).toString());
     vi.resetModules();
 
-    return loadSignIn();
+    const api = clerkApi();
+
+    vi.stubGlobal("fetch", api);
+
+    return { signedInUserId: await loadSignIn(), api };
   }
 
-  it("is the user of a valid session token", async () => {
-    const signedInUserId = await loadWithKeys();
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("is the user of a valid session token, with the keys from Clerk's API", async () => {
+    const { signedInUserId, api } = await loadWithKeys();
     const bearer = { authorization: `Bearer ${token(session())}` };
 
     await expect(inRequest(() => signedInUserId(apiRequest(bearer)))).resolves.toBe("user_madeup");
-    // Whatever the caller puts in the header Clerk's middleware writes, the keys are the environment's.
+    // Whatever the caller puts in the header Clerk's middleware writes, the settings are the environment's.
     await expect(inRequest(() => signedInUserId(apiRequest({ ...bearer, "x-clerk-request-data": "made-up" })))).resolves.toBe("user_madeup");
+    expect(api).toHaveBeenCalled();
+    expect(api.mock.calls.every(([url]) => String(url) === "https://api.clerk.com/v1/jwks")).toBe(true);
   });
 
-  it("is no one for a token that ran out, of a session not yet active, signed by another key, unreadable, or none", async () => {
-    const signedInUserId = await loadWithKeys();
+  it("is no one for a token that ran out, of a session not let in yet, signed by another key, of a machine, unreadable, or none", async () => {
+    const { signedInUserId } = await loadWithKeys();
     const now = Math.floor(Date.now() / 1000);
     const cases = {
       expired: token(session({ iat: now - 120, nbf: now - 120, exp: now - 60 })),
       pending: token(session({ sts: "pending" })),
       otherKey: token(session(), otherKey),
+      apiKey: "ak_madeup",
+      machineToken: "mt_madeup",
       unreadable: "a.b.c",
       notAToken: "hello"
     };
@@ -195,6 +222,8 @@ describe("the sign-in of a tRPC request, read by Clerk's own client", () => {
     const reasons = telemetry.events().map((event) => event["auth.signed_out_reason"]);
 
     expect(reasons[0]).toMatch(/^session-token-expired/);
+    expect(reasons[1]).toBe("session-pending");
+    expect(reasons.every((reason) => typeof reason === "string")).toBe(true);
     for (const event of telemetry.events()) {
       expect(event).not.toHaveProperty("error.type");
     }

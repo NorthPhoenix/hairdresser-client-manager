@@ -60,7 +60,7 @@ function handler(request: Request) {
     createContext: () =>
       createTRPCContext({
         auth: async () => {
-          // Read here, not by proxy.ts, which does not run for the API (server/signIn.ts says why).
+          // Read here, not by proxy.ts, which does not run for this route (server/signIn.ts says why).
           const userId = await signedInUserId(request);
 
           // Signed in, so its procedure uses the database next. The first such request on a new

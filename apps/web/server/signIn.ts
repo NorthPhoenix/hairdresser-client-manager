@@ -10,16 +10,19 @@ type SignInChecker = Pick<ReturnType<typeof createClerkClient>, "authenticateReq
 let clerk: SignInChecker | undefined;
 
 /**
- * Clerk's client, made from the environment the first time a request needs it. Not the one
- * `clerkClient()` gives: that takes its keys from a header of the request (`x-clerk-request-data`)
- * that Clerk's middleware writes, and without the proxy the header is whatever the caller sent.
+ * Clerk's client, made the first time a request needs it from the settings that Clerk's Next.js
+ * SDK reads for checking a token: the keys, and the address and version of Clerk's API when they
+ * are set. Not the client `clerkClient()` gives, which takes its settings from a request header
+ * (`x-clerk-request-data`) that Clerk's middleware writes encrypted: without the middleware in
+ * front, the header is whatever the caller sent, and a development server even decrypts it with
+ * a key that is public.
  */
 function clerkFromEnvironment(): SignInChecker {
   clerk ??= createClerkClient({
     secretKey: process.env.CLERK_SECRET_KEY,
     publishableKey: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
-    // When set (the instance's public key), a token is checked without fetching Clerk's keys first.
-    jwtKey: process.env.CLERK_JWT_KEY || undefined
+    apiUrl: process.env.CLERK_API_URL || undefined,
+    apiVersion: process.env.CLERK_API_VERSION || undefined
   });
 
   return clerk;
@@ -47,7 +50,9 @@ export async function signedInUserId(request: Request, client: () => SignInCheck
 
     if (userId === null) {
       // Clerk's code for why the request is not signed in (a missing, expired or refused token).
-      annotate({ "auth.signed_out_reason": state.reason?.slice(0, 80) });
+      // A session Clerk has not let in yet (one with a task to do first) is signed in to Clerk
+      // and has no code: it is named here.
+      annotate({ "auth.signed_out_reason": state.reason?.slice(0, 80) ?? (state.isSignedIn ? "session-pending" : undefined) });
     }
 
     return userId;
