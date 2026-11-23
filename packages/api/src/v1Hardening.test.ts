@@ -202,7 +202,12 @@ describe("v1 acceptance hardening", () => {
     }
 
     expect(reachesProxy("/")).toBe(true);
-    expect(reachesProxy("/api/trpc/clientProfile.list")).toBe(true);
+    // The upload route reads the sign-in from the proxy; the tRPC route reads it itself
+    // (server/signIn.ts), so that an app request does not wait for the proxy's function first.
+    expect(reachesProxy("/api/uploadthing")).toBe(true);
+    for (const path of ["/api/trpc/clientProfile.list", "/api/trpc/stylist.bootstrap,appointment.home", "/api/trpc"]) {
+      expect(reachesProxy(path), path).toBe(false);
+    }
     // The framework's own files stay out.
     expect(reachesProxy("/_next/static/chunks/main.js")).toBe(false);
   });
