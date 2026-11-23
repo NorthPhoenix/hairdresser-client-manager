@@ -285,9 +285,9 @@ The Android app reloads its lists with a dozen or more requests at once. Apps up
 | `trpc.duration_ms` | int | Time of the procedure, middlewares included. |
 | `auth.signed_in` | bool | Whether the request carried a valid sign-in. |
 | `auth.user_id` | string | The Clerk user id (`dev_<name>` on the dev backend). |
-| `auth.has_authorization_header` | bool | The request carried an `Authorization` header (never its value). Written by `signedInUserId` (`apps/web/server/signIn.ts`), which reads the sign-in on Vercel: proxy.ts does not run for the tRPC route. |
+| `auth.has_authorization_header`, `auth.has_cookie_header` | bool | The request carried an `Authorization` or a `Cookie` header (never its value). Written by `signedInUserId` (`apps/web/server/signIn.ts`), which reads the sign-in of a tRPC request: proxy.ts does not run for the tRPC route. |
 | `auth.signed_out_reason` | string | Clerk's code for why a request is not signed in: `session-token-and-uat-missing` when it carried no sign-in (`dev-browser-missing` with a development instance's keys), `token-invalid` for a token that is not Clerk's, `session-token-expired-…` for one that ran out, `unexpected-error` for one that cannot be read. Written by `signedInUserId`. |
-| `auth.sign_in_fallback` | bool | Clerk could not decode the sign-in; the request was answered as if it had none (`true` only when it happened; paired with a handled error `clerk_token_undecodable`). Written by `signedInUserId`. |
+| `auth.sign_in_fallback` | bool | Clerk failed on the sign-in the request carried, though not on the request without it; the request was answered as if it had none (`true` only when it happened; paired with a handled error `clerk_token_undecodable`). A token Clerk cannot decode is refused without this (`auth.signed_out_reason` `unexpected-error`). Written by `signedInUserId`. |
 | `app.version_code` | int | `X-App-Version-Code` of the Android app. |
 | `app.version` | string | `X-App-Version-Name`: `1.16.0`. |
 | `stylist.id` | string | The Stylist of the request (`stylistProcedure` and below). |
@@ -646,7 +646,7 @@ The domain's reason for a refusal or a handled error, from `recordError(…, { r
 | `appointment_not_found` | refusal | The Appointment is not the Stylist's, or is not there (also for an Appointment Photo upload). |
 | `appointment_total_above_maximum` | refusal | The Services would take the Appointment's total over the maximum amount. |
 | `changed_repeat` | refusal | A request key already carried out was sent again with other values (`CONFLICT`; see `request.repeat_*`). |
-| `clerk_token_undecodable` | handled | Clerk could not decode the sign-in (in proxy.ts, or in the tRPC route, which reads it itself); the request went on as if it had none. |
+| `clerk_token_undecodable` | handled | Clerk failed on the sign-in the request carried, though not on the request without it (in proxy.ts, or in the tRPC route, which reads the sign-in itself); the request went on as if it had none. |
 | `client_has_photos` | refusal | A Client with Appointment Photos in the Appointment cannot be removed from it. |
 | `client_has_services` | refusal | A Client with Services in the Appointment cannot be removed from it. |
 | `client_not_attached` | refusal | The Client is not on the Appointment (`removeParticipant`, and an upload for a Client that is not on it). |
