@@ -170,14 +170,18 @@ private fun UpdateCard(
             verticalArrangement = Arrangement.spacedBy(4.dp),
             itemVerticalAlignment = Alignment.CenterVertically,
         ) {
-            when {
-                hidden > 0 || (!expanded && cutOff) ->
-                    TextAction(stringResource(R.string.release_notes_more), onClick = { expanded = true }, modifier = Modifier.padding(start = 6.dp))
-                expanded ->
-                    TextAction(stringResource(R.string.release_notes_less), onClick = { expanded = false }, modifier = Modifier.padding(start = 6.dp))
+            val link = when {
+                hidden > 0 || (!expanded && cutOff) -> R.string.release_notes_more
+                expanded -> R.string.release_notes_less
+                else -> null
             }
-            // Takes what is left of the first line, so the link stays at the start and the buttons go to the end.
-            Spacer(Modifier.weight(1f))
+
+            link?.let {
+                TextAction(stringResource(it), onClick = { expanded = !expanded }, modifier = Modifier.padding(start = 6.dp))
+                // Takes what is left of the first line, so the link stays at the start and the buttons go to the end.
+                // Only beside the link: on its own, its gaps would move the buttons' line break.
+                Spacer(Modifier.weight(1f))
+            }
             actions()
         }
     }
