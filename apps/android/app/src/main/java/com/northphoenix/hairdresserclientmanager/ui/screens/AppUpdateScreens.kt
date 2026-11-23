@@ -92,24 +92,17 @@ fun AppUpdateHomeCard(card: AppUpdates.HomeCard, viewModel: AppViewModel, modifi
                 lines = AppUpdates.lines(offer.releases, language),
                 modifier = modifier,
             ) {
-                // Side by side at the end, and "Update" under "Later" when a large font leaves no room.
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    itemVerticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TextAction(stringResource(R.string.update_later), onClick = { viewModel.putOffUpdate(offer.versionCode) })
-                    offer.downloadUrl?.let { url ->
-                        Button(
-                            onClick = { openDownload(url) },
-                            shape = CircleShape,
-                            colors = ButtonDefaults.buttonColors(containerColor = HcmColors.Ink, contentColor = HcmColors.Surface),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                        ) {
-                            Icon(Icons.Rounded.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(stringResource(R.string.update_download), style = MaterialTheme.typography.labelLarge)
-                        }
+                TextAction(stringResource(R.string.update_later), onClick = { viewModel.putOffUpdate(offer.versionCode) })
+                offer.downloadUrl?.let { url ->
+                    Button(
+                        onClick = { openDownload(url) },
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(containerColor = HcmColors.Ink, contentColor = HcmColors.Surface),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                    ) {
+                        Icon(Icons.Rounded.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(R.string.update_download), style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }
@@ -139,7 +132,13 @@ fun AppUpdateCornerButton(offer: AppUpdates.Offer, viewModel: AppViewModel, modi
     }
 }
 
-/** A Home card about the app: an icon and a title, the notes collapsed to their first lines, and the [actions] under them. */
+/**
+ * A Home card about the app: an icon and a title, the notes collapsed to their first lines, and
+ * under them one row with "more…" (or "less" once the notes are open) at its start and the
+ * [actions] (each a button) side by side at its end, so the link takes no line of its own. When a
+ * large font leaves no room, the last buttons go to the next line, still at the end: "Update"
+ * under "more…" and "Later".
+ */
 @Composable
 private fun UpdateCard(
     icon: ImageVector,
@@ -148,13 +147,37 @@ private fun UpdateCard(
     modifier: Modifier = Modifier,
     actions: @Composable () -> Unit,
 ) {
+    var expanded by rememberSaveable(lines) { mutableStateOf(false) }
+    // A long note, or a big font, would make the collapsed card as tall as the screen: a collapsed
+    // note keeps two lines and "more…" shows the rest.
+    var cutOff by remember(lines) { mutableStateOf(false) }
+    val (shown, hidden) = AppUpdates.collapsed(lines, expanded)
+
     HcmCard(modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f), contentPadding = PaddingValues(start = 18.dp, end = 12.dp, top = 16.dp, bottom = 8.dp)) {
         Row(Modifier.padding(end = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
             Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
         }
-        ReleaseNoteLines(lines, collapsible = true, modifier = Modifier.padding(top = 8.dp, end = 6.dp))
-        Column(Modifier.fillMaxWidth().padding(top = 4.dp, end = 6.dp, bottom = 6.dp), horizontalAlignment = Alignment.End) {
+        ReleaseNoteLines(
+            shown,
+            maxLinesEach = if (expanded) Int.MAX_VALUE else CollapsedNoteLines,
+            onCutOff = { cutOff = true },
+            modifier = Modifier.padding(top = 8.dp, end = 6.dp),
+        )
+        FlowRow(
+            Modifier.fillMaxWidth().padding(top = 4.dp, end = 6.dp, bottom = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
+        ) {
+            when {
+                hidden > 0 || (!expanded && cutOff) ->
+                    TextAction(stringResource(R.string.release_notes_more), onClick = { expanded = true }, modifier = Modifier.padding(start = 6.dp))
+                expanded ->
+                    TextAction(stringResource(R.string.release_notes_less), onClick = { expanded = false }, modifier = Modifier.padding(start = 6.dp))
+            }
+            // Takes what is left of the first line, so the link stays at the start and the buttons go to the end.
+            Spacer(Modifier.weight(1f))
             actions()
         }
     }
@@ -163,34 +186,27 @@ private fun UpdateCard(
 /** How many lines of a note the collapsed card shows. */
 private const val CollapsedNoteLines = 2
 
-/** Notes as a list, one line per thing. [collapsible]: the first lines only, with "more…" that shows the rest. */
+/** Notes as a list, one line per thing, each cut to [maxLinesEach] lines; [onCutOff] is told when one is cut. */
 @Composable
-private fun ReleaseNoteLines(lines: List<String>, collapsible: Boolean, modifier: Modifier = Modifier) {
-    var expanded by rememberSaveable(lines) { mutableStateOf(false) }
-    val (shown, hidden) = if (collapsible) AppUpdates.collapsed(lines, expanded) else lines to 0
-    // A long note, or a big font, would make the collapsed card as tall as the screen: a collapsed note
-    // keeps two lines and "more…" shows the rest.
-    val shortened = collapsible && !expanded
-    var cutOff by remember(lines) { mutableStateOf(false) }
-
+private fun ReleaseNoteLines(
+    lines: List<String>,
+    modifier: Modifier = Modifier,
+    maxLinesEach: Int = Int.MAX_VALUE,
+    onCutOff: () -> Unit = {},
+) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        shown.forEach { line ->
+        lines.forEach { line ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("•", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
                 Text(
                     line,
                     style = MaterialTheme.typography.bodyMedium,
-                    maxLines = if (shortened) CollapsedNoteLines else Int.MAX_VALUE,
+                    maxLines = maxLinesEach,
                     overflow = TextOverflow.Ellipsis,
-                    onTextLayout = { if (shortened && it.hasVisualOverflow) cutOff = true },
+                    onTextLayout = { if (it.hasVisualOverflow) onCutOff() },
                     modifier = Modifier.weight(1f),
                 )
             }
-        }
-        if (hidden > 0 || (shortened && cutOff)) {
-            TextAction(stringResource(R.string.release_notes_more), onClick = { expanded = true }, modifier = Modifier.padding(start = 6.dp))
-        } else if (collapsible && expanded) {
-            TextAction(stringResource(R.string.release_notes_less), onClick = { expanded = false }, modifier = Modifier.padding(start = 6.dp))
         }
     }
 }
@@ -275,7 +291,7 @@ private fun ReleaseCard(release: AppRelease, lines: List<String>, installed: Int
                 )
             }
         }
-        ReleaseNoteLines(lines, collapsible = false, modifier = Modifier.padding(top = 10.dp))
+        ReleaseNoteLines(lines, modifier = Modifier.padding(top = 10.dp))
     }
 }
 
