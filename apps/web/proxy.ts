@@ -139,5 +139,5 @@ export const config = {
   // function of its own, which an app request would otherwise wait for before the API's.
   // The addresses of Profile Shares are named too: a link that was copied with the full stop of
   // its sentence has a dot in it and is a link that shows nothing, not a file.
-  matcher: ["/((?!_next|api/trpc|.*\\..*).*)", "/profile-shares/(.*)"]
+  matcher: ["/((?!_next|api/trpc(?:/|$)|.*\\..*).*)", "/profile-shares/(.*)"]
 };

@@ -12,10 +12,9 @@ let clerk: SignInChecker | undefined;
 /**
  * Clerk's client, made the first time a request needs it from the settings that Clerk's Next.js
  * SDK reads for checking a token: the keys, and the address and version of Clerk's API when they
- * are set. Not the client `clerkClient()` gives, which takes its settings from a request header
- * (`x-clerk-request-data`) that Clerk's middleware writes encrypted: without the middleware in
- * front, the header is whatever the caller sent, and a development server even decrypts it with
- * a key that is public.
+ * are set. Not the client `clerkClient()` gives, which takes its settings from the request header
+ * `x-clerk-request-data` whenever that decrypts: the caller can send it, and a development server
+ * also decrypts it with a key that is public. The settings of the check are this server's only.
  */
 function clerkFromEnvironment(): SignInChecker {
   clerk ??= createClerkClient({

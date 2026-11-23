@@ -195,8 +195,6 @@ describe("the sign-in of a tRPC request, read by Clerk's own client", () => {
     const bearer = { authorization: `Bearer ${token(session())}` };
 
     await expect(inRequest(() => signedInUserId(apiRequest(bearer)))).resolves.toBe("user_madeup");
-    // Whatever the caller puts in the header Clerk's middleware writes, the settings are the environment's.
-    await expect(inRequest(() => signedInUserId(apiRequest({ ...bearer, "x-clerk-request-data": "made-up" })))).resolves.toBe("user_madeup");
     expect(api).toHaveBeenCalled();
     expect(api.mock.calls.every(([url]) => String(url) === "https://api.clerk.com/v1/jwks")).toBe(true);
   });

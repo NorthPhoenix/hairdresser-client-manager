@@ -205,7 +205,8 @@ describe("v1 acceptance hardening", () => {
     // The upload route reads the sign-in from the proxy; the tRPC route reads it itself
     // (server/signIn.ts), so that an app request does not wait for the proxy's function first.
     expect(reachesProxy("/api/uploadthing")).toBe(true);
-    for (const path of ["/api/trpc/clientProfile.list", "/api/trpc/stylist.bootstrap,appointment.home", "/api/trpc"]) {
+    expect(reachesProxy("/api/trpcx")).toBe(true);
+    for (const path of ["/api/trpc/clientProfile.list", "/api/trpc/stylist.bootstrap,appointment.home", "/api/trpc", "/api/trpc/"]) {
       expect(reachesProxy(path), path).toBe(false);
     }
     // The framework's own files stay out.
