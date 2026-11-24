@@ -76,23 +76,118 @@ class SignInTokensTest {
     }
 
     @Test
+    fun `a request whose kept token is missing while signed in asks for a new one before it goes out`() = runTest {
+        val sent = mutableListOf<String?>()
+        var freshAsked = 0
+        val tokens = SignInTokens(account = { "user-a" }) { fresh ->
+            if (fresh) "token-${++freshAsked}" else throw ApiException("The sign-in provider dropped the token request.", code = "TOKEN_REQUEST_DROPPED")
+        }
+
+        assertEquals("answered with token-1", tokens.sending { token -> sent += token; server()(token) })
+        assertEquals(listOf<String?>("token-1"), sent)
+        assertEquals(1, freshAsked)
+    }
+
+    @Test
+    fun `requests whose kept token is missing at the same moment share one new token`() = runTest {
+        val sent = mutableListOf<String?>()
+        var freshAsked = 0
+        val answer = CompletableDeferred<String?>()
+        val tokens = SignInTokens(account = { "user-a" }) { fresh ->
+            if (fresh) {
+                freshAsked++
+                answer.await()
+            } else {
+                null
+            }
+        }
+
+        val requests = List(3) { async { tokens.sending { token -> sent += token; server()(token) } } }
+        runCurrent()
+        answer.complete("token-1")
+
+        requests.forEach { assertEquals("answered with token-1", it.await()) }
+        assertEquals(List(3) { "token-1" }, sent)
+        assertEquals(1, freshAsked)
+    }
+
+    @Test
+    fun `with no new token before it goes out, a request refused without one asks once more`() = runTest {
+        val sent = mutableListOf<String?>()
+        var freshAsked = 0
+        val firstAnswer = CompletableDeferred<String?>()
+        val tokens = SignInTokens(account = { "user-a" }) { fresh ->
+            when {
+                !fresh -> null
+                freshAsked++ == 0 -> firstAnswer.await()
+                else -> "token-$freshAsked"
+            }
+        }
+
+        val requests = List(3) { async { tokens.sending { token -> sent += token; server()(token) } } }
+        runCurrent()
+        // The provider's servers do not answer at first, and do by the time the refusals come back.
+        firstAnswer.complete(null)
+
+        requests.forEach { assertEquals("answered with token-2", it.await()) }
+        assertEquals(List(3) { null }, sent.take(3))
+        assertEquals(List(3) { "token-2" }, sent.drop(3))
+        assertEquals(2, freshAsked)
+    }
+
+    @Test
+    fun `a new token asked for before the request goes out is not used after another sign-in`() = runTest {
+        var account: String? = "user-a"
+        val sent = mutableListOf<String?>()
+        val tokens = SignInTokens(account = { account }) { fresh ->
+            if (fresh) {
+                // While the new token is on its way.
+                account = "user-b"
+                "token-of-$account"
+            } else {
+                null
+            }
+        }
+
+        val refused = runCatching { tokens.sending { token -> sent += token; server()(token) } }
+
+        assertEquals(refusal, refused.exceptionOrNull())
+        assertEquals(listOf<String?>(null), sent)
+    }
+
+    @Test
+    fun `with nobody signed in, a missing kept token goes out as none without asking for a new one first`() = runTest {
+        val steps = mutableListOf<String>()
+        val tokens = SignInTokens { fresh ->
+            steps += if (fresh) "asked for a new token" else "asked for the kept token"
+            null
+        }
+
+        val refused = runCatching { tokens.sending { token -> steps += "sent with $token"; server()(token) } }
+
+        assertEquals(refusal, refused.exceptionOrNull())
+        assertEquals(listOf("asked for the kept token", "sent with null", "asked for a new token"), steps)
+    }
+
+    @Test
     fun `a request refused after a sign-out or another sign-in is not sent again`() = runTest {
         listOf(null, "user-b").forEach { signedInMeanwhile ->
             var account: String? = "user-a"
             val sent = mutableListOf<String?>()
-            val tokens = SignInTokens(account = { account }) { fresh -> if (fresh) "token-of-$account" else null }
+            // The kept token has run out: the server refuses it.
+            val tokens = SignInTokens(account = { account }) { fresh -> if (fresh) "token-of-$account" else "kept-of-user-a" }
 
             val refused = runCatching {
                 tokens.sending { token ->
                     sent += token
                     // While the request is on its way.
                     account = signedInMeanwhile
-                    server()(token)
+                    server("kept-of-user-a")(token)
                 }
             }
 
             assertEquals(refusal, refused.exceptionOrNull())
-            assertEquals(listOf<String?>(null), sent)
+            assertEquals(listOf<String?>("kept-of-user-a"), sent)
         }
     }
 
