@@ -247,6 +247,58 @@ class SignInTokensTest {
     }
 
     @Test
+    fun `a request refused while signed in is not sent again after a sign-out or another sign-in while the new token comes`() = runTest {
+        listOf(null, "user-b").forEach { signedInMeanwhile ->
+            var account: String? = "user-a"
+            val sent = mutableListOf<String?>()
+            val tokens = SignInTokens(account = { account }) { fresh ->
+                if (fresh) {
+                    // While the new token is on its way.
+                    account = signedInMeanwhile
+                    "token-of-user-a"
+                } else {
+                    "kept-of-user-a"
+                }
+            }
+
+            val refused = runCatching { tokens.sending { token -> sent += token; server("kept-of-user-a")(token) } }
+
+            assertEquals(refusal, refused.exceptionOrNull())
+            assertEquals(listOf<String?>("kept-of-user-a"), sent)
+        }
+    }
+
+    @Test
+    fun `a new token asked for one account is not shared with a request of the next one`() = runTest {
+        var account: String? = "user-a"
+        var freshAsked = 0
+        val answer = CompletableDeferred<Unit>()
+        val sent = mutableListOf<String?>()
+        val tokens = SignInTokens(account = { account }) { fresh ->
+            when {
+                !fresh -> null
+                freshAsked++ == 0 -> {
+                    answer.await()
+                    "token-of-user-a"
+                }
+                else -> "token-of-$account"
+            }
+        }
+
+        val ofUserA = async { runCatching { tokens.sending { token -> sent += token; server()(token) } } }
+        runCurrent()
+        // The Stylist signs out and someone else signs in while user-a's new token is on its way.
+        account = "user-b"
+        val ofUserB = async { tokens.sending { token -> sent += token; server()(token) } }
+        runCurrent()
+        answer.complete(Unit)
+
+        assertEquals(refusal, ofUserA.await().exceptionOrNull())
+        assertEquals("answered with token-of-user-b", ofUserB.await())
+        assertEquals(listOf(null, "token-of-user-b"), sent)
+    }
+
+    @Test
     fun `a provider that gives the same token again has none newer, and the refusal stands`() = runTest {
         var sent = 0
         val tokens = SignInTokens { "token-1" }

@@ -21,15 +21,19 @@ import kotlinx.coroutines.sync.withLock
  * session has ended.
  */
 class SignInTokens(
-    /** Who is signed in now, null for nobody: a refused request is sent again only for whoever it was sent for. */
+    /**
+     * Who is signed in now, null for nobody: a request without a kept token asks for a new one
+     * first only while someone is, and a new token goes only to a request of whoever was signed in
+     * when it was asked for and when it came.
+     */
     private val account: () -> String? = { null },
     private val provider: suspend (fresh: Boolean) -> String?,
 ) {
     private val issuing = Mutex()
 
-    // The last request for a new token: how many there have been, and what it was given (null for nothing). Written under [issuing].
+    // The last request for a new token: how many there have been, what it was given (null for nothing), and for whom. Written under [issuing].
     @Volatile
-    private var issued = Issued(count = 0, token = null)
+    private var issued = Issued(count = 0, token = null, account = null)
 
     /**
      * Runs [send] with the token the provider keeps, and once more with a new one when the server
@@ -45,7 +49,7 @@ class SignInTokens(
         var token = ask(fresh = false)
 
         if (token == null && sender != null) {
-            val latest = issuedSince(seen, refusedToken = null)
+            val latest = issuedSince(seen, refusedToken = null, sender)
 
             // A refusal from here on asks again, unless another request has asked since.
             seen = latest.count
@@ -66,7 +70,7 @@ class SignInTokens(
             }
 
             // A provider that gives the same token again (the debug builds' dev sign-in does) has none newer.
-            val fresh = issuedSince(seen, refusedToken = token).token?.takeUnless { it == token }
+            val fresh = issuedSince(seen, refusedToken = token, sender).token?.takeUnless { it == token }
 
             // Also while the new token was on its way.
             if (fresh == null || account() != sender) {
@@ -81,18 +85,21 @@ class SignInTokens(
      * A new token for a request refused with [refusedToken] (null also for a request that has not
      * gone out yet), with a null token when the provider gave none. Requests asking at the same
      * moment (the app reloads its lists all at once) share one request for it: when a new token has
-     * been asked for since [seen], this one takes what that request got, also nothing. It asks for
-     * another only when that token is the one it was refused with (the provider already kept it
-     * when this request went out).
+     * been asked for since [seen] for the same [sender], this one takes what that request got, also
+     * nothing. It asks for another only when that token is the one it was refused with (the
+     * provider already kept it when this request went out).
      */
-    private suspend fun issuedSince(seen: Int, refusedToken: String?): Issued =
+    private suspend fun issuedSince(seen: Int, refusedToken: String?, sender: String?): Issued =
         issuing.withLock {
             val latest = issued
 
-            if (latest.count != seen && (latest.token == null || latest.token != refusedToken)) {
+            if (latest.count != seen && latest.account == Account(sender) && (latest.token == null || latest.token != refusedToken)) {
                 latest
             } else {
-                Issued(latest.count + 1, ask(fresh = true)).also { issued = it }
+                val token = ask(fresh = true)
+
+                // After a sign-out or another sign-in on the way, the token is no one's to share.
+                Issued(latest.count + 1, token, Account(sender).takeIf { account() == sender }).also { issued = it }
             }
         }
 
@@ -105,5 +112,9 @@ class SignInTokens(
             null
         }
 
-    private data class Issued(val count: Int, val token: String?)
+    /** [account] is who asked for [token] and was still signed in when it came, null when that is not known. */
+    private data class Issued(val count: Int, val token: String?, val account: Account?)
+
+    /** An account, [id] null for nobody signed in. */
+    private data class Account(val id: String?)
 }
