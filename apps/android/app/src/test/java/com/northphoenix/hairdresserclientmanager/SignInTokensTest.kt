@@ -89,6 +89,40 @@ class SignInTokensTest {
     }
 
     @Test
+    fun `a new token asked for before the request went out and then refused is followed by another one`() = runTest {
+        val sent = mutableListOf<String?>()
+        var freshAsked = 0
+        val tokens = SignInTokens(account = { "user-a" }) { fresh -> if (fresh) "token-${++freshAsked}" else null }
+
+        assertEquals("answered with token-2", tokens.sending { token -> sent += token; server("token-1")(token) })
+        assertEquals(listOf("token-1", "token-2"), sent)
+        assertEquals(2, freshAsked)
+    }
+
+    @Test
+    fun `an account that changed while the kept token was asked for gets no new token for the request`() = runTest {
+        var account: String? = "user-a"
+        var freshAsked = 0
+        val sent = mutableListOf<String?>()
+        val tokens = SignInTokens(account = { account }) { fresh ->
+            if (fresh) {
+                freshAsked++
+                "token-of-$account"
+            } else {
+                // While the kept token is asked for.
+                account = "user-b"
+                null
+            }
+        }
+
+        val refused = runCatching { tokens.sending { token -> sent += token; server()(token) } }
+
+        assertEquals(refusal, refused.exceptionOrNull())
+        assertEquals(listOf<String?>(null), sent)
+        assertEquals(0, freshAsked)
+    }
+
+    @Test
     fun `requests whose kept token is missing at the same moment share one new token`() = runTest {
         val sent = mutableListOf<String?>()
         var freshAsked = 0

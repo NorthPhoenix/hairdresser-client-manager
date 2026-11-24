@@ -48,7 +48,8 @@ class SignInTokens(
         val sender = account()
         var token = ask(fresh = false)
 
-        if (token == null && sender != null) {
+        // Still the same account: one that changed while the kept token was asked for gets none for this request.
+        if (token == null && sender != null && account() == sender) {
             val latest = issuedSince(seen, refusedToken = null, sender)
 
             // A refusal from here on asks again, unless another request has asked since.
