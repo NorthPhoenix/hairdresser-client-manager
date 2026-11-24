@@ -60,10 +60,15 @@ class SignInTokens(
                 throw refused
             }
 
+            // Signed out since, or someone else signed in: their token would make the change in their account.
+            if (account() != sender) {
+                throw refused
+            }
+
             // A provider that gives the same token again (the debug builds' dev sign-in does) has none newer.
             val fresh = issuedSince(seen, refusedToken = token).token?.takeUnless { it == token }
 
-            // Signed out since, or someone else signed in: their token would make the change in their account.
+            // Also while the new token was on its way.
             if (fresh == null || account() != sender) {
                 throw refused
             }
