@@ -105,13 +105,15 @@ fun BatchReminderSheet(viewModel: AppViewModel, appointments: List<Appointment>,
     // [ReminderOutbox.openSheet]); this runs only then: when Android builds the screen again, the sheet is the same one, and so is its batch.
     // Otherwise the batch begins when its first reminder is handed to the phone or the SMS app.
     var batchStartedAt by rememberSaveable { mutableStateOf(outbox.openSheet()?.toEpochMilli()) }
+    // Whether this sheet has handed a reminder to the phone or the SMS app: from then on it only finishes its batch.
+    var handedOver by rememberSaveable { mutableStateOf(false) }
     val sends = remember(messages, outboxSends, log, batchStartedAt, fallback) {
         batchSends(messages, outboxSends, log, batchStartedAt?.let(Instant::ofEpochMilli), inMessages = fallback)
     }
 
     val selected = messages.filter { it.appointmentId in checked }
-    // Also with no result to show: a batch that has begun is not offered to be sent again (see above).
-    val started = batchStartedAt != null || messages.any { sends[it.appointmentId] != null }
+    // Also with no result to show: a batch this sheet has handed over is not offered to be sent again (see above).
+    val started = handedOver || messages.any { sends[it.appointmentId] != null }
     val sending = messages.any { sends[it.appointmentId].let { state -> state == SendState.Waiting || state == SendState.Sending } }
     val sentCount = selected.count { sends[it.appointmentId] == SendState.Sent }
     // In the SMS app, the ones not opened yet.
@@ -119,9 +121,11 @@ fun BatchReminderSheet(viewModel: AppViewModel, appointments: List<Appointment>,
 
     fun begin() {
         if (batchStartedAt == null) batchStartedAt = outbox.now().toEpochMilli()
+        handedOver = true
     }
 
     fun send(batch: List<ReminderMessage>) {
+        if (batch.isEmpty()) return
         begin()
         outbox.send(batch)
     }
