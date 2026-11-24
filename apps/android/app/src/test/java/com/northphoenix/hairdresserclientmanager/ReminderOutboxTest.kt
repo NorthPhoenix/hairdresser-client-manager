@@ -191,12 +191,12 @@ class ReminderOutboxTest {
 
         outbox.send(listOf(message("a")))
 
-        assertNull(outbox.openSheet())
+        assertNull(outbox.openSheet(listOf("a", "b")))
         assertTrue(outbox.sends.value.isEmpty())
     }
 
     @Test
-    fun `a sheet that opens while a batch goes takes it as its own, from then on`() = runTest(UnconfinedTestDispatcher()) {
+    fun `a sheet that opens while a batch of its rows goes takes it as its own, from then on`() = runTest(UnconfinedTestDispatcher()) {
         val release = CompletableDeferred<Unit>()
         var clock = now
         val store = MemoryStore()
@@ -205,7 +205,7 @@ class ReminderOutboxTest {
 
         outbox.send(batch)
         clock = now.plusSeconds(5)
-        val startedAt = outbox.openSheet()
+        val startedAt = outbox.openSheet(listOf("a", "b", "c"))
 
         assertEquals(now.plusSeconds(5), startedAt)
         assertEquals(2, outbox.sends.value.size)
@@ -219,12 +219,14 @@ class ReminderOutboxTest {
     }
 
     @Test
-    fun `a reminder sent for a time the Appointment no longer has is not shown as sent`() {
-        val moved = message("a").copy(startsAt = "2026-10-22T17:00:00Z")
-        val log = mapOf("a" to Reminded("a", "2026-10-22T15:00:00Z", now))
+    fun `a sheet that opens while a batch of other rows goes has no batch of its own yet`() = runTest(UnconfinedTestDispatcher()) {
+        val release = CompletableDeferred<Unit>()
+        val outbox = ReminderOutbox({ _, _ -> release.await(); SmsResult.Sent }, MemoryStore(), backgroundScope, { now })
 
-        assertEquals(emptyMap<String, SendState>(), batchSends(listOf(moved), mapOf("a" to SendState.Sent), log, now, inMessages = false))
-        assertEquals(emptyMap<String, SendState>(), batchSends(listOf(moved), mapOf("a" to SendState.Opened), log, now, inMessages = true))
-        assertEquals(mapOf("a" to SendState.Waiting), batchSends(listOf(moved), mapOf("a" to SendState.Waiting), log, now, inMessages = false))
+        outbox.send(listOf(message("a")))
+
+        assertNull(outbox.openSheet(listOf("b", "c")))
+        assertEquals(mapOf("a" to SendState.Sending), outbox.sends.value)
+        release.complete(Unit)
     }
 }
