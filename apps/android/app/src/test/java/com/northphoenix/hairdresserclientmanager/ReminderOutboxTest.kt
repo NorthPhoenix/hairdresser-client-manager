@@ -9,6 +9,7 @@ import com.northphoenix.hairdresserclientmanager.state.SendState
 import com.northphoenix.hairdresserclientmanager.state.SmsFailure
 import com.northphoenix.hairdresserclientmanager.state.SmsGateway
 import com.northphoenix.hairdresserclientmanager.state.SmsResult
+import com.northphoenix.hairdresserclientmanager.state.batchSends
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -126,5 +127,59 @@ class ReminderOutboxTest {
         val outbox = ReminderOutbox({ _, _ -> SmsResult.Sent }, store, backgroundScope, { now })
 
         assertEquals(setOf("recent"), outbox.log.value.keys)
+    }
+
+    @Test
+    fun `a batch the app was ended during shows from the log what it sent, and only that`() = runTest(UnconfinedTestDispatcher()) {
+        val startedAt = now
+        var clock = now
+        val store = MemoryStore()
+        val outbox = ReminderOutbox({ _, _ -> SmsResult.Sent }, store, backgroundScope, { clock })
+        val batch = listOf(message("a"), message("b"))
+
+        clock = now.plusSeconds(2)
+        outbox.send(listOf(message("a")))
+
+        // Android ends the app: the next one starts with the log and no batch.
+        val restarted = ReminderOutbox({ _, _ -> SmsResult.Sent }, store, backgroundScope, { clock })
+
+        assertEquals(emptyMap<String, SendState>(), restarted.sends.value)
+        assertEquals(mapOf("a" to SendState.Sent), batchSends(batch, restarted.sends.value, restarted.log.value, startedAt, inMessages = false))
+        assertEquals(mapOf("a" to SendState.Opened), batchSends(batch, restarted.sends.value, restarted.log.value, startedAt, inMessages = true))
+    }
+
+    @Test
+    fun `what the outbox says of a batch comes before the log`() {
+        val log = mapOf("a" to Reminded("a", "2026-10-22T15:00:00Z", now.plusSeconds(1)))
+        val sends = mapOf("a" to SendState.Failed(SmsFailure.TIMEOUT), "b" to SendState.Sending)
+
+        assertEquals(sends, batchSends(listOf(message("a"), message("b")), sends, log, now, inMessages = false))
+    }
+
+    @Test
+    fun `reminders from before the batch, or for another time, are not the batch's`() {
+        val batch = listOf(message("before"), message("moved"), message("now"))
+        val log = mapOf(
+            "before" to Reminded("before", "2026-10-22T15:00:00Z", now.minusSeconds(1)),
+            "moved" to Reminded("moved", "2026-10-22T13:00:00Z", now.plusSeconds(1)),
+            "now" to Reminded("now", "2026-10-22T15:00:00Z", now),
+        )
+
+        assertEquals(mapOf("now" to SendState.Sent), batchSends(batch, emptyMap(), log, now, inMessages = false))
+    }
+
+    @Test
+    fun `before a batch begins only the outbox counts`() {
+        val log = mapOf("a" to Reminded("a", "2026-10-22T15:00:00Z", now))
+
+        assertEquals(emptyMap<String, SendState>(), batchSends(listOf(message("a")), emptyMap(), log, null, inMessages = false))
+        assertEquals(mapOf("a" to SendState.Sending), batchSends(listOf(message("a")), mapOf("a" to SendState.Sending), log, null, inMessages = false))
+    }
+
+    @Test
+    fun `results of rows not in the batch's list are left out`() {
+        val sends = mapOf("a" to SendState.Sent, "elsewhere" to SendState.Sent)
+
+        assertEquals(mapOf("a" to SendState.Sent), batchSends(listOf(message("a")), sends, emptyMap(), now, inMessages = false))
     }
 }

@@ -117,3 +117,28 @@ class ReminderOutbox(
         store.save(updated)
     }
 }
+
+/**
+ * Where each of [messages] is in the batch a sheet began at [startedAt]: what [sends] says of it,
+ * else sent, or opened in the SMS app when the batch went there ([inMessages]), when the [log] has
+ * it as reminded since the batch began, for the time it was sent with.
+ *
+ * The outbox keeps its batch only while the app runs, and Android may end the app while the sheet
+ * is open (the Stylist is in Messages meanwhile): the sheet comes back, the batch's results do not,
+ * and the log, which is kept on the device, still says which reminders went. A row that is not in
+ * the log may have failed or never been sent, and has nothing to show. Before a batch began
+ * ([startedAt] null) only [sends] counts.
+ */
+fun batchSends(
+    messages: List<ReminderMessage>,
+    sends: Map<String, SendState>,
+    log: Map<String, Reminded>,
+    startedAt: Instant?,
+    inMessages: Boolean,
+): Map<String, SendState> =
+    messages.mapNotNull { message ->
+        val reminded = log[message.appointmentId]?.takeIf { startedAt != null && it.startsAt == message.startsAt && !it.at.isBefore(startedAt) }
+        val state = sends[message.appointmentId] ?: reminded?.let { if (inMessages) SendState.Opened else SendState.Sent }
+
+        state?.let { message.appointmentId to it }
+    }.toMap()

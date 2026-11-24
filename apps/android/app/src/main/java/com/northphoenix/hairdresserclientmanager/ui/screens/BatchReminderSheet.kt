@@ -50,6 +50,7 @@ import com.northphoenix.hairdresserclientmanager.domain.ReminderMessage
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.SendState
 import com.northphoenix.hairdresserclientmanager.state.SmsFailure
+import com.northphoenix.hairdresserclientmanager.state.batchSends
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.clientReminderMessage
 import com.northphoenix.hairdresserclientmanager.ui.components.ConfirmDialog
@@ -69,7 +70,9 @@ import java.time.Instant
  * wrong; one sent checked keeps its time ([KeptNightStarts]). "Send N SMS" sends the checked ones
  * from the phone (asking for the SMS permission at that moment); without the permission, or a way
  * to send, each one is opened in the SMS app in turn instead. Each row then shows how its SMS went,
- * and a failed one can be retried.
+ * and a failed one can be retried. The sheet keeps its batch when Android builds the screen again
+ * (a display setting changed) or ends the app and starts it again while the sheet is open (see
+ * [batchSends]), so what went is never offered to be sent again.
  */
 @Composable
 fun BatchReminderSheet(viewModel: AppViewModel, appointments: List<Appointment>, onDismiss: () -> Unit) {
@@ -77,11 +80,15 @@ fun BatchReminderSheet(viewModel: AppViewModel, appointments: List<Appointment>,
     val format = LocalTimeFormat.current
     val outbox = viewModel.reminders
     val log by outbox.log.collectAsStateWithLifecycle()
-    val sends by outbox.sends.collectAsStateWithLifecycle()
+    val outboxSends by outbox.sends.collectAsStateWithLifecycle()
     val now by rememberNow()
 
-    // The results of an earlier batch are not this one's, unless it is still going.
-    remember { outbox.reset() }
+    // The results of an earlier batch are not this one's, unless it is still going. Only when the sheet
+    // opens: when Android builds the screen again, the sheet is the same one, and so is its batch.
+    rememberSaveable {
+        outbox.reset()
+        true
+    }
 
     val messages = remember(appointments, format.zone) {
         appointments.mapNotNull { clientReminderMessage(context, it, format.zone) }
@@ -98,6 +105,11 @@ fun BatchReminderSheet(viewModel: AppViewModel, appointments: List<Appointment>,
     }
     var fallback by rememberSaveable { mutableStateOf(false) }
     var askingPermission by rememberSaveable { mutableStateOf(false) }
+    // When the batch began, in epoch milliseconds: a sheet that comes back after Android ended the app knows from the log which of its reminders went.
+    var batchStartedAt by rememberSaveable { mutableStateOf<Long?>(null) }
+    val sends = remember(messages, outboxSends, log, batchStartedAt, fallback) {
+        batchSends(messages, outboxSends, log, batchStartedAt?.let(Instant::ofEpochMilli), inMessages = fallback)
+    }
 
     val selected = messages.filter { it.appointmentId in checked }
     val started = messages.any { sends[it.appointmentId] != null }
@@ -117,6 +129,7 @@ fun BatchReminderSheet(viewModel: AppViewModel, appointments: List<Appointment>,
     }
 
     fun startSending() {
+        batchStartedAt = Instant.now().toEpochMilli()
         // Checked as its row asks when the time is right: sent as it is, it is kept, and its card asks no more.
         selected.filter { it.appointmentId in timeAsked }.forEach { nightStarts.keep(it.appointmentId, Instant.parse(it.startsAt)) }
         when {
