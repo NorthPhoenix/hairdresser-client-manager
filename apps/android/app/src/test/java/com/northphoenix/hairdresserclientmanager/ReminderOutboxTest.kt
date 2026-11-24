@@ -16,6 +16,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
@@ -179,7 +180,51 @@ class ReminderOutboxTest {
     @Test
     fun `results of rows not in the batch's list are left out`() {
         val sends = mapOf("a" to SendState.Sent, "elsewhere" to SendState.Sent)
+        val log = mapOf("a" to Reminded("a", "2026-10-22T15:00:00Z", now), "elsewhere" to Reminded("elsewhere", "2026-10-22T15:00:00Z", now))
 
-        assertEquals(mapOf("a" to SendState.Sent), batchSends(listOf(message("a")), sends, emptyMap(), now, inMessages = false))
+        assertEquals(mapOf("a" to SendState.Sent), batchSends(listOf(message("a")), sends, log, now, inMessages = false))
+    }
+
+    @Test
+    fun `a sheet that opens after a batch starts with nothing, and has no batch yet`() = runTest(UnconfinedTestDispatcher()) {
+        val outbox = ReminderOutbox({ _, _ -> SmsResult.Sent }, MemoryStore(), backgroundScope, { now })
+
+        outbox.send(listOf(message("a")))
+
+        assertNull(outbox.openSheet())
+        assertTrue(outbox.sends.value.isEmpty())
+    }
+
+    @Test
+    fun `a sheet that opens while a batch goes takes it as its own, from then on`() = runTest(UnconfinedTestDispatcher()) {
+        val release = CompletableDeferred<Unit>()
+        var clock = now
+        val store = MemoryStore()
+        val outbox = ReminderOutbox({ _, _ -> release.await(); SmsResult.Sent }, store, backgroundScope, { clock })
+        val batch = listOf(message("a"), message("b"))
+
+        outbox.send(batch)
+        clock = now.plusSeconds(5)
+        val startedAt = outbox.openSheet()
+
+        assertEquals(now.plusSeconds(5), startedAt)
+        assertEquals(2, outbox.sends.value.size)
+
+        release.complete(Unit)
+
+        // The app is ended once the batch has gone: the sheet that comes back still has it from the log.
+        val restarted = ReminderOutbox({ _, _ -> SmsResult.Sent }, store, backgroundScope, { clock })
+
+        assertEquals(mapOf("a" to SendState.Sent, "b" to SendState.Sent), batchSends(batch, restarted.sends.value, restarted.log.value, startedAt, inMessages = false))
+    }
+
+    @Test
+    fun `a reminder sent for a time the Appointment no longer has is not shown as sent`() {
+        val moved = message("a").copy(startsAt = "2026-10-22T17:00:00Z")
+        val log = mapOf("a" to Reminded("a", "2026-10-22T15:00:00Z", now))
+
+        assertEquals(emptyMap<String, SendState>(), batchSends(listOf(moved), mapOf("a" to SendState.Sent), log, now, inMessages = false))
+        assertEquals(emptyMap<String, SendState>(), batchSends(listOf(moved), mapOf("a" to SendState.Opened), log, now, inMessages = true))
+        assertEquals(mapOf("a" to SendState.Waiting), batchSends(listOf(moved), mapOf("a" to SendState.Waiting), log, now, inMessages = false))
     }
 }

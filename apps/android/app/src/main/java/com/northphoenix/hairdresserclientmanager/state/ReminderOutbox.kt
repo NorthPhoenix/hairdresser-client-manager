@@ -79,6 +79,20 @@ class ReminderOutbox(
         if (!busy) _sends.value = emptyMap()
     }
 
+    /**
+     * The batch sheet opens: the results of the last batch are forgotten ([reset]), unless one is
+     * still going, which the sheet then shows as its own. Returns when the sheet's batch began, for
+     * [batchSends]: now while one is still going, which is when what it sends from here on is logged;
+     * null when there is none yet.
+     */
+    fun openSheet(): Instant? {
+        reset()
+        return if (busy) clock() else null
+    }
+
+    /** The time a batch begins at, on the clock the log is written with. */
+    fun now(): Instant = clock()
+
     /** Sends [messages] one after another. A batch started while another one goes waits for its turn. */
     fun send(messages: List<ReminderMessage>) {
         if (messages.isEmpty()) return
@@ -121,13 +135,15 @@ class ReminderOutbox(
 /**
  * Where each of [messages] is in the batch a sheet began at [startedAt]: what [sends] says of it,
  * else sent, or opened in the SMS app when the batch went there ([inMessages]), when the [log] has
- * it as reminded since the batch began, for the time it was sent with.
+ * it as reminded since the batch began. Either way only for the time the message has now: a row
+ * whose Appointment was moved since its reminder went shows nothing, as the Client was told
+ * another time (see [ReminderLog]).
  *
  * The outbox keeps its batch only while the app runs, and Android may end the app while the sheet
  * is open (the Stylist is in Messages meanwhile): the sheet comes back, the batch's results do not,
  * and the log, which is kept on the device, still says which reminders went. A row that is not in
- * the log may have failed or never been sent, and has nothing to show. Before a batch began
- * ([startedAt] null) only [sends] counts.
+ * the log failed, was never sent, or was on its way when the app was ended, and has nothing to show.
+ * Before a batch began ([startedAt] null) only [sends] counts.
  */
 fun batchSends(
     messages: List<ReminderMessage>,
@@ -137,8 +153,11 @@ fun batchSends(
     inMessages: Boolean,
 ): Map<String, SendState> =
     messages.mapNotNull { message ->
-        val reminded = log[message.appointmentId]?.takeIf { startedAt != null && it.startsAt == message.startsAt && !it.at.isBefore(startedAt) }
-        val state = sends[message.appointmentId] ?: reminded?.let { if (inMessages) SendState.Opened else SendState.Sent }
+        val logged = log[message.appointmentId]
+        // A sent or opened one is in the log, with the time it was sent for.
+        val sent = sends[message.appointmentId]?.takeUnless { (it == SendState.Sent || it == SendState.Opened) && logged?.startsAt != message.startsAt }
+        val reminded = logged?.takeIf { startedAt != null && it.startsAt == message.startsAt && !it.at.isBefore(startedAt) }
+        val state = sent ?: reminded?.let { if (inMessages) SendState.Opened else SendState.Sent }
 
         state?.let { message.appointmentId to it }
     }.toMap()
