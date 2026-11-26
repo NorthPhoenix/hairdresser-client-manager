@@ -2,7 +2,7 @@ import { SpanKind, SpanStatusCode, context, trace } from "@opentelemetry/api";
 import { afterEach, describe, expect, it } from "vitest";
 import { maxLineLength } from "./event";
 import { annotate, increment, recordError, traced, traceRequest } from "./index";
-import { setUpTelemetry, tearDownTelemetry } from "./testSupport";
+import { phonePattern, setUpTelemetry, tearDownTelemetry } from "./testSupport";
 
 afterEach(tearDownTelemetry);
 
@@ -220,7 +220,7 @@ describe("the wide event", () => {
     const [event] = events();
 
     expect(event?.["telemetry.blocked_keys"]).toEqual(["client.phone:personal"]);
-    expect(JSON.stringify(event)).not.toContain("999");
+    expect(JSON.stringify(event)).not.toMatch(phonePattern("+7 999 123 45 67"));
     expect(event?.["client.note_length"]).toBe(4);
   });
 

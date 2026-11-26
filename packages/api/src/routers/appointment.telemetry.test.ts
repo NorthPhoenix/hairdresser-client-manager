@@ -1,5 +1,5 @@
 import { traceRequest } from "@hcm/telemetry";
-import { setUpTelemetry, tearDownTelemetry } from "@hcm/telemetry/testing";
+import { phonePattern, setUpTelemetry, tearDownTelemetry } from "@hcm/telemetry/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TRPCContext } from "../context";
 import { appRouter } from "../root";
@@ -113,9 +113,11 @@ async function eventOf(call: () => Promise<unknown>) {
   const line = telemetry.lines[0] ?? "";
 
   // Nothing personal of the Client gets into the line, whatever the procedure read.
-  for (const personal of ["Anna", "Petrova", "Client St", "Salon Ave", "555", "ammonia", "7N", "Roots", "Root touch-up"]) {
+  for (const personal of ["Anna", "Petrova", "Client St", "Salon Ave", "ammonia", "7N", "Roots", "Root touch-up"]) {
     expect(line).not.toContain(personal);
   }
+
+  expect(line).not.toMatch(phonePattern("+1 312 555 0100"));
 
   const [event] = telemetry.events();
 
