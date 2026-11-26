@@ -1,7 +1,7 @@
 // First: sets up telemetry before the first request (server/telemetry.ts says why).
 import "../../../../../server/telemetry";
 import { findSharedPhoto } from "@hcm/api";
-import { recordError, annotate } from "@hcm/telemetry";
+import { recordError, recordingStatus, annotate } from "@hcm/telemetry";
 import { loadProfileShare, openSharePhoto, unavailableShareResponse } from "../../../../../server/profileShare";
 import { refuseMethod } from "../../../../../server/refuseMethod";
 
@@ -10,7 +10,7 @@ import { refuseMethod } from "../../../../../server/refuseMethod";
  * the link works and the Stylist includes the photo, so a revoke takes the photos with it. The
  * address of the stored file never reaches the Client.
  */
-export async function GET(request: Request, { params }: { params: Promise<{ token: string; photo: string }> }) {
+async function servePhoto(request: Request, { params }: { params: Promise<{ token: string; photo: string }> }) {
   const { token, photo: name } = await params;
   const share = await loadProfileShare(token);
   const photo = share && findSharedPhoto(share.content, token, name);
@@ -65,6 +65,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     }
   });
 }
+
+// Its event says the status it answers with, also on a new instance (recordingStatus says why).
+export const GET = recordingStatus(servePhoto);
 
 // It only shows something: any other method is refused (server/refuseMethod.ts says why here).
 export { refuseMethod as POST, refuseMethod as PUT, refuseMethod as PATCH, refuseMethod as DELETE, refuseMethod as OPTIONS };

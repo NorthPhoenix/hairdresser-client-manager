@@ -331,6 +331,43 @@ export async function traceRequest<T>(request: RequestInfo, fn: () => Promise<T>
   }
 }
 
+function noteStatus(response: Response): Response {
+  try {
+    const status: unknown = response?.status;
+
+    if (typeof status === "number") {
+      annotate({ "http.status_code": status });
+    }
+  } catch {
+    noteInternalError();
+  }
+
+  return response;
+}
+
+/**
+ * Makes a route handler (`GET`, `POST`, ... of a Next.js `route.ts`) put the status of the
+ * Response it returns into the request's event, as `http.status_code`; the handler, its arguments
+ * and its Response are otherwise unchanged, and a handler that throws throws the same.
+ *
+ * The status Node writes is recorded too (response.ts), but not on the first request of a new
+ * Vercel instance: telemetry is set up as the route's module loads, during that request, and
+ * that request's response is written without passing through it, so its event said 200 whatever
+ * was answered (every 401, 404 and 405 of a new instance in the logs up to 2026-11-26). What a
+ * handler returns is what Next.js answers with, on every request.
+ */
+export function recordingStatus<Args extends unknown[], Result extends Response | Promise<Response>>(handler: (...args: Args) => Result): (...args: Args) => Result {
+  return (...args) => {
+    const result = handler(...args);
+
+    if (isPromiseLike(result)) {
+      return Promise.resolve(result as PromiseLike<Response>).then(noteStatus) as Result;
+    }
+
+    return noteStatus(result as Response) as Result;
+  };
+}
+
 /** The first 12 hex characters of SHA-256 of `value`: names a share token without telling it. */
 export function hashPrefix(value: string): string {
   try {

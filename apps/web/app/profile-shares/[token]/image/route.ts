@@ -2,11 +2,11 @@
 import "../../../../server/telemetry";
 import { buildShareImage } from "@hcm/api";
 import { requestedLocale } from "@hcm/shared";
-import { annotate } from "@hcm/telemetry";
+import { annotate, recordingStatus } from "@hcm/telemetry";
 import { loadProfileShare, readSharePhoto, unavailableShareResponse } from "../../../../server/profileShare";
 import { refuseMethod } from "../../../../server/refuseMethod";
 
-export async function GET(request: Request, { params }: { params: Promise<{ token: string }> }) {
+async function serveImage(request: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   const lang = new URL(request.url).searchParams.get("lang");
   const share = await loadProfileShare(token);
@@ -33,6 +33,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     }
   });
 }
+
+// Its event says the status it answers with, also on a new instance (recordingStatus says why).
+export const GET = recordingStatus(serveImage);
 
 // It only shows something: any other method is refused (server/refuseMethod.ts says why here).
 export { refuseMethod as POST, refuseMethod as PUT, refuseMethod as PATCH, refuseMethod as DELETE, refuseMethod as OPTIONS };
