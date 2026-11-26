@@ -208,7 +208,7 @@ describe("v1 acceptance hardening", () => {
     }
 
     // The API reads the sign-in itself (server/signIn.ts), so that an app request does not wait
-    // for the proxy's function first, and a Profile Share's picture and photos answer for
+    // for the proxy's function first, and a Share Image and a Profile Share's photos answer for
     // themselves: none of them goes through the proxy.
     for (const path of [
       "/api/trpc/clientProfile.list",
@@ -229,24 +229,57 @@ describe("v1 acceptance hardening", () => {
     expect(reachesProxy("/robots.txt")).toBe(false);
   });
 
-  it("uses none of Clerk's helpers that need its middleware, which no longer runs", () => {
-    // `auth()`, `currentUser()` and `clerkClient()` count on `clerkMiddleware` in proxy.ts, which the
-    // proxy no longer runs (docs/adr/0010): without it they fail at run time, which no type check
-    // sees. The web app makes its one Clerk client itself (apps/web/server/signIn.ts).
+  it("uses Clerk only through the web app's own client, as no Clerk middleware runs", () => {
+    // proxy.ts no longer runs `clerkMiddleware` (docs/adr/0010). Without it `auth()`,
+    // `currentUser()` and `getAuth()` fail at run time, which no type check sees, and
+    // `clerkClient()` takes its settings from a request header the caller can send. So the web app
+    // uses Clerk in one file only, which makes its client from this server's settings.
     const webRoot = new URL("../../../apps/web/", import.meta.url);
-    const sources = (readdirSync(webRoot, { recursive: true }) as string[]).filter(
-      (path) => /\.(ts|tsx|mjs)$/.test(path) && !/(^|\/)(node_modules|\.next)\//.test(path)
-    );
-    const imported = new Set<string>();
-
-    for (const path of sources) {
-      for (const [, names] of readFileSync(new URL(path, webRoot), "utf8").matchAll(/import\s*\{([^}]*)\}\s*from\s*"@clerk\/nextjs(?:\/server)?"/g)) {
-        names!.split(",").forEach((name) => imported.add(name.trim().split(/\s+as\s+/)[0]!));
+    const sources: string[] = [];
+    const walk = (folder: string) => {
+      for (const entry of readdirSync(new URL(folder, webRoot), { withFileTypes: true })) {
+        if (entry.isDirectory() && !["node_modules", ".next", ".turbo"].includes(entry.name)) {
+          walk(`${folder}${entry.name}/`);
+        } else if (entry.isFile() && /\.(ts|tsx|mjs|js)$/.test(entry.name)) {
+          sources.push(`${folder}${entry.name}`);
+        }
       }
+    };
+
+    walk("");
+
+    const usingClerk = sources.filter((path) => readFileSync(new URL(path, webRoot), "utf8").includes("@clerk/"));
+    const signIn = readFileSync(new URL("server/signIn.ts", webRoot), "utf8");
+
+    expect(sources).toContain("app/api/uploadthing/core.ts");
+    expect(usingClerk).toEqual(["server/signIn.ts"]);
+    expect([...signIn.matchAll(/import\s*\{([^}]*)\}\s*from\s*["']@clerk\/[^"']+["']/g)].map(([, names]) => names!.trim())).toEqual([
+      "createClerkClient"
+    ]);
+  });
+
+  it("has a Share Image and a Profile Share's photos refuse every method but reading, as the proxy refuses it for a page", async () => {
+    // They do not go through the proxy, and the framework alone would answer OPTIONS with 204 and
+    // the others with a 405 that names no method.
+    const logged = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    try {
+      const { refuseMethod } = await import(/* @vite-ignore */ new URL("../../../apps/web/server/refuseMethod.ts", import.meta.url).href);
+      const answer: Response = refuseMethod();
+
+      expect(answer.status).toBe(405);
+      expect(answer.headers.get("allow")).toBe("GET, HEAD");
+    } finally {
+      logged.mockRestore();
     }
 
-    expect(sources.length).toBeGreaterThan(10);
-    expect([...imported].filter(Boolean)).toEqual(["createClerkClient"]);
+    for (const route of ["app/profile-shares/[token]/image/route.ts", "app/profile-shares/[token]/photos/[photo]/route.ts"]) {
+      const exported = /export \{([^}]*)\};\s*$/.exec(readWorkspaceFile(`apps/web/${route}`))?.[1] ?? "";
+
+      for (const method of ["POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
+        expect(exported, route).toMatch(new RegExp(`\\brefuseMethod as ${method}\\b`));
+      }
+    }
   });
 
   it("answers for a share page before the page only when its link is known to show nothing", async () => {
