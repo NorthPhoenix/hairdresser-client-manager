@@ -8,7 +8,7 @@ import { publishedRelease, releaseReadAheadUnderWay } from "../../../../server/p
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { after } from "next/server";
 import { appRouter, appVersionFromHeaders, createTRPCContext, recordProcedureError } from "@hcm/api";
-import { annotate, recordError, requestFields } from "@hcm/telemetry";
+import { annotate, recordError, recordingStatus, requestFields } from "@hcm/telemetry";
 import type { UTApi } from "uploadthing/server";
 import { accountName, photoOrigins, readSharePhoto } from "../../../../server/profileShare";
 import { signedInUserId } from "../../../../server/signIn";
@@ -88,4 +88,7 @@ function handler(request: Request) {
   });
 }
 
-export { handler as GET, handler as POST };
+// Its event says the status it answers with, also on a new instance (recordingStatus says why).
+const answer = recordingStatus(handler);
+
+export { answer as GET, answer as POST };
