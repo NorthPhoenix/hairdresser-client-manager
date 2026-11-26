@@ -10,7 +10,7 @@ The server is traced with OpenTelemetry. The request's **root span is the event*
 
 `@hcm/telemetry` installs a span processor (`WideEventProcessor`) next to the SDK. It sees every span start and end. A span with no parent in this process opens an event; every span below it belongs to that event. Which event a root span opens:
 
-- `hcm.request`: a span of kind SERVER (Next.js's `BaseServer.handleRequest`, the dev backend's `traceRequest`), and the span in which Next.js runs proxy.ts (`next.span_type` `Middleware.execute`), which on Vercel is the root of a function of its own and of kind INTERNAL. The proxy runs only before pages (the home page, a Profile Share page, an address with no page), not for the API (tRPC, uploads) nor for a Profile Share's picture and photos: their requests have one event, the route's.
+- `hcm.request`: a span of kind SERVER (Next.js's `BaseServer.handleRequest`, the dev backend's `traceRequest`), and the span in which Next.js runs proxy.ts (`next.span_type` `Middleware.execute`), which on Vercel is the root of a function of its own and of kind INTERNAL. The proxy runs only before pages (the home page, a Profile Share page, and other addresses without a dot outside `/api` and outside what is under a Profile Share's address), not for the API (tRPC, uploads) nor for a Share Image and a Profile Share's photos: their requests have one event, the route's.
 - None: any other span of Next.js's own (tracer `next.js`, or with a `next.span_type`), such as the `start response` that Next.js sometimes begins after the request's span ended. It is the framework's work outside any request and says nothing about one; the spans under it open no event either.
 - `hcm.task`: anything else, such as work this app started with `traced` outside any request: the `db.warm_up` of each new server instance of the tRPC route, for one.
 
@@ -671,7 +671,7 @@ The domain's reason for a refusal or a handled error, from `recordError(…, { r
 | `menu_item_not_found` | refusal | A Service Menu item picked for a Service is not there. |
 | `merge_into_self` | refusal | A Client cannot be merged into themselves. |
 | `merged_note_too_long` | refusal | The two Client Notes together are over the limit. |
-| `method_not_allowed` | refusal | The proxy refused a method other than reading on a page (405). |
+| `method_not_allowed` | refusal | The proxy refused a method other than reading on a page, or a Share Image or Profile Share photo route did (`refuseMethod`) (405). |
 | `no_completed_copy_source` | refusal | The Client has no Completed Appointment to copy Services from. |
 | `not_signed_in` | refusal | An upload request carried no valid sign-in. |
 | `nothing_to_copy` | refusal | The copy would add no Services. |
@@ -703,6 +703,7 @@ The domain's reason for a refusal or a handled error, from `recordError(…, { r
 | `stylist_created_meanwhile` | handled | Two first requests of a new account overlapped: this one's create of the Stylist was refused on the unique Clerk id, and it took the Stylist the other request had just made. |
 | `travel_fee_switch` | refusal | An edit would switch a Service onto the Travel Fee item or off it (`updateService`). |
 | `unhandled_in_<route_type>` | unexpected | Next.js caught an error nothing else did (`render`, `route`, `action`, `proxy`). |
+| `upload_sign_in_failed` | unexpected | Clerk failed on an upload request also without its sign-in (its keys or settings), not a refused sign-in; UploadThing answered 500. Written by the upload route. |
 
 Reasons that a rare path may add are named where they are thrown; a search can list the ones in use with `jq` on `error.reason`.
 

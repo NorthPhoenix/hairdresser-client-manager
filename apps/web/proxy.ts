@@ -16,7 +16,7 @@ function answering<T extends Response>(response: T, status: number = response.st
 // What is done with a page's request that is not refused.
 async function passOn(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl;
-  // A Profile Share page, not its picture or its photos: those answer for themselves.
+  // A Profile Share page: its Share Image and photos do not come here (see `config`).
   const token = /^\/profile-shares\/([^/]+)$/.exec(pathname)?.[1];
   const sharePage = token === undefined ? null : await lookUpSharePage(token);
   const headers = new Headers(request.headers);
@@ -66,10 +66,10 @@ async function passOn(request: NextRequest) {
 }
 
 /**
- * Runs before a page: the home page, a Profile Share page and any address this server does not
- * know. Never before the API, nor before a Profile Share's picture and photos, which answer for
- * themselves (see `config`), and it reads no sign-in: no page needs one, and each API route reads
- * its own (server/signIn.ts).
+ * Runs before a page: the home page, a Profile Share page, and any other address without a dot
+ * that is neither under `/api` nor under a Profile Share's address. Never before the API, nor
+ * before a Profile Share's Share Image and photos, which answer for themselves (see `config`), and
+ * it reads no sign-in: no page needs one, and each API route reads its own (server/signIn.ts).
  */
 export default async function proxy(request: NextRequest) {
   // A page answers only reading. Without this the framework draws a page for any method. (TRACE
@@ -97,7 +97,7 @@ export const config = {
   // where nothing else can do its work: before a page, for the method it answers and for a
   // Profile Share link that shows nothing. Every address but the framework's own files, those
   // with a dot in them, which are files, the API, and what is under a Profile Share's address
-  // (its picture and photos). The address of a Profile Share page is named too: a link that was
+  // (its Share Image and photos). The address of a Profile Share page is named too: a link that was
   // copied with the full stop of its sentence has a dot in it and is a link that shows nothing,
   // not a file.
   matcher: ["/((?!_next|api(?:/|$)|profile-shares/|.*\\..*).*)", "/profile-shares/([^/]+)"]

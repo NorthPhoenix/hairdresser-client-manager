@@ -1,6 +1,6 @@
 /// <reference types="node" />
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildShareImageSvg } from "./shareImage";
 import {
@@ -191,7 +191,8 @@ describe("v1 acceptance hardening", () => {
   });
 
   it("hands every page to the proxy, also a Profile Share page with a dot in it, and nothing else", () => {
-    // The matcher of proxy.ts as the framework reads it: each entry stands for a whole path.
+    // The matcher of proxy.ts as the framework reads it, near enough: each entry stands for a whole
+    // path (Next.js also allows its own suffixes, such as `.rsc`, which these addresses never have).
     const matcher: string[] = JSON.parse(/matcher: (\[.*\])/.exec(readWorkspaceFile("apps/web/proxy.ts"))?.[1] ?? "[]");
     const reachesProxy = (path: string) => matcher.some((source) => new RegExp(`^${source}$`).test(path));
 
@@ -226,6 +227,26 @@ describe("v1 acceptance hardening", () => {
     // Nor do the framework's own files and other files.
     expect(reachesProxy("/_next/static/chunks/main.js")).toBe(false);
     expect(reachesProxy("/robots.txt")).toBe(false);
+  });
+
+  it("uses none of Clerk's helpers that need its middleware, which no longer runs", () => {
+    // `auth()`, `currentUser()` and `clerkClient()` count on `clerkMiddleware` in proxy.ts, which the
+    // proxy no longer runs (docs/adr/0010): without it they fail at run time, which no type check
+    // sees. The web app makes its one Clerk client itself (apps/web/server/signIn.ts).
+    const webRoot = new URL("../../../apps/web/", import.meta.url);
+    const sources = (readdirSync(webRoot, { recursive: true }) as string[]).filter(
+      (path) => /\.(ts|tsx|mjs)$/.test(path) && !/(^|\/)(node_modules|\.next)\//.test(path)
+    );
+    const imported = new Set<string>();
+
+    for (const path of sources) {
+      for (const [, names] of readFileSync(new URL(path, webRoot), "utf8").matchAll(/import\s*\{([^}]*)\}\s*from\s*"@clerk\/nextjs(?:\/server)?"/g)) {
+        names!.split(",").forEach((name) => imported.add(name.trim().split(/\s+as\s+/)[0]!));
+      }
+    }
+
+    expect(sources.length).toBeGreaterThan(10);
+    expect([...imported].filter(Boolean)).toEqual(["createClerkClient"]);
   });
 
   it("answers for a share page before the page only when its link is known to show nothing", async () => {
