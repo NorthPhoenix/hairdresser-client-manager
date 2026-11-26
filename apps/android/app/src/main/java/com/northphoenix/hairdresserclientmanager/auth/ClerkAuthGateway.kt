@@ -137,9 +137,9 @@ class ClerkAuthGateway(
         return when {
             Clerk.session == null -> SessionCheck.ENDED
             token is ClerkResult.Success<*> -> SessionCheck.ALIVE
-            // No token and the session is still there: Clerk did not answer. That is also why the
-            // refused request went out without a token (see token()), or was not sent again with a
-            // new one (see SignInTokens).
+            // No token and the session is still there: Clerk did not answer. That is also why a
+            // request got no new token, before it went out or after the server refused it (see
+            // SignInTokens).
             else -> SessionCheck.UNREACHABLE
         }
     }

@@ -33,7 +33,10 @@ class UploadThingClient(
     private val http: OkHttpClient,
     private val signIn: SignInTokens,
 ) {
-    /** [tokenProvider] gives the sign-in token for the route, or null without one; `fresh` asks the sign-in provider for a new one. */
+    /**
+     * [tokenProvider] gives the sign-in token for the route, or null without one; `fresh` asks the
+     * sign-in provider for a new one. Its [SignInTokens] know of nobody signed in (tests use it).
+     */
     constructor(routeUrl: String, http: OkHttpClient, tokenProvider: suspend (fresh: Boolean) -> String?) :
         this(routeUrl, http, SignInTokens(provider = tokenProvider))
 

@@ -67,7 +67,8 @@ interface AuthGateway {
     /**
      * Session token sent as `Authorization: Bearer <token>`, or null when signed out or when the
      * provider gave none. [fresh] asks the provider's servers for a new one instead of taking the
-     * one it keeps, as for a request the server refused for its sign-in (see `SignInTokens`).
+     * one it keeps, as for a request that got no kept token or that the server refused for its
+     * sign-in (see `SignInTokens`).
      */
     suspend fun token(fresh: Boolean): String?
 

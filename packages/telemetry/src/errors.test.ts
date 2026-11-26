@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { describeError, stripPrismaArguments } from "./errors";
 import { recordError, traceRequest } from "./index";
-import { setUpTelemetry, tearDownTelemetry } from "./testSupport";
+import { phonePattern, setUpTelemetry, tearDownTelemetry } from "./testSupport";
 import prismaErrors from "./fixtures/prisma-validation-errors.json";
 
 afterEach(tearDownTelemetry);
 
 // What the made-up Client in the fixture is called, where she lives and what her notes say.
-const personal = ["Анна", "Петрова", "Allergic", "ammonia", "Ленина", "912 345", "st_1"];
+const personal = ["Анна", "Петрова", "Allergic", "ammonia", "Ленина", "st_1"];
 
 /** A PrismaClientValidationError as Prisma 7.8 makes it, from the captured message and stack. */
 function prismaValidationError(captured: { name: string; message: string; stack: string }) {
@@ -23,6 +23,8 @@ function expectNothingPersonal(text: string | undefined) {
   for (const value of personal) {
     expect(text ?? "").not.toContain(value);
   }
+
+  expect(text ?? "").not.toMatch(phonePattern("+7 912 345-67-89"));
 }
 
 describe("an error from Prisma that lists the call's arguments", () => {

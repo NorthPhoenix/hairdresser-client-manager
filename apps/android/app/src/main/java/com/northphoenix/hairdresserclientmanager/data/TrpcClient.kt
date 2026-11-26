@@ -27,7 +27,10 @@ class TrpcClient(
     private val appHeaders: Map<String, String> = emptyMap(),
     private val signIn: SignInTokens,
 ) {
-    /** [tokenProvider] gives the sign-in token for a request, or null without one; `fresh` asks the sign-in provider for a new one. */
+    /**
+     * [tokenProvider] gives the sign-in token for a request, or null without one; `fresh` asks the
+     * sign-in provider for a new one. Its [SignInTokens] know of nobody signed in (tests use it).
+     */
     constructor(
         baseUrl: String,
         http: OkHttpClient,
