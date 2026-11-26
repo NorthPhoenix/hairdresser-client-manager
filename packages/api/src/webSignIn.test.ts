@@ -5,8 +5,9 @@ import { traceRequest } from "@hcm/telemetry";
 import { setUpTelemetry, tearDownTelemetry } from "@hcm/telemetry/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// How the tRPC route of the web app reads the sign-in of a request (apps/web/server/signIn.ts),
-// which proxy.ts no longer does for it (docs/adr/0010). The web app has no test runner of its own.
+// How the API routes of the web app (tRPC, uploads) read the sign-in of a request
+// (apps/web/server/signIn.ts), which proxy.ts no longer does for them (docs/adr/0010). The web app
+// has no test runner of its own.
 
 type SignedInUserId = (request: Request, client?: () => unknown) => Promise<string | null>;
 
@@ -69,7 +70,7 @@ async function inRequest(call: () => Promise<unknown>) {
   return outcome;
 }
 
-describe("the sign-in of a tRPC request", () => {
+describe("the sign-in of an API request", () => {
   it("is the Clerk user of a valid token, read from the request itself", async () => {
     const signedInUserId = await loadSignIn();
     const { authenticateRequest, client } = clerkAnswering({ reason: null, toAuth: () => ({ userId: "user_1" }) });
@@ -139,7 +140,7 @@ describe("the sign-in of a tRPC request", () => {
   });
 });
 
-describe("the sign-in of a tRPC request, read by Clerk's own client", () => {
+describe("the sign-in of an API request, read by Clerk's own client", () => {
   // A development instance's keys, made up, and a signing key of its own, which a stand-in for
   // Clerk's API hands out as it does in production (`GET /v1/jwks` with the secret key). Clerk
   // keeps the keys it fetched for the process, so the key's id is new for each run.
