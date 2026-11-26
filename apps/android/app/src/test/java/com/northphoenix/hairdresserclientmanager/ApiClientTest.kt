@@ -7,6 +7,7 @@ import com.northphoenix.hairdresserclientmanager.data.AppointmentStatus
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.data.LocationType
 import com.northphoenix.hairdresserclientmanager.data.PhotoCategory
+import com.northphoenix.hairdresserclientmanager.data.SignInTokens
 import com.northphoenix.hairdresserclientmanager.data.StoredFile
 import com.northphoenix.hairdresserclientmanager.data.TravelFeeChange
 import com.northphoenix.hairdresserclientmanager.data.TrpcClient
@@ -220,9 +221,23 @@ class ApiClientTest {
     private fun apiWith(tokens: Tokens) = HcmApi(TrpcClient(server.url("/api/trpc").toString(), http, tokenProvider = tokens::token))
 
     @Test
+    fun `a signed-in request that gets no kept token goes out with a new one`() = runTest {
+        // As when the app opens after a long pause: the provider fails to give the token it keeps.
+        val tokens = Tokens(kept = null) { "token-2" }
+        val api = HcmApi(TrpcClient(server.url("/api/trpc").toString(), http, emptyMap(), SignInTokens(account = { "user-a" }, provider = tokens::token)))
+
+        enqueue("""{"result":{"data":[]}}""")
+
+        assertTrue(api.listClients().isEmpty())
+        assertEquals("Bearer token-2", server.takeRequest().headers["Authorization"])
+        assertEquals(listOf("kept", "fresh"), tokens.asked)
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
     fun `a request refused for its sign-in is sent once more with a token the provider has just issued`() = runTest {
-        // As when the app opens after a long pause: the provider gives no token at first, and the
-        // request goes out without one.
+        // No token: these tokens know of nobody signed in (this constructor), so the request goes
+        // out without one.
         val tokens = Tokens(kept = null) { "token-2" }
 
         enqueue(REFUSED_SIGN_IN, code = 401)

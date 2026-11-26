@@ -44,7 +44,7 @@ class AppContainer(context: Context) {
 
     private val http = appHttpClient()
 
-    // One for both clients, so that requests refused at the same moment share one new token.
+    // One for both clients, so that requests that get no kept token, or are refused, at the same moment share one new token.
     private val signIn = SignInTokens(account = { (auth?.state?.value as? AuthState.SignedIn)?.userId }) { fresh -> auth?.token(fresh) }
 
     // Every request names the app's version, so the server can tell which app a Stylist uses.
