@@ -1,5 +1,4 @@
 import { cache } from "react";
-import { clerkClient } from "@clerk/nextjs/server";
 import {
   getUploadThingOrigins,
   loadProfileShareContent,
@@ -10,6 +9,7 @@ import { db } from "@hcm/db";
 import { defaultLocale, requestedLocale, t } from "@hcm/shared";
 import { annotate, increment, recordError, traced } from "@hcm/telemetry";
 import { findShareLink } from "./shareLink";
+import { clerkFromEnvironment } from "./signIn";
 
 // Appointment Photos are stored by /api/uploadthing, in the UploadThing app of the same token.
 export const photoOrigins = getUploadThingOrigins(process.env.UPLOADTHING_TOKEN);
@@ -38,9 +38,9 @@ export async function accountName(clerkId: string, { fresh = false } = {}) {
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   try {
-    const clerk = await clerkClient();
     const user = await Promise.race([
-      clerk.users.getUser(clerkId),
+      // This server's own client (server/signIn.ts says why not `clerkClient()`).
+      clerkFromEnvironment().users.getUser(clerkId),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error("The sign-in provider did not answer in time.")), accountNameTimeoutMs);
       })

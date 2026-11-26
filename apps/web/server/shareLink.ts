@@ -2,7 +2,7 @@ import { db } from "@hcm/db";
 import { isProfileShareToken } from "@hcm/shared";
 import { annotate, hashPrefix, recordError } from "@hcm/telemetry";
 
-// Kept free of everything a page needs to show a share: proxy.ts loads this for every request.
+// Kept free of everything a page needs to show a share: proxy.ts loads this for every page request.
 
 /**
  * The request header in which proxy.ts tells the page of a link that shows nothing

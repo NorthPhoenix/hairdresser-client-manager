@@ -4,6 +4,7 @@ import { buildShareImage } from "@hcm/api";
 import { requestedLocale } from "@hcm/shared";
 import { annotate } from "@hcm/telemetry";
 import { loadProfileShare, readSharePhoto, unavailableShareResponse } from "../../../../server/profileShare";
+import { refuseMethod } from "../../../../server/refuseMethod";
 
 export async function GET(request: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
@@ -32,3 +33,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     }
   });
 }
+
+// It only shows something: any other method is refused (server/refuseMethod.ts says why here).
+export { refuseMethod as POST, refuseMethod as PUT, refuseMethod as PATCH, refuseMethod as DELETE, refuseMethod as OPTIONS };

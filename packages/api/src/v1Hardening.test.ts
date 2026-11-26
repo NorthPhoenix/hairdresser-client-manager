@@ -1,6 +1,6 @@
 /// <reference types="node" />
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildShareImageSvg } from "./shareImage";
 import {
@@ -190,27 +190,96 @@ describe("v1 acceptance hardening", () => {
     expect(readWorkspaceFile("apps/web/app/profile-shares/[token]/page.tsx")).toMatch(/robots: \{\s+index: false,\s+follow: false\s+\}/);
   });
 
-  it("hands every Profile Share address to the proxy, also one with a dot in it", () => {
-    // The matcher of proxy.ts as the framework reads it: each entry stands for a whole path.
+  it("hands every page to the proxy, also a Profile Share page with a dot in it, and nothing else", () => {
+    // The matcher of proxy.ts as the framework reads it, near enough: each entry stands for a whole
+    // path (Next.js also allows its own suffixes, such as `.rsc`, which these addresses never have).
     const matcher: string[] = JSON.parse(/matcher: (\[.*\])/.exec(readWorkspaceFile("apps/web/proxy.ts"))?.[1] ?? "[]");
     const reachesProxy = (path: string) => matcher.some((source) => new RegExp(`^${source}$`).test(path));
 
     // A link copied with the full stop of its sentence, or mangled otherwise, is a link that shows
     // nothing: only the proxy has its page answered whole and in the language the address asks for.
-    for (const path of [sharePath, `${sharePath}.`, "/profile-shares/abc.def", `${sharePath}/image`, `${sharePath}/photos/abc`]) {
+    for (const path of [sharePath, `${sharePath}.`, "/profile-shares/abc.def", "/profile-shares/xyz"]) {
       expect(reachesProxy(path), path).toBe(true);
     }
 
-    expect(reachesProxy("/")).toBe(true);
-    // The upload route reads the sign-in from the proxy; the tRPC route reads it itself
-    // (server/signIn.ts), so that an app request does not wait for the proxy's function first.
-    expect(reachesProxy("/api/uploadthing")).toBe(true);
-    expect(reachesProxy("/api/trpcx")).toBe(true);
-    for (const path of ["/api/trpc/clientProfile.list", "/api/trpc/stylist.bootstrap,appointment.home", "/api/trpc", "/api/trpc/"]) {
+    // The other pages, for the methods they refuse, and an address that is no page.
+    for (const path of ["/", "/nope", "/profile-shares", "/apiary"]) {
+      expect(reachesProxy(path), path).toBe(true);
+    }
+
+    // The API reads the sign-in itself (server/signIn.ts), so that an app request does not wait
+    // for the proxy's function first, and a Share Image and a Profile Share's photos answer for
+    // themselves: none of them goes through the proxy.
+    for (const path of [
+      "/api/trpc/clientProfile.list",
+      "/api/trpc/stylist.bootstrap,appointment.home",
+      "/api/trpc",
+      "/api/trpc/",
+      "/api/trpcx",
+      "/api/uploadthing",
+      "/api",
+      `${sharePath}/image`,
+      `${sharePath}/photos/abc`,
+      `${sharePath}.png/image`
+    ]) {
       expect(reachesProxy(path), path).toBe(false);
     }
-    // The framework's own files stay out.
+    // Nor do the framework's own files and other files.
     expect(reachesProxy("/_next/static/chunks/main.js")).toBe(false);
+    expect(reachesProxy("/robots.txt")).toBe(false);
+  });
+
+  it("uses Clerk only through the web app's own client, as no Clerk middleware runs", () => {
+    // proxy.ts no longer runs `clerkMiddleware` (docs/adr/0010). Without it `auth()`,
+    // `currentUser()` and `getAuth()` fail at run time, which no type check sees, and
+    // `clerkClient()` takes its settings from a request header the caller can send. So the web app
+    // uses Clerk in one file only, which makes its client from this server's settings.
+    const webRoot = new URL("../../../apps/web/", import.meta.url);
+    const sources: string[] = [];
+    const walk = (folder: string) => {
+      for (const entry of readdirSync(new URL(folder, webRoot), { withFileTypes: true })) {
+        if (entry.isDirectory() && !["node_modules", ".next", ".turbo"].includes(entry.name)) {
+          walk(`${folder}${entry.name}/`);
+        } else if (entry.isFile() && /\.(ts|tsx|mjs|js)$/.test(entry.name)) {
+          sources.push(`${folder}${entry.name}`);
+        }
+      }
+    };
+
+    walk("");
+
+    const usingClerk = sources.filter((path) => readFileSync(new URL(path, webRoot), "utf8").includes("@clerk/"));
+    const signIn = readFileSync(new URL("server/signIn.ts", webRoot), "utf8");
+
+    expect(sources).toContain("app/api/uploadthing/core.ts");
+    expect(usingClerk).toEqual(["server/signIn.ts"]);
+    expect([...signIn.matchAll(/import\s*\{([^}]*)\}\s*from\s*["']@clerk\/[^"']+["']/g)].map(([, names]) => names!.trim())).toEqual([
+      "createClerkClient"
+    ]);
+  });
+
+  it("has a Share Image and a Profile Share's photos refuse every method but reading, as the proxy refuses it for a page", async () => {
+    // They do not go through the proxy, and the framework alone would answer OPTIONS with 204 and
+    // the others with a 405 that names no method.
+    const logged = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    try {
+      const { refuseMethod } = await import(/* @vite-ignore */ new URL("../../../apps/web/server/refuseMethod.ts", import.meta.url).href);
+      const answer: Response = refuseMethod();
+
+      expect(answer.status).toBe(405);
+      expect(answer.headers.get("allow")).toBe("GET, HEAD");
+    } finally {
+      logged.mockRestore();
+    }
+
+    for (const route of ["app/profile-shares/[token]/image/route.ts", "app/profile-shares/[token]/photos/[photo]/route.ts"]) {
+      const exported = /export \{([^}]*)\};\s*$/.exec(readWorkspaceFile(`apps/web/${route}`))?.[1] ?? "";
+
+      for (const method of ["POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
+        expect(exported, route).toMatch(new RegExp(`\\brefuseMethod as ${method}\\b`));
+      }
+    }
   });
 
   it("answers for a share page before the page only when its link is known to show nothing", async () => {

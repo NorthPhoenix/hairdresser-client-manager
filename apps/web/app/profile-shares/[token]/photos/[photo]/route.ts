@@ -3,6 +3,7 @@ import "../../../../../server/telemetry";
 import { findSharedPhoto } from "@hcm/api";
 import { recordError, annotate } from "@hcm/telemetry";
 import { loadProfileShare, openSharePhoto, unavailableShareResponse } from "../../../../../server/profileShare";
+import { refuseMethod } from "../../../../../server/refuseMethod";
 
 /**
  * A photo of a Profile Share page, served under the share's own link: it is there only as long as
@@ -64,3 +65,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     }
   });
 }
+
+// It only shows something: any other method is refused (server/refuseMethod.ts says why here).
+export { refuseMethod as POST, refuseMethod as PUT, refuseMethod as PATCH, refuseMethod as DELETE, refuseMethod as OPTIONS };
