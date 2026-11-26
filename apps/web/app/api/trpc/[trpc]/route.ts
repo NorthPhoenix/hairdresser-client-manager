@@ -6,12 +6,12 @@ import { untilDatabaseWarmedUp } from "../../../../server/warmDatabase";
 // as soon as the API has loaded (server/publishedRelease.ts says why).
 import { publishedRelease, releaseReadAheadUnderWay } from "../../../../server/publishedRelease";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
-import { auth } from "@clerk/nextjs/server";
 import { after } from "next/server";
 import { appRouter, appVersionFromHeaders, createTRPCContext, recordProcedureError } from "@hcm/api";
 import { annotate, recordError, requestFields } from "@hcm/telemetry";
 import type { UTApi } from "uploadthing/server";
 import { accountName, photoOrigins, readSharePhoto } from "../../../../server/profileShare";
+import { signedInUserId } from "../../../../server/signIn";
 
 // UploadThing's SDK, loaded the first time a file is deleted and not with the route: it is about a
 // sixth of what a new server instance loads before its first request, which nearly never deletes
@@ -60,16 +60,17 @@ function handler(request: Request) {
     createContext: () =>
       createTRPCContext({
         auth: async () => {
-          const clerkAuth = await auth();
+          // Read here, not by proxy.ts, which does not run for this route (server/signIn.ts says why).
+          const userId = await signedInUserId(request);
 
           // Signed in, so its procedure uses the database next. The first such request on a new
           // instance waits for the warm-up while that is under way, and takes its connection.
-          if (clerkAuth.userId) {
+          if (userId) {
             await untilDatabaseWarmedUp();
           }
 
           return {
-            userId: clerkAuth.userId
+            userId
           };
         },
         photoOrigins,

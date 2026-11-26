@@ -134,8 +134,10 @@ export default async function proxy(request: NextRequest, event: NextFetchEvent)
 }
 
 export const config = {
-  // Every address but the framework's own files and those with a dot in them, which are files.
+  // Every address but the framework's own files, those with a dot in them, which are files, and
+  // the tRPC API, which reads the sign-in itself (server/signIn.ts): on Vercel this proxy is a
+  // function of its own, which an app request would otherwise wait for before the API's.
   // The addresses of Profile Shares are named too: a link that was copied with the full stop of
   // its sentence has a dot in it and is a link that shows nothing, not a file.
-  matcher: ["/((?!_next|.*\\..*).*)", "/api/trpc/(.*)", "/profile-shares/(.*)"]
+  matcher: ["/((?!_next|api/trpc(?:/|$)|.*\\..*).*)", "/profile-shares/(.*)"]
 };
