@@ -403,5 +403,20 @@
         "A Service on an Appointment can be switched to another variant of its menu group: tap the pencil on the Service and pick one under Variant. The name and price fill in, and the note and Color Formulas stay"
       ]
     }
+  },
+  {
+    "versionCode": 30,
+    "versionName": "1.28.0",
+    "date": "2026-11-25",
+    "notes": {
+      "ru": [
+        "«Напомнить всем» помнит, какие напоминания уже ушли: если приложение закрылось, пока открыты Сообщения, или сменилась тема, отправить их ещё раз оно не предложит",
+        "Когда приложение открывается после перерыва, главный экран с записями появляется быстрее"
+      ],
+      "en": [
+        "Remind all remembers which reminders already went out: if the app closed while Messages was open, or the theme changed, it doesn't offer to send them again",
+        "When the app opens after a break, Home with its Appointments appears sooner"
+      ]
+    }
   }
 ]
