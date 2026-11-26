@@ -14,6 +14,9 @@ type WritesHead = { writeHead: (...args: never[]) => unknown; [recordsStatus]?: 
  * 200 there, also a 401 or a 404. `writeHead` is where Node sends the status line, also for a
  * response that never calls it (Node calls it for them), and it runs in the request's context.
  * Recording never changes the response: the original `writeHead` gets the same arguments.
+ *
+ * It misses the first request of a new Vercel instance, whose response is written without passing
+ * through here, so route handlers record the status of their Response too (`recordingStatus`).
  */
 export function recordResponseStatus(responses: WritesHead): void {
   if (responses[recordsStatus]) {

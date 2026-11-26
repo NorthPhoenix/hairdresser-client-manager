@@ -331,6 +331,67 @@ export async function traceRequest<T>(request: RequestInfo, fn: () => Promise<T>
   }
 }
 
+function noteStatus(response: Response): Response {
+  try {
+    const status: unknown = response?.status;
+
+    if (typeof status === "number") {
+      annotate({ "http.status_code": status });
+    }
+  } catch {
+    noteInternalError();
+  }
+
+  return response;
+}
+
+function noteFailure(error: unknown): never {
+  try {
+    // Next.js's own signals, such as redirect() and notFound(), carry a digest and are answered
+    // with a status of their own.
+    const signal = error !== null && typeof error === "object" && typeof (error as { digest?: unknown }).digest === "string";
+
+    if (!signal) {
+      annotate({ "http.status_code": 500 });
+    }
+  } catch {
+    noteInternalError();
+  }
+
+  throw error;
+}
+
+/**
+ * Makes a route handler (`GET`, `POST`, ... of a Next.js `route.ts`) put the status of the
+ * Response it returns into the request's event, as `http.status_code`, and 500 when it throws,
+ * which Next.js then answers with. The handler, its arguments, its Response and what it throws are
+ * otherwise unchanged.
+ *
+ * The status Node writes is recorded too (response.ts), but not on the first request of a new
+ * Vercel instance: the host makes that request's response before the route's module, and with it
+ * telemetry, has loaded, and its status never passes through response.ts, so its event said 200
+ * whatever was answered (every 401, 404 and 405 of a new instance in the logs up to 2026-11-26).
+ * Nor is a 500 for a thrown error, which Next.js writes after the request's span has ended. What a
+ * handler returns is what Next.js answers with, on every request.
+ */
+export function recordingStatus<Args extends unknown[], Result extends Response | Promise<Response>>(handler: (...args: Args) => Result): (...args: Args) => Result {
+  return (...args) => {
+    let result: Result;
+
+    try {
+      result = handler(...args);
+    } catch (error) {
+      noteFailure(error);
+    }
+
+    if (isPromiseLike(result)) {
+      return Promise.resolve(result as PromiseLike<Response>).then(noteStatus, noteFailure) as Result;
+    }
+
+    return noteStatus(result as Response) as Result;
+  };
+}
+
 /** The first 12 hex characters of SHA-256 of `value`: names a share token without telling it. */
 export function hashPrefix(value: string): string {
   try {

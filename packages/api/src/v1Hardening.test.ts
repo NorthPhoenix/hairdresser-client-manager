@@ -282,6 +282,62 @@ describe("v1 acceptance hardening", () => {
     }
   });
 
+  it("has every route put the status it answers with into its event, also on a new instance", () => {
+    // On the first request of a new Vercel instance the status Node writes is not recorded, so
+    // that event said 200 for every answer (`recordingStatus` in @hcm/telemetry says why). Each
+    // handler a route exports records the status of the Response it returns instead.
+    const appRoot = new URL("../../../apps/web/app/", import.meta.url);
+    const routes: string[] = [];
+    const walk = (folder: string) => {
+      for (const entry of readdirSync(new URL(folder, appRoot), { withFileTypes: true })) {
+        if (entry.isDirectory()) {
+          walk(`${folder}${entry.name}/`);
+        } else if (/^route\.(ts|tsx|js|mjs)$/.test(entry.name)) {
+          routes.push(`app/${folder}${entry.name}`);
+        }
+      }
+    };
+    const methods = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]);
+
+    walk("");
+
+    expect(routes).toContain("app/api/trpc/[trpc]/route.ts");
+    expect(routes).toContain("app/api/uploadthing/route.ts");
+
+    for (const route of routes) {
+      const source = readWorkspaceFile(`apps/web/${route}`);
+      // Each exported method and the name it has in the file.
+      const exported = new Map<string, string>();
+
+      for (const [, method] of source.matchAll(/export\s+(?:async\s+)?(?:const|let|function)\s+(\w+)/g)) {
+        exported.set(method!, method!);
+      }
+
+      for (const [, names] of source.matchAll(/export\s*\{([^}]*)\}/g)) {
+        for (const name of names!.split(",").map((part) => part.trim()).filter(Boolean)) {
+          const [local, as = local] = name.split(/\s+as\s+/).map((part) => part.trim());
+
+          exported.set(as!, local!);
+        }
+      }
+
+      // Handlers taken apart from one object (`export const { GET, POST } = ...`) are not wrapped.
+      expect(source, route).not.toMatch(/export\s+(?:const|let)\s*\{/);
+
+      const handlers = [...exported].filter(([method]) => methods.has(method));
+
+      expect(handlers.length, route).toBeGreaterThan(0);
+
+      for (const [method, local] of handlers) {
+        if (local !== "refuseMethod") {
+          expect(source, `${route} ${method}`).toMatch(new RegExp(`(?:const|let)\\s+${local}\\b[^=]*=\\s*recordingStatus\\(`));
+        }
+      }
+    }
+
+    expect(readWorkspaceFile("apps/web/server/refuseMethod.ts")).toMatch(/export const refuseMethod = recordingStatus\(/);
+  });
+
   it("answers for a share page before the page only when its link is known to show nothing", async () => {
     const findUnique = vi.fn();
     const logged = vi.spyOn(console, "log").mockImplementation(() => undefined);
