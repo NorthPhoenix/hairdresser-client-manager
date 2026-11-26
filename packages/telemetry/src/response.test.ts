@@ -119,6 +119,42 @@ describe("the status of the Response a route handler returns", () => {
     expect(events[0]).toMatchObject({ "http.status_code": 405, outcome: "refused" });
   });
 
+  it("is 500 for a handler that throws, as Next.js answers then, at once or later", async () => {
+    for (const handler of [
+      recordingStatus((): Response => {
+        throw new Error("database away");
+      }),
+      recordingStatus(async (): Promise<Response> => {
+        throw new Error("database away");
+      })
+    ]) {
+      const { status, events } = await serve(handler);
+
+      expect(status).toBe(500);
+      expect(events[0]).toMatchObject({ "http.status_code": 500, outcome: "error" });
+    }
+  });
+
+  it("leaves the status of Next.js's own signals, such as redirect(), to Next.js", async () => {
+    const { events } = await serve(
+      recordingStatus(async (): Promise<Response> => {
+        throw Object.assign(new Error("NEXT_REDIRECT"), { digest: "NEXT_REDIRECT;replace;/elsewhere;307;" });
+      })
+    );
+
+    expect(events[0]?.["http.status_code"]).toBe(200);
+  });
+
+  it("gives way to the status Node writes when that is recorded", async () => {
+    const { status, events } = await answer((response) => {
+      recordingStatus(() => new Response("ok"))();
+      response.writeHead(503).end();
+    });
+
+    expect(status).toBe(503);
+    expect(events[0]).toMatchObject({ "http.status_code": 503 });
+  });
+
   it("says success for a 200 as before", async () => {
     const { events } = await serve(recordingStatus(async () => new Response("ok")));
 
