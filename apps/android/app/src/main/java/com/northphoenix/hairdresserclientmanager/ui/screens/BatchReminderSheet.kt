@@ -50,6 +50,7 @@ import com.northphoenix.hairdresserclientmanager.domain.ReminderMessage
 import com.northphoenix.hairdresserclientmanager.state.AppViewModel
 import com.northphoenix.hairdresserclientmanager.state.SendState
 import com.northphoenix.hairdresserclientmanager.state.SmsFailure
+import com.northphoenix.hairdresserclientmanager.state.batchSends
 import com.northphoenix.hairdresserclientmanager.ui.LocalTimeFormat
 import com.northphoenix.hairdresserclientmanager.ui.clientReminderMessage
 import com.northphoenix.hairdresserclientmanager.ui.components.ConfirmDialog
@@ -69,7 +70,11 @@ import java.time.Instant
  * wrong; one sent checked keeps its time ([KeptNightStarts]). "Send N SMS" sends the checked ones
  * from the phone (asking for the SMS permission at that moment); without the permission, or a way
  * to send, each one is opened in the SMS app in turn instead. Each row then shows how its SMS went,
- * and a failed one can be retried.
+ * and a failed one can be retried. The sheet keeps its batch when Android builds the screen again
+ * (a display setting changed) or ends the app and starts it again while the sheet is open (see
+ * [batchSends]), so a reminder the log has as sent is not offered again. Once a batch has begun the
+ * sheet only finishes it: a reminder that was on its way when the app was ended has no result to show,
+ * and is not offered again here; the next time the sheet opens it starts checked, unless the log has it.
  */
 @Composable
 fun BatchReminderSheet(viewModel: AppViewModel, appointments: List<Appointment>, onDismiss: () -> Unit) {
@@ -77,11 +82,8 @@ fun BatchReminderSheet(viewModel: AppViewModel, appointments: List<Appointment>,
     val format = LocalTimeFormat.current
     val outbox = viewModel.reminders
     val log by outbox.log.collectAsStateWithLifecycle()
-    val sends by outbox.sends.collectAsStateWithLifecycle()
+    val outboxSends by outbox.sends.collectAsStateWithLifecycle()
     val now by rememberNow()
-
-    // The results of an earlier batch are not this one's, unless it is still going.
-    remember { outbox.reset() }
 
     val messages = remember(appointments, format.zone) {
         appointments.mapNotNull { clientReminderMessage(context, it, format.zone) }
@@ -98,18 +100,39 @@ fun BatchReminderSheet(viewModel: AppViewModel, appointments: List<Appointment>,
     }
     var fallback by rememberSaveable { mutableStateOf(false) }
     var askingPermission by rememberSaveable { mutableStateOf(false) }
+    // When the sheet's batch began, in epoch milliseconds; null until it has one. A sheet that comes back after Android ended the app knows
+    // from the log which of its reminders went, and only finishes its batch. When the sheet opens, the results of an earlier batch are not
+    // this one's, unless it is still going with some of these rows (see [ReminderOutbox.openSheet]); this runs only then: when Android builds
+    // the screen again, the sheet is the same one, and so is its batch. Otherwise the batch begins when its first reminder is handed to the
+    // phone or the SMS app.
+    var batchStartedAt by rememberSaveable { mutableStateOf(outbox.openSheet(messages.map { it.appointmentId })?.toEpochMilli()) }
+    val sends = remember(messages, outboxSends, log, batchStartedAt, fallback) {
+        batchSends(messages, outboxSends, log, batchStartedAt?.let(Instant::ofEpochMilli), inMessages = fallback)
+    }
 
     val selected = messages.filter { it.appointmentId in checked }
-    val started = messages.any { sends[it.appointmentId] != null }
+    // Also with no result to show: the sheet's batch is not offered to be sent again (see above).
+    val started = batchStartedAt != null || messages.any { sends[it.appointmentId] != null }
     val sending = messages.any { sends[it.appointmentId].let { state -> state == SendState.Waiting || state == SendState.Sending } }
     val sentCount = selected.count { sends[it.appointmentId] == SendState.Sent }
     // In the SMS app, the ones not opened yet.
     val toOpen = selected.filter { sends[it.appointmentId] == null }
 
+    fun begin() {
+        if (batchStartedAt == null) batchStartedAt = outbox.now().toEpochMilli()
+    }
+
+    fun send(batch: List<ReminderMessage>) {
+        if (batch.isEmpty()) return
+        begin()
+        outbox.send(batch)
+    }
+
     fun openNext() {
         val next = toOpen.firstOrNull() ?: return
 
         if (openInMessages(context, next)) {
+            begin()
             outbox.opened(next)
         } else {
             viewModel.notify(R.string.sms_app_unavailable, isError = true)
@@ -124,14 +147,14 @@ fun BatchReminderSheet(viewModel: AppViewModel, appointments: List<Appointment>,
                 fallback = true
                 openNext()
             }
-            DeviceSms.hasPermission(context) -> outbox.send(selected)
+            DeviceSms.hasPermission(context) -> send(selected)
             else -> askingPermission = true
         }
     }
 
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
-            outbox.send(selected)
+            send(selected)
         } else {
             fallback = true
             openNext()
@@ -201,7 +224,7 @@ fun BatchReminderSheet(viewModel: AppViewModel, appointments: List<Appointment>,
                 remindedNote = remindedAt?.takeIf { state == null }?.let { stringResource(R.string.reminded_at, format.stamp(it, now)) },
                 timeQuestion = nightStartNote(message).takeIf { message.appointmentId in timeAsked && state == null },
                 onToggle = { on -> checked = if (on) checked + message.appointmentId else checked - message.appointmentId },
-                onRetry = { outbox.send(listOf(message)) },
+                onRetry = { send(listOf(message)) },
             )
         }
         Text(
