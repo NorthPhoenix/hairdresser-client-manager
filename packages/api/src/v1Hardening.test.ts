@@ -321,6 +321,9 @@ describe("v1 acceptance hardening", () => {
         }
       }
 
+      // Handlers taken apart from one object (`export const { GET, POST } = ...`) are not wrapped.
+      expect(source, route).not.toMatch(/export\s+(?:const|let)\s*\{/);
+
       const handlers = [...exported].filter(([method]) => methods.has(method));
 
       expect(handlers.length, route).toBeGreaterThan(0);
