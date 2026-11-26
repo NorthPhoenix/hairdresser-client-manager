@@ -4,19 +4,22 @@ import { annotate, recordError } from "@hcm/telemetry";
 // The request headers in which a sign-in arrives: the app's token, and a browser's session.
 const signInHeaders = ["authorization", "cookie"];
 
-/** What reads a request's sign-in: Clerk's client, or a stand-in in tests. */
-type SignInChecker = Pick<ReturnType<typeof createClerkClient>, "authenticateRequest">;
+type ClerkClient = ReturnType<typeof createClerkClient>;
 
-let clerk: SignInChecker | undefined;
+/** What reads a request's sign-in: Clerk's client, or a stand-in in tests. */
+type SignInChecker = Pick<ClerkClient, "authenticateRequest">;
+
+let clerk: ClerkClient | undefined;
 
 /**
- * Clerk's client, made the first time a request needs it from the settings that Clerk's Next.js
- * SDK reads for checking a token: the keys, and the address and version of Clerk's API when they
- * are set. Not the client `clerkClient()` gives, which takes its settings from the request header
+ * Clerk's client, made the first time this server needs it, from the settings that Clerk's
+ * Next.js SDK reads: the keys, and the address and version of Clerk's API when they are set. The
+ * one client of this server, for checking a sign-in and for asking Clerk's API (an account's
+ * name). Not the client `clerkClient()` gives, which takes its settings from the request header
  * `x-clerk-request-data` whenever that decrypts: the caller can send it, and a development server
- * also decrypts it with a key that is public. The settings of the check are this server's only.
+ * also decrypts it with a key that is public. Its settings are this server's only.
  */
-function clerkFromEnvironment(): SignInChecker {
+export function clerkFromEnvironment(): ClerkClient {
   clerk ??= createClerkClient({
     secretKey: process.env.CLERK_SECRET_KEY,
     publishableKey: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
@@ -28,13 +31,15 @@ function clerkFromEnvironment(): SignInChecker {
 }
 
 /**
- * The Clerk user who sent a request to the tRPC route, or null when it carries no valid sign-in.
+ * The Clerk user who sent a request to the API (the tRPC route and the upload route), or null
+ * when it carries no valid sign-in.
  *
- * The route reads the sign-in itself, because proxy.ts does not run for `/api/trpc`: on Vercel
- * the proxy is a function of its own, and an app request that went through it waited for two
- * functions (two cold starts on a new instance) before it was answered (docs/adr/0010). The check
- * is the one the proxy's `clerkMiddleware` made, with the same keys: the session token in the
- * `Authorization` header, which the app sends, else a browser's session cookie.
+ * Each route reads the sign-in itself: proxy.ts does not run for `/api/` and no longer loads
+ * Clerk at all. On Vercel the proxy is a function of its own, deployed apart from the routes, and
+ * an app request that went through it waited for two functions (two cold starts on a new
+ * instance) in two regions before it was answered (docs/adr/0010). The check is the one the
+ * proxy's `clerkMiddleware` made, with the same keys: the session token in the `Authorization`
+ * header, which the app sends, else a browser's session cookie.
  */
 export async function signedInUserId(request: Request, client: () => SignInChecker = clerkFromEnvironment): Promise<string | null> {
   // Whether a sign-in came with the request, never what it says.
@@ -57,11 +62,11 @@ export async function signedInUserId(request: Request, client: () => SignInCheck
     return userId;
   } catch (error) {
     // Clerk refuses a sign-in token that is wrong, also one it cannot decode at all (`Bearer
-    // a.b.c`), though in the proxy its middleware failed on such a token instead. Should this
-    // check ever fail on the sign-in, the request is answered as one without it: the API refuses
-    // it with 401 like any other token that is not valid. But only when Clerk can read the
-    // request without its sign-in: a failure of Clerk's own (keys missing) is not hidden as a
-    // refusal, which the app would take for a sign-in that ran out.
+    // a.b.c`), though its middleware failed on such a token instead. Should this check ever fail
+    // on the sign-in, the request is answered as one without it: the API refuses it with 401 like
+    // any other token that is not valid. But only when Clerk can read the request without its
+    // sign-in: a failure of Clerk's own (keys missing) is not hidden as a refusal, which the app
+    // would take for a sign-in that ran out.
     if (!signInHeaders.some((name) => request.headers.has(name))) {
       throw error;
     }

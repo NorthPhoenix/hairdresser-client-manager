@@ -1,7 +1,6 @@
 // First: sets up telemetry before the first request (server/telemetry.ts says why).
 import "./server/telemetry";
-import { clerkMiddleware } from "@clerk/nextjs/server";
-import { NextRequest, NextResponse, type NextFetchEvent } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { defaultLocale, requestedLocale } from "@hcm/shared";
 import { annotate, recordError } from "@hcm/telemetry";
 import { lookUpSharePage, unavailableLanguageHeader, unknownAddress } from "./server/shareLink";
@@ -14,7 +13,7 @@ function answering<T extends Response>(response: T, status: number = response.st
   return response;
 }
 
-// What is done with a request once Clerk has read who sent it.
+// What is done with a page's request that is not refused.
 async function passOn(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl;
   // A Profile Share page, not its picture or its photos: those answer for themselves.
@@ -66,13 +65,16 @@ async function passOn(request: NextRequest) {
   );
 }
 
-// The request headers in which a sign-in arrives: the app's token, and a browser's session.
-const signInHeaders = ["authorization", "cookie"];
-
-export default async function proxy(request: NextRequest, event: NextFetchEvent) {
-  // Only the API takes anything but reading. Without this the framework draws a page for any
-  // method. (TRACE never gets here: see instrumentation.ts.)
-  if (!request.nextUrl.pathname.startsWith("/api/") && request.method !== "GET" && request.method !== "HEAD") {
+/**
+ * Runs before a page: the home page, a Profile Share page and any address this server does not
+ * know. Never before the API, nor before a Profile Share's picture and photos, which answer for
+ * themselves (see `config`), and it reads no sign-in: no page needs one, and each API route reads
+ * its own (server/signIn.ts).
+ */
+export default async function proxy(request: NextRequest) {
+  // A page answers only reading. Without this the framework draws a page for any method. (TRACE
+  // never gets here: see instrumentation.ts.)
+  if (request.method !== "GET" && request.method !== "HEAD") {
     annotate({ "proxy.decision": "method_refused", "proxy.refused_method": request.method });
     recordError(new Error("Only the API takes anything but reading."), { expected: true, code: "METHOD_NOT_ALLOWED", reason: "method_not_allowed" });
 
@@ -86,58 +88,17 @@ export default async function proxy(request: NextRequest, event: NextFetchEvent)
     );
   }
 
-  // Made for this request, so that `read` is its own.
-  let read = false;
-
-  // Whether a sign-in came with the request, never what it says.
-  annotate({
-    "proxy.has_authorization_header": request.headers.has("authorization"),
-    "proxy.has_cookie_header": request.headers.has("cookie")
-  });
-
-  const answer = clerkMiddleware((_auth, request) => {
-    read = true;
-
-    return passOn(request);
-  });
-
-  try {
-    const response = await answer(request, event);
-
-    // Clerk answers some requests itself (a redirect to sign in) without passing them on.
-    if (!read && response instanceof Response) {
-      answering(response);
-    }
-
-    return response;
-  } catch (error) {
-    // Clerk refuses a sign-in token that is wrong, but fails on one it cannot decode at all (three
-    // parts that are not what a token is made of, as in `Bearer a.b.c`), and the request would end
-    // in a server error on every address. Such a request is answered as if it carried no sign-in:
-    // the API then refuses it with 401 like any other token that is not valid, and a public page
-    // is shown. A failure of ours, or of a request that carries no sign-in, is not hidden.
-    if (read || !signInHeaders.some((name) => request.headers.has(name))) {
-      throw error;
-    }
-
-    // Recorded, so that how often a token Clerk cannot decode arrives (and from whom: its headers
-    // are named in `proxy.has_*`) can be counted.
-    annotate({ "proxy.sign_in_fallback": true });
-    recordError(error, { handled: true, reason: "clerk_token_undecodable" });
-
-    const headers = new Headers(request.headers);
-
-    signInHeaders.forEach((name) => headers.delete(name));
-
-    return answer(new NextRequest(request.url, { method: request.method, headers }), event);
-  }
+  return passOn(request);
 }
 
 export const config = {
-  // Every address but the framework's own files, those with a dot in them, which are files, and
-  // the tRPC API, which reads the sign-in itself (server/signIn.ts): on Vercel this proxy is a
-  // function of its own, which an app request would otherwise wait for before the API's.
-  // The addresses of Profile Shares are named too: a link that was copied with the full stop of
-  // its sentence has a dot in it and is a link that shows nothing, not a file.
-  matcher: ["/((?!_next|api/trpc(?:/|$)|.*\\..*).*)", "/profile-shares/(.*)"]
+  // On Vercel this proxy is a function of its own, which Vercel deploys apart from the routes and
+  // runs in a region of its choosing, before the route's function (docs/adr/0010). So it runs only
+  // where nothing else can do its work: before a page, for the method it answers and for a
+  // Profile Share link that shows nothing. Every address but the framework's own files, those
+  // with a dot in them, which are files, the API, and what is under a Profile Share's address
+  // (its picture and photos). The address of a Profile Share page is named too: a link that was
+  // copied with the full stop of its sentence has a dot in it and is a link that shows nothing,
+  // not a file.
+  matcher: ["/((?!_next|api(?:/|$)|profile-shares/|.*\\..*).*)", "/profile-shares/([^/]+)"]
 };

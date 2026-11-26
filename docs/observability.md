@@ -10,7 +10,7 @@ The server is traced with OpenTelemetry. The request's **root span is the event*
 
 `@hcm/telemetry` installs a span processor (`WideEventProcessor`) next to the SDK. It sees every span start and end. A span with no parent in this process opens an event; every span below it belongs to that event. Which event a root span opens:
 
-- `hcm.request`: a span of kind SERVER (Next.js's `BaseServer.handleRequest`, the dev backend's `traceRequest`), and the span in which Next.js runs proxy.ts (`next.span_type` `Middleware.execute`), which on Vercel is the root of a function of its own and of kind INTERNAL. The proxy runs for pages and the other routes (the upload route, a Profile Share's picture and photos), not for the tRPC route: a tRPC request has one event, the route's.
+- `hcm.request`: a span of kind SERVER (Next.js's `BaseServer.handleRequest`, the dev backend's `traceRequest`), and the span in which Next.js runs proxy.ts (`next.span_type` `Middleware.execute`), which on Vercel is the root of a function of its own and of kind INTERNAL. The proxy runs only before pages (the home page, a Profile Share page, an address with no page), not for the API (tRPC, uploads) nor for a Profile Share's picture and photos: their requests have one event, the route's.
 - None: any other span of Next.js's own (tracer `next.js`, or with a `next.span_type`), such as the `start response` that Next.js sometimes begins after the request's span ended. It is the framework's work outside any request and says nothing about one; the spans under it open no event either.
 - `hcm.task`: anything else, such as work this app started with `traced` outside any request: the `db.warm_up` of each new server instance of the tRPC route, for one.
 
@@ -285,7 +285,7 @@ The Android app reloads its lists with a dozen or more requests at once. Apps up
 | `trpc.duration_ms` | int | Time of the procedure, middlewares included. |
 | `auth.signed_in` | bool | Whether the request carried a valid sign-in. |
 | `auth.user_id` | string | The Clerk user id (`dev_<name>` on the dev backend). |
-| `auth.has_authorization_header`, `auth.has_cookie_header` | bool | The request carried an `Authorization` or a `Cookie` header (never its value). Written by `signedInUserId` (`apps/web/server/signIn.ts`), which reads the sign-in of a tRPC request: proxy.ts does not run for the tRPC route. |
+| `auth.has_authorization_header`, `auth.has_cookie_header` | bool | The request carried an `Authorization` or a `Cookie` header (never its value). Written by `signedInUserId` (`apps/web/server/signIn.ts`), which reads the sign-in of an API request (tRPC and uploads): proxy.ts does not run for the API. |
 | `auth.signed_out_reason` | string | Clerk's code for why a request is not signed in: `session-token-and-uat-missing` when it carried no sign-in (`dev-browser-missing` with a development instance's keys), `token-invalid` for a token that is not Clerk's, `session-token-expired-…` for one that ran out, `unexpected-error` for one that cannot be read and also when Clerk's API could not be reached for its signing keys (`jwk-remote-failed-to-load` when it answered with a failure), and `session-pending` (ours, not Clerk's) for a session Clerk has not let in yet. Written by `signedInUserId`. |
 | `auth.sign_in_fallback` | bool | Clerk failed on the sign-in the request carried, though not on the request without it; the request was answered as if it had none (`true` only when it happened; paired with a handled error `clerk_token_undecodable`). A token Clerk cannot decode is refused without this (`auth.signed_out_reason` `unexpected-error`). Written by `signedInUserId`. |
 | `app.version_code` | int | `X-App-Version-Code` of the Android app. |
@@ -567,7 +567,7 @@ What the code adds to the event for each part of the domain. Rows are sorted by 
 | `app.version_name_valid` | bool | The version name header was valid. Written by `appVersionFromHeaders`. |
 | `app.version_state` | string | `valid`, `absent` (app before 1.4.0) or `invalid` header. Written by `appVersionFromHeaders`. |
 | `app.version_write` | string | `written`, `skipped_no_version`, `skipped_seen_within_hour`, `failed` (handled error `app_version_write_failed`). Written by `recordAppVersion`. |
-| `auth.signed_in`, `auth.user_id` | bool, string | As for tRPC; the upload route has no procedure chain. Written by `authorizePhotoUpload`. |
+| `auth.signed_in`, `auth.user_id` | bool, string | As for tRPC; the upload route has no procedure chain. Written by `authorizePhotoUpload`. The upload route reads the sign-in with `signedInUserId`, as the tRPC route does, which also writes `auth.has_authorization_header`, `auth.has_cookie_header`, `auth.signed_out_reason` and `auth.sign_in_fallback` (see tRPC). |
 | `page.kind` | string | `home` (the index), `profile_share` (a Profile Share page that is shown) or `unavailable` (not-found page). Written by `app/page.tsx`, `app/profile-shares/[token]/page.tsx`, `app/not-found.tsx`. |
 | `page.language` | string | Language the page was drawn in. Written by same. |
 | `photo.kept_file_count` | int | Files kept because another Appointment Photo still names them. Written by `markFilesUnused`. |
@@ -597,12 +597,12 @@ What the code adds to the event for each part of the domain. Rows are sorted by 
 | `profile_share.upcoming_count` | int | Upcoming Appointments in the share. Written by `loadProfileShareContent`. |
 | `profile_share.view` | string | `page`, `image` or `photo`: which address of the share was asked for. Written by page, image route, photos route. |
 | `proxy.decision` | string | `method_refused` (405), `rewrite_to_unavailable` (link shows nothing, answered 404 by not-found), `passed_on`. Written by `proxy`, `passOn`. |
-| `proxy.has_authorization_header`, `proxy.has_cookie_header` | bool | The request carried a sign-in header (never its value). Written by `proxy`. |
+| `proxy.has_authorization_header`, `proxy.has_cookie_header` | bool | No longer written: the proxy reads no sign-in since it stopped running for the API (docs/adr/0010). Older events have them: the request carried a sign-in header (never its value). |
 | `proxy.is_share_page` | bool | The address is a Profile Share page (so a lookup was made). Written by `passOn`. |
 | `proxy.language`, `proxy.language_source` | string | Language put in the header for the not-found page and where it came from (`query`, `client`, `default`). Written by `passOn`. |
 | `proxy.refused_method` | string | The method that was refused. Written by `proxy`. |
 | `proxy.share_shows_nothing` | bool | Result of the lookup (absent on non-share addresses). Written by `passOn`. |
-| `proxy.sign_in_fallback` | bool | Clerk could not decode the sign-in; the request was answered as if it had none (`true` only when it happened; paired with a handled error `clerk_token_undecodable`). Written by `proxy`. The tRPC route has `auth.sign_in_fallback` instead. |
+| `proxy.sign_in_fallback` | bool | No longer written: the proxy reads no sign-in (docs/adr/0010). Older events have it: Clerk could not decode the sign-in and the request was answered as if it had none. The API routes have `auth.sign_in_fallback`. |
 | `release.is_capped`, `release.capped_at_version_code` | bool, int | Releases newer than the published APK were held back (ADR 0018). Written by `releasesSince`. |
 | `release.is_oldest_standing_in` | bool | Nothing was published at or below the cap; the oldest release stood in. Written by `releasesSince`. |
 | `release.latest_version_code`, `release.count`, `release.since_version_code` | int | Latest offered release, how many newer releases were returned, and the app's own version. Written by `releasesSince`. |
@@ -646,7 +646,7 @@ The domain's reason for a refusal or a handled error, from `recordError(…, { r
 | `appointment_not_found` | refusal | The Appointment is not the Stylist's, or is not there (also for an Appointment Photo upload). |
 | `appointment_total_above_maximum` | refusal | The Services would take the Appointment's total over the maximum amount. |
 | `changed_repeat` | refusal | A request key already carried out was sent again with other values (`CONFLICT`; see `request.repeat_*`). |
-| `clerk_token_undecodable` | handled | Clerk failed on the sign-in the request carried, though not on the request without it (in proxy.ts, or in the tRPC route, which reads the sign-in itself); the request went on as if it had none. |
+| `clerk_token_undecodable` | handled | Clerk failed on the sign-in the request carried, though not on the request without it (in the tRPC route or the upload route, which read the sign-in themselves; in proxy.ts in older events); the request went on as if it had none. |
 | `client_has_photos` | refusal | A Client with Appointment Photos in the Appointment cannot be removed from it. |
 | `client_has_services` | refusal | A Client with Services in the Appointment cannot be removed from it. |
 | `client_not_attached` | refusal | The Client is not on the Appointment (`removeParticipant`, and an upload for a Client that is not on it). |

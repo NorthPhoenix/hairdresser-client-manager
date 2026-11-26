@@ -1,10 +1,10 @@
-import { auth } from "@clerk/nextjs/server";
 import { appointmentPhotoFiles, authorizePhotoUpload } from "@hcm/api";
 import { db } from "@hcm/db";
 import { annotate } from "@hcm/telemetry";
 import { z } from "zod";
 import { createUploadthing, type FileRouter } from "uploadthing/next";
 import { UploadThingError } from "uploadthing/server";
+import { signedInUserId } from "../../../server/signIn";
 
 const f = createUploadthing();
 
@@ -17,7 +17,7 @@ const appointmentPhotoInput = z.object({
 export const uploadRouter = {
   appointmentPhoto: f(appointmentPhotoFiles)
     .input(appointmentPhotoInput)
-    .middleware(async ({ input, files }) => {
+    .middleware(async ({ req, input, files }) => {
       // What the Stylist's phone asks to send. Never the names of the files.
       annotate({
         "upload.file_count": files.length,
@@ -26,7 +26,8 @@ export const uploadRouter = {
         "upload.file_type": files[0]?.type
       });
 
-      const upload = await authorizePhotoUpload(db, (await auth()).userId, input);
+      // Read here, as the tRPC route does: proxy.ts does not run for the API (server/signIn.ts says why).
+      const upload = await authorizePhotoUpload(db, await signedInUserId(req), input);
 
       // With its code a refusal is answered 403, 404 or 400. A bare message would be a 500.
       if ("refusal" in upload) {

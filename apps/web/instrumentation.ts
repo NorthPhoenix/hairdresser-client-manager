@@ -6,9 +6,9 @@ import type { Instrumentation } from "next";
 const refusesTrace = Symbol.for("hcm.refusesTrace");
 
 /**
- * Refuses TRACE with 405 before the framework sees it. The framework hands every request to
- * proxy.ts as a Fetch Request, and a Fetch Request cannot carry that method: TRACE ended in a
- * server error on every address before any code of this app ran, so it cannot be refused in
+ * Refuses TRACE with 405 before the framework sees it. The framework hands a request to proxy.ts
+ * and to a route as a Fetch Request, and a Fetch Request cannot carry that method: TRACE ended in
+ * a server error on every address before any code of this app ran, so it cannot be refused in
  * proxy.ts with the other methods. Nothing on this server answers TRACE.
  *
  * This reaches into the HTTP server of Node, which is where the framework listens (`next dev`,

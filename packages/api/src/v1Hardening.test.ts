@@ -190,27 +190,42 @@ describe("v1 acceptance hardening", () => {
     expect(readWorkspaceFile("apps/web/app/profile-shares/[token]/page.tsx")).toMatch(/robots: \{\s+index: false,\s+follow: false\s+\}/);
   });
 
-  it("hands every Profile Share address to the proxy, also one with a dot in it", () => {
+  it("hands every page to the proxy, also a Profile Share page with a dot in it, and nothing else", () => {
     // The matcher of proxy.ts as the framework reads it: each entry stands for a whole path.
     const matcher: string[] = JSON.parse(/matcher: (\[.*\])/.exec(readWorkspaceFile("apps/web/proxy.ts"))?.[1] ?? "[]");
     const reachesProxy = (path: string) => matcher.some((source) => new RegExp(`^${source}$`).test(path));
 
     // A link copied with the full stop of its sentence, or mangled otherwise, is a link that shows
     // nothing: only the proxy has its page answered whole and in the language the address asks for.
-    for (const path of [sharePath, `${sharePath}.`, "/profile-shares/abc.def", `${sharePath}/image`, `${sharePath}/photos/abc`]) {
+    for (const path of [sharePath, `${sharePath}.`, "/profile-shares/abc.def", "/profile-shares/xyz"]) {
       expect(reachesProxy(path), path).toBe(true);
     }
 
-    expect(reachesProxy("/")).toBe(true);
-    // The upload route reads the sign-in from the proxy; the tRPC route reads it itself
-    // (server/signIn.ts), so that an app request does not wait for the proxy's function first.
-    expect(reachesProxy("/api/uploadthing")).toBe(true);
-    expect(reachesProxy("/api/trpcx")).toBe(true);
-    for (const path of ["/api/trpc/clientProfile.list", "/api/trpc/stylist.bootstrap,appointment.home", "/api/trpc", "/api/trpc/"]) {
+    // The other pages, for the methods they refuse, and an address that is no page.
+    for (const path of ["/", "/nope", "/profile-shares", "/apiary"]) {
+      expect(reachesProxy(path), path).toBe(true);
+    }
+
+    // The API reads the sign-in itself (server/signIn.ts), so that an app request does not wait
+    // for the proxy's function first, and a Profile Share's picture and photos answer for
+    // themselves: none of them goes through the proxy.
+    for (const path of [
+      "/api/trpc/clientProfile.list",
+      "/api/trpc/stylist.bootstrap,appointment.home",
+      "/api/trpc",
+      "/api/trpc/",
+      "/api/trpcx",
+      "/api/uploadthing",
+      "/api",
+      `${sharePath}/image`,
+      `${sharePath}/photos/abc`,
+      `${sharePath}.png/image`
+    ]) {
       expect(reachesProxy(path), path).toBe(false);
     }
-    // The framework's own files stay out.
+    // Nor do the framework's own files and other files.
     expect(reachesProxy("/_next/static/chunks/main.js")).toBe(false);
+    expect(reachesProxy("/robots.txt")).toBe(false);
   });
 
   it("answers for a share page before the page only when its link is known to show nothing", async () => {
