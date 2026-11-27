@@ -3,6 +3,7 @@ package com.northphoenix.hairdresserclientmanager
 import com.northphoenix.hairdresserclientmanager.data.ClientProfile
 import com.northphoenix.hairdresserclientmanager.data.Language
 import com.northphoenix.hairdresserclientmanager.state.clientSavedNotice
+import com.northphoenix.hairdresserclientmanager.state.contactsImportedNotice
 import com.northphoenix.hairdresserclientmanager.ui.screens.BookNewClient
 import com.northphoenix.hairdresserclientmanager.ui.screens.BookNewClient.Step
 import org.junit.Assert.assertEquals
@@ -61,5 +62,37 @@ class ClientSavedNoticeTest {
     fun `«Записать» opens no second form while one is open, also under the Client form`() {
         assertEquals(Step.NONE, BookNewClient.step("vera", appointmentFormOpen = true, unchangedOnTop = "vera"))
         assertEquals(Step.NONE, BookNewClient.step("vera", appointmentFormOpen = true, unchangedOnTop = null))
+    }
+
+    @Test
+    fun `a contact imported alone is offered for booking, as a Client created in the form is`() {
+        val booked = mutableListOf<String>()
+        val notice = contactsImportedNotice(addedInAll = 1, added = listOf("vera")) { booked += it }
+
+        assertEquals(R.plurals.contact_import_added, notice.message)
+        assertEquals(1, notice.quantity)
+        assertEquals(listOf<Any>(1), notice.args)
+        assertFalse(notice.isError)
+        assertEquals(R.string.notice_book_client, notice.action?.label)
+        assertEquals(emptyList<String>(), booked)
+
+        notice.action?.run?.invoke()
+
+        assertEquals(listOf("vera"), booked)
+    }
+
+    @Test
+    fun `an import of several Clients only says how many`() {
+        val several = contactsImportedNotice(addedInAll = 3, added = listOf("vera", "anna", "olga")) { error("Nothing is booked") }
+
+        assertEquals(3, several.quantity)
+        assertEquals(listOf<Any>(3), several.args)
+        assertNull(several.action)
+
+        // A retry that added the one left over, after a first try that added another: two Clients in all.
+        val retried = contactsImportedNotice(addedInAll = 2, added = listOf("vera")) { error("Nothing is booked") }
+
+        assertEquals(2, retried.quantity)
+        assertNull(retried.action)
     }
 }

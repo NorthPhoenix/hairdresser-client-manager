@@ -418,5 +418,18 @@
         "When the app opens after a break, Home with its Appointments appears sooner"
       ]
     }
+  },
+  {
+    "versionCode": 31,
+    "versionName": "1.29.0",
+    "date": "2026-11-26",
+    "notes": {
+      "ru": [
+        "После добавления одного клиента из контактов в сообщении «Добавлен 1 клиент» есть кнопка «Записать»: она сразу открывает новую запись с этим клиентом"
+      ],
+      "en": [
+        "After you add one Client from your contacts, the Added 1 Client notice has a Book button that opens a new Appointment with that Client right away"
+      ]
+    }
   }
 ]
