@@ -151,21 +151,21 @@ internal fun contactsImportedNotice(addedInAll: Int, added: List<String>, book: 
 /**
  * How an import of several contacts ended: the contacts that became Clients, and those that did not
  * ([reason] says why the first of them failed, in the words of the app's error messages).
- * [unanswered] says that the save of one of the failed contacts was sent and never answered, so it
- * may have made a Client all the same.
+ * [unsure] says that one of the failed contacts may be a Client all the same: its save was sent and
+ * never answered, or the server refused it as one it had already made (ADR 0015).
  */
 data class ContactImportResult(
     val added: Set<Long>,
     val failed: Set<Long>,
     @StringRes val reason: Int? = null,
-    val unanswered: Boolean = false,
+    val unsure: Boolean = false,
 ) {
     /** What the import saved: a Client list to reload, or nothing to reload and nothing to tell. */
-    internal val outcome: Outcome
+    internal val outcome: ChangeOutcome
         get() = when {
-            added.isNotEmpty() -> Outcome.Saved
-            unanswered -> Outcome.Unanswered
-            else -> Outcome.NothingSaved
+            added.isNotEmpty() -> ChangeOutcome.Saved
+            unsure -> ChangeOutcome.Unsure
+            else -> ChangeOutcome.NothingSaved
         }
 }
 
@@ -1049,7 +1049,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         reload: suspend () -> Unit = {},
         touched: () -> Unit = {},
         ahead: Ahead? = null,
-        outcome: (T) -> Outcome = { Outcome.Saved },
+        outcome: (T) -> ChangeOutcome = { ChangeOutcome.Saved },
         change: suspend () -> T,
     ) = actions.run(key, { marking(touched, outcome, change) }, reload, outcome = outcome, ahead = ahead) { result ->
         successNotice?.let { notify(it) }
@@ -1066,9 +1066,9 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      * answers are out of date too, all of them. A change that returns having saved nothing
      * ([outcome]) touches nothing.
      */
-    private suspend fun <T> marking(touched: () -> Unit, outcome: (T) -> Outcome = { Outcome.Saved }, change: suspend () -> T): T =
+    private suspend fun <T> marking(touched: () -> Unit, outcome: (T) -> ChangeOutcome = { ChangeOutcome.Saved }, change: suspend () -> T): T =
         try {
-            change().also { if (outcome(it) != Outcome.NothingSaved) touched() }
+            change().also { if (outcome(it) != ChangeOutcome.NothingSaved) touched() }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -1384,7 +1384,6 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
 
         val language = _stylist.value?.language ?: Language.RU
 
-        _contactImportProgress.value = 0 to contacts.size
         act(
             key = "importContacts",
             onSuccess = onFinished,
@@ -1393,13 +1392,15 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             // An import that added nobody saved nothing, also when the reason was that the server could not be reached.
             outcome = ContactImportResult::outcome,
         ) {
+            // Here, not before: while the reload after an import runs, a second call does nothing, and would leave it set.
+            _contactImportProgress.value = 0 to contacts.size
             val added = mutableSetOf<Long>()
             // The Clients they became, in the order they were added.
             val addedClients = mutableListOf<String>()
             val failed = mutableSetOf<Long>()
             var reason: Int? = null
             var unreachable = false
-            var unanswered = false
+            var unsure = false
 
             try {
                 for (contact in contacts) {
@@ -1427,7 +1428,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                         if (failure.isUnauthorized) {
                             report(failure)
                         }
-                        unanswered = unanswered || failure.outcomeUnknown
+                        unsure = unsure || failure.outcomeUnknown || failure.screenOutOfDate
                         unreachable = failure.isNetwork || failure.outcomeUnknown || failure.isUnauthorized
                     } finally {
                         _contactImportProgress.value = (added.size + failed.size) to contacts.size
@@ -1437,7 +1438,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                 _contactImportProgress.value = null
             }
 
-            val result = ContactImportResult(added, failed, reason, unanswered)
+            val result = ContactImportResult(added, failed, reason, unsure)
             val addedInAll = addedBefore + added.size
 
             when {

@@ -31,9 +31,9 @@ import kotlinx.coroutines.sync.withLock
  * - When a change that makes several requests fails after one of them was saved (`savedInPart`)
  *   the failure is reported and the reload still runs, so the screen shows what was saved.
  * - A change that makes several requests and goes on past the ones that fail returns, and says
- *   what came of them (`outcome`, see [Outcome]): when nothing was saved there is nothing to
- *   reload and nothing the screen could be missing, and when the only request that may have been
- *   saved was never answered the reload runs as after [ApiException.outcomeUnknown].
+ *   what came of them (`outcome`, see [ChangeOutcome]): when nothing was saved there is nothing to
+ *   reload and nothing the screen could be missing, and when nothing is known to be saved but the
+ *   server may have more than the screen shows the reload runs as after such a failure.
  * - A reload after a change that fails stays owed until it works (see [reloadAfterChange]), and
  *   the Stylist is told when the screen may not show a change that was saved.
  * - Whatever is thrown is reported through [onFailure]. Nothing escapes to kill the app, and
@@ -109,7 +109,7 @@ internal class ActionRunner(
         change: suspend () -> T,
         reload: suspend () -> Unit = {},
         savedInPart: () -> Boolean = { false },
-        outcome: (T) -> Outcome = { Outcome.Saved },
+        outcome: (T) -> ChangeOutcome = { ChangeOutcome.Saved },
         ahead: Ahead? = null,
         onSaved: (T) -> Unit = {},
     ) {
@@ -124,20 +124,20 @@ internal class ActionRunner(
             inFlight(ahead, +1)
             try {
                 var saved = false
-                var unanswered = false
+                var unsure = false
                 val failure = failureOrNull {
                     val result = if (ahead == null) sentInTurn(change) else sentAhead(ahead, change)
                     when (outcome(result)) {
-                        Outcome.Saved -> saved = true
-                        Outcome.Unanswered -> unanswered = true
-                        Outcome.NothingSaved -> Unit
+                        ChangeOutcome.Saved -> saved = true
+                        ChangeOutcome.Unsure -> unsure = true
+                        ChangeOutcome.NothingSaved -> Unit
                     }
                     onSaved(result)
                 }
 
                 failure?.let(onFailure)
                 when {
-                    saved || unanswered || failure?.outcomeUnknown == true -> reloadAfterChange(saved, reload)
+                    saved || unsure || failure?.outcomeUnknown == true -> reloadAfterChange(saved, reload)
                     // The screen shows something the server no longer has, and the reply does not say what.
                     failure?.isNotFound == true -> reloadAfterChange(saved = false) {
                         reloadAll()
@@ -146,7 +146,7 @@ internal class ActionRunner(
                     // Refused by what the server has now, which is not what the screen showed when it offered the change.
                     failure?.screenOutOfDate == true -> reloadAfterChange(saved = false, reload)
                     // The Stylist has been told what failed. What was saved before it still has to show.
-                    savedInPart() -> reloadAfterChange(saved = false, reload)
+                    failure != null && savedInPart() -> reloadAfterChange(saved = false, reload)
                 }
             } finally {
                 key?.let(running::remove)
@@ -286,12 +286,16 @@ internal class ActionRunner(
  * returns has been saved; a change that goes on past the requests that fail, and returns what it
  * did of them, can have saved nothing.
  */
-internal enum class Outcome {
+internal enum class ChangeOutcome {
     /** All of it was saved, or some of it. */
     Saved,
 
-    /** Nothing was saved for certain, but a request was sent and never answered ([ApiException.outcomeUnknown]): it may have been. */
-    Unanswered,
+    /**
+     * Nothing is known to be saved, but the server may have more than the screen shows: a request
+     * was sent and never answered ([ApiException.outcomeUnknown]), or refused because of what the
+     * server has now ([ApiException.screenOutOfDate]), such as a creation it had already made.
+     */
+    Unsure,
 
     /** Nothing was saved: each request was refused, or never sent. */
     NothingSaved,

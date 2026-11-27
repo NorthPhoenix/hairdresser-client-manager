@@ -4,7 +4,7 @@ import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.state.ActionRunner
 import com.northphoenix.hairdresserclientmanager.state.Ahead
 import com.northphoenix.hairdresserclientmanager.state.LatestWins
-import com.northphoenix.hairdresserclientmanager.state.Outcome
+import com.northphoenix.hairdresserclientmanager.state.ChangeOutcome
 import com.northphoenix.hairdresserclientmanager.state.clientsChangeKey
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -167,7 +167,7 @@ class ActionRunnerTest {
             key = "importContacts",
             change = { "none added" },
             reload = { reloads++; throw serverError() },
-            outcome = { Outcome.NothingSaved },
+            outcome = { ChangeOutcome.NothingSaved },
             onSaved = { finished += it },
         )
         advanceTimeBy(60_000)
@@ -184,17 +184,37 @@ class ActionRunnerTest {
     }
 
     @Test
-    fun `a change that returns with its only save unanswered reloads, and nothing is called saved`() = runTest {
+    fun `a change that returns having saved nothing is not asked whether it saved part of it`() = runTest {
+        val runner = runner()
+        var asked = 0
+        var reloads = 0
+
+        runner.run(
+            key = "importContacts",
+            change = { },
+            reload = { reloads++ },
+            savedInPart = { asked++; true },
+            outcome = { ChangeOutcome.NothingSaved },
+        )
+        runCurrent()
+
+        assertEquals(0, asked)
+        assertEquals(0, reloads)
+    }
+
+    @Test
+    fun `a change that returns unsure of what it saved reloads, and nothing is called saved`() = runTest {
         val runner = runner()
         val finished = mutableListOf<String>()
         var reloads = 0
         var online = false
 
+        // Such as an import whose only contact that may have become a Client was sent and never answered.
         runner.run(
             key = "importContacts",
             change = { "one unanswered" },
             reload = { reloads++; if (!online) throw serverError() },
-            outcome = { Outcome.Unanswered },
+            outcome = { ChangeOutcome.Unsure },
             onSaved = { finished += it },
         )
         advanceTimeBy(60_000)
@@ -215,7 +235,7 @@ class ActionRunnerTest {
         val runner = runner()
         var reloads = 0
 
-        runner.run(key = "importContacts", change = { }, reload = { reloads++; throw serverError() }, outcome = { Outcome.Saved })
+        runner.run(key = "importContacts", change = { }, reload = { reloads++; throw serverError() }, outcome = { ChangeOutcome.Saved })
         advanceTimeBy(60_000)
 
         assertEquals(3, reloads)
