@@ -33,7 +33,8 @@ import kotlinx.coroutines.sync.withLock
  * - A change that makes several requests and goes on past the ones that fail returns, and says
  *   what came of them (`outcome`, see [ChangeOutcome]): when nothing was saved there is nothing to
  *   reload and nothing the screen could be missing, and when nothing is known to be saved but the
- *   server may have more than the screen shows the reload runs as after such a failure.
+ *   server may have more than the screen shows the reload runs as after a failure whose outcome
+ *   is unknown.
  * - A reload after a change that fails stays owed until it works (see [reloadAfterChange]), and
  *   the Stylist is told when the screen may not show a change that was saved.
  * - Whatever is thrown is reported through [onFailure]. Nothing escapes to kill the app, and

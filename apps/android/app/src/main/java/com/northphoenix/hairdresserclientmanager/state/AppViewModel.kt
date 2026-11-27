@@ -1042,6 +1042,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      * [change] is only the request that makes the change, plus what is certain once it has succeeded.
      * Whatever refreshes the screen afterwards goes in [reload], so that a refresh that fails is
      * never taken for a change that failed.
+     * A change that tells its own failures apart says what came of it in [outcome]: [successNotice]
+     * is shown only when something was saved, and [onSuccess] gets what it returned all the same.
      *
      * With [ahead] the Stylist does not wait for the change: the screen shows it at once and
      * nothing is disabled while it is saved (see [Ahead]). Only for a change whose result is known
@@ -1396,7 +1398,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             onSuccess = onFinished,
             reload = { loadClients() },
             touched = { clientReads.changed(null) },
-            // An import that added nobody saved nothing, also when the reason was that the server could not be reached.
+            // An import that added nobody, and none of whose contacts may be a Client all the same, saved nothing.
             outcome = ContactImportResult::outcome,
         ) {
             // Here, not before: while the reload after an import runs, a second call does nothing, and would leave it set.
