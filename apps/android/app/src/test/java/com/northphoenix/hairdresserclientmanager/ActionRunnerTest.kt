@@ -3,6 +3,7 @@ package com.northphoenix.hairdresserclientmanager
 import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.state.ActionRunner
 import com.northphoenix.hairdresserclientmanager.state.Ahead
+import com.northphoenix.hairdresserclientmanager.state.ChangeOutcome
 import com.northphoenix.hairdresserclientmanager.state.LatestWins
 import com.northphoenix.hairdresserclientmanager.state.clientsChangeKey
 import kotlinx.coroutines.CompletableDeferred
@@ -153,6 +154,93 @@ class ActionRunnerTest {
         online = true
         runner.reloadOwed()
         assertEquals(4, reloads)
+    }
+
+    @Test
+    fun `a change that returns having saved nothing reloads nothing and says nothing was missed`() = runTest {
+        val runner = runner()
+        val finished = mutableListOf<String>()
+        var reloads = 0
+
+        // Such as an import whose every contact failed because the server could not be reached: it says so itself.
+        runner.run(
+            key = "importContacts",
+            change = { "none added" },
+            reload = { reloads++; throw serverError() },
+            outcome = { ChangeOutcome.NothingSaved },
+            onSaved = { finished += it },
+        )
+        advanceTimeBy(60_000)
+
+        assertEquals(listOf("none added"), finished)
+        assertEquals(0, reloads)
+        assertTrue(failures.isEmpty())
+        assertEquals(0, staleNotices)
+        assertFalse(runner.busy.value)
+
+        // Nothing is owed either.
+        runner.reloadOwed()
+        assertEquals(0, reloads)
+    }
+
+    @Test
+    fun `a change that returns having saved nothing is not asked whether it saved part of it`() = runTest {
+        val runner = runner()
+        var asked = 0
+        var reloads = 0
+
+        runner.run(
+            key = "importContacts",
+            change = { },
+            reload = { reloads++ },
+            savedInPart = { asked++; true },
+            outcome = { ChangeOutcome.NothingSaved },
+        )
+        runCurrent()
+
+        assertEquals(0, asked)
+        assertEquals(0, reloads)
+    }
+
+    @Test
+    fun `a change that returns unsure of what it saved reloads, and nothing is called saved`() = runTest {
+        val runner = runner()
+        val finished = mutableListOf<String>()
+        var reloads = 0
+        var online = false
+
+        // Such as an import whose only contact that may have become a Client was sent and never answered.
+        runner.run(
+            key = "importContacts",
+            change = { "one unanswered" },
+            reload = { reloads++; if (!online) throw serverError() },
+            outcome = { ChangeOutcome.Unsure },
+            onSaved = { finished += it },
+        )
+        advanceTimeBy(60_000)
+
+        assertEquals(listOf("one unanswered"), finished)
+        // The first try and one per retry delay, as after a change whose reply never came.
+        assertEquals(3, reloads)
+        assertTrue(failures.isEmpty())
+        assertEquals(0, staleNotices)
+
+        online = true
+        runner.reloadOwed()
+        assertEquals(4, reloads)
+    }
+
+    @Test
+    fun `a change that returns having saved part of what it made is reloaded as a saved one`() = runTest {
+        val runner = runner()
+        var reloads = 0
+
+        runner.run(key = "importContacts", change = { }, reload = { reloads++; throw serverError() }, outcome = { ChangeOutcome.Saved })
+        advanceTimeBy(60_000)
+
+        assertEquals(3, reloads)
+        // The screen may not show the Clients that were added.
+        assertEquals(1, staleNotices)
     }
 
     @Test
