@@ -353,7 +353,7 @@ fun MainNavigation(viewModel: AppViewModel) {
 /**
  * What «Записать» on the notice that a new Client is saved, from the Client form or by a Contact Import
  * of one contact, does with the screens that are open: Appointment Creation with that Client, on top of
- * whatever is open (after an import, the Clients View it went back to). The Client form the Client
+ * whatever is open (after an import, usually the Clients View it went back to). The Client form the Client
  * was saved in gives way to it when nothing has been changed in it since, so that Back from the
  * new Appointment goes where the Stylist came from and nothing typed is lost. While the form of
  * Appointment Creation is open already, anywhere under the top screen, nothing opens: a second one
