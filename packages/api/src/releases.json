@@ -431,5 +431,20 @@
         "After you add one Client from your contacts, the Added 1 Client notice has a Book button that opens a new Appointment with that Client right away"
       ]
     }
+  },
+  {
+    "versionCode": 32,
+    "versionName": "1.30.0",
+    "date": "2026-11-27",
+    "notes": {
+      "ru": [
+        "Если из контактов не удалось добавить ни одного клиента (нет связи или сервер не ответил), приложение больше не пишет, что изменение сохранено: видно только, что не получилось, а контакты остаются выбранными, чтобы повторить",
+        "Кнопка «Добавить» в импорте из контактов больше не зависает в загрузке, если нажать её, пока обновляется список клиентов"
+      ],
+      "en": [
+        "When adding from your contacts adds nobody (no connection, or the server didn't answer), the app no longer says the change was saved: it shows only what failed, and the contacts stay ticked for a retry",
+        "The Add button in the Contact Import no longer stays stuck loading when tapped while the Client list is reloading"
+      ]
+    }
   }
 ]

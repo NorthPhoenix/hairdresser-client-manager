@@ -95,7 +95,9 @@ fun ContactImportScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     val clients = viewModel.clients.collectAsStateWithLifecycle().value.data.orEmpty()
     val stylist by viewModel.stylist.collectAsStateWithLifecycle()
     val progress by viewModel.contactImportProgress.collectAsStateWithLifecycle()
-    val running = progress != null
+    val busy by viewModel.busy.collectAsStateWithLifecycle()
+    // Also while the Client list is loaded again after an import: a tap then would do nothing.
+    val running = progress != null || busy
 
     fun hasPermission() = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
 
