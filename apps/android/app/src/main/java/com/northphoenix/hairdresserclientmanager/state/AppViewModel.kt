@@ -167,6 +167,11 @@ data class ContactImportResult(
             unsure -> ChangeOutcome.Unsure
             else -> ChangeOutcome.NothingSaved
         }
+
+    internal companion object {
+        /** True when a contact whose save failed with [failure] may be a Client all the same (see [unsure]). */
+        fun mayBeClient(failure: ApiException): Boolean = failure.outcomeUnknown || failure.screenOutOfDate
+    }
 }
 
 /** A Calendar day with what is loaded of it: [appointments] and [load] are always of [day]. The list is empty only when [load] is Loaded. */
@@ -1052,7 +1057,9 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
         outcome: (T) -> ChangeOutcome = { ChangeOutcome.Saved },
         change: suspend () -> T,
     ) = actions.run(key, { marking(touched, outcome, change) }, reload, outcome = outcome, ahead = ahead) { result ->
-        successNotice?.let { notify(it) }
+        if (outcome(result) == ChangeOutcome.Saved) {
+            successNotice?.let { notify(it) }
+        }
         onSuccess(result)
     }
 
@@ -1428,7 +1435,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                         if (failure.isUnauthorized) {
                             report(failure)
                         }
-                        unsure = unsure || failure.outcomeUnknown || failure.screenOutOfDate
+                        unsure = unsure || ContactImportResult.mayBeClient(failure)
                         unreachable = failure.isNetwork || failure.outcomeUnknown || failure.isUnauthorized
                     } finally {
                         _contactImportProgress.value = (added.size + failed.size) to contacts.size

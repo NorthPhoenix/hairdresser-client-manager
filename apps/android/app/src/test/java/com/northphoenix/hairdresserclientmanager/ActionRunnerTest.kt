@@ -3,8 +3,8 @@ package com.northphoenix.hairdresserclientmanager
 import com.northphoenix.hairdresserclientmanager.data.ApiException
 import com.northphoenix.hairdresserclientmanager.state.ActionRunner
 import com.northphoenix.hairdresserclientmanager.state.Ahead
-import com.northphoenix.hairdresserclientmanager.state.LatestWins
 import com.northphoenix.hairdresserclientmanager.state.ChangeOutcome
+import com.northphoenix.hairdresserclientmanager.state.LatestWins
 import com.northphoenix.hairdresserclientmanager.state.clientsChangeKey
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
