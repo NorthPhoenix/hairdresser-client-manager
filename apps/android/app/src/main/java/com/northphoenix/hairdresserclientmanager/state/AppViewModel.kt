@@ -132,6 +132,23 @@ internal fun clientSavedNotice(saved: ClientProfile, created: Boolean, offersToB
     Notice(R.string.client_saved, action = if (created && offersToBook) NoticeAction(R.string.notice_book_client) { book(saved.id) } else null)
 
 /**
+ * The notice that an import of contacts that left none undone added [addedInAll] Clients, with its tries
+ * before this one. When that is one Client, the one this try [added], it has «Записать», which hands their
+ * id to [book], as the notice of a Client created in the Client form does ([clientSavedNotice]): a contact
+ * picked alone from the list is a new Client too. Of several, it only says how many were added.
+ */
+internal fun contactsImportedNotice(addedInAll: Int, added: List<String>, book: (clientId: String) -> Unit): Notice {
+    val alone = added.singleOrNull()?.takeIf { addedInAll == 1 }
+
+    return Notice(
+        R.plurals.contact_import_added,
+        quantity = addedInAll,
+        args = listOf(addedInAll),
+        action = alone?.let { clientId -> NoticeAction(R.string.notice_book_client) { book(clientId) } },
+    )
+}
+
+/**
  * How an import of several contacts ended: the contacts that became Clients, and those that did not
  * ([reason] says why the first of them failed, in the words of the app's error messages).
  */
@@ -414,7 +431,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     // Without a buffer for later: a request that no screen is there to take is dropped, not taken up by a screen that comes afterwards.
     private val _appointmentCreationRequests = MutableSharedFlow<String>(extraBufferCapacity = 1)
 
-    /** The id of each Client to open Appointment Creation for, as the Stylist asks for it on the notice that a new Client is saved. */
+    /** The id of each Client to open Appointment Creation for, as the Stylist asks for it on the notice that a new Client is saved or imported. */
     val appointmentCreationRequests: SharedFlow<String> = _appointmentCreationRequests.asSharedFlow()
 
     private var calendarJob: Job? = null
@@ -1316,7 +1333,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
     }
 
     /**
-     * «Записать» on the notice that [clientId] is saved. A notice can outlast what it was about: a
+     * «Записать» on the notice that [clientId] is saved, or imported alone. A notice can outlast what it was about: a
      * Client who is no longer in the list (deleted since, or of a Stylist who has signed out) is booked by nobody.
      */
     private fun requestAppointmentCreation(clientId: String) {
@@ -1340,7 +1357,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
      * the server refuses, and stops at the first failure to reach the server: the contacts not reached are failed too.
      * It runs on until it is done also when the Stylist leaves the screen; [onFinished] is told then and
      * shows one notice, of what was added. A retry of the contacts an earlier try left undone counts
-     * the [addedBefore] Clients that try added into that notice: it is of the whole import.
+     * the [addedBefore] Clients that try added into that notice: it is of the whole import. When the
+     * whole import added one Client, the notice offers to book them ([contactsImportedNotice]).
      */
     fun importContacts(contacts: List<ImportCandidate>, addedBefore: Int = 0, onFinished: (ContactImportResult) -> Unit) {
         if (contacts.isEmpty() || _contactImportProgress.value != null) {
@@ -1357,6 +1375,8 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             touched = { clientReads.changed(null) },
         ) {
             val added = mutableSetOf<Long>()
+            // The Clients they became, in the order they were added.
+            val addedClients = mutableListOf<String>()
             val failed = mutableSetOf<Long>()
             var reason: Int? = null
             var unreachable = false
@@ -1371,9 +1391,12 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
                     try {
                         val key = contactImportKeys.getOrPut(contact) { UUID.randomUUID().toString() }
                         // The Client Note is the contact's, and the form's other fields stay empty.
-                        clientReads.saved(api.saveClient(null, contact.name, language, contact.phone, "", contact.address, contact.note, null, key))
+                        val saved = api.saveClient(null, contact.name, language, contact.phone, "", contact.address, contact.note, null, key)
+
+                        clientReads.saved(saved)
                         contactImportKeys.remove(contact)
                         added += contact.id
+                        addedClients += saved.id
                     } catch (error: CancellationException) {
                         throw error
                     } catch (error: Exception) {
@@ -1397,7 +1420,7 @@ class AppViewModel(private val container: AppContainer, val auth: AuthGateway, s
             val addedInAll = addedBefore + added.size
 
             when {
-                failed.isEmpty() -> noticeChannel.trySend(Notice(R.plurals.contact_import_added, quantity = addedInAll, args = listOf(addedInAll)))
+                failed.isEmpty() -> noticeChannel.trySend(contactsImportedNotice(addedInAll, addedClients, book = ::requestAppointmentCreation))
                 added.isEmpty() -> notify(reason ?: R.string.contact_import_failed, isError = true)
                 else -> notify(R.string.contact_import_partial, isError = true, addedInAll, addedBefore + contacts.size)
             }
