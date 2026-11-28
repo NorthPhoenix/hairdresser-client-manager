@@ -4,12 +4,232 @@ import { annotate, recordError } from "@hcm/telemetry";
 // The request headers in which a sign-in arrives: the app's token, and a browser's session.
 const signInHeaders = ["authorization", "cookie"];
 
+// Clerk's codes for a token that the public key does not check: a signature that does not fit
+// it, or a key that cannot be used. Clerk's keys may have changed since the key was set.
+const jwtKeyRefusals = ["token-invalid-signature", "token-verification-failed"];
+
+// How many key ids a server instance checks with the public key before one of them has checked a
+// token. Clerk keeps the key it makes from the public key under each token's key id, which the
+// sender chooses, and keeps all of them for as long as it does not fetch its own keys again:
+// without a limit, tokens of made-up key ids would grow what it keeps.
+const maxTriedKeyIds = 3;
+
 type ClerkClient = ReturnType<typeof createClerkClient>;
 
 /** What reads a request's sign-in: Clerk's client, or a stand-in in tests. */
 type SignInChecker = Pick<ClerkClient, "authenticateRequest">;
 
+type SignInState = Awaited<ReturnType<SignInChecker["authenticateRequest"]>>;
+
 let clerk: ClerkClient | undefined;
+
+// The key ids this server instance has checked tokens of with the public key, and the one whose
+// token it checked: from then on only tokens of that key id are (Clerk's key id is the instance's
+// id, which stays when its keys change). A token of another key id is mostly not Clerk's.
+const triedKeyIds = new Set<string>();
+let checkedKeyId: string | undefined;
+// Whether this server instance found the public key out of date. It is recorded once, and from
+// then on the instance checks every token with Clerk's API keys: tokens signed with a key Clerk
+// no longer signs with (say, after a leak) are no longer let in here by the public key.
+let keyOutOfDate = false;
+
+/**
+ * The public key of the Clerk instance that signs the tokens (`CLERK_JWT_KEY`: the PEM of the
+ * Clerk dashboard's API keys, "JWT public key"), or undefined when it is not set. A key stored
+ * with `\n` for its line breaks is read with line breaks.
+ */
+function jwtKey(): string | undefined {
+  return process.env.CLERK_JWT_KEY?.trim().replace(/\\n/g, "\n") || undefined;
+}
+
+/**
+ * Who issues the tokens of the instance whose keys are set: `https://` and the instance's Frontend
+ * API, which its publishable key holds (`pk_live_` and the host, base64, ending in `$`).
+ */
+function tokenIssuer(): string | undefined {
+  const encoded = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim().replace(/^pk_(test|live)_/, "");
+  const host = encoded ? Buffer.from(encoded, "base64").toString("utf8").replace(/\$$/, "") : "";
+
+  return /^[a-z0-9.-]+$/i.test(host) ? `https://${host}` : undefined;
+}
+
+/**
+ * The token in the request's `Authorization` header as Clerk reads it there (its
+ * `parseAuthorizationHeader`): what follows `Bearer`, or the whole header when it has no space.
+ */
+function headerToken(request: Request): string | undefined {
+  const value = request.headers.get("authorization");
+
+  if (!value) {
+    return undefined;
+  }
+
+  const [scheme, token] = value.split(" ", 2);
+
+  if (!token) {
+    return scheme;
+  }
+
+  return scheme === "Bearer" ? token : undefined;
+}
+
+/**
+ * The `kid` of [token]'s header as it is there, any JSON value, or undefined when it has none it
+ * can be read from. Decoded as Clerk decodes it (its `decodeJwt`), which drops a byte order mark.
+ */
+function rawKeyIdOf(token: string): unknown {
+  const header = token.split(".")[0];
+
+  try {
+    return header ? JSON.parse(new TextDecoder().decode(Buffer.from(header, "base64url")))?.kid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** A key id the public key checks tokens of: a string of at most 100 characters. */
+function keyIdFrom(raw: unknown): string | undefined {
+  return typeof raw === "string" && raw.length > 0 && raw.length <= 100 ? raw : undefined;
+}
+
+/** [request] without the headers a sign-in arrives in. */
+function withoutSignIn(request: Request): Request {
+  const headers = new Headers(request.headers);
+
+  signInHeaders.forEach((name) => headers.delete(name));
+  return new Request(request.url, { method: request.method, headers });
+}
+
+/** The issuer a signed-in [state] names, from its token. */
+function issuerOf(state: SignInState): unknown {
+  return (state.toAuth() as { sessionClaims?: { iss?: unknown } | null } | null)?.sessionClaims?.iss;
+}
+
+/**
+ * Why a token of key id [keyId] is not checked with the public key [key] for the instance of
+ * [issuer], or null when it is.
+ */
+function skippedBecause(key: string | undefined, issuer: string | undefined, keyId: string | undefined): string | null {
+  if (key === undefined) {
+    return "no_jwt_key";
+  }
+  if (issuer === undefined) {
+    return "no_instance";
+  }
+  if (keyOutOfDate) {
+    return "out_of_date";
+  }
+  if (keyId === undefined) {
+    return "no_kid";
+  }
+  if (checkedKeyId !== undefined) {
+    return keyId === checkedKeyId ? null : "other_kid";
+  }
+
+  return triedKeyIds.has(keyId) || triedKeyIds.size < maxTriedKeyIds ? null : "kid_limit";
+}
+
+/**
+ * Clerk's check of [request]. Without the public key Clerk checks a token with the signing keys
+ * it fetches from its API (`GET /v1/jwks`), which it keeps for 5 minutes in each server instance:
+ * the first request on a new instance waits for that call before it is checked (140-300 ms in
+ * production on 2026-11-26/27, on every app open after a pause), and so does the first one
+ * after 5 minutes. With the key (Clerk's `jwtKey`) Clerk checks the token without a call. It
+ * does so for a token in the `Authorization` header, which the app sends; a browser's session
+ * cookie is checked as before.
+ *
+ * A token the key does not check is checked again with keys fetched from Clerk's API, so a key
+ * that is out of date costs that call, never a sign-in. A token the key checks has to be one of the
+ * instance whose keys are set beside it (its issuer): a key of another instance (say, the
+ * development one) lets none of that instance's tokens in. Once the key is found out of date, the
+ * server instance checks every token with Clerk's API keys (see `keyOutOfDate`).
+ */
+async function checked(request: Request, client: () => SignInChecker): Promise<SignInState> {
+  const token = headerToken(request);
+
+  if (token === undefined) {
+    return client().authenticateRequest(request);
+  }
+
+  const key = jwtKey();
+  const issuer = tokenIssuer();
+  const rawKeyId = rawKeyIdOf(token);
+  const keyId = keyIdFrom(rawKeyId);
+
+  // Clerk keeps the key it makes from the public key under `local-` and the token's key id, in the
+  // cache in which it also looks up the keys of its API by a token's key id, as a string (also one
+  // that is not a string in the token). Clerk issues no such key id: a token with one would reach
+  // the key made from the public key also on Clerk's API path, also once that key is out of date.
+  // It is refused without asking Clerk, as a token that is not valid.
+  if (key !== undefined && rawKeyId != null && String(rawKeyId).startsWith("local-")) {
+    annotate({ "auth.local_check_refused": "reserved_kid" });
+
+    // What `signedInUserId` reads of a check: no user, and why.
+    return { isSignedIn: false, reason: "token-kid-reserved", toAuth: () => null } as unknown as SignInState;
+  }
+
+  const skipped = skippedBecause(key, issuer, keyId);
+  let refusal: string | undefined;
+
+  if (skipped === null && key !== undefined && keyId !== undefined) {
+    let state: SignInState | undefined;
+
+    triedKeyIds.add(keyId);
+
+    try {
+      state = await client().authenticateRequest(request, { jwtKey: key });
+    } catch {
+      // Checked again below: whether the key or the token is at fault, Clerk's API keys tell.
+    }
+
+    const signedIn = state?.toAuth()?.userId != null;
+
+    if (!state) {
+      refusal = "failed";
+    } else if (jwtKeyRefusals.includes(state.reason ?? "")) {
+      refusal = state.reason ?? undefined;
+    } else if (signedIn && issuerOf(state) !== issuer) {
+      refusal = "other_issuer";
+    } else {
+      annotate({ "auth.checked_with": "local" });
+      if (signedIn) {
+        checkedKeyId = keyId;
+      }
+
+      return state;
+    }
+
+    annotate({ "auth.local_check_refused": refusal });
+  } else if (skipped !== null && skipped !== "no_jwt_key") {
+    annotate({ "auth.local_check_skipped": skipped });
+  }
+
+  // After a refusal, with keys fetched from Clerk's API now: once Clerk has made a key from the
+  // public key, it keeps the keys it fetched from its API past their 5 minutes, so it could still
+  // hold the key it signed with before its keys changed, under the same key id.
+  let state = await (refusal === undefined ? client().authenticateRequest(request) : client().authenticateRequest(request, { skipJwksCache: true }));
+
+  // The same for a token the keys Clerk kept refuse for its signature, while the public key is set
+  // (a token of a fourth key id or of another one): they may be the keys from before its keys changed.
+  if (refusal === undefined && key !== undefined && state.reason === "token-invalid-signature") {
+    state = await client().authenticateRequest(request, { skipJwksCache: true });
+  }
+
+  annotate({ "auth.checked_with": "clerk_api" });
+
+  // Clerk's own keys check a token that the public key did not, or one of another key id than the
+  // one the key checked: the key is not the one Clerk signs this instance's tokens with now. A
+  // token that neither checks is only a token that is not valid.
+  if ((refusal !== undefined || skipped === "other_kid") && state.toAuth()?.userId && !keyOutOfDate) {
+    keyOutOfDate = true;
+    recordError(new Error(`CLERK_JWT_KEY does not check a token that Clerk's signing keys check (${refusal ?? skipped}).`), {
+      handled: true,
+      reason: "clerk_jwt_key_out_of_date"
+    });
+  }
+
+  return state;
+}
 
 /**
  * Clerk's client, made the first time this server needs it, from the settings that Clerk's
@@ -39,7 +259,8 @@ export function clerkFromEnvironment(): ClerkClient {
  * an app request that went through it waited for two functions (two cold starts on a new
  * instance) in two regions before it was answered (docs/adr/0010). The check is the one the
  * proxy's `clerkMiddleware` made, with the same keys: the session token in the `Authorization`
- * header, which the app sends, else a browser's session cookie.
+ * header, which the app sends, else a browser's session cookie. With `CLERK_JWT_KEY` set, the
+ * token is checked without a call to Clerk (see `checked`).
  */
 export async function signedInUserId(request: Request, client: () => SignInChecker = clerkFromEnvironment): Promise<string | null> {
   // Whether a sign-in came with the request, never what it says.
@@ -49,7 +270,7 @@ export async function signedInUserId(request: Request, client: () => SignInCheck
   });
 
   try {
-    const state = await client().authenticateRequest(request);
+    const state = await checked(request, client);
     const userId = state.toAuth()?.userId ?? null;
 
     if (userId === null) {
@@ -71,10 +292,7 @@ export async function signedInUserId(request: Request, client: () => SignInCheck
       throw error;
     }
 
-    const headers = new Headers(request.headers);
-
-    signInHeaders.forEach((name) => headers.delete(name));
-    await client().authenticateRequest(new Request(request.url, { method: request.method, headers }));
+    await client().authenticateRequest(withoutSignIn(request));
 
     // Recorded, so that how often a sign-in Clerk fails on arrives can be counted.
     annotate({ "auth.sign_in_fallback": true });
