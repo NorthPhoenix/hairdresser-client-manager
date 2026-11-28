@@ -193,7 +193,7 @@ describe("the sign-in of an API request", () => {
     for (const event of [none, cookie, basic]) {
       expect(event).not.toHaveProperty("auth.checked_with");
     }
-    expect(unreadable).toMatchObject({ "auth.checked_with": "clerk_api" });
+    expect(unreadable).toMatchObject({ "auth.checked_with": "clerk_api", "auth.local_check_skipped": "no_kid" });
     expect(telemetry.events().some((event) => "auth.local_check_refused" in event)).toBe(false);
   });
 
@@ -205,6 +205,7 @@ describe("the sign-in of an API request", () => {
     await expect(inRequest(() => signedInUserId(request, client))).resolves.toBe("user_1");
     expect(authenticateRequest).toHaveBeenCalledExactlyOnceWith(request);
     expect(telemetry.events()[0]).toMatchObject({ "auth.checked_with": "clerk_api" });
+    expect(telemetry.events()[0]).not.toHaveProperty("auth.local_check_skipped");
   });
 
   it("is checked with Clerk's keys when the publishable key names no instance", async () => {
@@ -217,29 +218,58 @@ describe("the sign-in of an API request", () => {
     await expect(inRequest(() => signedInUserId(apiRequest(bearer()), client))).resolves.toBe("user_1");
     expect(authenticateRequest).toHaveBeenCalledTimes(1);
     expect(authenticateRequest.mock.calls[0]).toHaveLength(1);
+    expect(telemetry.events()[0]).toMatchObject({ "auth.checked_with": "clerk_api", "auth.local_check_skipped": "no_instance" });
   });
 
-  it("is checked again with Clerk's keys when the public key does not check the token, and an out-of-date key is recorded once", async () => {
+  it("is checked again with Clerk's keys when the public key does not check the token, which says the key is out of date", async () => {
     withJwtKey();
 
-    const signedInUserId = await loadSignIn();
+    const cases: [State | Error, string][] = [
+      [refusedFor("token-invalid-signature"), "token-invalid-signature"],
+      [refusedFor("token-verification-failed"), "token-verification-failed"],
+      [new Error("Unable to import the key."), "failed"]
+    ];
 
-    for (const withKey of [refusedFor("token-invalid-signature"), refusedFor("token-verification-failed"), new Error("Unable to import the key.")]) {
+    for (const [withKey, refusal] of cases) {
+      // Each on a new server instance.
+      vi.resetModules();
+
+      const signedInUserId = await loadSignIn();
       const { authenticateRequest, client } = clerkWithKey(withKey, signedInBy(issuer));
       const request = apiRequest(bearer());
 
       await expect(inRequest(() => signedInUserId(request, client))).resolves.toBe("user_1");
       expect(authenticateRequest).toHaveBeenCalledTimes(2);
       expect(authenticateRequest.mock.calls[1]).toEqual([request]);
+      expect(telemetry.events().at(-1)).toMatchObject({
+        "auth.checked_with": "clerk_api",
+        "auth.local_check_refused": refusal,
+        "error.handled": true,
+        "error.reason": "clerk_jwt_key_out_of_date"
+      });
     }
 
     for (const event of telemetry.events()) {
-      expect(event).toMatchObject({ "auth.checked_with": "clerk_api", "auth.local_check_refused": true });
       expect(event).not.toHaveProperty("auth.sign_in_fallback");
       expect(event.outcome).not.toBe("error");
     }
+  });
+
+  it("checks every token with Clerk's keys once the public key is out of date, and says so once", async () => {
+    withJwtKey();
+
+    const signedInUserId = await loadSignIn();
+    const { authenticateRequest, client } = clerkWithKey(refusedFor("token-invalid-signature"), signedInBy(issuer));
+
+    for (let i = 0; i < 3; i++) {
+      await expect(inRequest(() => signedInUserId(apiRequest(bearer()), client))).resolves.toBe("user_1");
+    }
+
+    // With the key and without it, then without it only.
+    expect(authenticateRequest.mock.calls.map((call) => call.length)).toEqual([2, 1, 1, 1]);
     // Once for the server instance: on every request it would stand in for the reason of a refusal.
     expect(telemetry.events().map((event) => event["error.reason"])).toEqual(["clerk_jwt_key_out_of_date", undefined, undefined]);
+    expect(telemetry.events().map((event) => event["auth.local_check_skipped"])).toEqual([undefined, "out_of_date", "out_of_date"]);
   });
 
   it("is no one for a token that neither key checks, which is not an out-of-date key", async () => {
@@ -250,7 +280,11 @@ describe("the sign-in of an API request", () => {
 
     await expect(inRequest(() => signedInUserId(apiRequest(bearer()), client))).resolves.toBeNull();
     expect(authenticateRequest).toHaveBeenCalledTimes(2);
-    expect(telemetry.events()[0]).toMatchObject({ "auth.checked_with": "clerk_api", "auth.local_check_refused": true, "auth.signed_out_reason": "token-invalid-signature" });
+    expect(telemetry.events()[0]).toMatchObject({
+      "auth.checked_with": "clerk_api",
+      "auth.local_check_refused": "token-invalid-signature",
+      "auth.signed_out_reason": "token-invalid-signature"
+    });
     expect(telemetry.events()[0]).not.toHaveProperty("error.reason");
   });
 
@@ -263,7 +297,7 @@ describe("the sign-in of an API request", () => {
 
     await expect(inRequest(() => signedInUserId(apiRequest(bearer()), client))).resolves.toBeNull();
     expect(authenticateRequest).toHaveBeenCalledTimes(2);
-    expect(telemetry.events()[0]).toMatchObject({ "auth.checked_with": "clerk_api", "auth.local_check_refused": true });
+    expect(telemetry.events()[0]).toMatchObject({ "auth.checked_with": "clerk_api", "auth.local_check_refused": "other_issuer" });
   });
 
   it("is not checked again with Clerk's keys for a token the public key refuses for itself", async () => {
@@ -285,13 +319,28 @@ describe("the sign-in of an API request", () => {
 
     await expect(inRequest(() => signedInUserId(apiRequest(bearer("ins_old")), client))).resolves.toBe("user_1");
     await expect(inRequest(() => signedInUserId(apiRequest(bearer("ins_new")), client))).resolves.toBe("user_1");
+    // Clerk signs with another key now: one signed with the old key gets no pass from the public key.
     await expect(inRequest(() => signedInUserId(apiRequest(bearer("ins_old")), client))).resolves.toBe("user_1");
 
-    // With the key, without it, with it.
-    expect(authenticateRequest.mock.calls.map((call) => call.length)).toEqual([2, 1, 2]);
-    expect(telemetry.events().map((event) => event["auth.checked_with"])).toEqual(["local", "clerk_api", "local"]);
+    expect(authenticateRequest.mock.calls.map((call) => call.length)).toEqual([2, 1, 1]);
+    expect(telemetry.events().map((event) => event["auth.checked_with"])).toEqual(["local", "clerk_api", "clerk_api"]);
+    expect(telemetry.events().map((event) => event["auth.local_check_skipped"])).toEqual([undefined, "other_kid", "out_of_date"]);
     expect(telemetry.events()[1]).toMatchObject({ "error.reason": "clerk_jwt_key_out_of_date" });
     expect(telemetry.events()[1]).not.toHaveProperty("auth.local_check_refused");
+  });
+
+  it("checks with the public key all the requests that reach a new server instance at once", async () => {
+    withJwtKey();
+
+    const signedInUserId = await loadSignIn();
+    const { authenticateRequest, client } = clerkWithKey(signedInBy(issuer), signedOut);
+
+    // An app open sends a dozen requests together.
+    const results = await Promise.all(Array.from({ length: 12 }, () => inRequest(() => signedInUserId(apiRequest(bearer()), client))));
+
+    expect(results).toEqual(Array(12).fill("user_1"));
+    expect(authenticateRequest).toHaveBeenCalledTimes(12);
+    expect(authenticateRequest.mock.calls.every((call) => call.length === 2)).toBe(true);
   });
 
   it("checks tokens of at most three key ids with the public key before one of them is let in", async () => {
@@ -306,6 +355,7 @@ describe("the sign-in of an API request", () => {
 
     // The fourth key id goes to Clerk's keys alone; one tried before is tried again.
     expect(authenticateRequest.mock.calls.map((call) => call.length)).toEqual([2, 1, 2, 1, 2, 1, 1, 2, 1]);
+    expect(telemetry.events()[3]).toMatchObject({ "auth.local_check_skipped": "kid_limit" });
   });
 
   it("does not take a failure of Clerk's own for a refused sign-in", async () => {
@@ -466,7 +516,7 @@ describe("the sign-in of an API request, read by Clerk's own client", () => {
     expect(expired).toMatchObject({ "auth.checked_with": "local" });
     expect(expired!["auth.signed_out_reason"]).toMatch(/^session-token-expired/);
     // Asked again, and refused by Clerk's keys too: not recorded as a key out of date.
-    expect(otherKeyEvent).toMatchObject({ "auth.checked_with": "clerk_api", "auth.local_check_refused": true });
+    expect(otherKeyEvent).toMatchObject({ "auth.checked_with": "clerk_api", "auth.local_check_refused": "token-invalid-signature" });
     expect(telemetry.events().some((event) => event["error.reason"] === "clerk_jwt_key_out_of_date")).toBe(false);
   });
 
@@ -482,13 +532,10 @@ describe("the sign-in of an API request, read by Clerk's own client", () => {
       expect(api).toHaveBeenCalled();
     }
 
+    // A key cut short still makes a key, which then fits no signature.
+    expect(telemetry.events().map((event) => event["auth.local_check_refused"])).toEqual(["token-invalid-signature", expect.stringMatching(/^token-(invalid-signature|verification-failed)$/)]);
     for (const event of telemetry.events()) {
-      expect(event).toMatchObject({
-        "auth.checked_with": "clerk_api",
-        "auth.local_check_refused": true,
-        "error.handled": true,
-        "error.reason": "clerk_jwt_key_out_of_date"
-      });
+      expect(event).toMatchObject({ "auth.checked_with": "clerk_api", "error.handled": true, "error.reason": "clerk_jwt_key_out_of_date" });
     }
   });
 
@@ -505,8 +552,8 @@ describe("the sign-in of an API request, read by Clerk's own client", () => {
 
     const [refused, letIn] = telemetry.events();
 
-    expect(refused).toMatchObject({ "auth.checked_with": "clerk_api", "auth.local_check_refused": true });
+    expect(refused).toMatchObject({ "auth.checked_with": "clerk_api", "auth.local_check_refused": "other_issuer" });
     expect(refused).not.toHaveProperty("error.reason");
-    expect(letIn).toMatchObject({ "auth.checked_with": "clerk_api", "error.reason": "clerk_jwt_key_out_of_date" });
+    expect(letIn).toMatchObject({ "auth.checked_with": "clerk_api", "auth.local_check_refused": "token-invalid-signature", "error.reason": "clerk_jwt_key_out_of_date" });
   });
 });
