@@ -2,17 +2,17 @@ import { annotate, recordError } from "@hcm/telemetry";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { addedOrder } from "../addedOrder";
-import { amountCents, nameText, oneLineText, refuseChangedRepeat, requestKey, textLimits } from "../input";
+import { amountCents, foldedOneLineText, foldSpaces, refuseChangedRepeat, requestKey, serviceNameText, textLimits } from "../input";
 import { unmarkOtherTravelFees } from "../travelFee";
 import { createTRPCRouter, stylistProcedure, stylistTransactionProcedure } from "../trpc";
 
 const serviceMenuSaveInput = z.object({
   id: z.string().optional(),
-  name: nameText,
+  name: serviceNameText,
   defaultPriceCents: amountCents.default(0),
-  // One line; empty or null: no group. Left out: an edit keeps the group the item has, so an app
-  // from before groups does not clear it.
-  group: oneLineText(textLimits.name).nullable().optional(),
+  // One line, each run of spaces as one; empty or null: no group. Left out: an edit keeps the group
+  // the item has, so an app from before groups does not clear it.
+  group: foldedOneLineText(textLimits.name).nullable().optional(),
   // Whether this item is the Travel Fee; marking one unmarks any other. Left out: a new item is
   // not, and an edit keeps what the item is, so an app from before the Travel Fee does not clear it.
   travelFee: z.boolean().optional(),
@@ -40,13 +40,19 @@ function toServiceMenuItemOutput(item: {
   return {
     id: item.id,
     stylistId: item.stylistId,
-    name: item.name,
+    // With each run of spaces as one, also when it was stored with two before the server folded them.
+    name: foldSpaces(item.name),
     defaultPriceCents: item.defaultPriceCents,
-    group: item.group ?? null,
+    group: toShownGroup(item.group),
     travelFee: item.travelFee ?? false,
     createdAt: item.createdAt.toISOString(),
     updatedAt: item.updatedAt.toISOString()
   };
+}
+
+/** A group as the app gets it: each run of spaces as one, and null for none. */
+function toShownGroup(group: string | null | undefined) {
+  return group ? foldSpaces(group) || null : null;
 }
 
 /** A group as it is stored: null for none. */
@@ -121,8 +127,9 @@ export const serviceMenuRouter = createTRPCRouter({
       formulaCount: formulaCounts.get(item.id) ?? 0
     }));
   }),
-  // The names of the Stylist's Services that have a Color Formula, each once, as they were typed:
-  // the app compares them with the name of a Service that has no menu item (see ColorFormulaOffer).
+  // The names of the Stylist's Services that have a Color Formula, each once, as Services are named
+  // (each run of spaces as one): the app compares them with the name of a Service that has no menu
+  // item (see ColorFormulaOffer).
   // The most recently added first, at most formulaNamesLimit.
   formulaNames: stylistProcedure.query(async ({ ctx }) => {
     const services = await ctx.db.appointmentService.findMany({
@@ -143,7 +150,7 @@ export const serviceMenuRouter = createTRPCRouter({
       take: formulaNamesLimit
     });
 
-    const names = [...new Set(services.map((service) => service.name))];
+    const names = [...new Set(services.map((service) => foldSpaces(service.name)))];
 
     annotate(() => ({
       "service_menu.formula_service_count": services.length,
@@ -184,7 +191,8 @@ export const serviceMenuRouter = createTRPCRouter({
 
       if (repeatedItem) {
         annotate(() => ({ "service_menu.id": repeatedItem.id }));
-        refuseChangedRepeat(repeatedItem, data, "service_menu");
+        // Compared as names are now stored: one stored with two spaces before is the same name.
+        refuseChangedRepeat({ ...repeatedItem, name: foldSpaces(repeatedItem.name), group: toShownGroup(repeatedItem.group) }, data, "service_menu");
         annotate(() => ({ "service_menu.save_result": "repeat_returned_first" }));
 
         return toServiceMenuItemOutput(repeatedItem);
@@ -238,10 +246,11 @@ export const serviceMenuRouter = createTRPCRouter({
     });
 
     annotate(() => {
+      // A name or group stored with a run of spaces before, saved back with one, is not changed by the Stylist.
       const changed = [
-        existingItem.name !== item.name ? "name" : null,
+        foldSpaces(existingItem.name) !== item.name ? "name" : null,
         existingItem.defaultPriceCents !== item.defaultPriceCents ? "price" : null,
-        (existingItem.group ?? null) !== (item.group ?? null) ? "group" : null,
+        toShownGroup(existingItem.group) !== toShownGroup(item.group) ? "group" : null,
         Boolean(existingItem.travelFee) !== Boolean(item.travelFee) ? "travel_fee" : null
       ].filter((field) => field !== null);
 

@@ -194,6 +194,15 @@ describe("Travel Fee", () => {
     expect(result.appointment.serviceTotalCents).toBe(2000);
   });
 
+  it("adds the Travel Fee with one space for each run of spaces its item was stored with", async () => {
+    const { state, caller } = createStore({ menu: [{ ...travelFeeItem, name: "Выезд на дом  к клиенту" }] });
+
+    const result = await caller.appointment.create({ primaryClientId: "client_1", startsAt, locationType: "atHome" });
+
+    expect(state.services).toEqual([expect.objectContaining({ menuItemId: "menu_fee", name: "Выезд на дом к клиенту" })]);
+    expect(result.travelFee.added).toEqual([expect.objectContaining({ name: "Выезд на дом к клиенту" })]);
+  });
+
   it("adds nothing in the salon, without a Travel Fee item, or to an Appointment that is not Scheduled", async () => {
     const inSalon = createStore();
 

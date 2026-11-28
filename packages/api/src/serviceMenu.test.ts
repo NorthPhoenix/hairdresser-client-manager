@@ -173,7 +173,16 @@ describe("service menu router", () => {
   it("lists the names of the Services with a Color Formula, each once, of the Stylist's own Appointments", async () => {
     const findMany = vi
       .fn()
-      .mockResolvedValue([{ name: "Ламинирование" }, { name: "Покраска" }, { name: "Ламинирование" }, { name: "ламинирование " }]);
+      .mockResolvedValue([
+        { name: "Ламинирование" },
+        { name: "Покраска" },
+        { name: "Ламинирование" },
+        { name: "ламинирование" },
+        // Stored before the server made one space of a run of them: the same name as the first.
+        { name: "Ламинирование  " },
+        { name: "Тонирование  прядей" },
+        { name: "Тонирование прядей" }
+      ]);
     const caller = appRouter.createCaller(
       createContext({
         stylist: { findUnique: vi.fn().mockResolvedValue(stylist) },
@@ -181,8 +190,9 @@ describe("service menu router", () => {
       } as unknown as TRPCContext["db"])
     );
 
-    // Exactly as typed: the app compares them in its own way. Only an identical name is dropped.
-    await expect(caller.serviceMenu.formulaNames()).resolves.toEqual(["Ламинирование", "Покраска", "ламинирование "]);
+    // As Services are named, each run of spaces as one; the app compares them in its own way.
+    // Only a name that is then identical is dropped.
+    await expect(caller.serviceMenu.formulaNames()).resolves.toEqual(["Ламинирование", "Покраска", "ламинирование", "Тонирование прядей"]);
     expect(findMany).toHaveBeenCalledWith({
       where: {
         appointment: { stylistId: "stylist_1" },
@@ -192,6 +202,27 @@ describe("service menu router", () => {
       orderBy: { createdAt: "desc" },
       take: 1000
     });
+  });
+
+  it("lists an item stored with a run of spaces in its name or group with one space", async () => {
+    const createdAt = new Date("2026-06-13T12:00:00.000Z");
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: { findUnique: vi.fn().mockResolvedValue(stylist) },
+        serviceMenuItem: {
+          findMany: vi.fn().mockResolvedValue([
+            { id: "service_1", stylistId: "stylist_1", name: "Укладка вечерняя  длинные волосы", group: "Укладка  вечерняя", defaultPriceCents: 5000, createdAt, updatedAt: createdAt },
+            { id: "service_2", stylistId: "stylist_1", name: "Укладка", group: null, defaultPriceCents: 4000, createdAt, updatedAt: createdAt }
+          ])
+        },
+        appointmentService: { groupBy: vi.fn().mockResolvedValue([]) }
+      } as unknown as TRPCContext["db"])
+    );
+
+    await expect(caller.serviceMenu.list()).resolves.toMatchObject([
+      { id: "service_1", name: "Укладка вечерняя длинные волосы", group: "Укладка вечерняя" },
+      { id: "service_2", name: "Укладка", group: null }
+    ]);
   });
 
   it("lists no names for a Stylist without a Color Formula", async () => {
@@ -296,6 +327,12 @@ describe("service menu router", () => {
     });
     await caller.serviceMenu.save({ id: "service_1", name: "Short", defaultPriceCents: 5000, group: null });
     expect(update.mock.calls[2]?.[0].data).toMatchObject({ group: null });
+
+    // An edit makes one space of each run of spaces in the name and the group, as a new item does.
+    await expect(
+      caller.serviceMenu.save({ id: "service_1", name: "Short  cut", defaultPriceCents: 5000, group: "Coloring  one color" })
+    ).resolves.toMatchObject({ name: "Short cut", group: "Coloring one color" });
+    expect(update.mock.calls[3]?.[0].data).toMatchObject({ name: "Short cut", group: "Coloring one color" });
 
     // A group is one line, like a name.
     await expect(

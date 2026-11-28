@@ -1,7 +1,7 @@
 import { annotate } from "@hcm/telemetry";
 import { addedOrder } from "./addedOrder";
 import type { Db } from "./context";
-import { maxAmountCents } from "./input";
+import { foldSpaces, maxAmountCents } from "./input";
 
 // The Travel Fee is the one Service Menu Item a Stylist marked as the fee for going to a Client.
 // A Scheduled Appointment gets a Service from it when it is created at home or moved to at home,
@@ -35,7 +35,7 @@ export function toTravelFeeService(service: ServiceRow) {
     appointmentId: service.appointmentId,
     clientId: service.clientId,
     menuItemId: service.menuItemId,
-    name: service.name,
+    name: foldSpaces(service.name),
     priceCents: service.priceCents,
     note: service.note ?? "",
     createdAt: service.createdAt.toISOString()
@@ -116,7 +116,7 @@ export async function addTravelFee(db: Db, stylistId: string, appointmentId: str
       appointmentId,
       clientId,
       menuItemId: item.id,
-      name: item.name,
+      name: foldSpaces(item.name),
       priceCents: item.defaultPriceCents,
       note: ""
     }

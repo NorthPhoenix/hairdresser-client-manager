@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { maxAmountCents, textLimits, toOneLine } from "./input";
+import { foldSpaces, maxAmountCents, textLimits, toOneLine } from "./input";
 import { appRouter } from "./root";
 import type { TRPCContext } from "./context";
 import { firstIssueOf, withTransaction } from "./testSupport";
@@ -283,6 +283,51 @@ describe("one-line text", () => {
         name: "Root color"
       })
     });
+  });
+
+  it("makes one space of each run of spaces in a Service Menu Item's name and group, also of other kinds of space", async () => {
+    const { caller, db } = createCaller();
+
+    // Written with escapes: a no-break space (U+00A0), an ideographic space (U+3000), an en space (U+2002), a thin space (U+2009).
+    await caller.serviceMenu.save({
+      name: "  Укладка вечерняя \u00a0 длинные\u3000волосы ",
+      group: "Укладка\u2002\u2009 вечерняя"
+    });
+
+    expect(db.serviceMenuItem.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        name: "Укладка вечерняя длинные волосы",
+        group: "Укладка вечерняя"
+      })
+    });
+  });
+
+  it("counts a Service Menu Item's name after its spaces are made one", async () => {
+    const { caller, db } = createCaller();
+
+    await caller.serviceMenu.save({
+      name: `${"x".repeat(50)}${" ".repeat(500)}${"y".repeat(49)}`
+    });
+
+    expect(db.serviceMenuItem.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        name: `${"x".repeat(50)} ${"y".repeat(49)}`
+      })
+    });
+    await expect(firstIssueOf(caller.serviceMenu.save({ name: `${"x".repeat(51)}  ${"y".repeat(50)}` }))).resolves.toEqual({
+      code: "BAD_REQUEST",
+      message: "Text is too long.",
+      field: "name"
+    });
+  });
+
+  it("keeps the characters that are not spaces when it makes one of each run", () => {
+    // A zero-width space (U+200B) and a zero-width no-break space (U+FEFF) show nothing and are no
+    // spaces: they stay where they were, as in a Client's name.
+    expect(foldSpaces(" Root\u200b \t color\u00a0\u00a0×2 ")).toBe("Root\u200b color ×2");
+    expect(foldSpaces("Root\ufeffcolor")).toBe("Root\ufeffcolor");
+    expect(foldSpaces("Haircut")).toBe("Haircut");
+    expect(foldSpaces("   ")).toBe("");
   });
 });
 

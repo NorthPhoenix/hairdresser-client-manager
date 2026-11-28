@@ -77,21 +77,41 @@ export function text(maxLength: number) {
 }
 
 /**
- * Text that is shown on one line, cleaned of line breaks and control characters. Its length is
- * counted after the cleaning, and a value far over every limit is refused without being cleaned.
+ * [value] with each run of spaces in it as one space, also of no-break and other Unicode spaces,
+ * and none at either end. A Service and a Service Menu Item are named and shown this way, so a name
+ * typed with two spaces reads the same as with one: the server stores it so and answers with it so,
+ * also when it was stored with two before. The app sends a name as typed (its `OneLine` does not do
+ * this) and shows the reply.
  */
-export function oneLineText(maxLength: number) {
+export function foldSpaces(value: string) {
+  // Every white space but the zero-width no-break space (U+FEFF), which shows nothing.
+  return value.replace(/[^\S\ufeff]+/g, " ").trim();
+}
+
+/**
+ * Text that is shown on one line, cleaned of line breaks and control characters. Its length is
+ * counted after the cleaning ([clean]), and a value far over every limit is refused without being cleaned.
+ */
+export function oneLineText(maxLength: number, clean: (value: string) => string = toOneLine) {
   return z
     .string()
     .max(maxUncleanedLength, { error: tooLong, abort: true })
-    .overwrite(toOneLine)
+    .overwrite(clean)
     .max(maxLength, tooLong);
 }
 
+/** One line with each run of spaces as one ([foldSpaces]): the name or group of a Service or a Service Menu Item. */
+export function foldedOneLineText(maxLength: number) {
+  return oneLineText(maxLength, (value) => foldSpaces(toOneLine(value)));
+}
+
+const isVisible = (value: string) => visibleCharacter.test(value);
+
 /** A display name: one line with at least one visible character. */
-export const nameText = oneLineText(textLimits.name)
-  .min(1)
-  .refine((value) => visibleCharacter.test(value), "Name is required.");
+export const nameText = oneLineText(textLimits.name).min(1).refine(isVisible, "Name is required.");
+
+/** The name of a Service or a Service Menu Item: a [nameText] with each run of spaces as one. */
+export const serviceNameText = foldedOneLineText(textLimits.name).min(1).refine(isVisible, "Name is required.");
 
 /** Empty, or one address with a domain: `name@example.com`. */
 export const emailText = text(textLimits.email).refine(

@@ -1400,6 +1400,15 @@ describe("appointment router", () => {
     });
   });
 
+  it("saves an edited Service name with one space for each run of spaces in it", async () => {
+    const { caller, update } = createEditableServiceDb();
+
+    await expect(
+      caller.appointment.updateService({ id: "service_1", name: "Root  \u00a0 color", priceCents: 1000 })
+    ).resolves.toMatchObject({ services: [{ id: "service_1", name: "Root color" }, { id: "service_2" }] });
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ name: "Root color" }) }));
+  });
+
   it("clears the note of a Service that is saved without one", async () => {
     const { caller, update } = createEditableServiceDb();
 

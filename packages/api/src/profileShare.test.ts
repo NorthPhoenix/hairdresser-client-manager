@@ -236,6 +236,18 @@ describe("Profile Share content", () => {
     expect(JSON.stringify(excluded)).not.toContain("7N");
   });
 
+  it("names a Service stored with a run of spaces with one space", async () => {
+    const { sources } = createSources({
+      completed: {
+        ...completedAppointment,
+        services: completedAppointment.services.map((service) => ({ ...service, name: "Root  \u00a0color" }))
+      }
+    });
+    const shared = await loadProfileShareContent(sources, client, defaultProfileShareOptions);
+
+    expect(shared.lastCompletedAppointment?.services.map((service) => service.name)).toEqual(["Root color"]);
+  });
+
   it("carries the Stylist's timezone, account name and salon address, and nothing private", async () => {
     const { sources, findMany } = createSources({ accountName: async () => "  Maria \n Ivanova " });
     const content = await loadProfileShareContent(sources, client, defaultProfileShareOptions);
