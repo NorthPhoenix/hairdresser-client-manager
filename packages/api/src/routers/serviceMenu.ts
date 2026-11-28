@@ -246,10 +246,11 @@ export const serviceMenuRouter = createTRPCRouter({
     });
 
     annotate(() => {
+      // A name or group stored with a run of spaces before, saved back with one, is not changed by the Stylist.
       const changed = [
-        existingItem.name !== item.name ? "name" : null,
+        foldSpaces(existingItem.name) !== item.name ? "name" : null,
         existingItem.defaultPriceCents !== item.defaultPriceCents ? "price" : null,
-        (existingItem.group ?? null) !== (item.group ?? null) ? "group" : null,
+        toShownGroup(existingItem.group) !== toShownGroup(item.group) ? "group" : null,
         Boolean(existingItem.travelFee) !== Boolean(item.travelFee) ? "travel_fee" : null
       ].filter((field) => field !== null);
 

@@ -328,6 +328,12 @@ describe("service menu router", () => {
     await caller.serviceMenu.save({ id: "service_1", name: "Short", defaultPriceCents: 5000, group: null });
     expect(update.mock.calls[2]?.[0].data).toMatchObject({ group: null });
 
+    // An edit makes one space of each run of spaces in the name and the group, as a new item does.
+    await expect(
+      caller.serviceMenu.save({ id: "service_1", name: "Short  cut", defaultPriceCents: 5000, group: "Coloring  one color" })
+    ).resolves.toMatchObject({ name: "Short cut", group: "Coloring one color" });
+    expect(update.mock.calls[3]?.[0].data).toMatchObject({ name: "Short cut", group: "Coloring one color" });
+
     // A group is one line, like a name.
     await expect(
       caller.serviceMenu.save({ name: "Coloring short", defaultPriceCents: 5000, group: "  Coloring\n one color " })
