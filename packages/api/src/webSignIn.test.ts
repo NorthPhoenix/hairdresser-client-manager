@@ -337,27 +337,50 @@ describe("the sign-in of an API request", () => {
     expect(telemetry.events()[1]).not.toHaveProperty("auth.local_check_refused");
   });
 
-  it("answers a token of a key id Clerk keeps its own keys under as no sign-in", async () => {
+  it("refuses a token of a key id Clerk keeps its own keys under, however it is written", async () => {
     withJwtKey();
 
     const signedInUserId = await loadSignIn();
-    // A stand-in that would let the token in either way; a request without it is signed out.
-    const authenticateRequest = vi.fn(async (request: Request) => (request.headers.has("authorization") ? signedInBy(issuer) : signedOut));
-    const client = () => ({ authenticateRequest });
+    // A stand-in that would let any token in.
+    const { authenticateRequest, client } = clerkWithKey(signedInBy(issuer), signedInBy(issuer));
+    const header = (kid: unknown) => Buffer.from(JSON.stringify({ alg: "RS256", kid })).toString("base64url");
+    const cases = {
+      bearer: `Bearer ${header("local-ins_madeup")}.payload.signature`,
+      // Clerk takes a header without a space for the token itself.
+      noScheme: `${header("local-ins_madeup")}.payload.signature`,
+      // Clerk looks a key id up as a string: ["local-ins_madeup"] is "local-ins_madeup".
+      array: `Bearer ${header(["local-ins_madeup"])}.payload.signature`,
+      long: `Bearer ${header(`local-${"x".repeat(120)}`)}.payload.signature`
+    };
 
-    await expect(inRequest(() => signedInUserId(apiRequest(bearer("local-ins_madeup")), client))).resolves.toBeNull();
-    expect(authenticateRequest).toHaveBeenCalledTimes(1);
-    expect([...authenticateRequest.mock.calls[0]![0].headers.keys()]).toEqual([]);
-    expect(telemetry.events()[0]).toMatchObject({ "auth.local_check_refused": "reserved_kid" });
+    for (const [name, authorization] of Object.entries(cases)) {
+      await expect(inRequest(() => signedInUserId(apiRequest({ authorization }), client)), name).resolves.toBeNull();
+    }
+
+    expect(authenticateRequest).not.toHaveBeenCalled();
+    for (const event of telemetry.events()) {
+      expect(event).toMatchObject({ "auth.local_check_refused": "reserved_kid", "auth.signed_out_reason": "token-kid-reserved" });
+      expect(event).not.toHaveProperty("auth.checked_with");
+    }
 
     // Without the public key Clerk keeps no such key: the token is checked as any other.
     vi.stubEnv("CLERK_JWT_KEY", "");
 
     const { authenticateRequest: withoutKey, client: clientWithoutKey } = clerkWithKey(signedInBy(issuer), signedOut);
-    const request = apiRequest(bearer("local-ins_madeup"));
+    const request = apiRequest({ authorization: cases.bearer });
 
     await expect(inRequest(() => signedInUserId(request, clientWithoutKey))).resolves.toBeNull();
     expect(withoutKey).toHaveBeenCalledExactlyOnceWith(request);
+  });
+
+  it("checks with the public key a token sent without `Bearer`, as Clerk reads one", async () => {
+    withJwtKey();
+
+    const signedInUserId = await loadSignIn();
+    const { authenticateRequest, client } = clerkWithKey(signedInBy(issuer), signedOut);
+
+    await expect(inRequest(() => signedInUserId(apiRequest({ authorization: bearer().authorization.slice("Bearer ".length) }), client))).resolves.toBe("user_1");
+    expect(authenticateRequest.mock.calls.map(how)).toEqual(["key"]);
   });
 
   it("checks with the public key all the requests that reach a new server instance at once", async () => {
@@ -611,5 +634,27 @@ describe("the sign-in of an API request, read by Clerk's own client", () => {
       "auth.local_check_refused": "token-invalid-signature",
       "error.reason": "clerk_jwt_key_out_of_date"
     });
+
+    // Found out of date: a token signed with the old key, which the key would check, is not let in.
+    await expect(inRequest(() => again(apiRequest({ authorization: `Bearer ${token(session(), privateKey, keyId)}` })))).resolves.toBeNull();
+    expect(telemetry.events().at(-1)).toMatchObject({ "auth.checked_with": "clerk_api", "auth.local_check_skipped": "out_of_date" });
+  });
+
+  it("does not let in a token of a local- key id that Clerk's own key made from the public key would check", async () => {
+    const { signedInUserId } = await loadWithKeys(pem);
+    const keyId = newKid();
+
+    // The key checks a token: Clerk now keeps a key made from it as `local-` and its key id.
+    await expect(inRequest(() => signedInUserId(apiRequest({ authorization: `Bearer ${token(session(), privateKey, keyId)}` })))).resolves.toBe("user_madeup");
+
+    for (const kidOfToken of [`local-${keyId}`, [`local-${keyId}`]]) {
+      const part = (value: object) => Buffer.from(JSON.stringify(value)).toString("base64url");
+      const signed = `${part({ alg: "RS256", typ: "JWT", kid: kidOfToken })}.${part(session())}`;
+      const forged = `${signed}.${createSign("RSA-SHA256").update(signed).sign(privateKey).toString("base64url")}`;
+
+      for (const authorization of [`Bearer ${forged}`, forged]) {
+        await expect(inRequest(() => signedInUserId(apiRequest({ authorization }))), JSON.stringify(kidOfToken)).resolves.toBeNull();
+      }
+    }
   });
 });

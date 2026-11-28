@@ -54,26 +54,39 @@ function tokenIssuer(): string | undefined {
 }
 
 /**
- * The token in the request's `Authorization` header, as Clerk reads it there when it comes after
- * `Bearer` (Clerk's `parseAuthorizationHeader`), or undefined.
+ * The token in the request's `Authorization` header as Clerk reads it there (its
+ * `parseAuthorizationHeader`): what follows `Bearer`, or the whole header when it has no space.
  */
-function bearerToken(request: Request): string | undefined {
-  const [scheme, token] = (request.headers.get("authorization") ?? "").split(" ", 2);
+function headerToken(request: Request): string | undefined {
+  const value = request.headers.get("authorization");
 
-  return scheme === "Bearer" && token ? token : undefined;
+  if (!value) {
+    return undefined;
+  }
+
+  const [scheme, token] = value.split(" ", 2);
+
+  if (!token) {
+    return scheme;
+  }
+
+  return scheme === "Bearer" ? token : undefined;
 }
 
-/** The key id of [token], from its header, or undefined when it cannot be read. */
-function keyIdOf(token: string): string | undefined {
+/** The `kid` of [token]'s header as it is there, any JSON value, or undefined when it has none it can be read from. */
+function rawKeyIdOf(token: string): unknown {
   const header = token.split(".")[0];
 
   try {
-    const kid: unknown = header ? JSON.parse(Buffer.from(header, "base64url").toString("utf8"))?.kid : undefined;
-
-    return typeof kid === "string" && kid.length > 0 && kid.length <= 100 ? kid : undefined;
+    return header ? JSON.parse(Buffer.from(header, "base64url").toString("utf8"))?.kid : undefined;
   } catch {
     return undefined;
   }
+}
+
+/** A key id the public key checks tokens of: a string of at most 100 characters. */
+function keyIdFrom(raw: unknown): string | undefined {
+  return typeof raw === "string" && raw.length > 0 && raw.length <= 100 ? raw : undefined;
 }
 
 /** [request] without the headers a sign-in arrives in. */
@@ -129,7 +142,7 @@ function skippedBecause(key: string | undefined, issuer: string | undefined, key
  * server instance checks every token with Clerk's API keys (see `keyOutOfDate`).
  */
 async function checked(request: Request, client: () => SignInChecker): Promise<SignInState> {
-  const token = bearerToken(request);
+  const token = headerToken(request);
 
   if (token === undefined) {
     return client().authenticateRequest(request);
@@ -137,16 +150,19 @@ async function checked(request: Request, client: () => SignInChecker): Promise<S
 
   const key = jwtKey();
   const issuer = tokenIssuer();
-  const keyId = keyIdOf(token);
+  const rawKeyId = rawKeyIdOf(token);
+  const keyId = keyIdFrom(rawKeyId);
 
   // Clerk keeps the key it makes from the public key under `local-` and the token's key id, in the
-  // cache in which it also looks up the keys of its API by a token's key id. Clerk issues no such
-  // key id: a token with one would reach the key made from the public key also on Clerk's API
-  // path, also once that key is out of date. It is answered as no sign-in.
-  if (key !== undefined && keyId?.startsWith("local-")) {
+  // cache in which it also looks up the keys of its API by a token's key id, as a string (also one
+  // that is not a string in the token). Clerk issues no such key id: a token with one would reach
+  // the key made from the public key also on Clerk's API path, also once that key is out of date.
+  // It is refused without asking Clerk, as a token that is not valid.
+  if (key !== undefined && rawKeyId != null && String(rawKeyId).startsWith("local-")) {
     annotate({ "auth.local_check_refused": "reserved_kid" });
 
-    return client().authenticateRequest(withoutSignIn(request));
+    // What `signedInUserId` reads of a check: no user, and why.
+    return { isSignedIn: false, reason: "token-kid-reserved", toAuth: () => null } as unknown as SignInState;
   }
 
   const skipped = skippedBecause(key, issuer, keyId);
