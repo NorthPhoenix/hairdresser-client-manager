@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { annotate, recordError, traced } from "@hcm/telemetry";
 import type { SupportedLocale } from "@hcm/shared";
 import { addedOrder } from "./addedOrder";
+import { foldSpaces } from "./input";
 import type { Db } from "./context";
 import { isInPhotoStorage } from "./photoStorage";
 
@@ -176,7 +177,7 @@ export async function loadProfileShareContent(
     lastCompletedAppointment: lastCompletedAppointment && {
       ...toSharedAppointment(lastCompletedAppointment),
       services: lastCompletedAppointment.services.map((service) => ({
-        name: service.name,
+        name: foldSpaces(service.name),
         colorFormulas: options.includeColorFormulas
           ? service.colorFormulas.map(({ formula, placement }) => ({ formula, placement }))
           : []

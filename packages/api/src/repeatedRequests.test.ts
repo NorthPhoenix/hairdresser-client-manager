@@ -601,6 +601,61 @@ describe("a creating request that is sent again", () => {
   });
 });
 
+describe("a Service name with a run of spaces in it", () => {
+  it("is stored with one space, whether typed, taken from the Service Menu or copied", async () => {
+    const memory = withAppointment(withAppointment(createMemoryDb()), "source_1", "completed");
+    const { caller, rows } = memory;
+
+    // Stored before the server made one space of a run of them.
+    rows.menuItems.push({ id: "menu_1", stylistId: "stylist_1", name: "Coloring  short", defaultPriceCents: 5000 });
+    rows.services.push({ id: "source_service_1", appointmentId: "source_1", clientId: "client_1", menuItemId: null, name: "Src  Cut", priceCents: 3000, note: "", createdAt });
+
+    await caller.appointment.addService({ appointmentId: "appointment_1", clientId: "client_1", name: "Root \u00a0 color", priceCents: 1000 });
+    await caller.appointment.addService({ appointmentId: "appointment_1", clientId: "client_1", menuItemId: "menu_1" });
+    await caller.appointment.addMenuServices({ appointmentId: "appointment_1", clientId: "client_1", menuItemIds: ["menu_1"] });
+    const reply = await caller.appointment.copyServices({ targetAppointmentId: "appointment_1", sourceAppointmentId: "source_1" });
+
+    const stored = rows.services.filter((service) => service.appointmentId === "appointment_1").map((service) => service.name);
+
+    expect(stored).toEqual(["Root color", "Coloring short", "Coloring short", "Src Cut"]);
+    expect(reply.services.map((service) => service.name)).toEqual(stored);
+  });
+
+  it("is answered with one space when it was stored with more", async () => {
+    const { caller, rows } = withAppointment(createMemoryDb());
+
+    rows.services.push({ id: "service_1", appointmentId: "appointment_1", clientId: "client_1", menuItemId: null, name: "Укладка вечерняя  длинные волосы", priceCents: 5000, note: "", createdAt });
+
+    const appointment = await caller.appointment.get({ id: "appointment_1" });
+
+    expect(appointment.services.map((service) => service.name)).toEqual(["Укладка вечерняя длинные волосы"]);
+  });
+
+  it("makes a Service sent again the same request as its first call, stored with more spaces before", async () => {
+    const { caller, rows } = withAppointment(createMemoryDb());
+    const input = { appointmentId: "appointment_1", clientId: "client_1", name: "Lost  Svc", priceCents: 1200, requestKey };
+
+    // The first call reached the server before it made one space of a run of them.
+    rows.services.push({ id: "service_1", appointmentId: "appointment_1", clientId: "client_1", menuItemId: null, name: "Lost  Svc", priceCents: 1200, note: "", requestKey, createdAt });
+
+    await expect(caller.appointment.addService(input)).resolves.toMatchObject({ services: [{ id: "service_1", name: "Lost Svc" }] });
+    expect(rows.services).toHaveLength(1);
+  });
+
+  it("makes a Service Menu Item sent again the same request as its first call, stored with more spaces before", async () => {
+    const { caller, rows } = createMemoryDb();
+    const input = { name: "Coloring  short", defaultPriceCents: 5000, group: "Coloring  one color", requestKey };
+
+    rows.menuItems.push({ id: "menu_1", stylistId: "stylist_1", name: "Coloring  short", defaultPriceCents: 5000, group: "Coloring  one color", requestKey, createdAt, updatedAt: createdAt });
+
+    await expect(caller.serviceMenu.save(input)).resolves.toMatchObject({ id: "menu_1", name: "Coloring short", group: "Coloring one color" });
+    expect(rows.menuItems).toHaveLength(1);
+
+    // Another name is still another request.
+    await expect(caller.serviceMenu.save({ ...input, name: "Coloring long" })).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+});
+
 describe("a request key that comes again with other values", () => {
   const carriedOutOtherwise = {
     code: "CONFLICT",

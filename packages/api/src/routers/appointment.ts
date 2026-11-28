@@ -7,11 +7,13 @@ import { getClientAddress, getPrimaryClientChange, getSalonAddress, hasCustomAdd
 import type { Db } from "../context";
 import {
   amountCents,
+  foldSpaces,
   maxAmountCents,
   nameText,
   oneLineText,
   refuseChangedRepeat,
   requestKey,
+  serviceNameText,
   text,
   textLimits
 } from "../input";
@@ -139,7 +141,7 @@ const appointmentServiceInput = z.object({
   appointmentId: z.string(),
   clientId: z.string(),
   menuItemId: z.string().optional(),
-  name: nameText.optional(),
+  name: serviceNameText.optional(),
   priceCents: amountCents.optional(),
   note: text(textLimits.note).optional(),
   requestKey: requestKey.optional()
@@ -200,7 +202,7 @@ function menuServicePicks(input: z.infer<typeof appointmentMenuServicesInput>) {
 
 const appointmentServiceUpdateInput = z.object({
   id: z.string(),
-  name: nameText,
+  name: serviceNameText,
   priceCents: amountCents,
   note: text(textLimits.note).optional(),
   // Another Service Menu Item the Service now counts as started from, such as another variant of
@@ -498,7 +500,8 @@ function toAppointmentOutput(appointment: {
       appointmentId: service.appointmentId,
       clientId: service.clientId,
       menuItemId: service.menuItemId,
-      name: service.name,
+      // With each run of spaces as one, also when it was stored with two before the server folded them.
+      name: foldSpaces(service.name),
       priceCents: service.priceCents,
       note: service.note ?? "",
       createdAt: service.createdAt.toISOString(),
@@ -1441,7 +1444,8 @@ export const appointmentRouter = createTRPCRouter({
 
     if (repeatedService) {
       // A name or price left out came from the Service Menu Item: there is nothing to compare.
-      refuseChangedRepeat(repeatedService, {
+      // Its name compared as names are now stored: one stored with two spaces before is the same name.
+      refuseChangedRepeat({ ...repeatedService, name: foldSpaces(repeatedService.name) }, {
         clientId: input.clientId,
         menuItemId: input.menuItemId ?? null,
         name: input.name,
@@ -1480,7 +1484,7 @@ export const appointmentRouter = createTRPCRouter({
       // "sent" with a menu item: the Stylist typed a price of her own, or kept the default.
       "appointment_service.price_source": input.priceCents !== undefined ? "sent" : menuItem ? "menu_default" : "none",
       "appointment_service.is_menu_price_changed": menuItem && input.priceCents !== undefined ? input.priceCents !== menuItem.defaultPriceCents : undefined,
-      "appointment_service.is_menu_name_changed": menuItem && input.name !== undefined ? input.name !== menuItem.name : undefined,
+      "appointment_service.is_menu_name_changed": menuItem && input.name !== undefined ? input.name !== foldSpaces(menuItem.name) : undefined,
       "appointment_service.is_travel_fee": menuItem ? menuItem.travelFee : undefined
     }));
 
@@ -1491,7 +1495,7 @@ export const appointmentRouter = createTRPCRouter({
         appointmentId: appointment.id,
         clientId: input.clientId,
         menuItemId: menuItem?.id ?? null,
-        name: input.name ?? menuItem?.name ?? "",
+        name: input.name ?? foldSpaces(menuItem?.name ?? ""),
         priceCents,
         note: input.note ?? "",
         requestKey: input.requestKey
@@ -1643,7 +1647,7 @@ export const appointmentRouter = createTRPCRouter({
               appointmentId: appointment.id,
               clientId,
               menuItemId: item.id,
-              name: item.name,
+              name: foldSpaces(item.name),
               priceCents: item.defaultPriceCents,
               note: "",
               requestKey: input.requestKey,
@@ -1707,7 +1711,8 @@ export const appointmentRouter = createTRPCRouter({
 
     annotate(() => {
       const changedFields = [
-        input.name !== service.name && "name",
+        // A name stored with a run of spaces before, sent back with one, is not changed by the Stylist.
+        input.name !== foldSpaces(service.name) && "name",
         input.priceCents !== service.priceCents && "price",
         (input.note ?? "") !== (service.note ?? "") && "note",
         menuItem && "menu_item"
@@ -2406,7 +2411,7 @@ export const appointmentRouter = createTRPCRouter({
               appointmentId: targetAppointment.id,
               clientId: service.clientId,
               menuItemId: service.menuItemId,
-              name: service.name,
+              name: foldSpaces(service.name),
               priceCents: service.priceCents,
               note: service.note ?? "",
               requestKey: input.requestKey,

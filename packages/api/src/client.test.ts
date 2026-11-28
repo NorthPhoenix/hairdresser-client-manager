@@ -802,6 +802,46 @@ describe("client router", () => {
     ]);
   });
 
+  it("names each Service of the history with one space for each run of spaces it was stored with", async () => {
+    const service = (id: string, name: string) => ({ id, clientId: "client_1", menuItemId: null, name, priceCents: 5000, note: null, colorFormulas: [] });
+    const caller = appRouter.createCaller(
+      createContext({
+        stylist: {
+          findUnique: vi.fn().mockResolvedValue({
+            id: "stylist_1",
+            clerkId: "clerk_1",
+            language: "ru",
+            timezone: "America/Chicago",
+            salonAddress: null,
+            onboardingCompletedAt: new Date()
+          })
+        },
+        appointment: {
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: "visit",
+              primaryClientId: "client_1",
+              startsAt: new Date("2026-06-13T15:00:00.000Z"),
+              status: "completed",
+              locationType: "inSalon",
+              locationAddress: null,
+              locationAddressIsCustom: false,
+              note: null,
+              primaryClient: { id: "client_1", name: "Anna", address: null },
+              participants: [{ clientId: "client_1" }],
+              services: [service("service_1", "Укладка вечерняя  длинные волосы"), service("service_2", "Укладка")],
+              photos: []
+            }
+          ])
+        }
+      } as unknown as TRPCContext["db"])
+    );
+
+    const [visit] = await caller.clientProfile.appointmentHistory({ id: "client_1" });
+
+    expect(visit?.services.map((entry) => entry.name)).toEqual(["Укладка вечерняя длинные волосы", "Укладка"]);
+  });
+
   it("gives each Appointment of the history what its Services come to, and its custom total or null", async () => {
     const startsAt = new Date("2026-06-13T15:00:00.000Z");
     const service = (id: string, clientId: string, priceCents: number) => ({

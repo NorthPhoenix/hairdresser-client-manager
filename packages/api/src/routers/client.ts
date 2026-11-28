@@ -8,6 +8,7 @@ import { dissolveIfAlone, leaveFamily, storedRole } from "../family";
 import {
   emailText,
   expectedUpdatedAt,
+  foldSpaces,
   nameText,
   oneLineText,
   refuseChangedRepeat,
@@ -750,7 +751,7 @@ export const clientRouter = createTRPCRouter({
           id: service.id,
           clientId: service.clientId,
           menuItemId: service.menuItemId,
-          name: service.name,
+          name: foldSpaces(service.name),
           priceCents: service.priceCents,
           note: service.note ?? "",
           colorFormulas: service.colorFormulas.map((formula) => ({
