@@ -4,12 +4,76 @@ import { annotate, recordError } from "@hcm/telemetry";
 // The request headers in which a sign-in arrives: the app's token, and a browser's session.
 const signInHeaders = ["authorization", "cookie"];
 
+// Clerk's codes for a token that the public key does not check: a signature that does not fit
+// it, or a key that cannot be used. Clerk's keys may have changed since the key was set.
+const jwtKeyRefusals = ["token-invalid-signature", "token-verification-failed"];
+
 type ClerkClient = ReturnType<typeof createClerkClient>;
 
 /** What reads a request's sign-in: Clerk's client, or a stand-in in tests. */
 type SignInChecker = Pick<ClerkClient, "authenticateRequest">;
 
 let clerk: ClerkClient | undefined;
+
+/**
+ * The public key of the Clerk instance that signs the tokens (`CLERK_JWT_KEY`: the PEM of the
+ * Clerk dashboard's API keys, "JWT public key"), or undefined when it is not set. A key stored
+ * with `\n` for its line breaks is read with line breaks.
+ */
+function jwtKey(): string | undefined {
+  return process.env.CLERK_JWT_KEY?.trim().replace(/\\n/g, "\n") || undefined;
+}
+
+/**
+ * Clerk's check of [request]. Without the public key Clerk checks a token with the signing keys
+ * it fetches from its API (`GET /v1/jwks`), which it keeps for 5 minutes in each server instance:
+ * the first request on a new instance waits for that call before it is checked (140-300 ms in
+ * production on 2026-11-26/27, on every app open after a pause), and so does the first one
+ * after 5 minutes. With the key Clerk checks the token without a call, as its middleware does
+ * with `CLERK_JWT_KEY`. A token the key does not check is checked again with the keys from
+ * Clerk's API, so a key that is out of date or wrong costs that call, never a sign-in.
+ */
+async function checked(request: Request, client: () => SignInChecker) {
+  const key = jwtKey();
+  const carriesSignIn = signInHeaders.some((name) => request.headers.has(name));
+  let keyRefused = false;
+
+  if (key && carriesSignIn) {
+    let state: Awaited<ReturnType<SignInChecker["authenticateRequest"]>> | undefined;
+
+    try {
+      state = await client().authenticateRequest(request, { jwtKey: key });
+    } catch {
+      // Checked again below: whether the key or the token is at fault, Clerk's API keys tell.
+    }
+
+    if (state && !jwtKeyRefusals.includes(state.reason ?? "")) {
+      annotate({ "auth.checked_with": "local" });
+
+      return state;
+    }
+
+    keyRefused = true;
+    annotate({ "auth.local_check_refused": true });
+  }
+
+  const state = await client().authenticateRequest(request);
+
+  if (carriesSignIn) {
+    annotate({ "auth.checked_with": "clerk_api" });
+  }
+
+  // Clerk's own keys check a token that the public key does not: the key is not the one Clerk
+  // signs with now. A token that neither checks is only a token that is not valid.
+  if (keyRefused && state.toAuth()?.userId) {
+    recordError(new Error("CLERK_JWT_KEY does not check a token that Clerk's signing keys check."), {
+      handled: true,
+      reason: "clerk_jwt_key_out_of_date"
+    });
+  }
+
+  return state;
+}
 
 /**
  * Clerk's client, made the first time this server needs it, from the settings that Clerk's
@@ -39,7 +103,8 @@ export function clerkFromEnvironment(): ClerkClient {
  * an app request that went through it waited for two functions (two cold starts on a new
  * instance) in two regions before it was answered (docs/adr/0010). The check is the one the
  * proxy's `clerkMiddleware` made, with the same keys: the session token in the `Authorization`
- * header, which the app sends, else a browser's session cookie.
+ * header, which the app sends, else a browser's session cookie. With `CLERK_JWT_KEY` set, the
+ * token is checked without a call to Clerk (see `checked`).
  */
 export async function signedInUserId(request: Request, client: () => SignInChecker = clerkFromEnvironment): Promise<string | null> {
   // Whether a sign-in came with the request, never what it says.
@@ -49,7 +114,7 @@ export async function signedInUserId(request: Request, client: () => SignInCheck
   });
 
   try {
-    const state = await client().authenticateRequest(request);
+    const state = await checked(request, client);
     const userId = state.toAuth()?.userId ?? null;
 
     if (userId === null) {

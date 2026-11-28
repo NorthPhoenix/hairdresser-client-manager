@@ -79,6 +79,8 @@ Run these steps locally when you are ready to wire providers:
 
    Clerk CLI writes `CLERK_PUBLISHABLE_KEY`. The Android app reads the same publishable key from `apps/android/local.properties` as `hcm.clerkPublishableKey`. Enable the Native API for the Clerk application in the Clerk dashboard so the Android SDK can sign in.
 
+   `CLERK_JWT_KEY` is optional: the instance's public key, from the Clerk dashboard's API keys ("JWT public key", the PEM; a value with `\n` for its line breaks works too). With it the API checks the sign-in of a request without a call to Clerk. Without it Clerk fetches its signing keys from its API on the first request of each server instance, and again after 5 minutes, and the request waits for that (140-300 ms in production). The key has to be the one of the instance whose keys are set beside it: one that does not check a token only costs that call again and is recorded (`clerk_jwt_key_out_of_date` in docs/observability.md).
+
 7. Create a PostgreSQL database (the project is linked to a Neon project) and fill in `packages/db/.env`:
 
    ```sh
