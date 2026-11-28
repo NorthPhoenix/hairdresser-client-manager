@@ -24,8 +24,8 @@ type SignInState = Awaited<ReturnType<SignInChecker["authenticateRequest"]>>;
 let clerk: ClerkClient | undefined;
 
 // The key ids this server instance has checked tokens of with the public key, and the one whose
-// token it checked: from then on only tokens of that key id are, and one of another is Clerk's
-// keys changing (see `checked`).
+// token it checked: from then on only tokens of that key id are (Clerk's key id is the instance's
+// id, which stays when its keys change). A token of another key id is mostly not Clerk's.
 const triedKeyIds = new Set<string>();
 let checkedKeyId: string | undefined;
 // Whether this server instance found the public key out of date. It is recorded once, and from
@@ -76,6 +76,14 @@ function keyIdOf(token: string): string | undefined {
   }
 }
 
+/** [request] without the headers a sign-in arrives in. */
+function withoutSignIn(request: Request): Request {
+  const headers = new Headers(request.headers);
+
+  signInHeaders.forEach((name) => headers.delete(name));
+  return new Request(request.url, { method: request.method, headers });
+}
+
 /** The issuer a signed-in [state] names, from its token. */
 function issuerOf(state: SignInState): unknown {
   return (state.toAuth() as { sessionClaims?: { iss?: unknown } | null } | null)?.sessionClaims?.iss;
@@ -114,8 +122,8 @@ function skippedBecause(key: string | undefined, issuer: string | undefined, key
  * does so for a token in the `Authorization` header, which the app sends; a browser's session
  * cookie is checked as before.
  *
- * A token the key does not check is checked again with the keys from Clerk's API, so a key that
- * is out of date costs that call, never a sign-in. A token the key checks has to be one of the
+ * A token the key does not check is checked again with keys fetched from Clerk's API, so a key
+ * that is out of date costs that call, never a sign-in. A token the key checks has to be one of the
  * instance whose keys are set beside it (its issuer): a key of another instance (say, the
  * development one) lets none of that instance's tokens in. Once the key is found out of date, the
  * server instance checks every token with Clerk's API keys (see `keyOutOfDate`).
@@ -130,6 +138,17 @@ async function checked(request: Request, client: () => SignInChecker): Promise<S
   const key = jwtKey();
   const issuer = tokenIssuer();
   const keyId = keyIdOf(token);
+
+  // Clerk keeps the key it makes from the public key under `local-` and the token's key id, in the
+  // cache in which it also looks up the keys of its API by a token's key id. Clerk issues no such
+  // key id: a token with one would reach the key made from the public key also on Clerk's API
+  // path, also once that key is out of date. It is answered as no sign-in.
+  if (key !== undefined && keyId?.startsWith("local-")) {
+    annotate({ "auth.local_check_refused": "reserved_kid" });
+
+    return client().authenticateRequest(withoutSignIn(request));
+  }
+
   const skipped = skippedBecause(key, issuer, keyId);
   let refusal: string | undefined;
 
@@ -166,7 +185,10 @@ async function checked(request: Request, client: () => SignInChecker): Promise<S
     annotate({ "auth.local_check_skipped": skipped });
   }
 
-  const state = await client().authenticateRequest(request);
+  // After a refusal, with keys fetched from Clerk's API now: once Clerk has made a key from the
+  // public key, it keeps the keys it fetched from its API past their 5 minutes, so it could still
+  // hold the key it signed with before its keys changed, under the same key id.
+  const state = await (refusal === undefined ? client().authenticateRequest(request) : client().authenticateRequest(request, { skipJwksCache: true }));
 
   annotate({ "auth.checked_with": "clerk_api" });
 
@@ -245,10 +267,7 @@ export async function signedInUserId(request: Request, client: () => SignInCheck
       throw error;
     }
 
-    const headers = new Headers(request.headers);
-
-    signInHeaders.forEach((name) => headers.delete(name));
-    await client().authenticateRequest(new Request(request.url, { method: request.method, headers }));
+    await client().authenticateRequest(withoutSignIn(request));
 
     // Recorded, so that how often a sign-in Clerk fails on arrives can be counted.
     annotate({ "auth.sign_in_fallback": true });
