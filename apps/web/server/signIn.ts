@@ -73,12 +73,15 @@ function headerToken(request: Request): string | undefined {
   return scheme === "Bearer" ? token : undefined;
 }
 
-/** The `kid` of [token]'s header as it is there, any JSON value, or undefined when it has none it can be read from. */
+/**
+ * The `kid` of [token]'s header as it is there, any JSON value, or undefined when it has none it
+ * can be read from. Decoded as Clerk decodes it (its `decodeJwt`), which drops a byte order mark.
+ */
 function rawKeyIdOf(token: string): unknown {
   const header = token.split(".")[0];
 
   try {
-    return header ? JSON.parse(Buffer.from(header, "base64url").toString("utf8"))?.kid : undefined;
+    return header ? JSON.parse(new TextDecoder().decode(Buffer.from(header, "base64url")))?.kid : undefined;
   } catch {
     return undefined;
   }
@@ -204,7 +207,13 @@ async function checked(request: Request, client: () => SignInChecker): Promise<S
   // After a refusal, with keys fetched from Clerk's API now: once Clerk has made a key from the
   // public key, it keeps the keys it fetched from its API past their 5 minutes, so it could still
   // hold the key it signed with before its keys changed, under the same key id.
-  const state = await (refusal === undefined ? client().authenticateRequest(request) : client().authenticateRequest(request, { skipJwksCache: true }));
+  let state = await (refusal === undefined ? client().authenticateRequest(request) : client().authenticateRequest(request, { skipJwksCache: true }));
+
+  // The same for a token the keys Clerk kept refuse for its signature, while the public key is set
+  // (a token of a fourth key id or of another one): they may be the keys from before its keys changed.
+  if (refusal === undefined && key !== undefined && state.reason === "token-invalid-signature") {
+    state = await client().authenticateRequest(request, { skipJwksCache: true });
+  }
 
   annotate({ "auth.checked_with": "clerk_api" });
 

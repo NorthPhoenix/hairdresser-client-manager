@@ -350,7 +350,9 @@ describe("the sign-in of an API request", () => {
       noScheme: `${header("local-ins_madeup")}.payload.signature`,
       // Clerk looks a key id up as a string: ["local-ins_madeup"] is "local-ins_madeup".
       array: `Bearer ${header(["local-ins_madeup"])}.payload.signature`,
-      long: `Bearer ${header(`local-${"x".repeat(120)}`)}.payload.signature`
+      long: `Bearer ${header(`local-${"x".repeat(120)}`)}.payload.signature`,
+      // Clerk decodes the header with a TextDecoder, which drops a byte order mark before it.
+      byteOrderMark: `Bearer ${Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(JSON.stringify({ alg: "RS256", kid: "local-ins_madeup" }))]).toString("base64url")}.payload.signature`
     };
 
     for (const [name, authorization] of Object.entries(cases)) {
@@ -383,6 +385,35 @@ describe("the sign-in of an API request", () => {
     expect(authenticateRequest.mock.calls.map(how)).toEqual(["key"]);
   });
 
+  it("checks again with keys fetched now a token the kept keys refuse for its signature, while the public key is set", async () => {
+    withJwtKey();
+
+    const signedInUserId = await loadSignIn();
+    // Clerk's kept keys are from before its keys changed; the ones fetched now let the token in.
+    const authenticateRequest = vi.fn(async (_request: Request, options?: { jwtKey?: string; skipJwksCache?: boolean }) =>
+      options?.skipJwksCache ? signedInBy(issuer) : refusedFor("token-invalid-signature")
+    );
+    const client = () => ({ authenticateRequest });
+
+    // Three tokens of made-up key ids first, which no key checks: the Stylist's is of a fourth.
+    const { client: refusing } = clerkWithKey(refusedFor("token-invalid-signature"), refusedFor("token-invalid-signature"));
+
+    for (const kid of ["ins_1", "ins_2", "ins_3"]) {
+      await expect(inRequest(() => signedInUserId(apiRequest(bearer(kid)), refusing))).resolves.toBeNull();
+    }
+
+    await expect(inRequest(() => signedInUserId(apiRequest(bearer("ins_madeup")), client))).resolves.toBe("user_1");
+    expect(authenticateRequest.mock.calls.map(how)).toEqual(["kept", "fresh"]);
+    expect(telemetry.events().at(-1)).toMatchObject({ "auth.local_check_skipped": "kid_limit", "auth.checked_with": "clerk_api" });
+
+    // Without the public key Clerk's keys are refreshed as Clerk does it: no second check.
+    vi.stubEnv("CLERK_JWT_KEY", "");
+    authenticateRequest.mockClear();
+
+    await expect(inRequest(() => signedInUserId(apiRequest(bearer()), client))).resolves.toBeNull();
+    expect(authenticateRequest.mock.calls.map(how)).toEqual(["kept"]);
+  });
+
   it("checks with the public key all the requests that reach a new server instance at once", async () => {
     withJwtKey();
 
@@ -407,8 +438,9 @@ describe("the sign-in of an API request", () => {
       await expect(inRequest(() => signedInUserId(apiRequest(bearer(kid)), client))).resolves.toBeNull();
     }
 
-    // The fourth key id goes to Clerk's keys alone; one tried before is tried again.
-    expect(authenticateRequest.mock.calls.map(how)).toEqual(["key", "fresh", "key", "fresh", "key", "fresh", "kept", "key", "fresh"]);
+    // The fourth key id goes to Clerk's keys alone (kept, then fetched for the signature they
+    // refuse); one tried before is tried again.
+    expect(authenticateRequest.mock.calls.map(how)).toEqual(["key", "fresh", "key", "fresh", "key", "fresh", "kept", "fresh", "key", "fresh"]);
     expect(telemetry.events()[3]).toMatchObject({ "auth.local_check_skipped": "kid_limit" });
   });
 
